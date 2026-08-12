@@ -35,6 +35,7 @@ import android.os.Process;
 import android.os.SystemClock;
 import android.util.Range;
 import android.view.Choreographer;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 
 public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements Choreographer.FrameCallback {
@@ -71,6 +72,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int initialWidth, initialHeight;
     private int videoFormat;
     private SurfaceHolder renderTarget;
+    private GlPassthroughRenderer glPassthrough;
     private volatile boolean stopping;
     private CrashListener crashListener;
     private boolean reportedCrash;
@@ -505,6 +507,29 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return videoFormat;
     }
 
+    // Picks the surface the codec renders into. With the GL path enabled the
+    // codec feeds a SurfaceTexture and we draw it back to the display
+    // ourselves. The renderer is created once and reused across codec
+    // recovery, which re-runs configure with the same surface.
+    private Surface getRenderSurface() {
+        if (!prefs.enableGlRenderPath) {
+            return renderTarget.getSurface();
+        }
+
+        if (glPassthrough == null) {
+            GlPassthroughRenderer renderer = new GlPassthroughRenderer();
+            if (renderer.start(renderTarget.getSurface(), initialWidth, initialHeight)) {
+                glPassthrough = renderer;
+            }
+            else {
+                LimeLog.warning("GL render path unavailable, falling back to direct rendering");
+                return renderTarget.getSurface();
+            }
+        }
+
+        return glPassthrough.getInputSurface();
+    }
+
     private void configureAndStartDecoder(MediaFormat format) {
         // Set HDR metadata if present
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -537,7 +562,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
         LimeLog.info("Configuring with format: "+format);
 
-        videoDecoder.configure(format, renderTarget.getSurface(), null, 0);
+        videoDecoder.configure(format, getRenderSurface(), null, 0);
 
         configuredFormat = format;
 
@@ -1238,6 +1263,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         // Let the decoding code know to ignore codec exceptions now
         stopping = true;
 
+        // Stop GL rendering before the display surface goes away. The codec
+        // still holds the SurfaceTexture surface until cleanup().
+        if (glPassthrough != null) {
+            glPassthrough.prepareForStop();
+        }
+
         // Halt the rendering thread
         if (rendererThread != null) {
             rendererThread.interrupt();
@@ -1299,6 +1330,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     @Override
     public void cleanup() {
         videoDecoder.release();
+
+        if (glPassthrough != null) {
+            glPassthrough.cleanup();
+            glPassthrough = null;
+        }
     }
 
     @Override
