@@ -32,6 +32,10 @@ public class UiHelper {
     private static void setGameModeStatus(Context context, boolean streaming, boolean interruptible) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             GameManager gameManager = context.getSystemService(GameManager.class);
+            if (gameManager == null) {
+                // Service is missing on some devices, Quest headsets for example
+                return;
+            }
 
             if (streaming) {
                 gameManager.setGameState(new GameState(false, interruptible ? GameState.MODE_GAMEPLAY_INTERRUPTIBLE : GameState.MODE_GAMEPLAY_UNINTERRUPTIBLE));
