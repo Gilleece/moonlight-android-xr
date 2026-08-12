@@ -1494,6 +1494,8 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             (float)lastTwo.totalHostProcessingLatency / 10 / lastTwo.framesWithHostProcessingLatency)).append('\n');
                 }
                 sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs));
+                // Also goes to logcat so stats can be read over adb
+                LimeLog.info("Perf overlay: " + sb.toString().replace('\n', ';'));
                 perfListener.onPerfUpdate(sb.toString());
             }
 
