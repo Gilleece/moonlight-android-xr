@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    xmlns:tools="http://schemas.android.com/tools"
+    xmlns:horizonos="http://schemas.horizonos/sdk">
 
     <!-- The OpenXR loader declares minSdk 24 but is only ever loaded on
          headsets, so the app wide minSdk 21 remains safe -->
     <uses-sdk tools:overrideLibrary="org.khronos.openxr.openxr_loader_for_android" />
+
+    <!-- Horizon OS refuses to route immersive frames for apps that do not
+         declare an HzOS SDK version since around the v77 update. Other
+         platforms ignore this namespace entirely -->
+    <horizonos:uses-horizonos-sdk
+        horizonos:minSdkVersion="77"
+        horizonos:targetSdkVersion="77" />
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
