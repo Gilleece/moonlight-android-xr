@@ -1,6 +1,7 @@
 package com.limelight.utils;
 
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Intent;
 import android.widget.Toast;
 
@@ -15,6 +16,7 @@ import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.jni.MoonBridge;
+import com.limelight.preferences.PreferenceConfiguration;
 
 import org.xmlpull.v1.XmlPullParserException;
 
@@ -55,6 +57,12 @@ public class ServerHelper {
     public static Intent createStartIntent(Activity parent, NvApp app, ComputerDetails computer,
                                            ComputerManagerService.ComputerManagerBinder managerBinder) {
         Intent intent = new Intent(parent, Game.class);
+        if (PreferenceConfiguration.readPreferences(parent).enableVrMode) {
+            // Launch through the alias that carries the VR intent category so
+            // headset shells start us immersive instead of as a panel
+            intent.setComponent(new ComponentName(parent, "com.limelight.GameXR"));
+            intent.addCategory("com.oculus.intent.category.VR");
+        }
         intent.putExtra(Game.EXTRA_HOST, computer.activeAddress.address);
         intent.putExtra(Game.EXTRA_PORT, computer.activeAddress.port);
         intent.putExtra(Game.EXTRA_HTTPS_PORT, computer.httpsPort);

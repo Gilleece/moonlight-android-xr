@@ -50,6 +50,11 @@ public class PreferenceConfiguration {
     private static final String ENABLE_PIP_PREF_STRING = "checkbox_enable_pip";
     private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String ENABLE_GL_RENDER_PATH_PREF_STRING = "checkbox_enable_gl_render_path";
+    private static final String ENABLE_VR_MODE_PREF_STRING = "checkbox_enable_vr_mode";
+    private static final String VR_HEAD_LOCKED_PREF_STRING = "checkbox_vr_head_locked";
+    private static final String VR_DISTANCE_PREF_STRING = "seekbar_vr_distance";
+    private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
+    private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
@@ -90,6 +95,11 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_ENABLE_PIP = false;
     private static final boolean DEFAULT_ENABLE_PERF_OVERLAY = false;
     private static final boolean DEFAULT_ENABLE_GL_RENDER_PATH = false;
+    private static final boolean DEFAULT_ENABLE_VR_MODE = false;
+    private static final boolean DEFAULT_VR_HEAD_LOCKED = false;
+    private static final int DEFAULT_VR_DISTANCE = 20;
+    private static final int DEFAULT_VR_SCREEN_SIZE = 30;
+    private static final int DEFAULT_VR_CURVATURE = 0;
     private static final boolean DEFAULT_BIND_ALL_USB = false;
     private static final boolean DEFAULT_MOUSE_EMULATION = true;
     private static final String DEFAULT_ANALOG_STICK_FOR_SCROLLING = "right";
@@ -139,6 +149,13 @@ public class PreferenceConfiguration {
     public boolean enablePip;
     public boolean enablePerfOverlay;
     public boolean enableGlRenderPath;
+    public boolean enableVrMode;
+    public boolean vrHeadLocked;
+    // Tenths of a meter
+    public int vrDistance;
+    public int vrScreenSize;
+    // 0 to 100
+    public int vrCurvature;
     public boolean enableLatencyToast;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
@@ -588,6 +605,11 @@ public class PreferenceConfiguration {
         config.enablePip = prefs.getBoolean(ENABLE_PIP_PREF_STRING, DEFAULT_ENABLE_PIP);
         config.enablePerfOverlay = prefs.getBoolean(ENABLE_PERF_OVERLAY_STRING, DEFAULT_ENABLE_PERF_OVERLAY);
         config.enableGlRenderPath = prefs.getBoolean(ENABLE_GL_RENDER_PATH_PREF_STRING, DEFAULT_ENABLE_GL_RENDER_PATH);
+        config.enableVrMode = prefs.getBoolean(ENABLE_VR_MODE_PREF_STRING, DEFAULT_ENABLE_VR_MODE);
+        config.vrHeadLocked = prefs.getBoolean(VR_HEAD_LOCKED_PREF_STRING, DEFAULT_VR_HEAD_LOCKED);
+        config.vrDistance = prefs.getInt(VR_DISTANCE_PREF_STRING, DEFAULT_VR_DISTANCE);
+        config.vrScreenSize = prefs.getInt(VR_SCREEN_SIZE_PREF_STRING, DEFAULT_VR_SCREEN_SIZE);
+        config.vrCurvature = prefs.getInt(VR_CURVATURE_PREF_STRING, DEFAULT_VR_CURVATURE);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);

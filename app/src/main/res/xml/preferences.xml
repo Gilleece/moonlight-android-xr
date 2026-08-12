@@ -224,6 +224,43 @@
             android:title="@string/title_checkbox_small_icon_mode"
             android:summary="@string/summary_checkbox_small_icon_mode" />
     </PreferenceCategory>
+    <PreferenceCategory android:title="@string/category_vr_settings"
+        android:key="category_vr_settings">
+        <CheckBoxPreference
+            android:key="checkbox_enable_vr_mode"
+            android:title="@string/title_enable_vr_mode"
+            android:summary="@string/summary_enable_vr_mode"
+            android:defaultValue="false"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_head_locked"
+            android:title="@string/title_vr_head_locked"
+            android:summary="@string/summary_vr_head_locked"
+            android:defaultValue="false"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_distance"
+            android:defaultValue="20"
+            seekbar:min="10"
+            android:max="50"
+            android:summary="@string/summary_seekbar_vr_distance"
+            android:text="@string/suffix_seekbar_vr_tenth_meters"
+            android:title="@string/title_seekbar_vr_distance"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_screen_size"
+            android:defaultValue="30"
+            seekbar:min="10"
+            android:max="60"
+            android:summary="@string/summary_seekbar_vr_screen_size"
+            android:text="@string/suffix_seekbar_vr_tenth_meters"
+            android:title="@string/title_seekbar_vr_screen_size"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_curvature"
+            android:defaultValue="0"
+            seekbar:min="0"
+            android:max="100"
+            android:summary="@string/summary_seekbar_vr_curvature"
+            android:text="@string/suffix_seekbar_vr_percent"
+            android:title="@string/title_seekbar_vr_curvature"/>
+    </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_advanced_settings"
         android:key="category_advanced_settings">
         <CheckBoxPreference

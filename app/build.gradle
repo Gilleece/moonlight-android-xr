@@ -22,6 +22,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        prefab = true
     }
 
     productFlavors {
@@ -136,6 +137,8 @@ android {
 }
 
 dependencies {
+    // Khronos OpenXR loader, Apache 2.0
+    implementation 'org.khronos.openxr:openxr_loader_for_android:1.1.49'
     implementation 'org.bouncycastle:bcprov-jdk18on:1.77'
     implementation 'org.bouncycastle:bcpkix-jdk18on:1.77'
     implementation 'org.jcodec:jcodec:0.2.5'

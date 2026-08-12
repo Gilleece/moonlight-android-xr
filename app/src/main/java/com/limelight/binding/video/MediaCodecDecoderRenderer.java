@@ -73,6 +73,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private int videoFormat;
     private SurfaceHolder renderTarget;
     private GlPassthroughRenderer glPassthrough;
+    private XrRenderer xrRenderer;
     private volatile boolean stopping;
     private CrashListener crashListener;
     private boolean reportedCrash;
@@ -512,6 +513,21 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     // ourselves. The renderer is created once and reused across codec
     // recovery, which re-runs configure with the same surface.
     private Surface getRenderSurface() {
+        if (prefs.enableVrMode) {
+            if (xrRenderer == null) {
+                XrRenderer renderer = new XrRenderer();
+                if (renderer.start(activity, initialWidth, initialHeight, prefs)) {
+                    xrRenderer = renderer;
+                }
+                else {
+                    LimeLog.warning("XR renderer unavailable, falling back to flat rendering");
+                }
+            }
+            if (xrRenderer != null) {
+                return xrRenderer.getInputSurface();
+            }
+        }
+
         if (!prefs.enableGlRenderPath) {
             return renderTarget.getSurface();
         }
@@ -1268,6 +1284,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (glPassthrough != null) {
             glPassthrough.prepareForStop();
         }
+        if (xrRenderer != null) {
+            xrRenderer.prepareForStop();
+        }
 
         // Halt the rendering thread
         if (rendererThread != null) {
@@ -1334,6 +1353,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (glPassthrough != null) {
             glPassthrough.cleanup();
             glPassthrough = null;
+        }
+        if (xrRenderer != null) {
+            xrRenderer.cleanup();
+            xrRenderer = null;
         }
     }
 
