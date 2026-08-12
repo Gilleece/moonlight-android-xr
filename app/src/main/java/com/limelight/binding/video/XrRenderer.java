@@ -36,12 +36,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final float[] texMatrix = new float[16];
     private volatile boolean stopping;
 
-    private native long nativeInit(Activity activity, int width, int height);
+    private native long nativeInit(Activity activity, int width, int height, int stereoMode,
+                                   boolean depthDebug);
     private native int nativeGetTexId(long ctx);
     private native int nativeWaitBeginFrame(long ctx);
     private native void nativeEndFrame(long ctx, boolean newFrame, float[] texMatrix,
                                        float distance, float quadWidth, float curvature,
-                                       boolean headLocked);
+                                       boolean headLocked, float separation, boolean eyeSwap);
     private native void nativeDestroy(long ctx);
 
     public boolean start(final Activity activity, final int videoWidth, final int videoHeight,
@@ -52,7 +53,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         renderThread = new Thread() {
             @Override
             public void run() {
-                nativeCtx = nativeInit(activity, videoWidth, videoHeight);
+                nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrSyntheticDepthMode,
+                        prefs.vrDepthDebug);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
@@ -106,6 +108,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         float quadWidth = prefs.vrScreenSize / 10.0f;
         float curvature = prefs.vrCurvature / 100.0f;
         boolean headLocked = prefs.vrHeadLocked;
+        // Stored as tenths of a percent of frame width
+        float separation = prefs.vrStereoSeparation / 1000.0f;
+        boolean eyeSwap = prefs.vrEyeSwap;
 
         while (!stopping) {
             int r = nativeWaitBeginFrame(nativeCtx);
@@ -122,7 +127,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 surfaceTexture.updateTexImage();
                 surfaceTexture.getTransformMatrix(texMatrix);
             }
-            nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature, headLocked);
+            nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature,
+                    headLocked, separation, eyeSwap);
         }
     }
 

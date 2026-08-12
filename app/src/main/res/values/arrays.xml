@@ -131,4 +131,17 @@
         <item>right</item>
         <item>left</item>
     </string-array>
+
+    <string-array name="vr_synthetic_depth_names">
+        <item>Off</item>
+        <item>Flat plane</item>
+        <item>Horizontal ramp</item>
+        <item>Center blob</item>
+    </string-array>
+    <string-array name="vr_synthetic_depth_values" translatable="false">
+        <item>off</item>
+        <item>flat</item>
+        <item>ramp</item>
+        <item>blob</item>
+    </string-array>
 </resources>

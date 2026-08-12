@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
+#include <math.h>
 
 #include <android/log.h>
 #include <EGL/egl.h>
@@ -38,6 +39,14 @@
 #define FRAME_IDLE    0
 #define FRAME_RENDER  1
 
+// Synthetic depth patterns for the stereo test path
+#define DEPTH_MODE_OFF   0
+#define DEPTH_MODE_FLAT  1
+#define DEPTH_MODE_RAMP  2
+#define DEPTH_MODE_BLOB  3
+
+#define DEPTH_TEX_SIZE 256
+
 typedef struct {
     JavaVM* vm;
     jobject activity;
@@ -61,9 +70,16 @@ typedef struct {
     int videoWidth;
     int videoHeight;
 
+    // Stereo test path. When stereoMode is not OFF the swapchain is double
+    // wide and each eye gets its own warped copy of the frame
+    int stereoMode;
+    int depthDebug;
+    GLuint depthTexture;
+
     GLuint oesTexture;
     GLuint program;
     GLint texMatrixUniform;
+    GLint disparityUniform;
     GLuint fbo;
 
     XrSessionState sessionState;
@@ -87,22 +103,37 @@ static const char* VERTEX_SRC =
     "#version 300 es\n"
     "in vec4 a_position;\n"
     "in vec4 a_texcoord;\n"
-    "uniform mat4 u_texmatrix;\n"
-    "out vec2 v_texcoord;\n"
+    "out vec2 v_plain;\n"
     "void main() {\n"
     "    gl_Position = a_position;\n"
-    "    v_texcoord = (u_texmatrix * a_texcoord).xy;\n"
+    "    v_plain = a_texcoord.xy;\n"
     "}\n";
 
+// Gather warp. Each output pixel samples the color frame shifted by a
+// disparity derived from the depth map. u_disparity is signed per eye and
+// zero in mono, which makes this exactly the old passthrough. The transform
+// matrix is applied after the shift since the shift is defined in frame
+// space, not in the video driver's transformed space.
 static const char* FRAGMENT_SRC =
     "#version 300 es\n"
     "#extension GL_OES_EGL_image_external_essl3 : require\n"
-    "precision mediump float;\n"
-    "in vec2 v_texcoord;\n"
+    "precision highp float;\n"
+    "in vec2 v_plain;\n"
     "uniform samplerExternalOES u_texture;\n"
+    "uniform sampler2D u_depth;\n"
+    "uniform mat4 u_texmatrix;\n"
+    "uniform float u_disparity;\n"
+    "uniform float u_showDepth;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
-    "    fragColor = texture(u_texture, v_texcoord);\n"
+    "    float d = texture(u_depth, v_plain).r;\n"
+    "    if (u_showDepth > 0.5) {\n"
+    "        fragColor = vec4(d, d, d, 1.0);\n"
+    "        return;\n"
+    "    }\n"
+    "    vec2 tc = v_plain;\n"
+    "    tc.x -= u_disparity * (d - 0.5);\n"
+    "    fragColor = texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy);\n"
     "}\n";
 
 // Same fullscreen strip as the 2d GL path, x y u v
@@ -318,11 +349,14 @@ static int initSwapchain(XrCtx* ctx) {
     }
     free(formats);
 
+    // Stereo renders left and right eye views side by side in one swapchain
+    int chainWidth = ctx->stereoMode != DEPTH_MODE_OFF ? ctx->videoWidth * 2 : ctx->videoWidth;
+
     XrSwapchainCreateInfo swapInfo = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
     swapInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
     swapInfo.format = ctx->swapchainFormat;
     swapInfo.sampleCount = 1;
-    swapInfo.width = ctx->videoWidth;
+    swapInfo.width = chainWidth;
     swapInfo.height = ctx->videoHeight;
     swapInfo.faceCount = 1;
     swapInfo.arraySize = 1;
@@ -342,9 +376,51 @@ static int initSwapchain(XrCtx* ctx) {
         return 0;
     }
 
-    LOGI("swapchain %dx%d format %lld, %u images", ctx->videoWidth, ctx->videoHeight,
-         (long long)ctx->swapchainFormat, ctx->swapchainImageCount);
+    LOGI("swapchain %dx%d format %lld, %u images (stereo mode %d)", chainWidth, ctx->videoHeight,
+         (long long)ctx->swapchainFormat, ctx->swapchainImageCount, ctx->stereoMode);
     return 1;
+}
+
+// Builds the hardcoded depth map for the stereo test path. Depth convention:
+// 0 far, 1 near, 0.5 sits exactly on the screen plane (zero disparity)
+static void fillSyntheticDepth(XrCtx* ctx) {
+    const int n = DEPTH_TEX_SIZE;
+    unsigned char* buf = malloc(n * n);
+
+    for (int y = 0; y < n; y++) {
+        for (int x = 0; x < n; x++) {
+            float fx = x / (float)(n - 1);
+            float fy = y / (float)(n - 1);
+            float d;
+            switch (ctx->stereoMode) {
+                case DEPTH_MODE_RAMP:
+                    d = fx;
+                    break;
+                case DEPTH_MODE_BLOB: {
+                    float dx = fx - 0.5f;
+                    float dy = fy - 0.5f;
+                    float sigma = 0.15f;
+                    d = 0.35f + 0.5f * expf(-(dx * dx + dy * dy) / (2.0f * sigma * sigma));
+                    break;
+                }
+                case DEPTH_MODE_FLAT:
+                default:
+                    d = 0.5f;
+                    break;
+            }
+            if (d < 0.0f) d = 0.0f;
+            if (d > 1.0f) d = 1.0f;
+            buf[y * n + x] = (unsigned char)(d * 255.0f + 0.5f);
+        }
+    }
+
+    glBindTexture(GL_TEXTURE_2D, ctx->depthTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, n, n, 0, GL_RED, GL_UNSIGNED_BYTE, buf);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    free(buf);
 }
 
 static int initGl(XrCtx* ctx) {
@@ -372,6 +448,17 @@ static int initGl(XrCtx* ctx) {
         return 0;
     }
     ctx->texMatrixUniform = glGetUniformLocation(ctx->program, "u_texmatrix");
+    ctx->disparityUniform = glGetUniformLocation(ctx->program, "u_disparity");
+
+    // Sampler units are fixed: color on 0, depth on 1
+    glUseProgram(ctx->program);
+    glUniform1i(glGetUniformLocation(ctx->program, "u_texture"), 0);
+    glUniform1i(glGetUniformLocation(ctx->program, "u_depth"), 1);
+    glUniform1f(glGetUniformLocation(ctx->program, "u_showDepth"),
+                ctx->depthDebug ? 1.0f : 0.0f);
+
+    glGenTextures(1, &ctx->depthTexture);
+    fillSyntheticDepth(ctx);
 
     glGenTextures(1, &ctx->oesTexture);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
@@ -483,10 +570,13 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
 
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz,
-                                                       jobject activity, jint width, jint height) {
+                                                       jobject activity, jint width, jint height,
+                                                       jint stereoMode, jboolean depthDebug) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->videoWidth = width;
     ctx->videoHeight = height;
+    ctx->stereoMode = stereoMode;
+    ctx->depthDebug = depthDebug;
     ctx->sessionState = XR_SESSION_STATE_UNKNOWN;
     (*env)->GetJavaVM(env, &ctx->vm);
     ctx->activity = (*env)->NewGlobalRef(env, activity);
@@ -536,7 +626,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     return FRAME_RENDER;
 }
 
-static void renderVideoFrame(XrCtx* ctx, const float* texMatrix) {
+static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     uint32_t imageIndex = 0;
     XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     if (!checkXr(xrAcquireSwapchainImage(ctx->swapchain, &acquireInfo, &imageIndex), "acquire image")) {
@@ -554,11 +644,12 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix) {
         glDisable(GL_FRAMEBUFFER_SRGB_EXT);
     }
 
-    glViewport(0, 0, ctx->videoWidth, ctx->videoHeight);
     glUseProgram(ctx->program);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, ctx->depthTexture);
     glUniformMatrix4fv(ctx->texMatrixUniform, 1, GL_FALSE, texMatrix);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
@@ -566,7 +657,19 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix) {
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
     glEnableVertexAttribArray(1);
 
-    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    // Mono is a single full width draw with zero disparity. Stereo draws the
+    // left eye into the left half and the right eye into the right half,
+    // with opposite disparity signs
+    int eyes = ctx->stereoMode != DEPTH_MODE_OFF ? 2 : 1;
+    for (int eye = 0; eye < eyes; eye++) {
+        glViewport(eye * ctx->videoWidth, 0, ctx->videoWidth, ctx->videoHeight);
+        float disparity = 0.0f;
+        if (eyes == 2) {
+            disparity = (eye == 0) ? separation : -separation;
+        }
+        glUniform1f(ctx->disparityUniform, disparity);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -580,7 +683,8 @@ JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject thiz, jlong handle,
                                                            jboolean newFrame, jfloatArray texMatrixArr,
                                                            jfloat distance, jfloat quadWidth,
-                                                           jfloat curvature, jboolean headLocked) {
+                                                           jfloat curvature, jboolean headLocked,
+                                                           jfloat separation, jboolean eyeSwap) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
 
     if (newFrame && ctx->shouldRender) {
@@ -588,7 +692,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
         float texMatrix[16];
         (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
-        renderVideoFrame(ctx, texMatrix);
+        renderVideoFrame(ctx, texMatrix, separation);
 
         long elapsed = nowNs() - startNs;
         ctx->statFrames++;
@@ -606,53 +710,65 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
     XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
+    int stereo = ctx->stereoMode != DEPTH_MODE_OFF;
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 
-    XrCompositionLayerQuad quadLayer = { XR_TYPE_COMPOSITION_LAYER_QUAD };
-    XrCompositionLayerCylinderKHR cylLayer = { XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR };
-    const XrCompositionLayerBaseHeader* layers[1];
+    XrCompositionLayerQuad quadLayers[2];
+    XrCompositionLayerCylinderKHR cylLayers[2];
+    const XrCompositionLayerBaseHeader* layers[2];
     uint32_t layerCount = 0;
 
     if (ctx->everRendered && ctx->shouldRender) {
-        XrSwapchainSubImage subImage;
-        subImage.swapchain = ctx->swapchain;
-        subImage.imageRect.offset.x = 0;
-        subImage.imageRect.offset.y = 0;
-        subImage.imageRect.extent.width = ctx->videoWidth;
-        subImage.imageRect.extent.height = ctx->videoHeight;
-        subImage.imageArrayIndex = 0;
+        int viewCount = stereo ? 2 : 1;
+        for (int eye = 0; eye < viewCount; eye++) {
+            XrSwapchainSubImage subImage;
+            subImage.swapchain = ctx->swapchain;
+            // The swap toggle reroutes which half each eye sees. Any stereo
+            // inversion bug found later is then depth or warp, not routing
+            int half = eyeSwap ? (1 - eye) : eye;
+            subImage.imageRect.offset.x = stereo ? half * ctx->videoWidth : 0;
+            subImage.imageRect.offset.y = 0;
+            subImage.imageRect.extent.width = ctx->videoWidth;
+            subImage.imageRect.extent.height = ctx->videoHeight;
+            subImage.imageArrayIndex = 0;
 
-        if (curvature > 0.01f && ctx->cylinderSupported) {
-            // Radius runs from 4x distance (slightly curved) down to the
-            // distance itself (wrapped around the viewer) as curvature rises
-            float radius = distance * (1.0f + 3.0f * (1.0f - curvature));
-            cylLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            cylLayer.subImage = subImage;
-            cylLayer.space = space;
-            cylLayer.pose.orientation.w = 1.0f;
-            cylLayer.pose.position.x = 0.0f;
-            cylLayer.pose.position.y = 0.0f;
-            // Keep the surface at the requested distance
-            cylLayer.pose.position.z = radius - distance;
-            cylLayer.radius = radius;
-            cylLayer.centralAngle = quadWidth / radius;
-            cylLayer.aspectRatio = quadWidth / (quadWidth * aspect);
-            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&cylLayer;
-        }
-        else {
-            quadLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            quadLayer.subImage = subImage;
-            quadLayer.space = space;
-            quadLayer.pose.orientation.w = 1.0f;
-            quadLayer.pose.position.x = 0.0f;
-            quadLayer.pose.position.y = 0.0f;
-            quadLayer.pose.position.z = -distance;
-            quadLayer.size.width = quadWidth;
-            quadLayer.size.height = quadWidth * aspect;
-            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&quadLayer;
+            XrEyeVisibility visibility = !stereo ? XR_EYE_VISIBILITY_BOTH :
+                    (eye == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT);
+
+            if (curvature > 0.01f && ctx->cylinderSupported) {
+                XrCompositionLayerCylinderKHR* cyl = &cylLayers[eye];
+                memset(cyl, 0, sizeof(*cyl));
+                cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
+                // Radius runs from 4x distance (slightly curved) down to the
+                // distance itself (wrapped around the viewer) as curvature rises
+                float radius = distance * (1.0f + 3.0f * (1.0f - curvature));
+                cyl->eyeVisibility = visibility;
+                cyl->subImage = subImage;
+                cyl->space = space;
+                cyl->pose.orientation.w = 1.0f;
+                // Keep the surface at the requested distance
+                cyl->pose.position.z = radius - distance;
+                cyl->radius = radius;
+                cyl->centralAngle = quadWidth / radius;
+                cyl->aspectRatio = quadWidth / (quadWidth * aspect);
+                layers[layerCount++] = (const XrCompositionLayerBaseHeader*)cyl;
+            }
+            else {
+                XrCompositionLayerQuad* quad = &quadLayers[eye];
+                memset(quad, 0, sizeof(*quad));
+                quad->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                quad->eyeVisibility = visibility;
+                quad->subImage = subImage;
+                quad->space = space;
+                quad->pose.orientation.w = 1.0f;
+                quad->pose.position.z = -distance;
+                quad->size.width = quadWidth;
+                quad->size.height = quadWidth * aspect;
+                layers[layerCount++] = (const XrCompositionLayerBaseHeader*)quad;
+            }
         }
     }
 
