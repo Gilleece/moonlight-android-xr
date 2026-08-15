@@ -44,6 +44,12 @@
 #define DEPTH_MODE_FLAT  1
 #define DEPTH_MODE_RAMP  2
 #define DEPTH_MODE_BLOB  3
+// Tints each eye instead of warping, so eye routing can be checked by
+// closing one eye rather than by judging depth
+#define DEPTH_MODE_EYETEST 4
+// Draws a synthetic bar through the warp and reads back where it landed in
+// each eye, so the shift direction is measured rather than eyeballed
+#define DEPTH_MODE_SHIFTTEST 5
 
 #define DEPTH_TEX_SIZE 256
 
@@ -80,7 +86,9 @@ typedef struct {
     GLuint program;
     GLint texMatrixUniform;
     GLint disparityUniform;
+    GLint tintUniform;
     GLuint fbo;
+    int barTestFramesLogged;
 
     XrSessionState sessionState;
     int sessionRunning;
@@ -124,6 +132,8 @@ static const char* FRAGMENT_SRC =
     "uniform mat4 u_texmatrix;\n"
     "uniform float u_disparity;\n"
     "uniform float u_showDepth;\n"
+    "uniform float u_barTest;\n"
+    "uniform vec3 u_tint;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    float d = texture(u_depth, v_plain).r;\n"
@@ -133,7 +143,13 @@ static const char* FRAGMENT_SRC =
     "    }\n"
     "    vec2 tc = v_plain;\n"
     "    tc.x -= u_disparity * (d - 0.5);\n"
+    "    if (u_barTest > 0.5) {\n"
+    "        float b = 1.0 - step(0.004, abs(tc.x - 0.5));\n"
+    "        fragColor = vec4(b, b, b, 1.0);\n"
+    "        return;\n"
+    "    }\n"
     "    fragColor = texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy);\n"
+    "    fragColor.rgb *= u_tint;\n"
     "}\n";
 
 // Same fullscreen strip as the 2d GL path, x y u v
@@ -403,6 +419,10 @@ static void fillSyntheticDepth(XrCtx* ctx) {
                     d = 0.35f + 0.5f * expf(-(dx * dx + dy * dy) / (2.0f * sigma * sigma));
                     break;
                 }
+                case DEPTH_MODE_SHIFTTEST:
+                    // Constant near depth so the whole bar shifts uniformly
+                    d = 0.85f;
+                    break;
                 case DEPTH_MODE_FLAT:
                 default:
                     d = 0.5f;
@@ -449,6 +469,7 @@ static int initGl(XrCtx* ctx) {
     }
     ctx->texMatrixUniform = glGetUniformLocation(ctx->program, "u_texmatrix");
     ctx->disparityUniform = glGetUniformLocation(ctx->program, "u_disparity");
+    ctx->tintUniform = glGetUniformLocation(ctx->program, "u_tint");
 
     // Sampler units are fixed: color on 0, depth on 1
     glUseProgram(ctx->program);
@@ -664,11 +685,54 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     for (int eye = 0; eye < eyes; eye++) {
         glViewport(eye * ctx->videoWidth, 0, ctx->videoWidth, ctx->videoHeight);
         float disparity = 0.0f;
-        if (eyes == 2) {
+        if (eyes == 2 && ctx->stereoMode != DEPTH_MODE_EYETEST) {
             disparity = (eye == 0) ? separation : -separation;
         }
         glUniform1f(ctx->disparityUniform, disparity);
+        glUniform1f(glGetUniformLocation(ctx->program, "u_barTest"),
+                    ctx->stereoMode == DEPTH_MODE_SHIFTTEST ? 1.0f : 0.0f);
+
+        if (ctx->stereoMode == DEPTH_MODE_EYETEST) {
+            // Half 0 red, half 1 blue
+            if (eye == 0) {
+                glUniform3f(ctx->tintUniform, 1.0f, 0.2f, 0.2f);
+            }
+            else {
+                glUniform3f(ctx->tintUniform, 0.2f, 0.2f, 1.0f);
+            }
+        }
+        else {
+            glUniform3f(ctx->tintUniform, 1.0f, 1.0f, 1.0f);
+        }
+
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    }
+
+    // Measure where the bar actually landed in each half. Positive shift
+    // means content moved right in that eye
+    if (ctx->stereoMode == DEPTH_MODE_SHIFTTEST && ctx->barTestFramesLogged < 3) {
+        int rowWidth = ctx->videoWidth * 2;
+        unsigned char* row = malloc((size_t)rowWidth * 4);
+        glReadPixels(0, ctx->videoHeight / 2, rowWidth, 1, GL_RGBA, GL_UNSIGNED_BYTE, row);
+        for (int half = 0; half < 2; half++) {
+            long sum = 0, count = 0;
+            for (int x = 0; x < ctx->videoWidth; x++) {
+                if (row[(size_t)((half * ctx->videoWidth) + x) * 4] > 128) {
+                    sum += x;
+                    count++;
+                }
+            }
+            if (count > 0) {
+                double center = (double)sum / (double)count / (double)ctx->videoWidth;
+                LOGI("bar test: half %d (%s eye) bar center %.4f, shift %+.4f",
+                     half, half == 0 ? "left" : "right", center, center - 0.5);
+            }
+            else {
+                LOGI("bar test: half %d no bar found", half);
+            }
+        }
+        free(row);
+        ctx->barTestFramesLogged++;
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);

@@ -634,6 +634,12 @@ public class PreferenceConfiguration {
         else if (synthDepth.equals("blob")) {
             config.vrSyntheticDepthMode = 3;
         }
+        else if (synthDepth.equals("eyetest")) {
+            config.vrSyntheticDepthMode = 4;
+        }
+        else if (synthDepth.equals("shifttest")) {
+            config.vrSyntheticDepthMode = 5;
+        }
         else {
             config.vrSyntheticDepthMode = 0;
         }
