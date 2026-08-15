@@ -132,16 +132,18 @@
         <item>left</item>
     </string-array>
 
-    <string-array name="vr_synthetic_depth_names">
+    <string-array name="vr_depth_source_names">
         <item>Off</item>
+        <item>Depth model</item>
         <item>Flat plane</item>
         <item>Horizontal ramp</item>
         <item>Center blob</item>
         <item>Eye routing test</item>
         <item>Shift measurement test</item>
     </string-array>
-    <string-array name="vr_synthetic_depth_values" translatable="false">
+    <string-array name="vr_depth_source_values" translatable="false">
         <item>off</item>
+        <item>model</item>
         <item>flat</item>
         <item>ramp</item>
         <item>blob</item>

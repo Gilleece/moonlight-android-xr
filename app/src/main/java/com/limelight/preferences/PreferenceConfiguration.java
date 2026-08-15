@@ -55,10 +55,11 @@ public class PreferenceConfiguration {
     private static final String VR_DISTANCE_PREF_STRING = "seekbar_vr_distance";
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
-    private static final String VR_SYNTHETIC_DEPTH_PREF_STRING = "list_vr_synthetic_depth";
+    private static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     private static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
+    private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
@@ -104,10 +105,11 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_DISTANCE = 20;
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
-    private static final String DEFAULT_VR_SYNTHETIC_DEPTH = "off";
+    private static final String DEFAULT_VR_DEPTH_SOURCE = "off";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
     private static final int DEFAULT_VR_SEPARATION = 15;
     private static final boolean DEFAULT_VR_DEPTH_DEBUG = false;
+    private static final int DEFAULT_VR_INFERENCE_CADENCE = 3;
     private static final boolean DEFAULT_BIND_ALL_USB = false;
     private static final boolean DEFAULT_MOUSE_EMULATION = true;
     private static final String DEFAULT_ANALOG_STICK_FOR_SCROLLING = "right";
@@ -164,12 +166,14 @@ public class PreferenceConfiguration {
     public int vrScreenSize;
     // 0 to 100
     public int vrCurvature;
-    // 0 off, 1 flat, 2 ramp, 3 blob
-    public int vrSyntheticDepthMode;
+    // 0 off, 1 flat, 2 ramp, 3 blob, 4 eye test, 5 shift test, 6 depth model
+    public int vrDepthMode;
     public boolean vrEyeSwap;
     // Tenths of a percent of frame width
     public int vrStereoSeparation;
     public boolean vrDepthDebug;
+    // Run the depth model on every Nth video frame
+    public int vrInferenceCadence;
     public boolean enableLatencyToast;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
@@ -624,28 +628,32 @@ public class PreferenceConfiguration {
         config.vrDistance = prefs.getInt(VR_DISTANCE_PREF_STRING, DEFAULT_VR_DISTANCE);
         config.vrScreenSize = prefs.getInt(VR_SCREEN_SIZE_PREF_STRING, DEFAULT_VR_SCREEN_SIZE);
         config.vrCurvature = prefs.getInt(VR_CURVATURE_PREF_STRING, DEFAULT_VR_CURVATURE);
-        String synthDepth = prefs.getString(VR_SYNTHETIC_DEPTH_PREF_STRING, DEFAULT_VR_SYNTHETIC_DEPTH);
-        if (synthDepth.equals("flat")) {
-            config.vrSyntheticDepthMode = 1;
+        String depthSource = prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, DEFAULT_VR_DEPTH_SOURCE);
+        if (depthSource.equals("flat")) {
+            config.vrDepthMode = 1;
         }
-        else if (synthDepth.equals("ramp")) {
-            config.vrSyntheticDepthMode = 2;
+        else if (depthSource.equals("ramp")) {
+            config.vrDepthMode = 2;
         }
-        else if (synthDepth.equals("blob")) {
-            config.vrSyntheticDepthMode = 3;
+        else if (depthSource.equals("blob")) {
+            config.vrDepthMode = 3;
         }
-        else if (synthDepth.equals("eyetest")) {
-            config.vrSyntheticDepthMode = 4;
+        else if (depthSource.equals("eyetest")) {
+            config.vrDepthMode = 4;
         }
-        else if (synthDepth.equals("shifttest")) {
-            config.vrSyntheticDepthMode = 5;
+        else if (depthSource.equals("shifttest")) {
+            config.vrDepthMode = 5;
+        }
+        else if (depthSource.equals("model")) {
+            config.vrDepthMode = 6;
         }
         else {
-            config.vrSyntheticDepthMode = 0;
+            config.vrDepthMode = 0;
         }
         config.vrEyeSwap = prefs.getBoolean(VR_EYE_SWAP_PREF_STRING, DEFAULT_VR_EYE_SWAP);
         config.vrStereoSeparation = prefs.getInt(VR_SEPARATION_PREF_STRING, DEFAULT_VR_SEPARATION);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
+        config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);

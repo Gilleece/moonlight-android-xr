@@ -50,6 +50,8 @@
 // Draws a synthetic bar through the warp and reads back where it landed in
 // each eye, so the shift direction is measured rather than eyeballed
 #define DEPTH_MODE_SHIFTTEST 5
+// Real depth from the MiDaS model, run in Java on LiteRT
+#define DEPTH_MODE_MODEL 6
 
 #define DEPTH_TEX_SIZE 256
 
@@ -80,7 +82,27 @@ typedef struct {
     // wide and each eye gets its own warped copy of the frame
     int stereoMode;
     int depthDebug;
-    GLuint depthTexture;
+    // Double buffered: the frame loop samples one while the depth thread
+    // writes the other, so neither ever waits on the other
+    GLuint depthTextures[2];
+    volatile int depthReadIndex;
+
+    // Second context in the same share group for the depth thread. Inference
+    // takes longer than a display frame, so it cannot run on the frame loop
+    EGLContext depthContext;
+    EGLSurface depthPbuffer;
+
+    // Depth model staging. The frame is downscaled to DEPTH_TEX_SIZE on the
+    // GPU, read back, run through the model in Java, and the result goes
+    // back up into the depth texture
+    GLuint downscaleProgram;
+    GLint downscaleTexMatrixUniform;
+    GLuint downscaleTexture;
+    GLuint downscaleFbo;
+    unsigned char* readbackBuf;
+    float* modelInput;
+    float* modelOutput;
+    unsigned char* depthUploadBuf;
 
     GLuint oesTexture;
     GLuint program;
@@ -150,6 +172,29 @@ static const char* FRAGMENT_SRC =
     "    }\n"
     "    fragColor = texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy);\n"
     "    fragColor.rgb *= u_tint;\n"
+    "}\n";
+
+// Feeds the depth model. The video is far larger than 256x256, so a single
+// bilinear tap per output pixel aliases badly and the depth map crawls with
+// it. A 4x4 box over each destination pixel is still nothing on this GPU.
+static const char* DOWNSCALE_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "#extension GL_OES_EGL_image_external_essl3 : require\n"
+    "precision highp float;\n"
+    "in vec2 v_plain;\n"
+    "uniform samplerExternalOES u_texture;\n"
+    "uniform mat4 u_texmatrix;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "    vec3 sum = vec3(0.0);\n"
+    "    for (int y = 0; y < 4; y++) {\n"
+    "        for (int x = 0; x < 4; x++) {\n"
+    "            vec2 off = (vec2(float(x), float(y)) - 1.5) * (0.25 / 256.0);\n"
+    "            vec2 tc = v_plain + off;\n"
+    "            sum += texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy).rgb;\n"
+    "        }\n"
+    "    }\n"
+    "    fragColor = vec4(sum * (1.0 / 16.0), 1.0);\n"
     "}\n";
 
 // Same fullscreen strip as the 2d GL path, x y u v
@@ -434,13 +479,93 @@ static void fillSyntheticDepth(XrCtx* ctx) {
         }
     }
 
-    glBindTexture(GL_TEXTURE_2D, ctx->depthTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, n, n, 0, GL_RED, GL_UNSIGNED_BYTE, buf);
+    for (int i = 0; i < 2; i++) {
+        glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, n, n, 0, GL_RED, GL_UNSIGNED_BYTE, buf);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    free(buf);
+}
+
+// GL side of the depth model path: the downscale target the frame is
+// rendered into, and the staging buffers it is read back through
+static int initDepthModel(XrCtx* ctx) {
+    const int n = DEPTH_TEX_SIZE;
+
+    GLuint vs = compileShader(GL_VERTEX_SHADER, VERTEX_SRC);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, DOWNSCALE_FRAGMENT_SRC);
+    if (vs == 0 || fs == 0) {
+        return 0;
+    }
+    ctx->downscaleProgram = glCreateProgram();
+    glAttachShader(ctx->downscaleProgram, vs);
+    glAttachShader(ctx->downscaleProgram, fs);
+    glBindAttribLocation(ctx->downscaleProgram, 0, "a_position");
+    glBindAttribLocation(ctx->downscaleProgram, 1, "a_texcoord");
+    glLinkProgram(ctx->downscaleProgram);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    GLint linked = 0;
+    glGetProgramiv(ctx->downscaleProgram, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        char log[512];
+        glGetProgramInfoLog(ctx->downscaleProgram, sizeof(log), NULL, log);
+        LOGE("downscale program link failed: %s", log);
+        return 0;
+    }
+    ctx->downscaleTexMatrixUniform = glGetUniformLocation(ctx->downscaleProgram, "u_texmatrix");
+    glUseProgram(ctx->downscaleProgram);
+    glUniform1i(glGetUniformLocation(ctx->downscaleProgram, "u_texture"), 0);
+
+    glGenTextures(1, &ctx->downscaleTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->downscaleTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    free(buf);
+
+    glGenFramebuffers(1, &ctx->downscaleFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->downscaleFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->downscaleTexture, 0);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("downscale framebuffer incomplete: 0x%x", status);
+        return 0;
+    }
+
+    // The depth thread gets its own context in the same share group, so it
+    // can upload into the back depth texture while the frame loop draws
+    const EGLint contextAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+    ctx->depthContext = eglCreateContext(ctx->eglDisplay, ctx->eglConfig, ctx->eglContext,
+                                         contextAttribs);
+    if (ctx->depthContext == EGL_NO_CONTEXT) {
+        LOGE("depth thread context creation failed: %d", eglGetError());
+        return 0;
+    }
+    const EGLint pbufferAttribs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
+    ctx->depthPbuffer = eglCreatePbufferSurface(ctx->eglDisplay, ctx->eglConfig, pbufferAttribs);
+    if (ctx->depthPbuffer == EGL_NO_SURFACE) {
+        LOGE("depth thread pbuffer creation failed: %d", eglGetError());
+        return 0;
+    }
+
+    ctx->readbackBuf = malloc((size_t)n * n * 4);
+    ctx->modelInput = malloc((size_t)n * n * 3 * sizeof(float));
+    ctx->modelOutput = malloc((size_t)n * n * sizeof(float));
+    ctx->depthUploadBuf = malloc((size_t)n * n);
+    if (ctx->readbackBuf == NULL || ctx->modelInput == NULL || ctx->modelOutput == NULL ||
+            ctx->depthUploadBuf == NULL) {
+        LOGE("depth staging buffer allocation failed");
+        return 0;
+    }
+
+    LOGI("depth model staging ready at %dx%d", n, n);
+    return 1;
 }
 
 static int initGl(XrCtx* ctx) {
@@ -478,7 +603,7 @@ static int initGl(XrCtx* ctx) {
     glUniform1f(glGetUniformLocation(ctx->program, "u_showDepth"),
                 ctx->depthDebug ? 1.0f : 0.0f);
 
-    glGenTextures(1, &ctx->depthTexture);
+    glGenTextures(2, ctx->depthTextures);
     fillSyntheticDepth(ctx);
 
     glGenTextures(1, &ctx->oesTexture);
@@ -498,6 +623,10 @@ static int initGl(XrCtx* ctx) {
     // extension colors will look washed out and we would need a shader fix.
     if (ctx->swapchainFormat == GL_SRGB8_ALPHA8 && !ctx->srgbWriteControl) {
         LOGW("GL_EXT_sRGB_write_control not available, expect wrong gamma");
+    }
+
+    if (ctx->stereoMode == DEPTH_MODE_MODEL && !initDepthModel(ctx)) {
+        return 0;
     }
 
     return 1;
@@ -555,6 +684,11 @@ static void pollEvents(XrCtx* ctx) {
 }
 
 static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
+    free(ctx->readbackBuf);
+    free(ctx->modelInput);
+    free(ctx->modelOutput);
+    free(ctx->depthUploadBuf);
+
     if (ctx->swapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->swapchain);
     }
@@ -619,6 +753,143 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetTexId(JNIEnv* env, jobject 
     return (jint)ctx->oesTexture;
 }
 
+JNIEXPORT jobject JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetModelInput(JNIEnv* env, jobject thiz, jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx->modelInput == NULL) {
+        return NULL;
+    }
+    return (*env)->NewDirectByteBuffer(env, ctx->modelInput,
+                                       (jlong)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * 3 * sizeof(float));
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetModelOutput(JNIEnv* env, jobject thiz, jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx->modelOutput == NULL) {
+        return NULL;
+    }
+    return (*env)->NewDirectByteBuffer(env, ctx->modelOutput,
+                                       (jlong)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * sizeof(float));
+}
+
+// Draws the current frame into the downscale target and reads it back into
+// the model input buffer. Rows are flipped on the way: GL hands back the
+// bottom row first and the model wants the image the right way up, since
+// monocular depth leans heavily on which way is down.
+JNIEXPORT jlong JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env, jobject thiz,
+                                                                    jlong handle,
+                                                                    jfloatArray texMatrixArr) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    const int n = DEPTH_TEX_SIZE;
+    long startNs = nowNs();
+
+    float texMatrix[16];
+    (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->downscaleFbo);
+    glViewport(0, 0, n, n);
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+
+    glUseProgram(ctx->downscaleProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
+    glUniformMatrix4fv(ctx->downscaleTexMatrixUniform, 1, GL_FALSE, texMatrix);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, ctx->readbackBuf);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    for (int y = 0; y < n; y++) {
+        const unsigned char* src = ctx->readbackBuf + (size_t)(n - 1 - y) * n * 4;
+        float* dst = ctx->modelInput + (size_t)y * n * 3;
+        for (int x = 0; x < n; x++) {
+            dst[x * 3 + 0] = src[x * 4 + 0] * (1.0f / 255.0f);
+            dst[x * 3 + 1] = src[x * 4 + 1] * (1.0f / 255.0f);
+            dst[x * 3 + 2] = src[x * 4 + 2] * (1.0f / 255.0f);
+        }
+    }
+
+    return nowNs() - startNs;
+}
+
+// Binds the depth thread's context. Called once from that thread before it
+// touches GL or creates the delegate.
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeBindDepthContext(JNIEnv* env, jobject thiz, jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (!eglMakeCurrent(ctx->eglDisplay, ctx->depthPbuffer, ctx->depthPbuffer, ctx->depthContext)) {
+        LOGE("depth thread eglMakeCurrent failed: %d", eglGetError());
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env, jobject thiz, jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (ctx->depthPbuffer != EGL_NO_SURFACE) {
+        eglDestroySurface(ctx->eglDisplay, ctx->depthPbuffer);
+        ctx->depthPbuffer = EGL_NO_SURFACE;
+    }
+    if (ctx->depthContext != EGL_NO_CONTEXT) {
+        eglDestroyContext(ctx->eglDisplay, ctx->depthContext);
+        ctx->depthContext = EGL_NO_CONTEXT;
+    }
+    eglReleaseThread();
+}
+
+// Normalizes the model output to 0..1 and uploads it as the depth map the
+// warp samples. MiDaS emits relative inverse depth on an arbitrary scale,
+// so the range has to be found per frame. Rows flip back here.
+//
+// Runs on the depth thread, writing whichever texture the frame loop is not
+// sampling, then publishing it. The finish is what makes the upload visible
+// to the other context, and costs nothing here since this thread has no
+// deadline.
+JNIEXPORT jlong JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobject thiz, jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    const int n = DEPTH_TEX_SIZE;
+    long startNs = nowNs();
+
+    float lo = ctx->modelOutput[0];
+    float hi = ctx->modelOutput[0];
+    for (int i = 1; i < n * n; i++) {
+        float v = ctx->modelOutput[i];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+    }
+    float scale = (hi > lo) ? 255.0f / (hi - lo) : 0.0f;
+
+    for (int y = 0; y < n; y++) {
+        const float* src = ctx->modelOutput + (size_t)(n - 1 - y) * n;
+        unsigned char* dst = ctx->depthUploadBuf + (size_t)y * n;
+        for (int x = 0; x < n; x++) {
+            float v = (src[x] - lo) * scale;
+            dst[x] = (unsigned char)(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v));
+        }
+    }
+
+    int writeIndex = 1 - ctx->depthReadIndex;
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[writeIndex]);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, n, n, GL_RED, GL_UNSIGNED_BYTE, ctx->depthUploadBuf);
+    glFinish();
+    ctx->depthReadIndex = writeIndex;
+
+    return nowNs() - startNs;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
@@ -670,7 +941,7 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, ctx->depthTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[ctx->depthReadIndex]);
     glUniformMatrix4fv(ctx->texMatrixUniform, 1, GL_FALSE, texMatrix);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);

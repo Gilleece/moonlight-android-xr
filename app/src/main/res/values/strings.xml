@@ -262,12 +262,15 @@
     <string name="title_seekbar_vr_curvature">Screen curvature</string>
     <string name="summary_seekbar_vr_curvature">0 is flat, higher values wrap the screen around you</string>
     <string name="suffix_seekbar_vr_tenth_meters">tenths of a meter</string>
-    <string name="title_vr_synthetic_depth">Stereo test pattern</string>
-    <string name="summary_vr_synthetic_depth">Renders the stream in stereo using a hardcoded depth map. For testing the stereo path only.</string>
+    <string name="title_vr_depth_source">Stereo depth source</string>
+    <string name="summary_vr_depth_source">Where the depth map used for stereo comes from. The test patterns use a hardcoded depth map instead of the model.</string>
     <string name="title_vr_depth_debug">Show depth map</string>
     <string name="summary_vr_depth_debug">Render the depth map as grayscale instead of the video, for checking depth quality</string>
     <string name="title_vr_eye_swap">Swap eyes</string>
     <string name="summary_vr_eye_swap">Swap the left and right eye images in stereo mode</string>
+    <string name="title_seekbar_vr_inference_cadence">Depth model cadence</string>
+    <string name="summary_seekbar_vr_inference_cadence">Run the depth model on every Nth video frame. Higher is cheaper but depth lags further behind.</string>
+    <string name="suffix_seekbar_vr_inference_cadence">frames</string>
     <string name="title_seekbar_vr_separation">Stereo separation</string>
     <string name="summary_seekbar_vr_separation">Maximum disparity in stereo mode. Higher is a stronger 3D effect.</string>
     <string name="suffix_seekbar_vr_separation">tenths of a percent</string>

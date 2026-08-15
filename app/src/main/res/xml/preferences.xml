@@ -253,11 +253,11 @@
             android:text="@string/suffix_seekbar_vr_tenth_meters"
             android:title="@string/title_seekbar_vr_screen_size"/>
         <ListPreference
-            android:key="list_vr_synthetic_depth"
-            android:title="@string/title_vr_synthetic_depth"
-            android:entries="@array/vr_synthetic_depth_names"
-            android:entryValues="@array/vr_synthetic_depth_values"
-            android:summary="@string/summary_vr_synthetic_depth"
+            android:key="list_vr_depth_source"
+            android:title="@string/title_vr_depth_source"
+            android:entries="@array/vr_depth_source_names"
+            android:entryValues="@array/vr_depth_source_values"
+            android:summary="@string/summary_vr_depth_source"
             android:defaultValue="off" />
         <CheckBoxPreference
             android:key="checkbox_vr_depth_debug"
@@ -269,6 +269,14 @@
             android:title="@string/title_vr_eye_swap"
             android:summary="@string/summary_vr_eye_swap"
             android:defaultValue="false"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_inference_cadence"
+            android:defaultValue="3"
+            seekbar:min="1"
+            android:max="6"
+            android:summary="@string/summary_seekbar_vr_inference_cadence"
+            android:text="@string/suffix_seekbar_vr_inference_cadence"
+            android:title="@string/title_seekbar_vr_inference_cadence"/>
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_separation"
             android:defaultValue="15"
