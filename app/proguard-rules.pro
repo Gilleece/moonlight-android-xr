@@ -7,6 +7,10 @@
 # Moonlight common
 -keep class com.limelight.nvstream.jni.* {*;}
 
+# LiteRT GPU delegate, loaded by name from native code. The runtime AAR
+# ships its own rules, the GPU one does not.
+-keep class org.tensorflow.lite.gpu.** {*;}
+
 # Okio
 -keep class sun.misc.Unsafe {*;}
 -dontwarn java.nio.file.*
