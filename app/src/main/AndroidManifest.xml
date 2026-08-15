@@ -79,10 +79,6 @@
         <meta-data
             android:name="com.oculus.supportedDevices"
             android:value="quest2|questpro|quest3" />
-        <!-- Pico marks VR capable apps with this -->
-        <meta-data
-            android:name="pvr.app.type"
-            android:value="vr" />
 
         <provider
             android:name=".PosterContentProvider"
@@ -204,6 +200,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
+            <!-- Pico marks VR content with this. It must not sit on the
+                 application element or the 2d activities get launched into an
+                 immersive container and hang, since they never submit frames -->
+            <meta-data
+                android:name="pvr.app.type"
+                android:value="vr" />
         </activity-alias>
 
         <service
