@@ -75,6 +75,11 @@
         android:enableOnBackInvokedCallback="false"
         android:theme="@style/AppTheme">
 
+        <!-- Pico classifies the whole app from this. The 2d activities
+             override it individually below -->
+        <meta-data
+            android:name="pvr.app.type"
+            android:value="vr" />
         <!-- Meta Quest device gate for the VR activity -->
         <meta-data
             android:name="com.oculus.supportedDevices"
@@ -127,6 +132,7 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
                 <category android:name="tv.ouya.intent.category.APP" />
             </intent-filter>
+            <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
         <!-- Small hack to support launcher shortcuts without relaunching over and over again when the back button is pressed -->
         <activity
@@ -138,6 +144,7 @@
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+            <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
         <activity
             android:name=".AppView"
@@ -146,6 +153,7 @@
             android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+            <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
         <activity
             android:name=".preferences.StreamSettings"
@@ -155,6 +163,7 @@
             android:label="Streaming Settings">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+            <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
         <activity
             android:name=".preferences.AddComputerManually"
@@ -165,6 +174,7 @@
             android:label="Add Computer Manually">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+            <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
         <activity
             android:name=".Game"
@@ -225,6 +235,7 @@
             android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection">
             <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+            <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
     </application>
 
