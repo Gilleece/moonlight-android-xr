@@ -13,6 +13,7 @@
 #include <math.h>
 
 #include <android/log.h>
+#include <sys/system_properties.h>
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
@@ -54,6 +55,32 @@
 #define DEPTH_MODE_MODEL 6
 
 #define DEPTH_TEX_SIZE 256
+
+// setprop this to any new value to dump one frame's worth of warp inputs and
+// outputs, so shader changes can be tried on captured frames off device
+#define CAPTURE_PROP "debug.moonlight.capture"
+#define CAPTURE_POLL_FRAMES 30
+
+// Tuning knobs, all live over setprop so a headset session can A/B them
+// without a rebuild. Each is an integer percent of the real value.
+#define PROP_DEPTH_ALPHA "debug.moonlight.depthalpha"
+#define PROP_RANGE_ALPHA "debug.moonlight.rangealpha"
+#define PROP_UPSAMPLE "debug.moonlight.upsample"
+#define PROP_UPSAMPLE_SIGMA "debug.moonlight.upsamplesigma"
+#define PROP_OCCLUSION "debug.moonlight.occlusion"
+#define PROP_SEPARATION "debug.moonlight.separation"
+#define PROP_DISTANCE "debug.moonlight.distance"
+#define PROP_SCREEN "debug.moonlight.screen"
+#define PROP_CONVERGENCE "debug.moonlight.convergence"
+#define PROP_DEPTH_GLOBAL "debug.moonlight.depthglobal"
+#define PROP_DEPTH_LOCAL "debug.moonlight.depthlocal"
+
+// Bins for the percentile search over the model output
+#define DEPTH_HIST_BINS 512
+
+// Radius of the low pass that splits the depth map into an overall shape and
+// the local detail on top of it. About a tenth of the frame.
+#define DEPTH_LOWPASS_RADIUS 11
 
 typedef struct {
     JavaVM* vm;
@@ -104,13 +131,66 @@ typedef struct {
     float* modelOutput;
     unsigned char* depthUploadBuf;
 
+    // Temporal smoothing. The normalization range is smoothed separately from
+    // the map itself: a single outlier pixel moving the min or max used to
+    // shift the whole mapping, which pumps the entire image.
+    float* depthEma;
+    float* depthLow;
+    float* depthScratch;
+    float* depthColSums;
+    float depthGlobal;
+    float depthLocal;
+    int depthEmaValid;
+    float smoothLo;
+    float smoothHi;
+    int rangeValid;
+    float depthAlpha;
+    float rangeAlpha;
+
+    // Edge aware upsample of the depth map, quarter of the video size
+    GLuint upsampleProgram;
+    GLint upsampleTexMatrixUniform;
+    GLint upsampleSigmaUniform;
+    GLuint upsampleTexture;
+    GLuint upsampleFbo;
+    int upsampleWidth;
+    int upsampleHeight;
+    int upsampleEnabled;
+    float upsampleSigmaR;
+
+    // Occlusion aware offset map, both eyes packed into rg
+    GLuint offsetProgram;
+    GLint offsetDispUniform;
+    GLint offsetConvUniform;
+    GLuint offsetTexture;
+    GLuint offsetFbo;
+    int occlusionEnabled;
+    float convergence;
+    float separationOverride;
+    float distanceOverride;
+    float screenOverride;
+
     GLuint oesTexture;
     GLuint program;
     GLint texMatrixUniform;
     GLint disparityUniform;
     GLint tintUniform;
+    GLint barTestUniform;
+    GLint occlusionUniform;
+    GLint eyeIndexUniform;
+    GLint convergenceUniform;
+    GLint dispTexelsUniform;
+    GLint lowResWidthUniform;
+    GLint frameWidthUniform;
     GLuint fbo;
     int barTestFramesLogged;
+
+    // Frame capture for offline shader work
+    char captureDir[256];
+    char captureTag[PROP_VALUE_MAX];
+    char lastCaptureTag[PROP_VALUE_MAX];
+    int captureRequested;
+    long capturePollCounter;
 
     XrSessionState sessionState;
     int sessionRunning;
@@ -127,7 +207,40 @@ typedef struct {
     long statFrames;
     long statTotalNs;
     long statMaxNs;
+
+    // Real GPU time for the warp passes. The wall clock around the draw calls
+    // only ever measured how long submission took, since nothing waits on the
+    // GPU, so it read about 0.1 ms no matter what the shaders did.
+    int timerSupported;
+    GLuint timerQueries[2];
+    int timerSlot;
+    int timerPending[2];
+    long gpuTotalNs;
+    long gpuMaxNs;
+    long gpuSamples;
 } XrCtx;
+
+typedef void (*PFNGENQUERIESEXT)(GLsizei, GLuint*);
+typedef void (*PFNBEGINQUERYEXT)(GLenum, GLuint);
+typedef void (*PFNENDQUERYEXT)(GLenum);
+typedef void (*PFNGETQUERYOBJECTUIVEXT)(GLuint, GLenum, GLuint*);
+typedef void (*PFNGETQUERYOBJECTUI64VEXT)(GLuint, GLenum, GLuint64*);
+
+static PFNGENQUERIESEXT pfnGenQueries;
+static PFNBEGINQUERYEXT pfnBeginQuery;
+static PFNENDQUERYEXT pfnEndQuery;
+static PFNGETQUERYOBJECTUIVEXT pfnGetQueryObjectuiv;
+static PFNGETQUERYOBJECTUI64VEXT pfnGetQueryObjectui64v;
+
+#ifndef GL_TIME_ELAPSED_EXT
+#define GL_TIME_ELAPSED_EXT 0x88BF
+#endif
+#ifndef GL_QUERY_RESULT_EXT
+#define GL_QUERY_RESULT_EXT 0x8866
+#endif
+#ifndef GL_QUERY_RESULT_AVAILABLE_EXT
+#define GL_QUERY_RESULT_AVAILABLE_EXT 0x8867
+#endif
 
 static const char* VERTEX_SRC =
     "#version 300 es\n"
@@ -151,20 +264,53 @@ static const char* FRAGMENT_SRC =
     "in vec2 v_plain;\n"
     "uniform samplerExternalOES u_texture;\n"
     "uniform sampler2D u_depth;\n"
+    "uniform sampler2D u_offsets;\n"
     "uniform mat4 u_texmatrix;\n"
     "uniform float u_disparity;\n"
     "uniform float u_showDepth;\n"
     "uniform float u_barTest;\n"
     "uniform vec3 u_tint;\n"
+    "uniform float u_occlusion;\n"
+    "uniform float u_eyeIndex;\n"
+    "uniform float u_convergence;\n"
+    "uniform float u_dispTexels;\n"
+    "uniform float u_lowResWidth;\n"
+    "uniform float u_frameWidth;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
-    "    float d = texture(u_depth, v_plain).r;\n"
+    "    float d = texture(u_depth, v_plain).a;\n"
     "    if (u_showDepth > 0.5) {\n"
     "        fragColor = vec4(d, d, d, 1.0);\n"
     "        return;\n"
     "    }\n"
     "    vec2 tc = v_plain;\n"
-    "    tc.x -= u_disparity * (d - 0.5);\n"
+    "    if (u_occlusion > 0.5) {\n"
+    // The offset map already picked the right surface. All that is left is
+    // the exact position on it, which the low resolution search only knew to
+    // within a texel, and that quantization stair steps along a diagonal
+    // silhouette. Two Newton steps against the full resolution depth settle
+    // it to well under a pixel.
+    "        int reach = int(ceil(abs(u_dispTexels)\n"
+    "                        * max(u_convergence, 1.0 - u_convergence))) + 2;\n"
+    "        vec2 enc = texture(u_offsets, v_plain).rg;\n"
+    "        float off = (u_eyeIndex < 0.5 ? enc.r : enc.g) - 0.5;\n"
+    "        tc.x = v_plain.x + off * 2.0 * float(reach) / u_lowResWidth;\n"
+    "        float h = 1.0 / u_frameWidth;\n"
+    "        for (int i = 0; i < 2; i++) {\n"
+    "            float d0 = texture(u_depth, vec2(tc.x, v_plain.y)).a;\n"
+    "            float dm = texture(u_depth, vec2(tc.x - h, v_plain.y)).a;\n"
+    "            float dp = texture(u_depth, vec2(tc.x + h, v_plain.y)).a;\n"
+    "            float e = (tc.x - v_plain.x) + u_disparity * (d0 - u_convergence);\n"
+    "            float slope = 1.0 + u_disparity * (dp - dm) / (2.0 * h);\n"
+    "            if (abs(slope) < 0.25) {\n"
+    "                slope = 0.25;\n"
+    "            }\n"
+    "            tc.x -= clamp(e / slope, -4.0 * h, 4.0 * h);\n"
+    "        }\n"
+    "    }\n"
+    "    else {\n"
+    "        tc.x -= u_disparity * (d - u_convergence);\n"
+    "    }\n"
     "    if (u_barTest > 0.5) {\n"
     "        float b = 1.0 - step(0.004, abs(tc.x - 0.5));\n"
     "        fragColor = vec4(b, b, b, 1.0);\n"
@@ -172,6 +318,113 @@ static const char* FRAGMENT_SRC =
     "    }\n"
     "    fragColor = texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy);\n"
     "    fragColor.rgb *= u_tint;\n"
+    "}\n";
+
+// Joint bilateral upsample of the depth map. The model output is 256x256
+// against a 4K frame, so one depth texel covers a 15x8 block and every depth
+// boundary reaches the warp as a 15 pixel ramp. That ramp is the halo: it
+// shears whatever colour happens to sit under it.
+//
+// Each output pixel weights the 5x5 low resolution depth neighbourhood by how
+// closely each neighbour's colour matches the colour here, so the depth edge
+// snaps to the colour edge instead of straddling it. Measured on a captured
+// frame this takes the edge from 15 px to 5 px, which is the resolution limit
+// of a 256x256 source rather than of this filter.
+//
+// The guide rides in the rgb of the depth texture, so it is by construction
+// the same frame the depth was inferred from. u_sigmaR trades edge snapping
+// against depth detail invented out of colour texture: grass and carpet will
+// speckle if it is set too tight.
+static const char* UPSAMPLE_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "#extension GL_OES_EGL_image_external_essl3 : require\n"
+    "precision highp float;\n"
+    "in vec2 v_plain;\n"
+    "uniform samplerExternalOES u_texture;\n"
+    "uniform sampler2D u_depth;\n"
+    "uniform mat4 u_texmatrix;\n"
+    "uniform float u_sigmaR;\n"
+    "out vec4 fragColor;\n"
+    "const float N = 256.0;\n"
+    "const float SIGMA_S = 1.5;\n"
+    "void main() {\n"
+    "    vec3 hi = texture(u_texture, (u_texmatrix * vec4(v_plain, 0.0, 1.0)).xy).rgb;\n"
+    "    vec2 lp = v_plain * N - 0.5;\n"
+    "    ivec2 base = ivec2(floor(lp));\n"
+    "    float num = 0.0;\n"
+    "    float den = 0.0;\n"
+    "    for (int dy = -2; dy <= 2; dy++) {\n"
+    "        for (int dx = -2; dx <= 2; dx++) {\n"
+    "            ivec2 q = clamp(base + ivec2(dx, dy), ivec2(0), ivec2(int(N) - 1));\n"
+    "            vec4 s = texelFetch(u_depth, q, 0);\n"
+    "            vec2 off = vec2(q) - lp;\n"
+    "            float ws = exp(-dot(off, off) / (2.0 * SIGMA_S * SIGMA_S));\n"
+    "            vec3 cd = hi - s.rgb;\n"
+    "            float wr = exp(-dot(cd, cd) / (2.0 * u_sigmaR * u_sigmaR));\n"
+    "            float w = ws * wr;\n"
+    "            num += w * s.a;\n"
+    "            den += w;\n"
+    "        }\n"
+    "    }\n"
+    "    fragColor = vec4(num / max(den, 1e-6));\n"
+    "}\n";
+
+// Inverts the warp properly, once per frame for both eyes, at the same
+// quarter resolution as the depth map.
+//
+// A source pixel at offset t from this one lands here with error
+//     e(t) = t + disp * (d(here + t) - convergence)
+// so every zero crossing of e is a source that genuinely lands on this pixel.
+// Sampling depth at the destination, which is what the warp did before, is
+// only right where depth is flat; at a depth step it is wrong by most of the
+// disparity range, which is 57 px at 4K, and that is the smearing. More than
+// one crossing means two surfaces compete for this pixel, and the nearest one
+// wins, which is what occlusion means.
+//
+// The whole search span is only about nine texels at this resolution, so the
+// exhaustive version is affordable. Both eyes share the depth reads.
+static const char* OFFSET_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "in vec2 v_plain;\n"
+    "uniform sampler2D u_depth;\n"
+    "uniform float u_dispTexels;\n"
+    "uniform float u_convergence;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "    ivec2 sz = textureSize(u_depth, 0);\n"
+    "    int x = int(gl_FragCoord.x);\n"
+    "    int y = int(gl_FragCoord.y);\n"
+    "    int reach = int(ceil(abs(u_dispTexels)\n"
+    "                    * max(u_convergence, 1.0 - u_convergence))) + 2;\n"
+    "    vec2 result = vec2(0.0);\n"
+    "    for (int eye = 0; eye < 2; eye++) {\n"
+    "        float disp = (eye == 0) ? u_dispTexels : -u_dispTexels;\n"
+    "        float here = texelFetch(u_depth, ivec2(x, y), 0).a;\n"
+    "        float bestD = -1.0;\n"
+    "        float bestOff = -disp * (here - u_convergence);\n"
+    "        float pd = texelFetch(u_depth,\n"
+    "                ivec2(clamp(x - reach, 0, sz.x - 1), y), 0).a;\n"
+    "        float pe = float(-reach) + disp * (pd - u_convergence);\n"
+    "        for (int t = -reach + 1; t <= reach; t++) {\n"
+    "            float cd = texelFetch(u_depth,\n"
+    "                    ivec2(clamp(x + t, 0, sz.x - 1), y), 0).a;\n"
+    "            float ce = float(t) + disp * (cd - u_convergence);\n"
+    "            float span = ce - pe;\n"
+    "            if (pe * ce <= 0.0 && abs(span) > 1e-6) {\n"
+    "                float f = clamp(-pe / span, 0.0, 1.0);\n"
+    "                float rd = pd + f * (cd - pd);\n"
+    "                if (rd > bestD) {\n"
+    "                    bestD = rd;\n"
+    "                    bestOff = float(t - 1) + f;\n"
+    "                }\n"
+    "            }\n"
+    "            pd = cd;\n"
+    "            pe = ce;\n"
+    "        }\n"
+    "        result[eye] = bestOff;\n"
+    "    }\n"
+    "    fragColor = vec4(result / (2.0 * float(reach)) + 0.5, 0.0, 1.0);\n"
     "}\n";
 
 // Feeds the depth model. The video is far larger than 256x256, so a single
@@ -446,7 +699,10 @@ static int initSwapchain(XrCtx* ctx) {
 // 0 far, 1 near, 0.5 sits exactly on the screen plane (zero disparity)
 static void fillSyntheticDepth(XrCtx* ctx) {
     const int n = DEPTH_TEX_SIZE;
-    unsigned char* buf = malloc(n * n);
+    // RGBA throughout: depth in alpha, guide colour in rgb. The synthetic
+    // patterns have no guide, so it stays neutral and the upsample falls back
+    // to a plain blur on them.
+    unsigned char* buf = malloc((size_t)n * n * 4);
 
     for (int y = 0; y < n; y++) {
         for (int x = 0; x < n; x++) {
@@ -475,13 +731,15 @@ static void fillSyntheticDepth(XrCtx* ctx) {
             }
             if (d < 0.0f) d = 0.0f;
             if (d > 1.0f) d = 1.0f;
-            buf[y * n + x] = (unsigned char)(d * 255.0f + 0.5f);
+            unsigned char* px = buf + ((size_t)y * n + x) * 4;
+            px[0] = px[1] = px[2] = 128;
+            px[3] = (unsigned char)(d * 255.0f + 0.5f);
         }
     }
 
     for (int i = 0; i < 2; i++) {
         glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[i]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, n, n, 0, GL_RED, GL_UNSIGNED_BYTE, buf);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -490,31 +748,107 @@ static void fillSyntheticDepth(XrCtx* ctx) {
     free(buf);
 }
 
+static int linkProgram(GLuint* out, const char* fragmentSrc, const char* what) {
+    GLuint vs = compileShader(GL_VERTEX_SHADER, VERTEX_SRC);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, fragmentSrc);
+    if (vs == 0 || fs == 0) {
+        return 0;
+    }
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
+    glBindAttribLocation(program, 0, "a_position");
+    glBindAttribLocation(program, 1, "a_texcoord");
+    glLinkProgram(program);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    GLint linked = 0;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        char log[512];
+        glGetProgramInfoLog(program, sizeof(log), NULL, log);
+        LOGE("%s program link failed: %s", what, log);
+        return 0;
+    }
+    *out = program;
+    return 1;
+}
+
+// Quarter resolution is enough: at 1920x1080 the measured edge width was the
+// same 5 px, so the extra four times the pixels bought nothing.
+static int initUpsample(XrCtx* ctx) {
+    ctx->upsampleWidth = ctx->videoWidth / 4;
+    ctx->upsampleHeight = ctx->videoHeight / 4;
+
+    if (!linkProgram(&ctx->upsampleProgram, UPSAMPLE_FRAGMENT_SRC, "upsample")) {
+        return 0;
+    }
+    ctx->upsampleTexMatrixUniform = glGetUniformLocation(ctx->upsampleProgram, "u_texmatrix");
+    ctx->upsampleSigmaUniform = glGetUniformLocation(ctx->upsampleProgram, "u_sigmaR");
+    glUseProgram(ctx->upsampleProgram);
+    glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_texture"), 0);
+    glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_depth"), 1);
+
+    glGenTextures(1, &ctx->upsampleTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->upsampleTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ctx->upsampleWidth, ctx->upsampleHeight, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, &ctx->upsampleFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->upsampleFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->upsampleTexture, 0);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("upsample framebuffer incomplete: 0x%x", status);
+        return 0;
+    }
+
+    if (!linkProgram(&ctx->offsetProgram, OFFSET_FRAGMENT_SRC, "offset")) {
+        return 0;
+    }
+    ctx->offsetDispUniform = glGetUniformLocation(ctx->offsetProgram, "u_dispTexels");
+    ctx->offsetConvUniform = glGetUniformLocation(ctx->offsetProgram, "u_convergence");
+    glUseProgram(ctx->offsetProgram);
+    glUniform1i(glGetUniformLocation(ctx->offsetProgram, "u_depth"), 1);
+
+    glGenTextures(1, &ctx->offsetTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->offsetTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ctx->upsampleWidth, ctx->upsampleHeight, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, &ctx->offsetFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->offsetFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->offsetTexture, 0);
+    status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("offset framebuffer incomplete: 0x%x", status);
+        return 0;
+    }
+
+    LOGI("depth upsample and offset search ready at %dx%d",
+         ctx->upsampleWidth, ctx->upsampleHeight);
+    return 1;
+}
+
 // GL side of the depth model path: the downscale target the frame is
 // rendered into, and the staging buffers it is read back through
 static int initDepthModel(XrCtx* ctx) {
     const int n = DEPTH_TEX_SIZE;
 
-    GLuint vs = compileShader(GL_VERTEX_SHADER, VERTEX_SRC);
-    GLuint fs = compileShader(GL_FRAGMENT_SHADER, DOWNSCALE_FRAGMENT_SRC);
-    if (vs == 0 || fs == 0) {
-        return 0;
-    }
-    ctx->downscaleProgram = glCreateProgram();
-    glAttachShader(ctx->downscaleProgram, vs);
-    glAttachShader(ctx->downscaleProgram, fs);
-    glBindAttribLocation(ctx->downscaleProgram, 0, "a_position");
-    glBindAttribLocation(ctx->downscaleProgram, 1, "a_texcoord");
-    glLinkProgram(ctx->downscaleProgram);
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-
-    GLint linked = 0;
-    glGetProgramiv(ctx->downscaleProgram, GL_LINK_STATUS, &linked);
-    if (!linked) {
-        char log[512];
-        glGetProgramInfoLog(ctx->downscaleProgram, sizeof(log), NULL, log);
-        LOGE("downscale program link failed: %s", log);
+    if (!linkProgram(&ctx->downscaleProgram, DOWNSCALE_FRAGMENT_SRC, "downscale")) {
         return 0;
     }
     ctx->downscaleTexMatrixUniform = glGetUniformLocation(ctx->downscaleProgram, "u_texmatrix");
@@ -557,9 +891,15 @@ static int initDepthModel(XrCtx* ctx) {
     ctx->readbackBuf = malloc((size_t)n * n * 4);
     ctx->modelInput = malloc((size_t)n * n * 3 * sizeof(float));
     ctx->modelOutput = malloc((size_t)n * n * sizeof(float));
-    ctx->depthUploadBuf = malloc((size_t)n * n);
+    ctx->depthUploadBuf = malloc((size_t)n * n * 4);
+    ctx->depthEma = malloc((size_t)n * n * sizeof(float));
+    ctx->depthLow = malloc((size_t)n * n * sizeof(float));
+    ctx->depthScratch = malloc((size_t)n * n * sizeof(float));
+    ctx->depthColSums = malloc((size_t)n * sizeof(float));
     if (ctx->readbackBuf == NULL || ctx->modelInput == NULL || ctx->modelOutput == NULL ||
-            ctx->depthUploadBuf == NULL) {
+            ctx->depthUploadBuf == NULL || ctx->depthEma == NULL ||
+            ctx->depthLow == NULL || ctx->depthScratch == NULL ||
+            ctx->depthColSums == NULL) {
         LOGE("depth staging buffer allocation failed");
         return 0;
     }
@@ -595,11 +935,19 @@ static int initGl(XrCtx* ctx) {
     ctx->texMatrixUniform = glGetUniformLocation(ctx->program, "u_texmatrix");
     ctx->disparityUniform = glGetUniformLocation(ctx->program, "u_disparity");
     ctx->tintUniform = glGetUniformLocation(ctx->program, "u_tint");
+    ctx->barTestUniform = glGetUniformLocation(ctx->program, "u_barTest");
+    ctx->occlusionUniform = glGetUniformLocation(ctx->program, "u_occlusion");
+    ctx->eyeIndexUniform = glGetUniformLocation(ctx->program, "u_eyeIndex");
+    ctx->convergenceUniform = glGetUniformLocation(ctx->program, "u_convergence");
+    ctx->dispTexelsUniform = glGetUniformLocation(ctx->program, "u_dispTexels");
+    ctx->lowResWidthUniform = glGetUniformLocation(ctx->program, "u_lowResWidth");
+    ctx->frameWidthUniform = glGetUniformLocation(ctx->program, "u_frameWidth");
 
     // Sampler units are fixed: color on 0, depth on 1
     glUseProgram(ctx->program);
     glUniform1i(glGetUniformLocation(ctx->program, "u_texture"), 0);
     glUniform1i(glGetUniformLocation(ctx->program, "u_depth"), 1);
+    glUniform1i(glGetUniformLocation(ctx->program, "u_offsets"), 2);
     glUniform1f(glGetUniformLocation(ctx->program, "u_showDepth"),
                 ctx->depthDebug ? 1.0f : 0.0f);
 
@@ -618,6 +966,23 @@ static int initGl(XrCtx* ctx) {
     const char* glExts = (const char*)glGetString(GL_EXTENSIONS);
     ctx->srgbWriteControl = glExts != NULL && strstr(glExts, "GL_EXT_sRGB_write_control") != NULL;
 
+    if (glExts != NULL && strstr(glExts, "GL_EXT_disjoint_timer_query") != NULL) {
+        pfnGenQueries = (PFNGENQUERIESEXT)eglGetProcAddress("glGenQueriesEXT");
+        pfnBeginQuery = (PFNBEGINQUERYEXT)eglGetProcAddress("glBeginQueryEXT");
+        pfnEndQuery = (PFNENDQUERYEXT)eglGetProcAddress("glEndQueryEXT");
+        pfnGetQueryObjectuiv = (PFNGETQUERYOBJECTUIVEXT)eglGetProcAddress("glGetQueryObjectuivEXT");
+        pfnGetQueryObjectui64v =
+                (PFNGETQUERYOBJECTUI64VEXT)eglGetProcAddress("glGetQueryObjectui64vEXT");
+        if (pfnGenQueries != NULL && pfnBeginQuery != NULL && pfnEndQuery != NULL &&
+                pfnGetQueryObjectuiv != NULL && pfnGetQueryObjectui64v != NULL) {
+            pfnGenQueries(2, ctx->timerQueries);
+            ctx->timerSupported = 1;
+        }
+    }
+    if (!ctx->timerSupported) {
+        LOGW("GL_EXT_disjoint_timer_query missing, GPU times unavailable");
+    }
+
     // The video frames are already gamma encoded. With an sRGB swapchain the
     // GPU would encode again on write, so turn that off. Without the
     // extension colors will look washed out and we would need a shader fix.
@@ -625,8 +990,10 @@ static int initGl(XrCtx* ctx) {
         LOGW("GL_EXT_sRGB_write_control not available, expect wrong gamma");
     }
 
-    if (ctx->stereoMode == DEPTH_MODE_MODEL && !initDepthModel(ctx)) {
-        return 0;
+    if (ctx->stereoMode == DEPTH_MODE_MODEL) {
+        if (!initDepthModel(ctx) || !initUpsample(ctx)) {
+            return 0;
+        }
     }
 
     return 1;
@@ -688,6 +1055,10 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     free(ctx->modelInput);
     free(ctx->modelOutput);
     free(ctx->depthUploadBuf);
+    free(ctx->depthEma);
+    free(ctx->depthLow);
+    free(ctx->depthScratch);
+    free(ctx->depthColSums);
 
     if (ctx->swapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->swapchain);
@@ -726,13 +1097,36 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz,
                                                        jobject activity, jint width, jint height,
-                                                       jint stereoMode, jboolean depthDebug) {
+                                                       jint stereoMode, jboolean depthDebug,
+                                                       jint convergence, jint depthScale) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->videoWidth = width;
     ctx->videoHeight = height;
     ctx->stereoMode = stereoMode;
     ctx->depthDebug = depthDebug;
     ctx->sessionState = XR_SESSION_STATE_UNKNOWN;
+    // Depth arrives at about 20 Hz, so 0.6 settles in roughly two updates.
+    // The range moves much more slowly on purpose, it should track the scene
+    // rather than the frame.
+    ctx->depthAlpha = 0.60f;
+    ctx->rangeAlpha = 0.15f;
+    // 0.25 measured best on a captured frame: same 5 px edge as tighter
+    // values with a tenth of the speckle
+    ctx->upsampleSigmaR = 0.25f;
+    ctx->upsampleEnabled = 1;
+    ctx->occlusionEnabled = 1;
+    ctx->separationOverride = -1.0f;
+    ctx->distanceOverride = -1.0f;
+    ctx->screenOverride = -1.0f;
+    // Comfort comes from absolute disparity and depth comes from the steps
+    // between objects, so the overall shape is pulled toward the screen plane
+    // while the local detail is boosted. Measured on captured frames this is
+    // about 40 percent more depth at the object boundaries for slightly less
+    // clipping than leaving it alone, where the best plain tone curve managed
+    // 16 percent.
+    ctx->depthGlobal = 1.0f;
+    ctx->convergence = convergence / 100.0f;
+    ctx->depthLocal = depthScale / 100.0f;
     (*env)->GetJavaVM(env, &ctx->vm);
     ctx->activity = (*env)->NewGlobalRef(env, activity);
 
@@ -745,6 +1139,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     LOGI("OpenXR init complete (cylinder=%d srgbWriteControl=%d)",
          ctx->cylinderSupported, ctx->srgbWriteControl);
     return (jlong)(intptr_t)ctx;
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetCaptureDir(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jstring dir) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || dir == NULL) {
+        return;
+    }
+    const char* chars = (*env)->GetStringUTFChars(env, dir, NULL);
+    if (chars != NULL) {
+        strncpy(ctx->captureDir, chars, sizeof(ctx->captureDir) - 1);
+        (*env)->ReleaseStringUTFChars(env, dir, chars);
+        LOGI("capture dir %s, setprop %s to dump a frame", ctx->captureDir, CAPTURE_PROP);
+    }
 }
 
 JNIEXPORT jint JNICALL
@@ -848,9 +1257,123 @@ Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env
     eglReleaseThread();
 }
 
+// 2nd and 98th percentile of the model output, via a histogram. Using the
+// raw min and max lets one stray pixel own the whole mapping: on a measured
+// frame the 2..98 span was 638 of an 805 wide min/max range, so a fifth of
+// the output range was being spent on a handful of pixels.
+static void robustRange(const float* v, int count, float* outLo, float* outHi) {
+    float lo = v[0], hi = v[0];
+    for (int i = 1; i < count; i++) {
+        if (v[i] < lo) lo = v[i];
+        if (v[i] > hi) hi = v[i];
+    }
+    if (hi <= lo) {
+        *outLo = lo;
+        *outHi = lo + 1.0f;
+        return;
+    }
+
+    int hist[DEPTH_HIST_BINS];
+    memset(hist, 0, sizeof(hist));
+    float scale = DEPTH_HIST_BINS / (hi - lo);
+    for (int i = 0; i < count; i++) {
+        int b = (int)((v[i] - lo) * scale);
+        if (b < 0) b = 0;
+        if (b >= DEPTH_HIST_BINS) b = DEPTH_HIST_BINS - 1;
+        hist[b]++;
+    }
+
+    int loTarget = (int)(count * 0.02f);
+    int hiTarget = (int)(count * 0.98f);
+    int acc = 0, loBin = 0, hiBin = DEPTH_HIST_BINS - 1;
+    for (int b = 0; b < DEPTH_HIST_BINS; b++) {
+        acc += hist[b];
+        if (acc >= loTarget) {
+            loBin = b;
+            break;
+        }
+    }
+    acc = 0;
+    for (int b = 0; b < DEPTH_HIST_BINS; b++) {
+        acc += hist[b];
+        if (acc >= hiTarget) {
+            hiBin = b;
+            break;
+        }
+    }
+
+    *outLo = lo + loBin / scale;
+    *outHi = lo + (hiBin + 1) / scale;
+    if (*outHi <= *outLo) {
+        *outHi = *outLo + 1e-6f;
+    }
+}
+
+static void boxBlurH(const float* src, float* dst, int n, int r) {
+    float inv = 1.0f / (float)(2 * r + 1);
+    for (int y = 0; y < n; y++) {
+        const float* s = src + (size_t)y * n;
+        float* d = dst + (size_t)y * n;
+        float sum = 0.0f;
+        for (int i = -r; i <= r; i++) {
+            int x = i < 0 ? 0 : (i >= n ? n - 1 : i);
+            sum += s[x];
+        }
+        for (int x = 0; x < n; x++) {
+            d[x] = sum * inv;
+            int add = x + r + 1;
+            int sub = x - r;
+            sum += s[add >= n ? n - 1 : add] - s[sub < 0 ? 0 : sub];
+        }
+    }
+}
+
+// Column sums carried a row at a time. The obvious version, one column at a
+// time, strides a whole row between reads and misses cache on every access,
+// which cost 15 ms here rather than 1.
+static void boxBlurV(const float* src, float* dst, int n, int r, float* colSums) {
+    float inv = 1.0f / (float)(2 * r + 1);
+    memset(colSums, 0, (size_t)n * sizeof(float));
+    for (int i = -r; i <= r; i++) {
+        int y = i < 0 ? 0 : (i >= n ? n - 1 : i);
+        const float* s = src + (size_t)y * n;
+        for (int x = 0; x < n; x++) {
+            colSums[x] += s[x];
+        }
+    }
+    for (int y = 0; y < n; y++) {
+        float* d = dst + (size_t)y * n;
+        for (int x = 0; x < n; x++) {
+            d[x] = colSums[x] * inv;
+        }
+        int add = y + r + 1;
+        int sub = y - r;
+        const float* a = src + (size_t)(add >= n ? n - 1 : add) * n;
+        const float* b = src + (size_t)(sub < 0 ? 0 : sub) * n;
+        for (int x = 0; x < n; x++) {
+            colSums[x] += a[x] - b[x];
+        }
+    }
+}
+
+// Three box passes is close enough to a gaussian
+static void lowPass(const float* src, float* dst, float* scratch, float* colSums, int n, int r) {
+    boxBlurH(src, scratch, n, r);
+    boxBlurV(scratch, dst, n, r, colSums);
+    boxBlurH(dst, scratch, n, r);
+    boxBlurV(scratch, dst, n, r, colSums);
+    boxBlurH(dst, scratch, n, r);
+    boxBlurV(scratch, dst, n, r, colSums);
+}
+
 // Normalizes the model output to 0..1 and uploads it as the depth map the
-// warp samples. MiDaS emits relative inverse depth on an arbitrary scale,
-// so the range has to be found per frame. Rows flip back here.
+// warp samples. MiDaS emits relative inverse depth on an arbitrary scale, so
+// the range has to be found per frame. Rows flip back here.
+//
+// Two separate temporal filters. The range is smoothed so the mapping does
+// not jump when the scene changes, and the map itself is smoothed per texel
+// so raw model flicker does not reach the eyes. The guide colour rides along
+// in RGB so the upsampling pass gets the exact frame the depth came from.
 //
 // Runs on the depth thread, writing whichever texture the frame loop is not
 // sampling, then publishing it. The finish is what makes the upload visible
@@ -862,28 +1385,69 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     const int n = DEPTH_TEX_SIZE;
     long startNs = nowNs();
 
-    float lo = ctx->modelOutput[0];
-    float hi = ctx->modelOutput[0];
-    for (int i = 1; i < n * n; i++) {
-        float v = ctx->modelOutput[i];
-        if (v < lo) lo = v;
-        if (v > hi) hi = v;
+    float lo, hi;
+    robustRange(ctx->modelOutput, n * n, &lo, &hi);
+    if (!ctx->rangeValid) {
+        ctx->smoothLo = lo;
+        ctx->smoothHi = hi;
+        ctx->rangeValid = 1;
     }
-    float scale = (hi > lo) ? 255.0f / (hi - lo) : 0.0f;
+    else {
+        ctx->smoothLo += ctx->rangeAlpha * (lo - ctx->smoothLo);
+        ctx->smoothHi += ctx->rangeAlpha * (hi - ctx->smoothHi);
+    }
+    float scale = 1.0f / (ctx->smoothHi - ctx->smoothLo);
+    float alpha = ctx->depthAlpha;
+    int seed = !ctx->depthEmaValid;
 
     for (int y = 0; y < n; y++) {
         const float* src = ctx->modelOutput + (size_t)(n - 1 - y) * n;
-        unsigned char* dst = ctx->depthUploadBuf + (size_t)y * n;
+        float* ema = ctx->depthEma + (size_t)y * n;
         for (int x = 0; x < n; x++) {
-            float v = (src[x] - lo) * scale;
-            dst[x] = (unsigned char)(v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v));
+            float v = (src[x] - ctx->smoothLo) * scale;
+            if (v < 0.0f) v = 0.0f;
+            if (v > 1.0f) v = 1.0f;
+            ema[x] = seed ? v : ema[x] + alpha * (v - ema[x]);
+        }
+    }
+    ctx->depthEmaValid = 1;
+
+    float kg = ctx->depthGlobal;
+    float kl = ctx->depthLocal;
+    float conv = ctx->convergence;
+
+    // The low pass is only needed to split the map into overall shape and
+    // local detail, so skip it when the remap is doing nothing. It costs
+    // about 10 ms on this thread, which is latency the depth map cannot
+    // afford for an effect measured to be invisible.
+    int remapping = kg < 0.995f || kg > 1.005f || kl < 0.995f || kl > 1.005f;
+    if (remapping) {
+        lowPass(ctx->depthEma, ctx->depthLow, ctx->depthScratch, ctx->depthColSums, n,
+                DEPTH_LOWPASS_RADIUS);
+    }
+
+    for (int y = 0; y < n; y++) {
+        const float* guide = ctx->modelInput + (size_t)(n - 1 - y) * n * 3;
+        const float* ema = ctx->depthEma + (size_t)y * n;
+        const float* low = ctx->depthLow + (size_t)y * n;
+        unsigned char* dst = ctx->depthUploadBuf + (size_t)y * n * 4;
+        for (int x = 0; x < n; x++) {
+            float v = remapping ? conv + kg * (low[x] - conv) + kl * (ema[x] - low[x])
+                                : ema[x];
+            if (v < 0.0f) v = 0.0f;
+            if (v > 1.0f) v = 1.0f;
+
+            dst[x * 4 + 0] = (unsigned char)(guide[x * 3 + 0] * 255.0f + 0.5f);
+            dst[x * 4 + 1] = (unsigned char)(guide[x * 3 + 1] * 255.0f + 0.5f);
+            dst[x * 4 + 2] = (unsigned char)(guide[x * 3 + 2] * 255.0f + 0.5f);
+            dst[x * 4 + 3] = (unsigned char)(v * 255.0f + 0.5f);
         }
     }
 
     int writeIndex = 1 - ctx->depthReadIndex;
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[writeIndex]);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, n, n, GL_RED, GL_UNSIGNED_BYTE, ctx->depthUploadBuf);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, ctx->depthUploadBuf);
     glFinish();
     ctx->depthReadIndex = writeIndex;
 
@@ -918,7 +1482,189 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     return FRAME_RENDER;
 }
 
+// Integer valued tuning property, left alone if unset or unparseable
+static void propScaled(const char* name, float* target, float scale, long maxRaw) {
+    char value[PROP_VALUE_MAX];
+    value[0] = '\0';
+    if (__system_property_get(name, value) <= 0 || value[0] == '\0') {
+        return;
+    }
+    char* end = NULL;
+    long v = strtol(value, &end, 10);
+    if (end != value && v >= 0 && v <= maxRaw) {
+        *target = v * scale;
+    }
+}
+
+static void propPercent(const char* name, float* target) {
+    propScaled(name, target, 0.01f, 100);
+}
+
+static void propFlag(const char* name, int* target) {
+    char value[PROP_VALUE_MAX];
+    value[0] = '\0';
+    if (__system_property_get(name, value) <= 0 || value[0] == '\0') {
+        return;
+    }
+    *target = value[0] != '0';
+}
+
+// Fires once each time the property is set to a value it has not seen. The
+// value becomes the filename tag, so setprop 1, 2, 3 gives three captures.
+static void pollCaptureRequest(XrCtx* ctx) {
+    if (++ctx->capturePollCounter < CAPTURE_POLL_FRAMES) {
+        return;
+    }
+    ctx->capturePollCounter = 0;
+
+    propPercent(PROP_DEPTH_ALPHA, &ctx->depthAlpha);
+    propPercent(PROP_RANGE_ALPHA, &ctx->rangeAlpha);
+    propPercent(PROP_UPSAMPLE_SIGMA, &ctx->upsampleSigmaR);
+    propFlag(PROP_UPSAMPLE, &ctx->upsampleEnabled);
+    propFlag(PROP_OCCLUSION, &ctx->occlusionEnabled);
+    propPercent(PROP_CONVERGENCE, &ctx->convergence);
+    // Same tenths of a percent of frame width the preference uses
+    propScaled(PROP_SEPARATION, &ctx->separationOverride, 0.001f, 50);
+    // Tenths of a metre, the same units the preferences use
+    propScaled(PROP_DISTANCE, &ctx->distanceOverride, 0.1f, 80);
+    propScaled(PROP_SCREEN, &ctx->screenOverride, 0.1f, 120);
+    propPercent(PROP_DEPTH_GLOBAL, &ctx->depthGlobal);
+    propScaled(PROP_DEPTH_LOCAL, &ctx->depthLocal, 0.01f, 400);
+
+    if (ctx->captureDir[0] == '\0') {
+        return;
+    }
+
+    char value[PROP_VALUE_MAX];
+    value[0] = '\0';
+    if (__system_property_get(CAPTURE_PROP, value) <= 0 || value[0] == '\0') {
+        return;
+    }
+    if (strcmp(value, ctx->lastCaptureTag) == 0) {
+        return;
+    }
+    strncpy(ctx->lastCaptureTag, value, sizeof(ctx->lastCaptureTag) - 1);
+    strncpy(ctx->captureTag, value, sizeof(ctx->captureTag) - 1);
+    ctx->captureRequested = 1;
+    LOGI("capture: request %s", ctx->captureTag);
+}
+
+static void writeCapture(XrCtx* ctx, const char* what, const void* data, size_t bytes) {
+    if (data == NULL) {
+        return;
+    }
+    char path[512];
+    snprintf(path, sizeof(path), "%s/cap_%s_%s.raw", ctx->captureDir, ctx->captureTag, what);
+    FILE* f = fopen(path, "wb");
+    if (f == NULL) {
+        LOGE("capture: cannot write %s", path);
+        return;
+    }
+    size_t written = fwrite(data, 1, bytes, f);
+    fclose(f);
+    LOGI("capture: %s %zu bytes", path, written);
+}
+
+// Reads back the depth texture the warp actually sampled this frame, so the
+// captured warp can be reproduced exactly rather than approximately. Depth is
+// the alpha channel, the rgb alongside it is the guide.
+static void writeCaptureDepthTexture(XrCtx* ctx) {
+    const int n = DEPTH_TEX_SIZE;
+    unsigned char* rgba = malloc((size_t)n * n * 4);
+    unsigned char* red = malloc((size_t)n * n);
+    if (rgba == NULL || red == NULL) {
+        free(rgba);
+        free(red);
+        return;
+    }
+
+    GLuint fbo = 0;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->depthTextures[ctx->depthReadIndex], 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+        glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        for (int i = 0; i < n * n; i++) {
+            red[i] = rgba[i * 4 + 3];
+        }
+        writeCapture(ctx, "depthtex", red, (size_t)n * n);
+        writeCapture(ctx, "guidetex", rgba, (size_t)n * n * 4);
+    }
+    else {
+        LOGW("capture: depth texture not readable");
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &fbo);
+    free(rgba);
+    free(red);
+}
+
+// Runs every video frame rather than only when new depth lands, which also
+// re-snaps a depth map that is a few frames old onto the colour edges of the
+// frame it is actually warping.
+static void runUpsample(XrCtx* ctx, const float* texMatrix) {
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->upsampleFbo);
+    glViewport(0, 0, ctx->upsampleWidth, ctx->upsampleHeight);
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+
+    glUseProgram(ctx->upsampleProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[ctx->depthReadIndex]);
+    glUniformMatrix4fv(ctx->upsampleTexMatrixUniform, 1, GL_FALSE, texMatrix);
+    glUniform1f(ctx->upsampleSigmaUniform, ctx->upsampleSigmaR);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// Both eyes in one pass, since they search the same depth reads
+static void runOffsetSearch(XrCtx* ctx, float separation) {
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->offsetFbo);
+    glViewport(0, 0, ctx->upsampleWidth, ctx->upsampleHeight);
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+
+    glUseProgram(ctx->offsetProgram);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, ctx->upsampleTexture);
+    glUniform1f(ctx->offsetDispUniform, separation * ctx->upsampleWidth);
+    glUniform1f(ctx->offsetConvUniform, ctx->convergence);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
+    int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
+    int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
+
+    if (ctx->timerSupported && !ctx->timerPending[ctx->timerSlot]) {
+        pfnBeginQuery(GL_TIME_ELAPSED_EXT, ctx->timerQueries[ctx->timerSlot]);
+    }
+
+    if (upsampling) {
+        runUpsample(ctx, texMatrix);
+    }
+    if (occluding) {
+        runOffsetSearch(ctx, separation);
+    }
+
     uint32_t imageIndex = 0;
     XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     if (!checkXr(xrAcquireSwapchainImage(ctx->swapchain, &acquireInfo, &imageIndex), "acquire image")) {
@@ -941,8 +1687,18 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[ctx->depthReadIndex]);
+    // Either the raw 256x256 map or the edge aware upsample of it. Both carry
+    // depth in alpha, so the warp shader does not care which it got.
+    glBindTexture(GL_TEXTURE_2D, upsampling ? ctx->upsampleTexture
+                                            : ctx->depthTextures[ctx->depthReadIndex]);
+    glActiveTexture(GL_TEXTURE2);
+    glBindTexture(GL_TEXTURE_2D, ctx->offsetTexture);
     glUniformMatrix4fv(ctx->texMatrixUniform, 1, GL_FALSE, texMatrix);
+    glUniform1f(ctx->occlusionUniform, occluding ? 1.0f : 0.0f);
+    glUniform1f(ctx->convergenceUniform, ctx->convergence);
+    glUniform1f(ctx->dispTexelsUniform, separation * ctx->upsampleWidth);
+    glUniform1f(ctx->lowResWidthUniform, (float)ctx->upsampleWidth);
+    glUniform1f(ctx->frameWidthUniform, (float)ctx->videoWidth);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
     glEnableVertexAttribArray(0);
@@ -953,6 +1709,26 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     // left eye into the left half and the right eye into the right half,
     // with opposite disparity signs
     int eyes = ctx->stereoMode != DEPTH_MODE_OFF ? 2 : 1;
+
+    // The unwarped frame, drawn first so the real eye passes overwrite it and
+    // the submitted frame is unaffected. Readback and file writes stall the
+    // frame loop for a while, which is fine for a one off debug capture.
+    unsigned char* captureBuf = NULL;
+    size_t captureBytes = (size_t)ctx->videoWidth * ctx->videoHeight * 4;
+    if (ctx->captureRequested) {
+        captureBuf = malloc(captureBytes);
+        if (captureBuf != NULL) {
+            glViewport(0, 0, ctx->videoWidth, ctx->videoHeight);
+            glUniform1f(ctx->disparityUniform, 0.0f);
+            glUniform1f(ctx->barTestUniform, 0.0f);
+            glUniform3f(ctx->tintUniform, 1.0f, 1.0f, 1.0f);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glReadPixels(0, 0, ctx->videoWidth, ctx->videoHeight, GL_RGBA, GL_UNSIGNED_BYTE,
+                         captureBuf);
+            writeCapture(ctx, "source", captureBuf, captureBytes);
+        }
+    }
+
     for (int eye = 0; eye < eyes; eye++) {
         glViewport(eye * ctx->videoWidth, 0, ctx->videoWidth, ctx->videoHeight);
         float disparity = 0.0f;
@@ -960,8 +1736,8 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
             disparity = (eye == 0) ? separation : -separation;
         }
         glUniform1f(ctx->disparityUniform, disparity);
-        glUniform1f(glGetUniformLocation(ctx->program, "u_barTest"),
-                    ctx->stereoMode == DEPTH_MODE_SHIFTTEST ? 1.0f : 0.0f);
+        glUniform1f(ctx->eyeIndexUniform, (float)eye);
+        glUniform1f(ctx->barTestUniform, ctx->stereoMode == DEPTH_MODE_SHIFTTEST ? 1.0f : 0.0f);
 
         if (ctx->stereoMode == DEPTH_MODE_EYETEST) {
             // Half 0 red, half 1 blue
@@ -1006,10 +1782,70 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
         ctx->barTestFramesLogged++;
     }
 
+    if (ctx->captureRequested) {
+        if (captureBuf != NULL) {
+            for (int eye = 0; eye < eyes; eye++) {
+                glReadPixels(eye * ctx->videoWidth, 0, ctx->videoWidth, ctx->videoHeight,
+                             GL_RGBA, GL_UNSIGNED_BYTE, captureBuf);
+                writeCapture(ctx, eye == 0 ? "left" : "right", captureBuf, captureBytes);
+            }
+            free(captureBuf);
+        }
+        writeCaptureDepthTexture(ctx);
+        if (upsampling) {
+            size_t count = (size_t)ctx->upsampleWidth * ctx->upsampleHeight;
+            unsigned char* rgba = malloc(count * 4);
+            unsigned char* alpha = malloc(count);
+            if (rgba != NULL && alpha != NULL) {
+                glBindFramebuffer(GL_FRAMEBUFFER, ctx->upsampleFbo);
+                glReadPixels(0, 0, ctx->upsampleWidth, ctx->upsampleHeight, GL_RGBA,
+                             GL_UNSIGNED_BYTE, rgba);
+                for (size_t i = 0; i < count; i++) {
+                    alpha[i] = rgba[i * 4 + 3];
+                }
+                writeCapture(ctx, "upsampled", alpha, count);
+            }
+            free(rgba);
+            free(alpha);
+        }
+        // Best effort, the depth thread may be part way through refilling
+        // these. The depth texture above is the exact one this frame sampled.
+        writeCapture(ctx, "modelinput", ctx->modelInput,
+                     (size_t)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * 3 * sizeof(float));
+        writeCapture(ctx, "depthraw", ctx->modelOutput,
+                     (size_t)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * sizeof(float));
+        ctx->captureRequested = 0;
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(ctx->swapchain, &releaseInfo);
+
+    // Close this frame's query and collect whichever earlier one has landed.
+    // Never blocks: an unfinished query is simply left for a later frame.
+    if (ctx->timerSupported) {
+        if (!ctx->timerPending[ctx->timerSlot]) {
+            pfnEndQuery(GL_TIME_ELAPSED_EXT);
+            ctx->timerPending[ctx->timerSlot] = 1;
+            ctx->timerSlot = 1 - ctx->timerSlot;
+        }
+        int other = ctx->timerSlot;
+        if (ctx->timerPending[other]) {
+            GLuint ready = 0;
+            pfnGetQueryObjectuiv(ctx->timerQueries[other], GL_QUERY_RESULT_AVAILABLE_EXT, &ready);
+            if (ready) {
+                GLuint64 elapsed = 0;
+                pfnGetQueryObjectui64v(ctx->timerQueries[other], GL_QUERY_RESULT_EXT, &elapsed);
+                ctx->timerPending[other] = 0;
+                ctx->gpuTotalNs += (long)elapsed;
+                ctx->gpuSamples++;
+                if ((long)elapsed > ctx->gpuMaxNs) {
+                    ctx->gpuMaxNs = (long)elapsed;
+                }
+            }
+        }
+    }
 
     ctx->everRendered = 1;
 }
@@ -1021,6 +1857,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                                                            jfloat curvature, jboolean headLocked,
                                                            jfloat separation, jboolean eyeSwap) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+
+    pollCaptureRequest(ctx);
+    if (ctx->separationOverride >= 0.0f) {
+        separation = ctx->separationOverride;
+    }
+    if (ctx->distanceOverride > 0.0f) {
+        distance = ctx->distanceOverride;
+    }
+    if (ctx->screenOverride > 0.0f) {
+        quadWidth = ctx->screenOverride;
+    }
 
     if (newFrame && ctx->shouldRender) {
         long startNs = nowNs();
@@ -1034,12 +1881,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         ctx->statTotalNs += elapsed;
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
         if (ctx->statFrames == STATS_LOG_INTERVAL_FRAMES) {
-            LOGI("XR blit: %ld frames, avg %.2f ms, max %.2f ms",
-                 ctx->statFrames, ctx->statTotalNs / (double)ctx->statFrames / 1e6,
-                 ctx->statMaxNs / 1e6);
+            // Submit is the wall clock around the draw calls, which is only
+            // how long the driver took to queue them. GPU is the real cost.
+            if (ctx->gpuSamples > 0) {
+                LOGI("XR warp: %ld frames, GPU avg %.2f ms, GPU max %.2f ms, submit avg %.2f ms",
+                     ctx->statFrames, ctx->gpuTotalNs / (double)ctx->gpuSamples / 1e6,
+                     ctx->gpuMaxNs / 1e6,
+                     ctx->statTotalNs / (double)ctx->statFrames / 1e6);
+            }
+            else {
+                LOGI("XR warp: %ld frames, submit avg %.2f ms, max %.2f ms (no GPU timer)",
+                     ctx->statFrames, ctx->statTotalNs / (double)ctx->statFrames / 1e6,
+                     ctx->statMaxNs / 1e6);
+            }
             ctx->statFrames = 0;
             ctx->statTotalNs = 0;
             ctx->statMaxNs = 0;
+            ctx->gpuTotalNs = 0;
+            ctx->gpuMaxNs = 0;
+            ctx->gpuSamples = 0;
         }
     }
 

@@ -7,6 +7,7 @@ import android.view.Surface;
 import com.limelight.LimeLog;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -32,6 +33,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     // Averaged over this many inferences before hitting logcat
     private static final int DEPTH_STATS_INTERVAL = 30;
+    private static final int DEPTH_AGE_INTERVAL = 300;
 
     private long nativeCtx;
     private Thread renderThread;
@@ -42,6 +44,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final AtomicInteger pendingFrames = new AtomicInteger(0);
     private final float[] texMatrix = new float[16];
     private volatile boolean stopping;
+    private long videoFrameIndex;
 
     // Handoff to the depth thread. The frame loop fills the model input and
     // sets pending, the depth thread runs inference and uploads the result.
@@ -55,8 +58,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile boolean depthReady;
     private volatile long lastCaptureNs;
 
+    // How far behind the picture the depth map is. The map warping a frame was
+    // computed from an earlier one, and then reused until the next inference
+    // lands, so during camera motion it is spatially offset from the colour it
+    // is warping. Measured rather than assumed: these are the frame index and
+    // clock reading of the frame the live depth map came from.
+    private long captureFrameIndex;
+    private long captureFrameNs;
+    private volatile long publishedFrameIndex;
+    private volatile long publishedFrameNs;
+
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
-                                   boolean depthDebug);
+                                   boolean depthDebug, int convergence, int depthScale);
+    private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
     private native ByteBuffer nativeGetModelOutput(long ctx);
@@ -79,10 +93,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             @Override
             public void run() {
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
-                        prefs.vrDepthDebug);
+                        prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
+                }
+
+                File captureDir = activity.getExternalFilesDir(null);
+                if (captureDir != null) {
+                    nativeSetCaptureDir(nativeCtx, captureDir.getAbsolutePath());
                 }
 
                 // The EGL context is current on this thread now, so the
@@ -206,6 +225,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             boolean ok = source.estimate();
             if (ok) {
                 upload = nativeUploadDepth(nativeCtx);
+                publishedFrameIndex = captureFrameIndex;
+                publishedFrameNs = captureFrameNs;
             }
 
             synchronized (depthLock) {
@@ -268,7 +289,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         boolean eyeSwap = prefs.vrEyeSwap;
         int cadence = Math.max(1, prefs.vrInferenceCadence);
 
-        long videoFrames = 0;
+        long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
 
         while (!stopping) {
             int r = nativeWaitBeginFrame(nativeCtx);
@@ -285,9 +306,28 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 surfaceTexture.updateTexImage();
                 surfaceTexture.getTransformMatrix(texMatrix);
 
-                if (depthReady && (videoFrames++ % cadence) == 0) {
-                    handOffDepthFrame();
+                if (depthReady) {
+                    if ((videoFrameIndex % cadence) == 0) {
+                        handOffDepthFrame();
+                    }
+                    if (publishedFrameNs != 0) {
+                        long age = System.nanoTime() - publishedFrameNs;
+                        ageFrames += videoFrameIndex - publishedFrameIndex;
+                        ageNs += age;
+                        ageSamples++;
+                        if (age > worstAgeNs) {
+                            worstAgeNs = age;
+                        }
+                        if (ageSamples == DEPTH_AGE_INTERVAL) {
+                            LimeLog.info("Depth age: "+String.format("%.1f", ageFrames
+                                    / (double)ageSamples)+" video frames, "
+                                    +msPer(ageNs, ageSamples)+" ms avg, "
+                                    +msPer(worstAgeNs, 1)+" ms worst");
+                            ageFrames = ageNs = ageSamples = worstAgeNs = 0;
+                        }
+                    }
                 }
+                videoFrameIndex++;
             }
             nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature,
                     headLocked, separation, eyeSwap);
@@ -308,6 +348,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
 
         lastCaptureNs = nativeCaptureDepthInput(nativeCtx, texMatrix);
+        captureFrameIndex = videoFrameIndex;
+        captureFrameNs = System.nanoTime();
 
         synchronized (depthLock) {
             depthPending = true;
