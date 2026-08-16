@@ -272,6 +272,14 @@ public class AddComputerManually extends Activity {
 
         setContentView(R.layout.activity_add_computer_manually);
 
+        // Headset panels do not always give the user a system back control
+        findViewById(R.id.screenBack).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onBackPressed();
+            }
+        });
+
         UiHelper.notifyNewRootView(this);
 
         this.hostText = findViewById(R.id.hostTextView);

@@ -199,24 +199,34 @@
             <meta-data
                 android:name="com.nvidia.rawCursorInput"
                 android:value="true" />
+            <!-- Flat streaming draws to a SurfaceView and never submits XR
+                 frames, so without this Pico hands it an immersive container
+                 and the loading screen waits forever -->
+            <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
-        <!-- Same Game activity, but launched immersive on headsets. Kept as an
-             alias so normal 2d launches stay untouched -->
-        <activity-alias
+        <!-- The same activity subclassed, so the immersive path can be marked
+             vr while the flat one above stays a panel. An alias cannot do this:
+             Pico reads the app type from the target activity, so whichever
+             value Game carried won both launches -->
+        <activity
             android:name=".GameXR"
-            android:targetActivity=".Game"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
+            android:noHistory="true"
+            android:resizeableActivity="false"
+            android:enableOnBackInvokedCallback="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:theme="@style/StreamTheme"
+            android:preferMinimalPostProcessing="true"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
-            <!-- Pico marks VR content with this. It must not sit on the
-                 application element or the 2d activities get launched into an
-                 immersive container and hang, since they never submit frames -->
             <meta-data
                 android:name="pvr.app.type"
                 android:value="vr" />
-        </activity-alias>
+        </activity>
 
         <service
             android:name=".discovery.DiscoveryService"

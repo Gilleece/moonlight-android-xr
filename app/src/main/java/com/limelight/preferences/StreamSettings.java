@@ -64,6 +64,13 @@ public class StreamSettings extends Activity {
 
         setContentView(R.layout.activity_stream_settings);
 
+        findViewById(R.id.settings_back).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                onBackPressed();
+            }
+        });
+
         UiHelper.notifyNewRootView(this);
     }
 

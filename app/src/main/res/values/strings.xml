@@ -250,9 +250,12 @@
     <string name="summary_enable_hdr">Stream HDR when the game and PC GPU support it. HDR requires a GPU with HEVC Main 10 encoding support.</string>
     <string name="title_full_range">Force full range video (Experimental)</string>
     <string name="summary_full_range">This will cause loss of detail in light and dark areas if your device doesn\'t properly display full range video content.</string>
+    <string name="title_settings_back">Back</string>
+    <string name="summary_settings_back">Return to the computer list</string>
     <string name="category_vr_settings">VR Settings</string>
+    <string name="category_vr_debug">VR Debugging</string>
     <string name="title_enable_vr_mode">Stream in VR (Experimental)</string>
-    <string name="summary_enable_vr_mode">Show the stream on a virtual screen in an immersive VR session. Headsets only.</string>
+    <string name="summary_enable_vr_mode">Show the stream on a virtual screen in an immersive VR session. Headsets only, and the only mode with a 3D effect.</string>
     <string name="title_vr_head_locked">Head locked screen</string>
     <string name="summary_vr_head_locked">Keep the virtual screen fixed in front of your view instead of anchored in the world</string>
     <string name="title_seekbar_vr_distance">Screen distance</string>
@@ -261,9 +264,11 @@
     <string name="summary_seekbar_vr_screen_size">Width of the virtual screen</string>
     <string name="title_seekbar_vr_curvature">Screen curvature</string>
     <string name="summary_seekbar_vr_curvature">0 is flat, higher values wrap the screen around you</string>
-    <string name="suffix_seekbar_vr_tenth_meters">tenths of a meter</string>
-    <string name="title_vr_depth_source">Stereo depth source</string>
-    <string name="summary_vr_depth_source">Where the depth map used for stereo comes from. The test patterns use a hardcoded depth map instead of the model.</string>
+    <string name="suffix_seekbar_vr_meters">m</string>
+    <string name="title_vr_passthrough">Passthrough mode</string>
+    <string name="summary_vr_passthrough">Turn on passthrough. Please note this uses more system resources, please disable if you find the stream performing poorly</string>
+    <string name="title_vr_depth_source">Realtime 3D mode</string>
+    <string name="summary_vr_depth_source">Choose the realtime 3D mode, including test patterns.</string>
     <string name="title_vr_depth_debug">Show depth map</string>
     <string name="summary_vr_depth_debug">Render the depth map as grayscale instead of the video, for checking depth quality</string>
     <string name="title_vr_eye_swap">Swap eyes</string>
@@ -272,13 +277,12 @@
     <string name="summary_seekbar_vr_inference_cadence">Run the depth model on every Nth video frame. Higher is cheaper but depth lags further behind.</string>
     <string name="suffix_seekbar_vr_inference_cadence">frames</string>
     <string name="title_seekbar_vr_separation">Stereo separation</string>
-    <string name="summary_seekbar_vr_separation">Maximum disparity in stereo mode. Higher is a stronger 3D effect.</string>
-    <string name="suffix_seekbar_vr_separation">tenths of a percent</string>
+    <string name="summary_seekbar_vr_separation">How far apart the two eye views are, as a percent of frame width. Above about 0.5 the picture does not look any deeper but is harder on the eyes.</string>
     <string name="suffix_seekbar_vr_percent">%</string>
     <string name="title_enable_gl_render_path">Render through OpenGL (Experimental)</string>
     <string name="summary_enable_gl_render_path">Route decoded video through an OpenGL texture before display. Should look identical to normal rendering. HDR streams will be tone clamped with this on.</string>
     <string name="title_enable_perf_overlay">Show performance stats while streaming</string>
-    <string name="summary_enable_perf_overlay">Display real-time stream performance information while streaming</string>
+    <string name="summary_enable_perf_overlay">Display real-time stream performance information while streaming. In VR it appears on the virtual screen and adds warp, depth and inference timings.</string>
     <string name="title_enable_post_stream_toast">Show latency message after streaming</string>
     <string name="summary_enable_post_stream_toast">Display a latency information message after the stream ends</string>
 

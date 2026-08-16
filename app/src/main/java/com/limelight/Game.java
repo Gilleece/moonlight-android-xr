@@ -17,6 +17,7 @@ import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
+import com.limelight.binding.video.XrRenderer;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -2638,6 +2639,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onPerfUpdate(final String text) {
+        // In VR the activity window is not displayed, so the stats go to the
+        // renderer, which draws them as a layer inside the session
+        XrRenderer xrRenderer = decoderRenderer != null ? decoderRenderer.getXrRenderer() : null;
+        if (xrRenderer != null) {
+            xrRenderer.setOverlayText(text);
+        }
+
         runOnUiThread(new Runnable() {
             @Override
             public void run() {

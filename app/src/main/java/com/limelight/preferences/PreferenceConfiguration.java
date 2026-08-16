@@ -57,6 +57,7 @@ public class PreferenceConfiguration {
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     private static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
+    private static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
@@ -82,8 +83,8 @@ public class PreferenceConfiguration {
     private static final String GAMEPAD_MOTION_SENSORS_PREF_STRING = "checkbox_gamepad_motion_sensors";
     private static final String GAMEPAD_MOTION_FALLBACK_PREF_STRING = "checkbox_gamepad_motion_fallback";
 
-    static final String DEFAULT_RESOLUTION = "1280x720";
-    static final String DEFAULT_FPS = "60";
+    static final String DEFAULT_RESOLUTION = "3840x2160";
+    static final String DEFAULT_FPS = "90";
     private static final boolean DEFAULT_STRETCH = false;
     private static final boolean DEFAULT_SOPS = true;
     private static final boolean DEFAULT_DISABLE_TOASTS = false;
@@ -102,15 +103,16 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_ENABLE_PIP = false;
     private static final boolean DEFAULT_ENABLE_PERF_OVERLAY = false;
     private static final boolean DEFAULT_ENABLE_GL_RENDER_PATH = false;
-    private static final boolean DEFAULT_ENABLE_VR_MODE = false;
+    private static final boolean DEFAULT_ENABLE_VR_MODE = true;
     private static final boolean DEFAULT_VR_HEAD_LOCKED = false;
     // Tenths of a metre. 2 m at 3 m wide was reported too close and too
     // large, 3 m at 3 m wide is what a sustained session settled on.
     private static final int DEFAULT_VR_DISTANCE = 30;
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
-    private static final String DEFAULT_VR_DEPTH_SOURCE = "off";
+    private static final String DEFAULT_VR_DEPTH_SOURCE = "model";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
+    private static final boolean DEFAULT_VR_PASSTHROUGH = false;
     // Tenths of a percent of frame width. 5 measured comfortable on device and
     // 7 already strained, once the depth map started using its full range.
     private static final int DEFAULT_VR_SEPARATION = 5;
@@ -183,6 +185,7 @@ public class PreferenceConfiguration {
     // Tenths of a percent of frame width
     public int vrStereoSeparation;
     public boolean vrDepthDebug;
+    public boolean vrPassthrough;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -664,6 +667,7 @@ public class PreferenceConfiguration {
             config.vrDepthMode = 0;
         }
         config.vrEyeSwap = prefs.getBoolean(VR_EYE_SWAP_PREF_STRING, DEFAULT_VR_EYE_SWAP);
+        config.vrPassthrough = prefs.getBoolean(VR_PASSTHROUGH_PREF_STRING, DEFAULT_VR_PASSTHROUGH);
         config.vrStereoSeparation = prefs.getInt(VR_SEPARATION_PREF_STRING, DEFAULT_VR_SEPARATION);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

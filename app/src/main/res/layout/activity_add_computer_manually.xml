@@ -8,6 +8,20 @@
     android:paddingTop="@dimen/activity_vertical_margin"
     tools:context=".preferences.AddComputerManually" >
 
+
+    <ImageButton
+        android:id="@+id/screenBack"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentLeft="true"
+        android:src="@drawable/ic_settings_back"
+        android:background="?android:attr/selectableItemBackground"
+        android:scaleType="fitCenter"
+        android:padding="10dp"
+        android:contentDescription="@string/title_settings_back" />
+
     <TextView
         android:id="@+id/manuallyAddPcText"
         android:text="@string/title_add_pc"

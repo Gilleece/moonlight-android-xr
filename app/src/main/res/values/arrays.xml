@@ -134,12 +134,12 @@
 
     <string-array name="vr_depth_source_names">
         <item>Off</item>
-        <item>Depth model</item>
-        <item>Flat plane</item>
-        <item>Horizontal ramp</item>
-        <item>Center blob</item>
-        <item>Eye routing test</item>
-        <item>Shift measurement test</item>
+        <item>V1.0 - MiDaS Based 3D</item>
+        <item>Test pattern: flat plane</item>
+        <item>Test pattern: horizontal ramp</item>
+        <item>Test pattern: center blob</item>
+        <item>Test pattern: eye routing</item>
+        <item>Test pattern: shift measurement</item>
     </string-array>
     <string-array name="vr_depth_source_values" translatable="false">
         <item>off</item>

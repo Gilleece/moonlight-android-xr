@@ -508,6 +508,13 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return videoFormat;
     }
 
+    // Null unless a VR session is running. The stats overlay goes through
+    // here, since in an immersive session the 2d overlay view is not on
+    // screen and the numbers have to be drawn into the scene instead.
+    public XrRenderer getXrRenderer() {
+        return xrRenderer;
+    }
+
     // Picks the surface the codec renders into. With the GL path enabled the
     // codec feeds a SurfaceTexture and we draw it back to the display
     // ourselves. The renderer is created once and reused across codec
