@@ -107,7 +107,9 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_CURVATURE = 0;
     private static final String DEFAULT_VR_DEPTH_SOURCE = "off";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
-    private static final int DEFAULT_VR_SEPARATION = 15;
+    // Tenths of a percent of frame width. 5 measured comfortable on device and
+    // 7 already strained, once the depth map started using its full range.
+    private static final int DEFAULT_VR_SEPARATION = 5;
     private static final boolean DEFAULT_VR_DEPTH_DEBUG = false;
     private static final int DEFAULT_VR_INFERENCE_CADENCE = 3;
     private static final boolean DEFAULT_BIND_ALL_USB = false;

@@ -279,7 +279,7 @@
             android:title="@string/title_seekbar_vr_inference_cadence"/>
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_separation"
-            android:defaultValue="15"
+            android:defaultValue="5"
             seekbar:min="0"
             android:max="50"
             android:summary="@string/summary_seekbar_vr_separation"
