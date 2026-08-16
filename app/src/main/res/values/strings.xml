@@ -265,10 +265,10 @@
     <string name="title_seekbar_vr_curvature">Screen curvature</string>
     <string name="summary_seekbar_vr_curvature">0 is flat, higher values wrap the screen around you</string>
     <string name="suffix_seekbar_vr_meters">m</string>
-    <string name="title_vr_passthrough">Show your room around the screen</string>
-    <string name="summary_vr_passthrough">Show your room instead of a black background around the screen. Not offered by every headset yet, so if your view goes black, turn this back off.</string>
-    <string name="title_vr_depth_source">Stereo depth source</string>
-    <string name="summary_vr_depth_source">Where the depth map used for stereo comes from. 3D only applies in VR mode, the flat panel is unchanged. The test patterns use a hardcoded depth map instead of the model.</string>
+    <string name="title_vr_passthrough">Passthrough mode</string>
+    <string name="summary_vr_passthrough">Turn on passthrough. Please note this uses more system resources, please disable if you find the stream performing poorly</string>
+    <string name="title_vr_depth_source">Realtime 3D mode</string>
+    <string name="summary_vr_depth_source">Choose the realtime 3D mode, including test patterns.</string>
     <string name="title_vr_depth_debug">Show depth map</string>
     <string name="summary_vr_depth_debug">Render the depth map as grayscale instead of the video, for checking depth quality</string>
     <string name="title_vr_eye_swap">Swap eyes</string>

@@ -42,3 +42,8 @@ app/.externalNativeBuild/
 
 # NDK stuff
 .cxx/
+
+# Signing keys never belong in the repo
+*.keystore
+*.jks
+release-keystore-password.txt
