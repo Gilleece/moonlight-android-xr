@@ -238,7 +238,7 @@
             android:defaultValue="false"/>
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_distance"
-            android:defaultValue="20"
+            android:defaultValue="30"
             seekbar:min="10"
             android:max="50"
             android:summary="@string/summary_seekbar_vr_distance"

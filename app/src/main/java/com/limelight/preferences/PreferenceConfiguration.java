@@ -60,6 +60,8 @@ public class PreferenceConfiguration {
     private static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
+    private static final String VR_CONVERGENCE_PREF_STRING = "seekbar_vr_convergence";
+    private static final String VR_DEPTH_SCALE_PREF_STRING = "seekbar_vr_depth_scale";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
@@ -102,7 +104,9 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_ENABLE_GL_RENDER_PATH = false;
     private static final boolean DEFAULT_ENABLE_VR_MODE = false;
     private static final boolean DEFAULT_VR_HEAD_LOCKED = false;
-    private static final int DEFAULT_VR_DISTANCE = 20;
+    // Tenths of a metre. 2 m at 3 m wide was reported too close and too
+    // large, 3 m at 3 m wide is what a sustained session settled on.
+    private static final int DEFAULT_VR_DISTANCE = 30;
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
     private static final String DEFAULT_VR_DEPTH_SOURCE = "off";
@@ -112,6 +116,11 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_SEPARATION = 5;
     private static final boolean DEFAULT_VR_DEPTH_DEBUG = false;
     private static final int DEFAULT_VR_INFERENCE_CADENCE = 3;
+    // Neither of these is exposed in settings. Measured on device, neither is
+    // perceptible at a comfortable separation, so they would be sliders that
+    // do nothing. The renderer still honours them over its debug properties.
+    private static final int DEFAULT_VR_CONVERGENCE = 50;
+    private static final int DEFAULT_VR_DEPTH_SCALE = 100;
     private static final boolean DEFAULT_BIND_ALL_USB = false;
     private static final boolean DEFAULT_MOUSE_EMULATION = true;
     private static final String DEFAULT_ANALOG_STICK_FOR_SCROLLING = "right";
@@ -176,6 +185,8 @@ public class PreferenceConfiguration {
     public boolean vrDepthDebug;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
+    public int vrConvergence;
+    public int vrDepthScale;
     public boolean enableLatencyToast;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
@@ -656,6 +667,8 @@ public class PreferenceConfiguration {
         config.vrStereoSeparation = prefs.getInt(VR_SEPARATION_PREF_STRING, DEFAULT_VR_SEPARATION);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);
+        config.vrConvergence = prefs.getInt(VR_CONVERGENCE_PREF_STRING, DEFAULT_VR_CONVERGENCE);
+        config.vrDepthScale = prefs.getInt(VR_DEPTH_SCALE_PREF_STRING, DEFAULT_VR_DEPTH_SCALE);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);
