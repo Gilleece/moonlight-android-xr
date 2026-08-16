@@ -2,6 +2,87 @@
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:seekbar="http://schemas.moonlight-stream.com/apk/res/seekbar">
 
+    <PreferenceCategory android:title="@string/category_vr_settings"
+        android:key="category_vr_settings">
+        <CheckBoxPreference
+            android:key="checkbox_enable_vr_mode"
+            android:title="@string/title_enable_vr_mode"
+            android:summary="@string/summary_enable_vr_mode"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_head_locked"
+            android:title="@string/title_vr_head_locked"
+            android:summary="@string/summary_vr_head_locked"
+            android:defaultValue="false"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_distance"
+            android:defaultValue="30"
+            seekbar:min="10"
+            android:max="50"
+            seekbar:divisor="10"
+            android:summary="@string/summary_seekbar_vr_distance"
+            android:text="@string/suffix_seekbar_vr_meters"
+            android:title="@string/title_seekbar_vr_distance"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_screen_size"
+            android:defaultValue="30"
+            seekbar:min="10"
+            android:max="60"
+            seekbar:divisor="10"
+            android:summary="@string/summary_seekbar_vr_screen_size"
+            android:text="@string/suffix_seekbar_vr_meters"
+            android:title="@string/title_seekbar_vr_screen_size"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_passthrough"
+            android:title="@string/title_vr_passthrough"
+            android:summary="@string/summary_vr_passthrough"
+            android:defaultValue="false"/>
+        <ListPreference
+            android:key="list_vr_depth_source"
+            android:title="@string/title_vr_depth_source"
+            android:entries="@array/vr_depth_source_names"
+            android:entryValues="@array/vr_depth_source_values"
+            android:summary="@string/summary_vr_depth_source"
+            android:defaultValue="model" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_separation"
+            android:defaultValue="5"
+            seekbar:min="0"
+            android:max="50"
+            seekbar:divisor="10"
+            android:summary="@string/summary_seekbar_vr_separation"
+            android:text="@string/suffix_seekbar_vr_percent"
+            android:title="@string/title_seekbar_vr_separation"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_curvature"
+            android:defaultValue="0"
+            seekbar:min="0"
+            android:max="100"
+            android:summary="@string/summary_seekbar_vr_curvature"
+            android:text="@string/suffix_seekbar_vr_percent"
+            android:title="@string/title_seekbar_vr_curvature"/>
+    </PreferenceCategory>
+    <PreferenceCategory android:title="@string/category_vr_debug"
+        android:key="category_vr_debug">
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_inference_cadence"
+            android:defaultValue="3"
+            seekbar:min="1"
+            android:max="6"
+            android:summary="@string/summary_seekbar_vr_inference_cadence"
+            android:text="@string/suffix_seekbar_vr_inference_cadence"
+            android:title="@string/title_seekbar_vr_inference_cadence"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_depth_debug"
+            android:title="@string/title_vr_depth_debug"
+            android:summary="@string/summary_vr_depth_debug"
+            android:defaultValue="false"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_eye_swap"
+            android:title="@string/title_vr_eye_swap"
+            android:summary="@string/summary_vr_eye_swap"
+            android:defaultValue="false"/>
+    </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_basic_settings"
         android:key="category_basic_settings">
         <ListPreference
@@ -10,14 +91,14 @@
             android:summary="@string/summary_resolution_list"
             android:entries="@array/resolution_names"
             android:entryValues="@array/resolution_values"
-            android:defaultValue="1280x720" />
+            android:defaultValue="3840x2160" />
         <ListPreference
             android:key="list_fps"
             android:title="@string/title_fps_list"
             android:summary="@string/summary_fps_list"
             android:entries="@array/fps_names"
             android:entryValues="@array/fps_values"
-            android:defaultValue="60" />
+            android:defaultValue="90" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_bitrate_kbps"
             android:dialogMessage="@string/summary_seekbar_bitrate"
@@ -223,76 +304,6 @@
             android:key="checkbox_small_icon_mode"
             android:title="@string/title_checkbox_small_icon_mode"
             android:summary="@string/summary_checkbox_small_icon_mode" />
-    </PreferenceCategory>
-    <PreferenceCategory android:title="@string/category_vr_settings"
-        android:key="category_vr_settings">
-        <CheckBoxPreference
-            android:key="checkbox_enable_vr_mode"
-            android:title="@string/title_enable_vr_mode"
-            android:summary="@string/summary_enable_vr_mode"
-            android:defaultValue="false"/>
-        <CheckBoxPreference
-            android:key="checkbox_vr_head_locked"
-            android:title="@string/title_vr_head_locked"
-            android:summary="@string/summary_vr_head_locked"
-            android:defaultValue="false"/>
-        <com.limelight.preferences.SeekBarPreference
-            android:key="seekbar_vr_distance"
-            android:defaultValue="30"
-            seekbar:min="10"
-            android:max="50"
-            android:summary="@string/summary_seekbar_vr_distance"
-            android:text="@string/suffix_seekbar_vr_tenth_meters"
-            android:title="@string/title_seekbar_vr_distance"/>
-        <com.limelight.preferences.SeekBarPreference
-            android:key="seekbar_vr_screen_size"
-            android:defaultValue="30"
-            seekbar:min="10"
-            android:max="60"
-            android:summary="@string/summary_seekbar_vr_screen_size"
-            android:text="@string/suffix_seekbar_vr_tenth_meters"
-            android:title="@string/title_seekbar_vr_screen_size"/>
-        <ListPreference
-            android:key="list_vr_depth_source"
-            android:title="@string/title_vr_depth_source"
-            android:entries="@array/vr_depth_source_names"
-            android:entryValues="@array/vr_depth_source_values"
-            android:summary="@string/summary_vr_depth_source"
-            android:defaultValue="off" />
-        <CheckBoxPreference
-            android:key="checkbox_vr_depth_debug"
-            android:title="@string/title_vr_depth_debug"
-            android:summary="@string/summary_vr_depth_debug"
-            android:defaultValue="false"/>
-        <CheckBoxPreference
-            android:key="checkbox_vr_eye_swap"
-            android:title="@string/title_vr_eye_swap"
-            android:summary="@string/summary_vr_eye_swap"
-            android:defaultValue="false"/>
-        <com.limelight.preferences.SeekBarPreference
-            android:key="seekbar_vr_inference_cadence"
-            android:defaultValue="3"
-            seekbar:min="1"
-            android:max="6"
-            android:summary="@string/summary_seekbar_vr_inference_cadence"
-            android:text="@string/suffix_seekbar_vr_inference_cadence"
-            android:title="@string/title_seekbar_vr_inference_cadence"/>
-        <com.limelight.preferences.SeekBarPreference
-            android:key="seekbar_vr_separation"
-            android:defaultValue="5"
-            seekbar:min="0"
-            android:max="50"
-            android:summary="@string/summary_seekbar_vr_separation"
-            android:text="@string/suffix_seekbar_vr_separation"
-            android:title="@string/title_seekbar_vr_separation"/>
-        <com.limelight.preferences.SeekBarPreference
-            android:key="seekbar_vr_curvature"
-            android:defaultValue="0"
-            seekbar:min="0"
-            android:max="100"
-            android:summary="@string/summary_seekbar_vr_curvature"
-            android:text="@string/suffix_seekbar_vr_percent"
-            android:title="@string/title_seekbar_vr_curvature"/>
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_advanced_settings"
         android:key="category_advanced_settings">
