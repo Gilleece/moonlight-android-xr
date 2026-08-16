@@ -37,8 +37,9 @@ public class MidasDepthSource implements DepthSource {
     // Times a CPU interpreter alongside the GPU one at startup. The point is
     // to prove the delegate is really running on the GPU rather than having
     // silently fallen back, which a bare timing number cannot show. Costs
-    // about a second at stream start.
-    private static final boolean BENCHMARK_CPU = true;
+    // about a second at stream start, so it stays off now that the comparison
+    // has been made (183 to 265 ms CPU against 13.5 ms GPU).
+    private static final boolean BENCHMARK_CPU = false;
 
     private Interpreter interpreter;
     private GpuDelegate gpuDelegate;
