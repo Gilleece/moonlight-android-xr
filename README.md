@@ -1,4 +1,4 @@
-# Moonlight VR
+# Moonlight XR
 
 A fork of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android) that
 runs as a native OpenXR application and shows the game stream in stereoscopic 3D on a headset.
