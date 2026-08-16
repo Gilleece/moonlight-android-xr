@@ -58,10 +58,13 @@ public class ServerHelper {
                                            ComputerManagerService.ComputerManagerBinder managerBinder) {
         Intent intent = new Intent(parent, Game.class);
         if (PreferenceConfiguration.readPreferences(parent).enableVrMode) {
-            // Launch through the alias that carries the VR intent category so
+            // Launch the activity that carries the VR intent category so
             // headset shells start us immersive instead of as a panel
             intent.setComponent(new ComponentName(parent, "com.limelight.GameXR"));
             intent.addCategory("com.oculus.intent.category.VR");
+            // Its own task, so tearing the 2d panels down below cannot take
+            // the stream with it
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         }
         intent.putExtra(Game.EXTRA_HOST, computer.activeAddress.address);
         intent.putExtra(Game.EXTRA_PORT, computer.activeAddress.port);
@@ -89,6 +92,14 @@ public class ServerHelper {
             return;
         }
         parent.startActivity(createStartIntent(parent, app, computer, managerBinder));
+
+        // A headset shell keeps the 2d panels floating beside the stream, which
+        // invites people to change settings mid stream and wait for something
+        // to happen. Settings are read once at launch, so nothing would. The
+        // stream is in its own task by then, so this only takes the panels.
+        if (PreferenceConfiguration.readPreferences(parent).enableVrMode) {
+            parent.finishAffinity();
+        }
     }
 
     public static void doNetworkTest(final Activity parent) {
