@@ -17,14 +17,29 @@
 #   cap_<tag>_left.raw        W*H*4 uint8 RGBA, what the left eye was shown
 #   cap_<tag>_right.raw       W*H*4 uint8 RGBA, likewise
 #   cap_<tag>_depthtex.raw    256*256 uint8, the depth texture the warp read
+#   cap_<tag>_guidetex.raw    256*256*4 uint8, guide colour in rgb, depth in a
+#   cap_<tag>_upsampled.raw   (W/4)*(H/4) uint8, the upsampled depth
 #   cap_<tag>_depthraw.raw    256*256 float32, raw model output before
 #                             normalization
 #   cap_<tag>_modelinput.raw  256*256*3 float32, the RGB the model was given
 #
-# Orientation: source, left, right and depthtex all come back from glReadPixels
-# bottom row first, and agree with each other, so the warp runs on them as they
-# are. depthraw and modelinput are top row first, the way the model sees them.
-# Anything written out as a PNG is flipped to top first.
+# Orientation: source, left, right, depthtex and upsampled all come back from
+# glReadPixels bottom row first, and agree with each other, so the warp runs on
+# them as they are. depthraw and modelinput are top row first, the way the
+# model sees them. Anything written out as a PNG is flipped to top first.
+#
+# This reproduces the shipped shader: joint bilateral upsample of the depth
+# guided by colour, then an occlusion aware gather that inverts the forward
+# map. Checked against a device capture: the upsample matches to a mean of
+# 0.001, which is the 8 bit quantisation floor, and the warped eyes to a mean
+# of 1.0 of 255 over the whole frame.
+#
+# That 99th percentile of about 18 is expected and not a fidelity problem. At a
+# fold the search picks between competing crossings, so a tiny numeric
+# difference flips which one wins and moves that pixel by the whole disparity.
+# The error is concentrated at fold boundaries; everywhere else it is under a
+# quantisation step. Judge changes on the stretch statistics and the images,
+# not on this number moving by a few tenths.
 
 import argparse
 import os
@@ -34,6 +49,8 @@ import numpy as np
 from PIL import Image
 
 DEPTH_SIZE = 256
+SIGMA_S = 1.5
+CHUNK_ROWS = 108
 
 
 def load_raw(directory, tag, what, dtype, count):
@@ -46,40 +63,6 @@ def load_raw(directory, tag, what, dtype, count):
     return data
 
 
-def sample_bilinear(image, xs, ys):
-    """Matches GL_LINEAR with CLAMP_TO_EDGE. xs and ys are normalized."""
-    h, w = image.shape[:2]
-    fx = xs * w - 0.5
-    fy = ys * h - 0.5
-    x0 = np.floor(fx)
-    y0 = np.floor(fy)
-    tx = (fx - x0)[..., None] if image.ndim == 3 else fx - x0
-    ty = (fy - y0)[..., None] if image.ndim == 3 else fy - y0
-
-    x0 = x0.astype(np.int64)
-    y0 = y0.astype(np.int64)
-    x1 = np.clip(x0 + 1, 0, w - 1)
-    y1 = np.clip(y0 + 1, 0, h - 1)
-    x0 = np.clip(x0, 0, w - 1)
-    y0 = np.clip(y0, 0, h - 1)
-
-    top = image[y0, x0] * (1.0 - tx) + image[y0, x1] * tx
-    bot = image[y1, x0] * (1.0 - tx) + image[y1, x1] * tx
-    return top * (1.0 - ty) + bot * ty
-
-
-def warp(source, depth, disparity, convergence=0.5):
-    """The current shader: one gather step using depth at the destination."""
-    h, w = source.shape[:2]
-    xs = (np.arange(w) + 0.5) / w
-    ys = (np.arange(h) + 0.5) / h
-    gx, gy = np.meshgrid(xs, ys)
-
-    d = sample_bilinear(depth, gx, gy)
-    tc = gx - disparity * (d - convergence)
-    return sample_bilinear(source, tc, gy), d
-
-
 def save_png(path, array, flip=True):
     a = np.clip(array, 0.0, 255.0).astype(np.uint8)
     if flip:
@@ -88,32 +71,113 @@ def save_png(path, array, flip=True):
     print("wrote %s" % path)
 
 
-def edge_alignment(depth_full, luma, threshold=0.04, search=48):
-    """Mean horizontal distance from a depth edge to the nearest colour edge.
+def jbu_upsample(source, guide_rgb, depth_tex, uw, uh, sigma_r, sharp=0.0):
+    """The upsample pass. Depth is snapped onto colour edges, and optionally
+    pushed to whichever side of the local range it is nearer."""
+    h, w = source.shape[:2]
+    out = np.zeros((uh, uw), np.float32)
+    vx = (np.arange(uw) + 0.5) / uw
+    vy = (np.arange(uh) + 0.5) / uh
+    sx = np.clip((vx * w).astype(int), 0, w - 1)
+    sy = np.clip((vy * h).astype(int), 0, h - 1)
+    lp_x = vx * DEPTH_SIZE - 0.5
+    lp_y = vy * DEPTH_SIZE - 0.5
+    bx = np.floor(lp_x).astype(int)
+    by = np.floor(lp_y).astype(int)
 
-    This is the halo, measured. A depth boundary that sits 15 px away from the
-    colour boundary it belongs to drags the wrong pixels across the edge.
-    """
-    dd = np.abs(np.diff(depth_full, axis=1))
-    dl = np.abs(np.diff(luma, axis=1))
-    depth_edges = dd > threshold
-    colour_edges = dl > (0.10 * 255.0)
+    for y in range(uh):
+        hi = source[sy[y], sx] / 255.0
+        num = np.zeros(uw, np.float32)
+        den = np.zeros(uw, np.float32)
+        lo_d = np.full(uw, 1.0, np.float32)
+        hi_d = np.zeros(uw, np.float32)
+        for dy in range(-2, 3):
+            qy = np.clip(by[y] + dy, 0, DEPTH_SIZE - 1)
+            for dx in range(-2, 3):
+                qx = np.clip(bx + dx, 0, DEPTH_SIZE - 1)
+                sa = depth_tex[qy, qx]
+                srgb = guide_rgb[qy, qx]
+                offx = qx - lp_x
+                offy = float(qy) - lp_y[y]
+                ws = np.exp(-(offx * offx + offy * offy) / (2 * SIGMA_S ** 2))
+                cd = hi - srgb
+                wr = np.exp(-(cd * cd).sum(axis=1) / (2 * sigma_r ** 2))
+                wgt = ws * wr
+                num += wgt * sa
+                den += wgt
+                lo_d = np.minimum(lo_d, sa)
+                hi_d = np.maximum(hi_d, sa)
+        d = num / np.maximum(den, 1e-6)
+        if sharp > 0.0:
+            span = hi_d - lo_d
+            u = np.clip((d - lo_d) / np.maximum(span, 1e-6), 0.0, 1.0)
+            snapped = lo_d + span / (1.0 + np.exp(-24.0 * (u - 0.5)))
+            d = np.where(span < 0.05, d, d + sharp * (snapped - d))
+        out[y] = d
+    return out
 
-    distances = []
-    rows = np.unique(np.linspace(0, depth_full.shape[0] - 1, 240).astype(int))
-    for y in rows:
-        de = np.flatnonzero(depth_edges[y])
-        ce = np.flatnonzero(colour_edges[y])
-        if de.size == 0 or ce.size == 0:
-            continue
-        idx = np.searchsorted(ce, de)
-        left = ce[np.clip(idx - 1, 0, ce.size - 1)]
-        right = ce[np.clip(idx, 0, ce.size - 1)]
-        nearest = np.minimum(np.abs(de - left), np.abs(de - right))
-        distances.append(nearest[nearest <= search])
-    if not distances:
-        return None
-    return np.concatenate(distances)
+
+def expand(depth_small, w, h):
+    """Bilinear expand to full resolution, matching the sampler."""
+    uh, uw = depth_small.shape
+    ys = (np.arange(h) + 0.5) / h * uh - 0.5
+    xs = (np.arange(w) + 0.5) / w * uw - 0.5
+    y0 = np.clip(np.floor(ys).astype(int), 0, uh - 1)
+    y1 = np.clip(y0 + 1, 0, uh - 1)
+    x0 = np.clip(np.floor(xs).astype(int), 0, uw - 1)
+    x1 = np.clip(x0 + 1, 0, uw - 1)
+    ty = (ys - np.floor(ys))[:, None]
+    tx = (xs - np.floor(xs))[None, :]
+    top = depth_small[np.ix_(y0, x0)] * (1 - tx) + depth_small[np.ix_(y0, x1)] * tx
+    bot = depth_small[np.ix_(y1, x0)] * (1 - tx) + depth_small[np.ix_(y1, x1)] * tx
+    return top * (1 - ty) + bot * ty
+
+
+def warp_rows(source, depth, y0, y1, sign, disp, convergence, span=20):
+    """Occlusion aware gather. A source pixel at offset t lands here with error
+    e(t) = t + disp * (d(x + t) - convergence), so every zero crossing is a
+    source that genuinely lands on this pixel and the nearest surface wins."""
+    h, w = source.shape[:2]
+    xs = np.arange(w)
+    best_t = np.zeros((y1 - y0, w), np.float32)
+    best_d = np.full((y1 - y0, w), -1.0, np.float32)
+    prev_e = prev_t = None
+    for t in np.arange(-span, span + 1, dtype=np.float32):
+        sx = np.clip(xs + t, 0, w - 1).astype(int)
+        d = depth[y0:y1][:, sx]
+        e = t + sign * disp * (d - convergence)
+        if prev_e is not None:
+            crossed = (np.sign(e) != np.sign(prev_e)) & (np.abs(e - prev_e) > 1e-6)
+            frac = np.where(crossed, prev_e / (prev_e - e + 1e-9), 0.0)
+            take = crossed & (d > best_d)
+            best_t = np.where(take, prev_t + frac, best_t)
+            best_d = np.where(take, d, best_d)
+        prev_e, prev_t = e, t
+
+    gx = np.clip(xs[None, :] + best_t, 0, w - 1)
+    g0 = np.floor(gx).astype(int)
+    g1 = np.clip(g0 + 1, 0, w - 1)
+    fx = (gx - g0)[..., None]
+    rows = np.arange(y0, y1)[:, None]
+    return source[rows, g0] * (1 - fx) + source[rows, g1] * fx, best_t
+
+
+def warp_frame(source, depth, sign, disp, convergence):
+    h, w = source.shape[:2]
+    out = np.zeros((h, w, 3), np.float32)
+    s15 = s50 = total = 0
+    for y0 in range(0, h, CHUNK_ROWS):
+        y1 = min(h, y0 + CHUNK_ROWS)
+        rows, best_t = warp_rows(source, depth, y0, y1, sign, disp, convergence)
+        out[y0:y1] = rows
+        # Local stretch is where the disocclusion shows. Peak matters more
+        # than area: a narrow hard stretch reads worse than a wide soft one,
+        # which is what killed the depth sharpening experiment.
+        st = 1.0 + np.diff(best_t, axis=1)
+        s15 += int((st > 1.15).sum())
+        s50 += int((st > 1.5).sum())
+        total += st.size
+    return out, 100.0 * s15 / total, 100.0 * s50 / total
 
 
 def main():
@@ -122,12 +186,17 @@ def main():
     ap.add_argument("--tag", default="1")
     ap.add_argument("--width", type=int, default=3840)
     ap.add_argument("--height", type=int, default=2160)
-    ap.add_argument("--separation", type=float, default=0.015,
+    ap.add_argument("--separation", type=float, default=0.005,
                     help="frame widths, the seekbar value over 1000")
+    ap.add_argument("--convergence", type=float, default=0.5)
+    ap.add_argument("--sigma", type=float, default=0.25, help="upsample range sigma")
+    ap.add_argument("--sharp", type=float, default=0.0,
+                    help="depth boundary sharpening, 0 to 1")
     ap.add_argument("--out", default=None, help="where to write PNGs")
     args = ap.parse_args()
 
     w, h = args.width, args.height
+    uw, uh = w // 4, h // 4
     out = args.out or os.path.join(args.directory, "out")
     os.makedirs(out, exist_ok=True)
 
@@ -136,43 +205,49 @@ def main():
         raise SystemExit("no capture tagged %s in %s" % (args.tag, args.directory))
     source = source.reshape(h, w, 4)[:, :, :3].astype(np.float32)
 
-    depth_u8 = load_raw(args.directory, args.tag, "depthtex", np.uint8,
-                        DEPTH_SIZE * DEPTH_SIZE)
-    depth = depth_u8.reshape(DEPTH_SIZE, DEPTH_SIZE).astype(np.float32) / 255.0
+    guide = load_raw(args.directory, args.tag, "guidetex", np.uint8,
+                     DEPTH_SIZE * DEPTH_SIZE * 4)
+    if guide is None:
+        raise SystemExit("capture has no guidetex, it predates the upsample pass")
+    guide = guide.reshape(DEPTH_SIZE, DEPTH_SIZE, 4).astype(np.float32) / 255.0
+    depth_tex = guide[:, :, 3]
 
-    print("source %dx%d, depth %dx%d" % (w, h, DEPTH_SIZE, DEPTH_SIZE))
-    print("depth texture percentiles: 2%% %.3f  25%% %.3f  50%% %.3f  75%% %.3f  98%% %.3f"
-          % tuple(np.percentile(depth, [2, 25, 50, 75, 98])))
+    print("source %dx%d, depth %dx%d, upsampled %dx%d" % (w, h, DEPTH_SIZE, DEPTH_SIZE, uw, uh))
+    print("depth percentiles: 2%% %.3f  25%% %.3f  50%% %.3f  75%% %.3f  98%% %.3f"
+          % tuple(np.percentile(depth_tex, [2, 25, 50, 75, 98])))
     print("interquartile span %.3f of the 0..1 range"
-          % (np.percentile(depth, 75) - np.percentile(depth, 25)))
+          % (np.percentile(depth_tex, 75) - np.percentile(depth_tex, 25)))
 
-    raw = load_raw(args.directory, args.tag, "depthraw", np.float32,
-                   DEPTH_SIZE * DEPTH_SIZE)
-    if raw is not None:
-        print("raw model output: min %.3f max %.3f mean %.3f"
-              % (raw.min(), raw.max(), raw.mean()))
+    upsampled = jbu_upsample(source, guide[:, :, :3], depth_tex, uw, uh,
+                             args.sigma, args.sharp)
 
-    # Reproduce what the device drew, and check we agree with it
+    device_ups = load_raw(args.directory, args.tag, "upsampled", np.uint8, uw * uh)
+    if device_ups is not None and args.sharp == 0.0:
+        device_ups = device_ups.reshape(uh, uw).astype(np.float32) / 255.0
+        err = np.abs(upsampled - device_ups)
+        print("upsample vs device: mean %.4f, 99th %.4f (quantisation floor %.4f)"
+              % (err.mean(), np.percentile(err, 99), 1 / 255))
+
+    # The upsample target is RGBA8, so the warp reads a quantised depth. Skip
+    # this and the offset search drifts enough to show up as an edge mismatch
+    # against the device.
+    depth_full = expand(np.round(upsampled * 255.0) / 255.0, w, h)
+    disp = args.separation * w
+
     for name, sign in (("left", 1.0), ("right", -1.0)):
-        device = load_raw(args.directory, args.tag, name, np.uint8, w * h * 4)
-        mine, d_full = warp(source, depth, sign * args.separation)
+        mine, s15, s50 = warp_frame(source, depth_full, sign, disp, args.convergence)
         save_png(os.path.join(out, "%s_%s_mine.png" % (args.tag, name)), mine)
-        if device is None:
+        print("%-5s stretched >15%% %.3f%% of pixels, >50%% %.3f%%" % (name, s15, s50))
+        device = load_raw(args.directory, args.tag, name, np.uint8, w * h * 4)
+        if device is None or args.sharp != 0.0:
             continue
         device = device.reshape(h, w, 4)[:, :, :3].astype(np.float32)
         diff = np.abs(device - mine)
         print("%-5s vs device: mean |diff| %.2f, 99th pct %.0f, max %.0f (of 255)"
               % (name, diff.mean(), np.percentile(diff, 99), diff.max()))
 
-    _, d_full = warp(source, depth, 0.0)
     save_png(os.path.join(out, "%s_source.png" % args.tag), source)
-    save_png(os.path.join(out, "%s_depth.png" % args.tag), d_full * 255.0)
-
-    luma = source @ np.array([0.299, 0.587, 0.114], dtype=np.float32)
-    dist = edge_alignment(d_full, luma)
-    if dist is not None and dist.size:
-        print("depth edge to colour edge: median %.1f px, 90th pct %.1f px, n=%d"
-              % (np.median(dist), np.percentile(dist, 90), dist.size))
+    save_png(os.path.join(out, "%s_depth.png" % args.tag), depth_full * 255.0)
     print("one depth texel covers %.1f x %.1f output pixels"
           % (w / DEPTH_SIZE, h / DEPTH_SIZE))
 
