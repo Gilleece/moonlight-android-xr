@@ -67,6 +67,13 @@
 #define PROP_RANGE_ALPHA "debug.moonlight.rangealpha"
 #define PROP_UPSAMPLE "debug.moonlight.upsample"
 #define PROP_UPSAMPLE_SIGMA "debug.moonlight.upsamplesigma"
+#define PROP_DEPTH_SHARP "debug.moonlight.depthsharp"
+#define PROP_OVERLAY "debug.moonlight.overlay"
+#define PROP_PASSTHROUGH "debug.moonlight.passthrough"
+
+// Enough for a dozen lines of stats without being big enough to matter
+#define OVERLAY_WIDTH 768
+#define OVERLAY_HEIGHT 512
 #define PROP_OCCLUSION "debug.moonlight.occlusion"
 #define PROP_SEPARATION "debug.moonlight.separation"
 #define PROP_DISTANCE "debug.moonlight.distance"
@@ -101,6 +108,17 @@ typedef struct {
     uint32_t swapchainImageCount;
     XrSwapchainImageOpenGLESKHR* swapchainImages;
     int64_t swapchainFormat;
+
+    // Stats overlay. The activity window is not on screen in an immersive
+    // session, so the 2d TextView upstream uses is invisible here and the
+    // numbers have to go into the scene as their own layer. Keeping it out of
+    // the video swapchain means it is never warped, never doubled, and costs
+    // no warp time.
+    XrSwapchain overlaySwapchain;
+    uint32_t overlayImageCount;
+    XrSwapchainImageOpenGLESKHR* overlayImages;
+    int overlayHasContent;
+    int overlayVisible;
 
     int videoWidth;
     int videoHeight;
@@ -151,6 +169,8 @@ typedef struct {
     GLuint upsampleProgram;
     GLint upsampleTexMatrixUniform;
     GLint upsampleSigmaUniform;
+    GLint upsampleSharpUniform;
+    float depthSharp;
     GLuint upsampleTexture;
     GLuint upsampleFbo;
     int upsampleWidth;
@@ -201,6 +221,10 @@ typedef struct {
 
     int cylinderSupported;
     int srgbWriteControl;
+    // Passthrough is just an environment blend mode: with alpha blend the
+    // runtime shows the room wherever our layers do not cover
+    int alphaBlendSupported;
+    int passthrough;
 
     PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetGlesReqs;
 
@@ -215,9 +239,17 @@ typedef struct {
     GLuint timerQueries[2];
     int timerSlot;
     int timerPending[2];
+    // A query whose result never lands would wedge the pair forever, since
+    // the slot only flips once the outstanding one is collected
+    int timerPendingFrames[2];
     long gpuTotalNs;
     long gpuMaxNs;
     long gpuSamples;
+
+    // Separate accumulator so reading the number for the overlay does not
+    // disturb the logcat cadence
+    long overlayGpuTotalNs;
+    long overlayGpuSamples;
 } XrCtx;
 
 typedef void (*PFNGENQUERIESEXT)(GLsizei, GLuint*);
@@ -344,15 +376,19 @@ static const char* UPSAMPLE_FRAGMENT_SRC =
     "uniform sampler2D u_depth;\n"
     "uniform mat4 u_texmatrix;\n"
     "uniform float u_sigmaR;\n"
+    "uniform float u_sharp;\n"
     "out vec4 fragColor;\n"
     "const float N = 256.0;\n"
     "const float SIGMA_S = 1.5;\n"
+    "const float FLAT = 0.05;\n"
     "void main() {\n"
     "    vec3 hi = texture(u_texture, (u_texmatrix * vec4(v_plain, 0.0, 1.0)).xy).rgb;\n"
     "    vec2 lp = v_plain * N - 0.5;\n"
     "    ivec2 base = ivec2(floor(lp));\n"
     "    float num = 0.0;\n"
     "    float den = 0.0;\n"
+    "    float dlo = 1.0;\n"
+    "    float dhi = 0.0;\n"
     "    for (int dy = -2; dy <= 2; dy++) {\n"
     "        for (int dx = -2; dx <= 2; dx++) {\n"
     "            ivec2 q = clamp(base + ivec2(dx, dy), ivec2(0), ivec2(int(N) - 1));\n"
@@ -364,9 +400,23 @@ static const char* UPSAMPLE_FRAGMENT_SRC =
     "            float w = ws * wr;\n"
     "            num += w * s.a;\n"
     "            den += w;\n"
+    "            dlo = min(dlo, s.a);\n"
+    "            dhi = max(dhi, s.a);\n"
     "        }\n"
     "    }\n"
-    "    fragColor = vec4(num / max(den, 1e-6));\n"
+    "    float d = num / max(den, 1e-6);\n"
+    // A soft depth ramp across a silhouette spreads the disocclusion over the
+    // width of the ramp, and that band is the smear. Pushing each texel to
+    // whichever side of the local range it is nearer turns the ramp back into
+    // a step, using the min and max of taps already read. Flat neighbourhoods
+    // are left alone, so only boundaries move.
+    "    float span = dhi - dlo;\n"
+    "    if (u_sharp > 0.0 && span >= FLAT) {\n"
+    "        float u = clamp((d - dlo) / max(span, 1e-6), 0.0, 1.0);\n"
+    "        float snapped = dlo + span / (1.0 + exp(-24.0 * (u - 0.5)));\n"
+    "        d = mix(d, snapped, u_sharp);\n"
+    "    }\n"
+    "    fragColor = vec4(d);\n"
     "}\n";
 
 // Inverts the warp properly, once per frame for both eyes, at the same
@@ -601,6 +651,25 @@ static int initXrInstance(XrCtx* ctx) {
         return 0;
     }
 
+    uint32_t blendModeCount = 0;
+    xrEnumerateEnvironmentBlendModes(ctx->instance, ctx->systemId,
+                                     XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                                     0, &blendModeCount, NULL);
+    if (blendModeCount > 0) {
+        XrEnvironmentBlendMode* modes = calloc(blendModeCount, sizeof(XrEnvironmentBlendMode));
+        xrEnumerateEnvironmentBlendModes(ctx->instance, ctx->systemId,
+                                         XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                                         blendModeCount, &blendModeCount, modes);
+        for (uint32_t i = 0; i < blendModeCount; i++) {
+            LOGI("environment blend mode %u available", modes[i]);
+            if (modes[i] == XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND) {
+                ctx->alphaBlendSupported = 1;
+            }
+        }
+        free(modes);
+    }
+    LOGI("passthrough %s", ctx->alphaBlendSupported ? "available" : "not offered by this runtime");
+
     xrGetInstanceProcAddr(ctx->instance, "xrGetOpenGLESGraphicsRequirementsKHR",
                           (PFN_xrVoidFunction*)&ctx->pfnGetGlesReqs);
     if (ctx->pfnGetGlesReqs == NULL) {
@@ -692,6 +761,26 @@ static int initSwapchain(XrCtx* ctx) {
 
     LOGI("swapchain %dx%d format %lld, %u images (stereo mode %d)", chainWidth, ctx->videoHeight,
          (long long)ctx->swapchainFormat, ctx->swapchainImageCount, ctx->stereoMode);
+
+    XrSwapchainCreateInfo overlayInfo = swapInfo;
+    overlayInfo.width = OVERLAY_WIDTH;
+    overlayInfo.height = OVERLAY_HEIGHT;
+    if (checkXr(xrCreateSwapchain(ctx->session, &overlayInfo, &ctx->overlaySwapchain),
+                "create overlay swapchain")) {
+        xrEnumerateSwapchainImages(ctx->overlaySwapchain, 0, &ctx->overlayImageCount, NULL);
+        ctx->overlayImages = calloc(ctx->overlayImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->overlayImageCount; i++) {
+            ctx->overlayImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->overlaySwapchain, ctx->overlayImageCount,
+                                   &ctx->overlayImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->overlayImages);
+    }
+    else {
+        // The stream is worth more than the stats, so carry on without it
+        ctx->overlaySwapchain = XR_NULL_HANDLE;
+    }
+
     return 1;
 }
 
@@ -786,6 +875,7 @@ static int initUpsample(XrCtx* ctx) {
     }
     ctx->upsampleTexMatrixUniform = glGetUniformLocation(ctx->upsampleProgram, "u_texmatrix");
     ctx->upsampleSigmaUniform = glGetUniformLocation(ctx->upsampleProgram, "u_sigmaR");
+    ctx->upsampleSharpUniform = glGetUniformLocation(ctx->upsampleProgram, "u_sharp");
     glUseProgram(ctx->upsampleProgram);
     glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_texture"), 0);
     glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_depth"), 1);
@@ -1064,6 +1154,10 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->swapchain);
     }
     free(ctx->swapchainImages);
+    if (ctx->overlaySwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->overlaySwapchain);
+    }
+    free(ctx->overlayImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -1115,6 +1209,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->upsampleSigmaR = 0.25f;
     ctx->upsampleEnabled = 1;
     ctx->occlusionEnabled = 1;
+    // Off until it earns its place in a blind comparison on device
+    ctx->depthSharp = 0.0f;
+    // Shown whenever there is text to show, the preference is the real gate
+    ctx->overlayVisible = 1;
     ctx->separationOverride = -1.0f;
     ctx->distanceOverride = -1.0f;
     ctx->screenOverride = -1.0f;
@@ -1520,6 +1618,8 @@ static void pollCaptureRequest(XrCtx* ctx) {
     propPercent(PROP_DEPTH_ALPHA, &ctx->depthAlpha);
     propPercent(PROP_RANGE_ALPHA, &ctx->rangeAlpha);
     propPercent(PROP_UPSAMPLE_SIGMA, &ctx->upsampleSigmaR);
+    propPercent(PROP_DEPTH_SHARP, &ctx->depthSharp);
+    propFlag(PROP_OVERLAY, &ctx->overlayVisible);
     propFlag(PROP_UPSAMPLE, &ctx->upsampleEnabled);
     propFlag(PROP_OCCLUSION, &ctx->occlusionEnabled);
     propPercent(PROP_CONVERGENCE, &ctx->convergence);
@@ -1617,6 +1717,7 @@ static void runUpsample(XrCtx* ctx, const float* texMatrix) {
     glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[ctx->depthReadIndex]);
     glUniformMatrix4fv(ctx->upsampleTexMatrixUniform, 1, GL_FALSE, texMatrix);
     glUniform1f(ctx->upsampleSigmaUniform, ctx->upsampleSigmaR);
+    glUniform1f(ctx->upsampleSharpUniform, ctx->depthSharp);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
     glEnableVertexAttribArray(0);
@@ -1654,7 +1755,12 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
 
-    if (ctx->timerSupported && !ctx->timerPending[ctx->timerSlot]) {
+    // Capture frames do readbacks and file writes inside what would be the
+    // query window, which both ruins the number and, on this driver, leaves a
+    // query that never becomes available. Skip timing them.
+    int timing = ctx->timerSupported && !ctx->captureRequested;
+
+    if (timing && !ctx->timerPending[ctx->timerSlot]) {
         pfnBeginQuery(GL_TIME_ELAPSED_EXT, ctx->timerQueries[ctx->timerSlot]);
     }
 
@@ -1824,10 +1930,11 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
 
     // Close this frame's query and collect whichever earlier one has landed.
     // Never blocks: an unfinished query is simply left for a later frame.
-    if (ctx->timerSupported) {
+    if (timing) {
         if (!ctx->timerPending[ctx->timerSlot]) {
             pfnEndQuery(GL_TIME_ELAPSED_EXT);
             ctx->timerPending[ctx->timerSlot] = 1;
+            ctx->timerPendingFrames[ctx->timerSlot] = 0;
             ctx->timerSlot = 1 - ctx->timerSlot;
         }
         int other = ctx->timerSlot;
@@ -1838,11 +1945,21 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
                 GLuint64 elapsed = 0;
                 pfnGetQueryObjectui64v(ctx->timerQueries[other], GL_QUERY_RESULT_EXT, &elapsed);
                 ctx->timerPending[other] = 0;
+                ctx->timerPendingFrames[other] = 0;
                 ctx->gpuTotalNs += (long)elapsed;
                 ctx->gpuSamples++;
+                ctx->overlayGpuTotalNs += (long)elapsed;
+                ctx->overlayGpuSamples++;
                 if ((long)elapsed > ctx->gpuMaxNs) {
                     ctx->gpuMaxNs = (long)elapsed;
                 }
+            }
+            else if (++ctx->timerPendingFrames[other] > 90) {
+                // Abandon it. Waiting forever costs every later measurement,
+                // and one missed sample costs nothing.
+                ctx->timerPending[other] = 0;
+                ctx->timerPendingFrames[other] = 0;
+                LOGW("XR warp: gave up on a GPU timer query that never landed");
             }
         }
     }
@@ -1850,15 +1967,68 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     ctx->everRendered = 1;
 }
 
+// Pixels come from a Bitmap the stats are drawn into on the Java side, which
+// is the only place Android will lay out text. Runs on the frame loop thread
+// so the GL context is current, and only when the text actually changed.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadOverlay(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jobject buffer,
+                                                                jint width, jint height) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || ctx->overlaySwapchain == XR_NULL_HANDLE) {
+        return;
+    }
+    void* pixels = (*env)->GetDirectBufferAddress(env, buffer);
+    if (pixels == NULL || width != OVERLAY_WIDTH || height != OVERLAY_HEIGHT) {
+        return;
+    }
+
+    uint32_t imageIndex = 0;
+    XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    if (!checkXr(xrAcquireSwapchainImage(ctx->overlaySwapchain, &acquireInfo, &imageIndex),
+                 "acquire overlay image")) {
+        return;
+    }
+    XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(ctx->overlaySwapchain, &waitInfo);
+
+    glBindTexture(GL_TEXTURE_2D, ctx->overlayImages[imageIndex].image);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(ctx->overlaySwapchain, &releaseInfo);
+    ctx->overlayHasContent = 1;
+}
+
+// Average GPU time of the warp since this was last called, which is what the
+// overlay wants. Returns 0 when the timer is unavailable.
+JNIEXPORT jfloat JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetWarpGpuMs(JNIEnv* env, jobject thiz,
+                                                                jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || ctx->overlayGpuSamples == 0) {
+        return 0.0f;
+    }
+    float ms = (float)(ctx->overlayGpuTotalNs / (double)ctx->overlayGpuSamples / 1e6);
+    ctx->overlayGpuTotalNs = 0;
+    ctx->overlayGpuSamples = 0;
+    return ms;
+}
+
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject thiz, jlong handle,
                                                            jboolean newFrame, jfloatArray texMatrixArr,
                                                            jfloat distance, jfloat quadWidth,
                                                            jfloat curvature, jboolean headLocked,
-                                                           jfloat separation, jboolean eyeSwap) {
+                                                           jfloat separation, jboolean eyeSwap,
+                                                           jboolean passthrough) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
 
+    ctx->passthrough = passthrough;
     pollCaptureRequest(ctx);
+    propFlag(PROP_PASSTHROUGH, &ctx->passthrough);
     if (ctx->separationOverride >= 0.0f) {
         separation = ctx->separationOverride;
     }
@@ -1909,11 +2079,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
-    endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    endInfo.environmentBlendMode = (ctx->passthrough && ctx->alphaBlendSupported)
+            ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 
     XrCompositionLayerQuad quadLayers[2];
     XrCompositionLayerCylinderKHR cylLayers[2];
-    const XrCompositionLayerBaseHeader* layers[2];
+    XrCompositionLayerQuad overlayLayer;
+    const XrCompositionLayerBaseHeader* layers[3];
     uint32_t layerCount = 0;
 
     if (ctx->everRendered && ctx->shouldRender) {
@@ -1964,6 +2136,36 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 quad->size.height = quadWidth * aspect;
                 layers[layerCount++] = (const XrCompositionLayerBaseHeader*)quad;
             }
+        }
+
+        // Stats sit in the top left corner of the screen, same space and
+        // distance, both eyes, so they read at screen depth with no disparity
+        if (ctx->overlayHasContent && ctx->overlayVisible
+                && ctx->overlaySwapchain != XR_NULL_HANDLE) {
+            float quadHeight = quadWidth * aspect;
+            float overlayW = quadWidth * 0.30f;
+            float overlayH = overlayW * (float)OVERLAY_HEIGHT / (float)OVERLAY_WIDTH;
+            float margin = quadWidth * 0.02f;
+
+            memset(&overlayLayer, 0, sizeof(overlayLayer));
+            overlayLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            overlayLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            overlayLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            overlayLayer.subImage.swapchain = ctx->overlaySwapchain;
+            overlayLayer.subImage.imageRect.offset.x = 0;
+            overlayLayer.subImage.imageRect.offset.y = 0;
+            overlayLayer.subImage.imageRect.extent.width = OVERLAY_WIDTH;
+            overlayLayer.subImage.imageRect.extent.height = OVERLAY_HEIGHT;
+            overlayLayer.subImage.imageArrayIndex = 0;
+            overlayLayer.space = space;
+            overlayLayer.pose.orientation.w = 1.0f;
+            overlayLayer.pose.position.x = -quadWidth * 0.5f + overlayW * 0.5f + margin;
+            overlayLayer.pose.position.y = quadHeight * 0.5f - overlayH * 0.5f - margin;
+            // A little in front of the screen so the two never z fight
+            overlayLayer.pose.position.z = -distance + 0.01f;
+            overlayLayer.size.width = overlayW;
+            overlayLayer.size.height = overlayH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&overlayLayer;
         }
     }
 

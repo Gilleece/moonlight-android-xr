@@ -1,7 +1,13 @@
 package com.limelight.binding.video;
 
 import android.app.Activity;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.PorterDuff;
 import android.graphics.SurfaceTexture;
+import android.graphics.Typeface;
 import android.view.Surface;
 
 import com.limelight.LimeLog;
@@ -9,9 +15,11 @@ import com.limelight.preferences.PreferenceConfiguration;
 
 import java.io.File;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Presents the decoded stream in an OpenXR session. Same input contract as
@@ -34,6 +42,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Averaged over this many inferences before hitting logcat
     private static final int DEPTH_STATS_INTERVAL = 30;
     private static final int DEPTH_AGE_INTERVAL = 300;
+
+    // Matches OVERLAY_WIDTH and OVERLAY_HEIGHT in xr_renderer.c
+    private static final int OVERLAY_WIDTH = 768;
+    private static final int OVERLAY_HEIGHT = 512;
+    private static final float OVERLAY_TEXT_SIZE = 22.0f;
+    private static final float OVERLAY_LINE_HEIGHT = 28.0f;
 
     private long nativeCtx;
     private Thread renderThread;
@@ -68,6 +82,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile long publishedFrameIndex;
     private volatile long publishedFrameNs;
 
+    // Stats overlay. Text is drawn to a bitmap on whichever thread reports the
+    // stats, then handed to the frame loop, which owns the GL context. Two
+    // buffers so the drawing side never writes one the renderer is reading.
+    private final AtomicReference<ByteBuffer> pendingOverlay = new AtomicReference<>();
+    private ByteBuffer[] overlayBuffers;
+    private int overlayBufferIndex;
+    private Bitmap overlayBitmap;
+    private Canvas overlayCanvas;
+    private Paint overlayPaint;
+    private volatile float lastInferenceMs;
+    private volatile float lastDepthAgeMs;
+    private volatile int lastDepthSkips;
+
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale);
     private native void nativeSetCaptureDir(long ctx, String dir);
@@ -81,7 +108,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native int nativeWaitBeginFrame(long ctx);
     private native void nativeEndFrame(long ctx, boolean newFrame, float[] texMatrix,
                                        float distance, float quadWidth, float curvature,
-                                       boolean headLocked, float separation, boolean eyeSwap);
+                                       boolean headLocked, float separation, boolean eyeSwap,
+                                       boolean passthrough);
+    private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
+    private native float nativeGetWarpGpuMs(long ctx);
     private native void nativeDestroy(long ctx);
 
     public boolean start(final Activity activity, final int videoWidth, final int videoHeight,
@@ -241,6 +271,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
             captureNs += lastCaptureNs;
             inferenceNs += (long)(source.getLastInferenceMs() * 1000000.0f);
+            lastInferenceMs = source.getLastInferenceMs();
             uploadNs += upload;
             long total = System.nanoTime() - start;
             if (total > worstNs) {
@@ -253,6 +284,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         +" ms, upload "+msPer(uploadNs, runs)
                         +" ms, worst "+msPer(worstNs, 1)
                         +" ms, frames skipped while busy "+skipped);
+                lastDepthSkips = (int)skipped;
                 runs = 0;
                 skipped = 0;
                 captureNs = inferenceNs = uploadNs = worstNs = 0;
@@ -287,6 +319,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // Stored as tenths of a percent of frame width
         float separation = prefs.vrStereoSeparation / 1000.0f;
         boolean eyeSwap = prefs.vrEyeSwap;
+        boolean passthrough = prefs.vrPassthrough;
         int cadence = Math.max(1, prefs.vrInferenceCadence);
 
         long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
@@ -312,6 +345,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     }
                     if (publishedFrameNs != 0) {
                         long age = System.nanoTime() - publishedFrameNs;
+                        // Smoothed for the overlay, the raw value swings a lot
+                        // between one inference landing and the next
+                        float ageMs = age / 1000000.0f;
+                        lastDepthAgeMs = lastDepthAgeMs == 0.0f ? ageMs
+                                : lastDepthAgeMs * 0.95f + ageMs * 0.05f;
                         ageFrames += videoFrameIndex - publishedFrameIndex;
                         ageNs += age;
                         ageSamples++;
@@ -329,8 +367,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 }
                 videoFrameIndex++;
             }
+            // Upload here rather than from the reporting thread, since this is
+            // the thread that owns the GL context
+            ByteBuffer overlay = pendingOverlay.getAndSet(null);
+            if (overlay != null) {
+                nativeUploadOverlay(nativeCtx, overlay, OVERLAY_WIDTH, OVERLAY_HEIGHT);
+            }
+
             nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature,
-                    headLocked, separation, eyeSwap);
+                    headLocked, separation, eyeSwap, passthrough);
         }
     }
 
@@ -355,6 +400,75 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             depthPending = true;
             depthLock.notify();
         }
+    }
+
+    /**
+     * Draws the stats into the overlay layer. Called about once a second from
+     * whichever thread produced them, never from the frame loop, so the
+     * bitmap work cannot stall frame submission.
+     *
+     * The renderer appends its own numbers, since decode and network stats
+     * come from the decoder but warp, inference and depth age only exist here.
+     */
+    public void setOverlayText(String text) {
+        if (nativeCtx == 0) {
+            return;
+        }
+        // The previous one has not been picked up yet, so skip this update
+        // rather than write a buffer the frame loop may be reading
+        if (pendingOverlay.get() != null) {
+            return;
+        }
+
+        if (overlayBitmap == null) {
+            overlayBitmap = Bitmap.createBitmap(OVERLAY_WIDTH, OVERLAY_HEIGHT,
+                    Bitmap.Config.ARGB_8888);
+            overlayCanvas = new Canvas(overlayBitmap);
+            overlayPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            overlayPaint.setTypeface(Typeface.MONOSPACE);
+            overlayPaint.setTextSize(OVERLAY_TEXT_SIZE);
+            overlayPaint.setColor(Color.WHITE);
+            overlayBuffers = new ByteBuffer[2];
+            for (int i = 0; i < overlayBuffers.length; i++) {
+                overlayBuffers[i] = ByteBuffer.allocateDirect(OVERLAY_WIDTH * OVERLAY_HEIGHT * 4);
+                overlayBuffers[i].order(ByteOrder.nativeOrder());
+            }
+        }
+
+        // Dark backing so the text stays readable over any content
+        overlayCanvas.drawColor(0xB0000000, PorterDuff.Mode.SRC);
+        // Texture rows run bottom up, so draw mirrored and let the upload put
+        // it back the right way round
+        overlayCanvas.save();
+        overlayCanvas.translate(0.0f, OVERLAY_HEIGHT);
+        overlayCanvas.scale(1.0f, -1.0f);
+        float y = OVERLAY_LINE_HEIGHT;
+        for (String line : (text + '\n' + rendererStats()).split("\n")) {
+            overlayCanvas.drawText(line, 8.0f, y, overlayPaint);
+            y += OVERLAY_LINE_HEIGHT;
+            if (y > OVERLAY_HEIGHT) {
+                break;
+            }
+        }
+        overlayCanvas.restore();
+
+        ByteBuffer buf = overlayBuffers[overlayBufferIndex];
+        overlayBufferIndex = (overlayBufferIndex + 1) % overlayBuffers.length;
+        buf.rewind();
+        overlayBitmap.copyPixelsToBuffer(buf);
+        buf.rewind();
+        pendingOverlay.set(buf);
+    }
+
+    private String rendererStats() {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("Warp GPU: %.2f ms", nativeGetWarpGpuMs(nativeCtx)));
+        if (depthReady) {
+            sb.append('\n').append(String.format("Depth inference: %.1f ms", lastInferenceMs));
+            sb.append('\n').append(String.format("Depth age: %.0f ms", lastDepthAgeMs));
+            sb.append('\n').append("Depth frames skipped: ").append(lastDepthSkips);
+        }
+        return sb.toString();
     }
 
     private static String msPer(long totalNs, long count) {
