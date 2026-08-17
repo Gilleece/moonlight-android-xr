@@ -38,6 +38,11 @@
             android:summary="@string/summary_vr_pointer"
             android:defaultValue="true"/>
         <CheckBoxPreference
+            android:key="checkbox_vr_gaze"
+            android:title="@string/title_vr_gaze"
+            android:summary="@string/summary_vr_gaze"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
             android:key="checkbox_vr_passthrough"
             android:title="@string/title_vr_passthrough"
             android:summary="@string/summary_vr_passthrough"

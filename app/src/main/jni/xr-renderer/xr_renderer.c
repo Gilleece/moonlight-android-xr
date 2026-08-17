@@ -50,6 +50,11 @@
 #define HAND_LEFT  0
 #define HAND_RIGHT 1
 #define HAND_COUNT 2
+// Some headsets aim by looking rather than by pointing. Gaze is a third source
+// of a ray, so the pointing code counts it alongside the two hands and
+// everything downstream stays the same. Only the hands carry buttons.
+#define SRC_GAZE  HAND_COUNT
+#define SRC_COUNT (HAND_COUNT + 1)
 
 // Trigger and grip are analog, and a single threshold chatters around the
 // crossing, so presses and releases use different ones
@@ -387,10 +392,32 @@ typedef struct {
     int msftHandInteraction;
     XrPath handProfile;
     XrPath msftHandProfile;
-    int usingHands[HAND_COUNT];
+    int handTracking;
+    int handClickOk;
+    // Looking at something instead of pointing at it. Lowest priority of the
+    // three, so a controller or a hand always wins when one is aiming.
+    int eyeGaze;
+    int gazeEnabled;
+    XrAction gazeAction;
+    int lastSnapshot;
+    // Reading the joints directly, because a pinch is not always offered as an
+    // input. Thumb to fingertip is the whole of it.
+    int jointTracking;
+    XrHandTrackerEXT handTrackers[HAND_COUNT];
+    int jointPinch[HAND_COUNT];
+    Vec3 pinchPoint[HAND_COUNT];
+    int pinchPointValid[HAND_COUNT];
+    // A ray built out of the joints, for runtimes that track hands but do not
+    // offer a pointer pose of their own
+    XrPosef handRay[HAND_COUNT];
+    int handRayValid[HAND_COUNT];
+    PFN_xrCreateHandTrackerEXT pfnCreateHandTracker;
+    PFN_xrDestroyHandTrackerEXT pfnDestroyHandTracker;
+    PFN_xrLocateHandJointsEXT pfnLocateHandJoints;
+    int usingHands[SRC_COUNT];
     // A pinch that woke the pointer is not also a click, so it is swallowed
     // until the hand opens again
-    int pinchSwallowed[HAND_COUNT];
+    int pinchSwallowed[SRC_COUNT];
 
     PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetGlesReqs;
 
@@ -404,7 +431,7 @@ typedef struct {
     XrAction scrollAction;
     XrAction grabAction;
     XrAction toggleAction;
-    XrSpace aimSpaces[HAND_COUNT];
+    XrSpace aimSpaces[SRC_COUNT];
     XrPath handPaths[HAND_COUNT];
     int inputReady;
     int picoInteraction;
@@ -412,12 +439,14 @@ typedef struct {
     // absolute positions fight any game that does its own mouse look
     int pointerOn;
     int togglePrev;
-    int triggerDown[HAND_COUNT];
+    int triggerDown[SRC_COUNT];
     // Rising edges, so a button already held when the ray wanders onto a handle
     // does not grab it. Dragging a window on the host desktop past the edge of
     // the picture would otherwise turn into a resize.
-    int triggerEdge[HAND_COUNT];
-    int gripEdge[HAND_COUNT];
+    int triggerEdge[SRC_COUNT];
+    // Indexed by the chosen source, and gaze has no grip, so it needs the
+    // extra slot even though nothing ever writes to it
+    int gripEdge[SRC_COUNT];
     int grabByTrigger;
     int buttonsDown;
     float scrollCarry;
@@ -433,8 +462,8 @@ typedef struct {
 
     // Movement gate. The pointer only appears after the controller has been
     // moved deliberately, and disappears once it has been still a while.
-    int poseSeen[HAND_COUNT];
-    XrPosef lastAim[HAND_COUNT];
+    int poseSeen[SRC_COUNT];
+    XrPosef lastAim[SRC_COUNT];
     float movingFor;
     float stillFor;
     int pointerAwake;
@@ -450,6 +479,8 @@ typedef struct {
     int beamVisible;
     // Ray drawn with nothing under it, so there is no cursor to go with it
     int beamFree;
+    // Aimed by the eyes, so there is a cursor but no ray
+    int beamGaze;
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
@@ -467,7 +498,7 @@ typedef struct {
     float lastDistance;
     float lastQuadWidth;
 
-    int grabDown[HAND_COUNT];
+    int grabDown[SRC_COUNT];
     int grabMode;
     int grabHand;
     float grabU, grabV;
@@ -901,6 +932,8 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)) ctx->equirectSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) ctx->handInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME)) ctx->msftHandInteraction = 1;
+        if (!strcmp(exts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) ctx->handTracking = 1;
+        if (!strcmp(exts[i].extensionName, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME)) ctx->eyeGaze = 1;
     }
     free(exts);
 
@@ -909,7 +942,7 @@ static int initXrInstance(XrCtx* ctx) {
         return 0;
     }
 
-    const char* enabledExts[7];
+    const char* enabledExts[9];
     uint32_t enabledCount = 0;
     enabledExts[enabledCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     enabledExts[enabledCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
@@ -924,6 +957,14 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->handInteraction) {
         enabledExts[enabledCount++] = XR_EXT_HAND_INTERACTION_EXTENSION_NAME;
+    }
+    // Some runtimes will not honour the hand interaction profile unless the
+    // tracking extension is enabled next to it
+    if (ctx->handTracking) {
+        enabledExts[enabledCount++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+    }
+    if (ctx->eyeGaze) {
+        enabledExts[enabledCount++] = XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME;
     }
     if (ctx->msftHandInteraction) {
         enabledExts[enabledCount++] = XR_MSFT_HAND_INTERACTION_EXTENSION_NAME;
@@ -970,6 +1011,34 @@ static int initXrInstance(XrCtx* ctx) {
         free(modes);
     }
     LOGI("passthrough %s", ctx->alphaBlendSupported ? "available" : "not offered by this runtime");
+
+    // Offering the extension is not the same as having the hardware, so the
+    // system is asked directly before anything is bound to a gaze
+    if (ctx->eyeGaze) {
+        XrSystemEyeGazeInteractionPropertiesEXT gazeProps = {
+            XR_TYPE_SYSTEM_EYE_GAZE_INTERACTION_PROPERTIES_EXT
+        };
+        XrSystemProperties props = { XR_TYPE_SYSTEM_PROPERTIES };
+        props.next = &gazeProps;
+        if (XR_FAILED(xrGetSystemProperties(ctx->instance, ctx->systemId, &props))
+                || !gazeProps.supportsEyeGazeInteraction) {
+            ctx->eyeGaze = 0;
+        }
+        LOGI("eye gaze %s", ctx->eyeGaze ? "available" : "offered but not supported by this system");
+    }
+
+    if (ctx->handTracking) {
+        XrSystemHandTrackingPropertiesEXT handProps = {
+            XR_TYPE_SYSTEM_HAND_TRACKING_PROPERTIES_EXT
+        };
+        XrSystemProperties props = { XR_TYPE_SYSTEM_PROPERTIES };
+        props.next = &handProps;
+        if (XR_FAILED(xrGetSystemProperties(ctx->instance, ctx->systemId, &props))
+                || !handProps.supportsHandTracking) {
+            ctx->handTracking = 0;
+        }
+        LOGI("hand joints %s", ctx->handTracking ? "available" : "not supported by this system");
+    }
 
     xrGetInstanceProcAddr(ctx->instance, "xrGetOpenGLESGraphicsRequirementsKHR",
                           (PFN_xrVoidFunction*)&ctx->pfnGetGlesReqs);
@@ -1417,6 +1486,43 @@ static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
     }
 }
 
+// A pinch is how these headsets click, but it is not always offered as an
+// input to bind to. The joints always are, so it is measured here instead:
+// thumb tip to index tip, with a gap between the closing and opening distances
+// so a hand held near the threshold does not chatter.
+#define PINCH_ON_M  0.020f
+#define PINCH_OFF_M 0.032f
+
+static void initJointTracking(XrCtx* ctx) {
+    if (!ctx->handTracking) {
+        return;
+    }
+    if (XR_FAILED(xrGetInstanceProcAddr(ctx->instance, "xrCreateHandTrackerEXT",
+                                        (PFN_xrVoidFunction*)&ctx->pfnCreateHandTracker))
+            || XR_FAILED(xrGetInstanceProcAddr(ctx->instance, "xrDestroyHandTrackerEXT",
+                                               (PFN_xrVoidFunction*)&ctx->pfnDestroyHandTracker))
+            || XR_FAILED(xrGetInstanceProcAddr(ctx->instance, "xrLocateHandJointsEXT",
+                                               (PFN_xrVoidFunction*)&ctx->pfnLocateHandJoints))
+            || ctx->pfnCreateHandTracker == NULL || ctx->pfnLocateHandJoints == NULL) {
+        LOGW("hand joint entry points missing");
+        ctx->jointTracking = 0;
+        return;
+    }
+
+    for (int h = 0; h < HAND_COUNT; h++) {
+        XrHandTrackerCreateInfoEXT info = { XR_TYPE_HAND_TRACKER_CREATE_INFO_EXT };
+        info.hand = h == HAND_LEFT ? XR_HAND_LEFT_EXT : XR_HAND_RIGHT_EXT;
+        info.handJointSet = XR_HAND_JOINT_SET_DEFAULT_EXT;
+        if (!checkXr(ctx->pfnCreateHandTracker(ctx->session, &info, &ctx->handTrackers[h]),
+                     "create hand tracker")) {
+            ctx->handTrackers[h] = XR_NULL_HANDLE;
+            return;
+        }
+    }
+    ctx->jointTracking = 1;
+    LOGI("reading hand joints for pinch");
+}
+
 // Which kind of thing is driving each hand. Hands are never still enough for
 // the movement gate to mean anything, so they wake the pointer a different way
 // and need to be told apart from controllers.
@@ -1429,7 +1535,9 @@ static void refreshInputSource(XrCtx* ctx) {
         if (XR_FAILED(xrGetCurrentInteractionProfile(ctx->session, ctx->handPaths[h], &state))) {
             continue;
         }
-        int hands = state.interactionProfile != XR_NULL_PATH
+        // Without a pinch bound there is nothing to wake the pointer with, so
+        // those hands stay on the movement gate rather than becoming unusable
+        int hands = ctx->handClickOk && state.interactionProfile != XR_NULL_PATH
                 && (state.interactionProfile == ctx->handProfile
                     || state.interactionProfile == ctx->msftHandProfile);
         if (hands != ctx->usingHands[h]) {
@@ -1694,7 +1802,7 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
 // downstream of here treats them identically: same ray, same handles, same
 // picker. Only the paths differ, which is why this is its own function rather
 // than another flag on the one above.
-static void suggestHandBindings(XrCtx* ctx, const char* profile, const char* aim,
+static XrResult trySuggestHands(XrCtx* ctx, const char* profile, const char* aim,
                                 const char* click, const char* grasp) {
     XrActionSuggestedBinding b[6];
     uint32_t n = 0;
@@ -1707,9 +1815,11 @@ static void suggestHandBindings(XrCtx* ctx, const char* profile, const char* aim
         b[n].action = ctx->aimAction;
         b[n++].binding = toPath(ctx, path);
 
-        snprintf(path, sizeof(path), "%s/%s", hands[h], click);
-        b[n].action = ctx->triggerAction;
-        b[n++].binding = toPath(ctx, path);
+        if (click != NULL) {
+            snprintf(path, sizeof(path), "%s/%s", hands[h], click);
+            b[n].action = ctx->triggerAction;
+            b[n++].binding = toPath(ctx, path);
+        }
 
         if (grasp != NULL) {
             snprintf(path, sizeof(path), "%s/%s", hands[h], grasp);
@@ -1723,9 +1833,39 @@ static void suggestHandBindings(XrCtx* ctx, const char* profile, const char* aim
     suggest.countSuggestedBindings = n;
     suggest.suggestedBindings = b;
 
-    XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
-    LOGI("hand bindings %s for %s (%d)", XR_SUCCEEDED(res) ? "accepted" : "rejected",
-         profile, res);
+    return xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
+}
+
+// Runtimes that offer the hand profile do not all implement every input in it,
+// and one unsupported path throws out the whole suggestion. So the inputs are
+// offered up in falling order of usefulness until a set is accepted. Returns
+// whether a pinch ended up bound, since without one the hands cannot wake the
+// pointer and are better left to the movement gate.
+static int suggestHandBindings(XrCtx* ctx, const char* profile, const char* aim,
+                               const char* const* clicks, int clickCount,
+                               const char* grasp) {
+    XrResult res = XR_SUCCESS;
+    for (int c = 0; c < clickCount; c++) {
+        if (grasp != NULL) {
+            res = trySuggestHands(ctx, profile, aim, clicks[c], grasp);
+            if (XR_SUCCEEDED(res)) {
+                LOGI("hand bindings accepted for %s (%s and grasp)", profile, clicks[c]);
+                return 1;
+            }
+        }
+        res = trySuggestHands(ctx, profile, aim, clicks[c], NULL);
+        if (XR_SUCCEEDED(res)) {
+            LOGI("hand bindings accepted for %s (%s)", profile, clicks[c]);
+            return 1;
+        }
+    }
+    res = trySuggestHands(ctx, profile, aim, NULL, NULL);
+    if (XR_SUCCEEDED(res)) {
+        LOGW("only the aim pose bound for %s, so hands cannot click", profile);
+        return 0;
+    }
+    LOGW("hand bindings rejected for %s, even the aim pose alone (%d)", profile, res);
+    return 0;
 }
 
 static int initXrInput(XrCtx* ctx) {
@@ -1759,17 +1899,56 @@ static int initXrInput(XrCtx* ctx) {
 
     // Hands. aim_activate is the spec's own name for pointing at something out
     // of reach and pinching to act on it, which is exactly what the ray does.
+    // Gaze is its own top level path rather than a hand, so it needs an action
+    // of its own. There is no click on it: whatever the runtime reports as a
+    // trigger, usually a pinch, does the clicking.
+    if (ctx->eyeGaze) {
+        XrActionCreateInfo info = { XR_TYPE_ACTION_CREATE_INFO };
+        info.actionType = XR_ACTION_TYPE_POSE_INPUT;
+        strncpy(info.actionName, "gaze", XR_MAX_ACTION_NAME_SIZE - 1);
+        strncpy(info.localizedActionName, "Gaze pointer",
+                XR_MAX_LOCALIZED_ACTION_NAME_SIZE - 1);
+        if (checkXr(xrCreateAction(ctx->actionSet, &info, &ctx->gazeAction), "gaze action")) {
+            XrActionSuggestedBinding b;
+            b.action = ctx->gazeAction;
+            b.binding = toPath(ctx, "/user/eyes_ext/input/gaze_ext/pose");
+
+            XrInteractionProfileSuggestedBinding suggest = {
+                XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING
+            };
+            suggest.interactionProfile = toPath(ctx,
+                    "/interaction_profiles/ext/eye_gaze_interaction");
+            suggest.countSuggestedBindings = 1;
+            suggest.suggestedBindings = &b;
+            if (XR_FAILED(xrSuggestInteractionProfileBindings(ctx->instance, &suggest))) {
+                LOGW("gaze bindings rejected");
+                ctx->gazeAction = XR_NULL_HANDLE;
+                ctx->eyeGaze = 0;
+            }
+        }
+        else {
+            ctx->gazeAction = XR_NULL_HANDLE;
+            ctx->eyeGaze = 0;
+        }
+    }
+
     if (ctx->handInteraction) {
+        // aim_activate is the spec's own name for the far pointer pinch, and
+        // pinch is the plain one. Runtimes vary in which they implement.
+        static const char* const clicks[] = {
+            "input/aim_activate_ext/value", "input/pinch_ext/value"
+        };
         const char* profile = "/interaction_profiles/ext/hand_interaction_ext";
-        suggestHandBindings(ctx, profile, "input/aim_ext/pose",
-                            "input/aim_activate_ext/value", "input/grasp_ext/value");
+        ctx->handClickOk |= suggestHandBindings(ctx, profile, "input/aim_ext/pose",
+                                                clicks, 2, "input/grasp_ext/value");
         ctx->handProfile = toPath(ctx, profile);
     }
     // Older runtimes that predate the EXT profile. Same idea, fewer inputs.
     if (ctx->msftHandInteraction) {
+        static const char* const clicks[] = { "input/select/value" };
         const char* profile = "/interaction_profiles/microsoft/hand_interaction";
-        suggestHandBindings(ctx, profile, "input/aim/pose", "input/select/value",
-                            "input/squeeze/value");
+        ctx->handClickOk |= suggestHandBindings(ctx, profile, "input/aim/pose",
+                                                clicks, 1, "input/squeeze/value");
         ctx->msftHandProfile = toPath(ctx, profile);
     }
 
@@ -1791,13 +1970,24 @@ static int initXrInput(XrCtx* ctx) {
         }
     }
 
+    if (ctx->gazeAction != XR_NULL_HANDLE) {
+        XrActionSpaceCreateInfo spaceInfo = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
+        spaceInfo.action = ctx->gazeAction;
+        spaceInfo.subactionPath = XR_NULL_PATH;
+        spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+        if (!checkXr(xrCreateActionSpace(ctx->session, &spaceInfo, &ctx->aimSpaces[SRC_GAZE]),
+                     "create gaze space")) {
+            ctx->aimSpaces[SRC_GAZE] = XR_NULL_HANDLE;
+        }
+    }
+
     ctx->inputReady = 1;
     ctx->pointerOn = 1;
+    initJointTracking(ctx);
     refreshInputSource(ctx);
-    LOGI("controller input ready (pico bindings %s, hand tracking %s)",
+    LOGI("controller input ready (pico bindings %s, hand pinch %s)",
          ctx->picoInteraction ? "offered" : "not offered by this runtime",
-         ctx->handInteraction ? "offered" : (ctx->msftHandInteraction ? "offered as msft"
-                                                                      : "not offered"));
+         ctx->handClickOk ? "bound" : (ctx->jointTracking ? "from joints" : "unavailable"));
     return 1;
 }
 
@@ -1907,6 +2097,104 @@ static int screenProject(XrPosef aim, XrPosef screen, float width, float height,
     *outV = 0.5f - hy;
     return 1;
 }
+// A pointer ray from the joints, for runtimes that track hands but never offer
+// a pointer pose. Cast from a shoulder rather than from the hand itself: a ray
+// along the finger swings wildly with small movements of the wrist, while one
+// through the hand from the shoulder is what the arm is actually aiming and is
+// steady enough to hold on a target.
+static void buildHandRay(XrCtx* ctx, int hand, const XrPosef* head,
+                         const XrHandJointLocationEXT* joints) {
+    const XrHandJointLocationEXT* knuckle = &joints[XR_HAND_JOINT_INDEX_PROXIMAL_EXT];
+    if (!(knuckle->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
+        ctx->handRayValid[hand] = 0;
+        return;
+    }
+
+    Vec3 offset = { hand == HAND_RIGHT ? 0.17f : -0.17f, -0.20f, 0.05f };
+    Vec3 shoulder = quatRotate(head->orientation, offset);
+    shoulder.x += head->position.x;
+    shoulder.y += head->position.y;
+    shoulder.z += head->position.z;
+
+    Vec3 origin = { knuckle->pose.position.x, knuckle->pose.position.y,
+                    knuckle->pose.position.z };
+    Vec3 dir = vecSub(origin, shoulder);
+    float len = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    if (len < 0.05f) {
+        ctx->handRayValid[hand] = 0;
+        return;
+    }
+    dir = vecNorm(dir);
+
+    // A pose points down its own -Z, so the basis is built around that
+    Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
+    Vec3 rayZ = { -dir.x, -dir.y, -dir.z };
+    Vec3 rayX = vecCross(worldUp, rayZ);
+    float side = sqrtf(rayX.x * rayX.x + rayX.y * rayX.y + rayX.z * rayX.z);
+    if (side < 0.01f) {
+        Vec3 fallback = { 1.0f, 0.0f, 0.0f };
+        rayX = vecCross(fallback, rayZ);
+    }
+    rayX = vecNorm(rayX);
+    Vec3 rayY = vecCross(rayZ, rayX);
+
+    ctx->handRay[hand].orientation = quatFromBasis(rayX, rayY, rayZ);
+    ctx->handRay[hand].position = knuckle->pose.position;
+    ctx->handRayValid[hand] = 1;
+}
+
+static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* head,
+                         int headValid) {
+    if (!ctx->jointTracking || ctx->handTrackers[hand] == XR_NULL_HANDLE) {
+        ctx->handRayValid[hand] = 0;
+        return 0;
+    }
+
+    XrHandJointLocationEXT joints[XR_HAND_JOINT_COUNT_EXT];
+    XrHandJointLocationsEXT locations = { XR_TYPE_HAND_JOINT_LOCATIONS_EXT };
+    locations.jointCount = XR_HAND_JOINT_COUNT_EXT;
+    locations.jointLocations = joints;
+
+    XrHandJointsLocateInfoEXT locate = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
+    locate.baseSpace = space;
+    locate.time = ctx->predictedDisplayTime;
+    if (XR_FAILED(ctx->pfnLocateHandJoints(ctx->handTrackers[hand], &locate, &locations))
+            || !locations.isActive) {
+        ctx->jointPinch[hand] = 0;
+        ctx->pinchPointValid[hand] = 0;
+        ctx->handRayValid[hand] = 0;
+        return 0;
+    }
+
+    if (headValid) {
+        buildHandRay(ctx, hand, head, joints);
+    }
+
+    const XrHandJointLocationEXT* thumb = &joints[XR_HAND_JOINT_THUMB_TIP_EXT];
+    const XrHandJointLocationEXT* index = &joints[XR_HAND_JOINT_INDEX_TIP_EXT];
+    if (!(thumb->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
+            || !(index->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
+        ctx->jointPinch[hand] = 0;
+        ctx->pinchPointValid[hand] = 0;
+        return 0;
+    }
+
+    float dx = thumb->pose.position.x - index->pose.position.x;
+    float dy = thumb->pose.position.y - index->pose.position.y;
+    float dz = thumb->pose.position.z - index->pose.position.z;
+    float gap = sqrtf(dx * dx + dy * dy + dz * dz);
+
+    // Where the pinch happened, which is what a drag follows
+    ctx->pinchPoint[hand].x = (thumb->pose.position.x + index->pose.position.x) * 0.5f;
+    ctx->pinchPoint[hand].y = (thumb->pose.position.y + index->pose.position.y) * 0.5f;
+    ctx->pinchPoint[hand].z = (thumb->pose.position.z + index->pose.position.z) * 0.5f;
+    ctx->pinchPointValid[hand] = 1;
+
+    ctx->jointPinch[hand] = gap < (ctx->jointPinch[hand] ? PINCH_OFF_M : PINCH_ON_M);
+    return ctx->jointPinch[hand];
+}
+
+
 
 // Which affordance the ray is over. Corners are numbered 0 top left, 1 top
 // right, 2 bottom left, 3 bottom right.
@@ -2527,6 +2815,12 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
 
 static void destroyXrInput(XrCtx* ctx) {
     for (int h = 0; h < HAND_COUNT; h++) {
+        if (ctx->handTrackers[h] != XR_NULL_HANDLE && ctx->pfnDestroyHandTracker != NULL) {
+            ctx->pfnDestroyHandTracker(ctx->handTrackers[h]);
+            ctx->handTrackers[h] = XR_NULL_HANDLE;
+        }
+    }
+    for (int h = 0; h < SRC_COUNT; h++) {
         if (ctx->aimSpaces[h] != XR_NULL_HANDLE) {
             xrDestroySpace(ctx->aimSpaces[h]);
             ctx->aimSpaces[h] = XR_NULL_HANDLE;
@@ -3036,10 +3330,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                                                               jfloat quadWidth, jfloat curvature,
                                                               jboolean headLocked,
                                                               jboolean pointerEnabled,
+                                                              jboolean gazeEnabled,
                                                               jfloatArray outArr) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     float out[IN_SLOTS];
     memset(out, 0, sizeof(out));
+    if (ctx != NULL) {
+        ctx->gazeEnabled = gazeEnabled;
+    }
     // Zero is a real cell, so "nothing picked" has to be said explicitly. Every
     // early return below would otherwise read as a press on the first one.
     out[IN_PICKER_PICK] = -1.0f;
@@ -3096,26 +3394,52 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         dt = 0.1f;
     }
 
-    float hitU[HAND_COUNT], hitV[HAND_COUNT];
-    int hovers[HAND_COUNT] = { HOVER_NONE, HOVER_NONE };
-    int corners[HAND_COUNT] = { 0, 0 };
-    int aimValid[HAND_COUNT] = { 0, 0 };
-    XrPosef aimPoses[HAND_COUNT];
-    int moved = 0;
-    for (int h = 0; h < HAND_COUNT; h++) {
-        int wasDown = ctx->triggerDown[h];
-        float value = actionFloat(ctx, ctx->triggerAction, h);
-        ctx->triggerDown[h] = value > (wasDown ? PRESS_OFF : PRESS_ON);
-        ctx->triggerEdge[h] = ctx->triggerDown[h] && !wasDown;
+    XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
+    int headValid = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, space,
+                                               ctx->predictedDisplayTime, &headLoc))
+            && (headLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+    if (headValid) {
+        ctx->headPos = headLoc.pose.position;
+    }
 
-        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
-        if (XR_FAILED(xrLocateSpace(ctx->aimSpaces[h], space, ctx->predictedDisplayTime, &loc))) {
+    float hitU[SRC_COUNT], hitV[SRC_COUNT];
+    int hovers[SRC_COUNT] = { HOVER_NONE, HOVER_NONE, HOVER_NONE };
+    int corners[SRC_COUNT] = { 0, 0, 0 };
+    int aimValid[SRC_COUNT] = { 0, 0, 0 };
+    XrPosef aimPoses[SRC_COUNT];
+    int moved = 0;
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (h < HAND_COUNT) {
+            int wasDown = ctx->triggerDown[h];
+            float value = actionFloat(ctx, ctx->triggerAction, h);
+            // Either a bound trigger or a measured pinch will do. Runtimes
+            // that offer neither leave this at rest, which is what a headset
+            // with nothing in its hands should report.
+            ctx->triggerDown[h] = value > (wasDown ? PRESS_OFF : PRESS_ON)
+                    || jointPinching(ctx, h, space, &headLoc.pose, headValid);
+            ctx->triggerEdge[h] = ctx->triggerDown[h] && !wasDown;
+        }
+        else if (!ctx->eyeGaze || !ctx->gazeEnabled
+                 || ctx->aimSpaces[SRC_GAZE] == XR_NULL_HANDLE) {
             continue;
         }
+
+        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT
                 | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-        if ((loc.locationFlags & needed) != needed) {
-            continue;
+        int located = XR_SUCCEEDED(xrLocateSpace(ctx->aimSpaces[h], space,
+                                                 ctx->predictedDisplayTime, &loc))
+                && (loc.locationFlags & needed) == needed;
+        if (!located) {
+            // No controller and no pointer pose from the runtime, so the ray
+            // built out of the joints stands in. This is what makes hand
+            // pointing work on runtimes that refuse the hand profile.
+            if (h < HAND_COUNT && ctx->handRayValid[h]) {
+                loc.pose = ctx->handRay[h];
+            }
+            else {
+                continue;
+            }
         }
         aimPoses[h] = loc.pose;
         aimValid[h] = 1;
@@ -3147,9 +3471,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
             float turn = 2.0f * acosf(dot) / dt;
 
-            // Hands are never still, so their motion says nothing about intent
-            // and the gate would just hold the pointer on forever
-            if (!ctx->usingHands[h]
+            // Hands and eyes are never still, so their motion says nothing
+            // about intent and the gate would just hold the pointer on forever
+            if (!ctx->usingHands[h] && h != SRC_GAZE
                     && (speed > POINTER_MOVE_SPEED || turn > POINTER_TURN_SPEED)) {
                 moved = 1;
             }
@@ -3158,12 +3482,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         ctx->poseSeen[h] = 1;
     }
 
+    // Gaze has no button of its own, so a pinch from either hand clicks
+    // wherever the eyes have landed
+    if (aimValid[SRC_GAZE]) {
+        ctx->triggerDown[SRC_GAZE] = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT];
+        ctx->triggerEdge[SRC_GAZE] = ctx->triggerEdge[HAND_LEFT] || ctx->triggerEdge[HAND_RIGHT];
+        ctx->usingHands[SRC_GAZE] = 1;
+    }
+    else {
+        ctx->triggerDown[SRC_GAZE] = 0;
+        ctx->triggerEdge[SRC_GAZE] = 0;
+        ctx->usingHands[SRC_GAZE] = 0;
+    }
+
     // A pinch is what a hand has instead of deliberate movement: it turns the
     // pointer on, and keeps it on for as long as pinches keep arriving. The
     // one that does the waking is swallowed rather than passed on as a click,
     // since the user was reaching for the pointer and not for the screen.
     int pinching = 0;
-    for (int h = 0; h < HAND_COUNT; h++) {
+    for (int h = 0; h < SRC_COUNT; h++) {
         if (!ctx->usingHands[h]) {
             ctx->pinchSwallowed[h] = 0;
             continue;
@@ -3207,8 +3544,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     // The hand holding the trigger wins, so a drag is never stolen by the other
     // one drifting across the screen. Right hand otherwise.
+    static const int order[SRC_COUNT] = { HAND_RIGHT, HAND_LEFT, SRC_GAZE };
     int hand = -1;
-    for (int h = 0; h < HAND_COUNT; h++) {
+    for (int i = 0; i < SRC_COUNT; i++) {
+        int h = order[i];
         if (hovers[h] == HOVER_SCREEN && ctx->triggerDown[h]) {
             hand = h;
             break;
@@ -3217,8 +3556,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // A hand on something beats one merely near it, so a controller resting in
     // the margin never takes the pointer off the one being aimed
     for (int pass = 0; pass < 2 && hand < 0; pass++) {
-        for (int i = 0; i < HAND_COUNT && hand < 0; i++) {
-            int h = i == 0 ? HAND_RIGHT : HAND_LEFT;
+        for (int i = 0; i < SRC_COUNT && hand < 0; i++) {
+            int h = order[i];
             if (hovers[h] == HOVER_NONE || (pass == 0 && hovers[h] == HOVER_HALO)) {
                 continue;
             }
@@ -3228,7 +3567,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     if (!ctx->pointerAwake && ctx->grabMode == GRAB_NONE) {
         hand = -1;
-        for (int h = 0; h < HAND_COUNT; h++) {
+        for (int h = 0; h < SRC_COUNT; h++) {
             hovers[h] = HOVER_NONE;
         }
     }
@@ -3251,7 +3590,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         hand = -1;
         float pickW, pickH;
         XrPosef pose = pickerPose(ctx, &pickW, &pickH);
-        for (int h = 0; h < HAND_COUNT; h++) {
+        for (int h = 0; h < SRC_COUNT; h++) {
             float pu, pv;
             if (!aimValid[h] || !ctx->pointerAwake) {
                 continue;
@@ -3281,7 +3620,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
         // A press that lands nowhere near the grid closes it
         if (ctx->pickerOpen && ctx->pickerHover < 0) {
-            for (int h = 0; h < HAND_COUNT; h++) {
+            for (int h = 0; h < SRC_COUNT; h++) {
                 if (ctx->triggerEdge[h]) {
                     ctx->pickerOpen = 0;
                 }
@@ -3293,6 +3632,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         if (ctx->triggerEdge[hand]) {
             ctx->pickerOpen = 1;
         }
+    }
+
+    // One line that says whether gaze is tracking, whether it is the thing
+    // doing the pointing, and whether a pinch is reaching us at all. Logged
+    // only when it changes, so it costs nothing while it sits still.
+    int snapshot = (aimValid[SRC_GAZE] ? 1 : 0) | (hand == SRC_GAZE ? 2 : 0)
+            | ((ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]) ? 4 : 0)
+            | (ctx->pointerAwake ? 8 : 0);
+    if (snapshot != ctx->lastSnapshot) {
+        ctx->lastSnapshot = snapshot;
+        LOGI("input: gaze tracked %d, pointing by gaze %d, pinch %d, awake %d",
+             (snapshot & 1) != 0, (snapshot & 2) != 0, (snapshot & 4) != 0,
+             (snapshot & 8) != 0);
     }
 
     // Where the handle is clear of the picture, so a trigger press there cannot
@@ -3317,16 +3669,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         ctx->hoverKind = hover;
     }
 
-    XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
-    int headValid = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, space,
-                                               ctx->predictedDisplayTime, &headLoc))
-            && (headLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
-    if (headValid) {
-        ctx->headPos = headLoc.pose.position;
-    }
     ctx->screenOrientation = screenPose.orientation;
     ctx->beamVisible = 0;
     ctx->beamFree = 0;
+    // Eyes aim by looking, so a ray out of the face would be nonsense, and a
+    // cursor riding on them shakes too much to be anything but a distraction.
+    // Gaze draws nothing: the handle lighting up is the feedback.
+    ctx->beamGaze = (ctx->grabMode != GRAB_NONE ? ctx->grabHand : hand) == SRC_GAZE;
 
     if (ctx->grabMode != GRAB_NONE) {
         // Nothing goes to the host mid drag, and the ray ends on the handle
@@ -3381,7 +3730,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     // The bar, the button and the picker all sit off the picture, so pointing
     // at them must not drag the host cursor to the edge
-    int hit = hover == HOVER_SCREEN || hover == HOVER_CORNER;
+    int hit = (hover == HOVER_SCREEN || hover == HOVER_CORNER) && hand != SRC_GAZE;
     if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
             || hover == HOVER_HALO) && headValid && hand >= 0) {
         Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
@@ -3449,7 +3798,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // blinking out. A laser that comes and goes is harder to aim than one that
     // always shows where the hand is looking, so the only thing that retires it
     // is the controller being put down.
-    if (!ctx->beamVisible && ctx->pointerAwake && headValid) {
+    if (!ctx->beamVisible && ctx->pointerAwake && headValid && !ctx->beamGaze) {
         int free = hand;
         if (free < 0) {
             free = aimValid[HAND_RIGHT] ? HAND_RIGHT : (aimValid[HAND_LEFT] ? HAND_LEFT : -1);
@@ -4433,7 +4782,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         // Laser and cursor, submitted last so they sit over the picture. Two
         // quad layers, so this costs no drawing at all: the art was uploaded
         // once and the compositor places it from these poses.
-        if (ctx->beamVisible && ctx->pointerArtReady) {
+        if (ctx->beamVisible && !ctx->beamGaze && ctx->pointerArtReady) {
             Vec3 start = { ctx->beamStart.x, ctx->beamStart.y, ctx->beamStart.z };
             Vec3 end = { ctx->beamEnd.x, ctx->beamEnd.y, ctx->beamEnd.z };
             Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
@@ -4485,8 +4834,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 beamLayer.size.height = length;
                 layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&beamLayer;
 
-                // Cursor sits just off the surface facing the viewer, which
-                // works on the cylinder as well as the flat screen
+            }
+
+            // Cursor sits just off the surface facing the viewer, which works
+            // on the cylinder as well as the flat screen. Independent of the
+            // ribbon: a gaze has a cursor and no ray, a ray aimed at nothing
+            // has no cursor.
+            if (!ctx->beamFree) {
                 Vec3 dotZ = vecNorm(vecSub(head, end));
                 Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
                 Vec3 dotX = vecNorm(vecCross(worldUp, dotZ));
@@ -4509,9 +4863,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 dotLayer.pose.position.z = end.z + dotZ.z * 0.012f;
                 dotLayer.size.width = 0.022f;
                 dotLayer.size.height = 0.022f;
-                if (!ctx->beamFree) {
-                    layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&dotLayer;
-                }
+                layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&dotLayer;
             }
         }
     }

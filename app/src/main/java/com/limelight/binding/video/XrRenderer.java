@@ -188,7 +188,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                        boolean passthrough);
     private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
                                           float curvature, boolean headLocked,
-                                          boolean pointerEnabled, float[] out);
+                                          boolean pointerEnabled, boolean gazeEnabled,
+                                          float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
@@ -407,6 +408,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         float separation = prefs.vrStereoSeparation / 1000.0f;
         boolean eyeSwap = prefs.vrEyeSwap;
         boolean pointer = prefs.vrPointer;
+        boolean gaze = prefs.vrGaze;
         int cadence = Math.max(1, prefs.vrInferenceCadence);
 
         long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
@@ -422,7 +424,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
 
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
-                    pointer, inputState);
+                    pointer, gaze, inputState);
             dispatchInput();
 
             boolean newFrame = pendingFrames.getAndSet(0) > 0;

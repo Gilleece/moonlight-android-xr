@@ -73,6 +73,16 @@
     <uses-feature
         android:name="pvr.software.handtracking"
         android:required="false"/>
+    <!-- Eye tracking, for headsets that point by looking. Optional again, and
+         only ever used to aim the existing pointer -->
+    <uses-feature
+        android:name="oculus.software.eye_tracking"
+        android:required="false"/>
+    <uses-permission android:name="com.oculus.permission.EYE_TRACKING" />
+    <uses-feature
+        android:name="pvr.software.eyetracking"
+        android:required="false"/>
+    <uses-permission android:name="com.picovr.permission.EYE_TRACKING" />
 
     <application
         android:allowBackup="true"
