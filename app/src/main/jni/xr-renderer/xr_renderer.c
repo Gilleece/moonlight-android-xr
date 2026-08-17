@@ -35,6 +35,132 @@
 
 #define STATS_LOG_INTERVAL_FRAMES 300
 
+// Pico ships its controller bindings behind an extension. Older headers may
+// not have the name, and the runtime may not offer it at all
+#ifndef XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME
+#define XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME "XR_BD_controller_interaction"
+#endif
+
+// Beam and cursor art share one small swapchain, beam on top, dot below
+#define PTR_TEX_W 64
+#define PTR_BEAM_H 256
+#define PTR_DOT_H 64
+#define PTR_TEX_H (PTR_BEAM_H + PTR_DOT_H)
+
+#define HAND_LEFT  0
+#define HAND_RIGHT 1
+#define HAND_COUNT 2
+
+// Trigger and grip are analog, and a single threshold chatters around the
+// crossing, so presses and releases use different ones
+#define PRESS_ON   0.65f
+#define PRESS_OFF  0.35f
+// Thumbstick travel before it counts as a scroll, and how fast a full
+// deflection winds the wheel
+#define SCROLL_DEADZONE 0.30f
+#define SCROLL_CLICKS_PER_SEC 7.5f
+
+// One euro filter on the hit point. A hand at rest still shakes, and at 3 m
+// that tremor is several pixels of cursor, so the cutoff drops when the
+// pointer is still and rises with speed to keep fast moves from lagging.
+#define POINTER_MIN_CUTOFF 1.2f
+#define POINTER_BETA 8.0f
+#define POINTER_D_CUTOFF 1.0f
+// A gap this long means the pointer left the screen or changed hands, and
+// filtering across it would slide the cursor in from where it used to be
+#define POINTER_RESET_NS 250000000L
+
+// The pointer waits for deliberate movement before it appears, so knocking a
+// controller does not throw a laser across the picture, and it goes away again
+// once a controller has been put down
+#define POINTER_WAKE_SEC 0.5f
+#define POINTER_SLEEP_SEC 5.0f
+// Metres per second and radians per second. A resting hand manages about a
+// tenth of these.
+#define POINTER_MOVE_SPEED 0.06f
+#define POINTER_TURN_SPEED 0.35f
+
+#define VR_BUTTON_LEFT   0x1
+#define VR_BUTTON_RIGHT  0x2
+#define VR_BUTTON_MIDDLE 0x4
+
+// Slots in the float array handed back to Java each frame
+#define IN_HIT      0
+#define IN_U        1
+#define IN_V        2
+#define IN_BUTTONS  3
+#define IN_SCROLL   4
+#define IN_POINTER  5
+#define IN_POSE_DIRTY 6
+// x y z, then the orientation quaternion, then width and cylinder radius
+#define IN_POSE     8
+// The cell just chosen in the environment grid, or -1
+#define IN_PICKER_PICK 17
+#define IN_SLOTS    20
+
+// Grab thresholds for the grip, and the range a resize is allowed to reach
+#define SCREEN_MIN_WIDTH 0.8f
+#define SCREEN_MAX_WIDTH 8.0f
+
+// What the ray is over. Handles only show while hovered, which is how spatial
+// panels usually behave: nothing visible until you go looking for it.
+#define HOVER_NONE   0
+#define HOVER_SCREEN 1
+#define HOVER_BAR    2
+#define HOVER_CORNER 3
+
+#define GRAB_NONE   0
+#define GRAB_MOVE   1
+#define GRAB_RESIZE 2
+
+// All as a fraction of screen width, so the handles keep their proportions as
+// the screen is resized
+#define BAR_WIDTH_FRAC  0.14f
+// Height follows the art rather than being picked separately. The two used to
+// disagree by 2.5x, which stretched the rounded ends into a slab.
+#define BAR_HEIGHT_FRAC (BAR_WIDTH_FRAC * (float)BAR_TEX_H / (float)BAR_TEX_W)
+#define BAR_GAP_FRAC    0.035f
+#define CORNER_FRAC     0.075f
+// Hover zones are bigger than the art, since aiming at a thin bar is fussy
+#define HOVER_MARGIN 1.7f
+#define CORNER_HOVER 1.5f
+// The bar is small on purpose, so its hover zone is proportionally wider
+#define BAR_HOVER 2.0f
+
+// Handle art, one small swapchain each so there is no atlas offset convention
+// to get wrong
+#define BAR_TEX_W 256
+#define BAR_TEX_H 24
+#define CORNER_TEX_W 64
+#define CORNER_TEX_H 64
+
+// Environment picker. A grid of thumbnails drawn in Java and shown as one
+// quad, with the hover and selection marks as separate outline quads so
+// pointing around the grid never costs an upload.
+#define PICKER_COLS 3
+#define PICKER_ROWS 2
+#define PICKER_CELLS (PICKER_COLS * PICKER_ROWS)
+#define PICKER_TEX_W 768
+#define PICKER_TEX_H 512
+#define PICKER_WIDTH_FRAC 0.55f
+#define OUTLINE_TEX 128
+// The button that opens it, sitting to the left of the move bar
+#define ENV_BUTTON_FRAC 0.048f
+#define ENV_GAP_FRAC 0.02f
+
+#define HOVER_ENVBUTTON 4
+#define HOVER_PICKER    5
+// Nothing under the ray, but close enough to the screen to keep drawing it
+#define HOVER_HALO      6
+// How far past each edge that reaches, as a fraction of the screen
+#define HALO_FRAC 0.5f
+// How far the ray runs when it is aimed at nothing at all, in metres
+#define FREE_BEAM_M 4.0f
+
+// Radius of the environment sphere in metres. Finite, so leaning gives the
+// room a size instead of it sitting infinitely far off.
+#define ENV_RADIUS_M 12.0f
+
 // Return codes for waitBeginFrame
 #define FRAME_EXIT   -1
 #define FRAME_IDLE    0
@@ -81,6 +207,12 @@
 #define PROP_CONVERGENCE "debug.moonlight.convergence"
 #define PROP_DEPTH_GLOBAL "debug.moonlight.depthglobal"
 #define PROP_DEPTH_LOCAL "debug.moonlight.depthlocal"
+#define PROP_POINTER_CUTOFF "debug.moonlight.pointercutoff"
+#define PROP_POINTER_BETA "debug.moonlight.pointerbeta"
+#define PROP_BEAM_WIDTH "debug.moonlight.beamwidth"
+#define PROP_POINTER_WAKE "debug.moonlight.pointerwake"
+#define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
+#define PROP_ENV_RADIUS "debug.moonlight.envradius"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
@@ -88,6 +220,16 @@
 // Radius of the low pass that splits the depth map into an overall shape and
 // the local detail on top of it. About a tenth of the frame.
 #define DEPTH_LOWPASS_RADIUS 11
+
+typedef struct { float x, y, z; } Vec3;
+
+// One euro filter: a low pass whose cutoff rises with speed, so a resting
+// hand is smoothed hard while a fast sweep is barely delayed
+typedef struct {
+    int valid;
+    float x;
+    float dx;
+} EuroState;
 
 typedef struct {
     JavaVM* vm;
@@ -220,13 +362,144 @@ typedef struct {
     int everRendered;
 
     int cylinderSupported;
+    int equirectSupported;
+
+    // 360 photo shown behind everything when passthrough is off. An equirect
+    // layer, so the compositor draws the environment and we still have no
+    // projection layer and no geometry.
+    XrSwapchain backgroundSwapchain;
+    uint32_t backgroundImageCount;
+    XrSwapchainImageOpenGLESKHR* backgroundImages;
+    int backgroundWidth;
+    int backgroundHeight;
+    int backgroundReady;
+    int backgroundEnabled;
+    float envRadius;
     int srgbWriteControl;
     // Passthrough is just an environment blend mode: with alpha blend the
-    // runtime shows the room wherever our layers do not cover
+    // runtime shows the room wherever our layers do not cover. Both headsets
+    // offer it, but Meta only turns the cameras on if the manifest asks.
     int alphaBlendSupported;
     int passthrough;
 
     PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetGlesReqs;
+
+    // Controller input. The aim ray is intersected with the screen and the hit
+    // point drives the host mouse, so the PC sees an ordinary absolute mouse
+    XrActionSet actionSet;
+    XrAction aimAction;
+    XrAction triggerAction;
+    XrAction rightClickAction;
+    XrAction middleClickAction;
+    XrAction scrollAction;
+    XrAction grabAction;
+    XrAction toggleAction;
+    XrSpace aimSpaces[HAND_COUNT];
+    XrPath handPaths[HAND_COUNT];
+    int inputReady;
+    int picoInteraction;
+    // Pointing is a per session toggle on top of the preference, since
+    // absolute positions fight any game that does its own mouse look
+    int pointerOn;
+    int togglePrev;
+    int triggerDown[HAND_COUNT];
+    // Rising edges, so a button already held when the ray wanders onto a handle
+    // does not grab it. Dragging a window on the host desktop past the edge of
+    // the picture would otherwise turn into a resize.
+    int triggerEdge[HAND_COUNT];
+    int gripEdge[HAND_COUNT];
+    int grabByTrigger;
+    int buttonsDown;
+    float scrollCarry;
+    long lastInputNs;
+
+    // One euro filter state for the hit point, per axis
+    EuroState filterU;
+    EuroState filterV;
+    float pointerMinCutoff;
+    float pointerBeta;
+    long lastHitNs;
+    int lastHand;
+
+    // Movement gate. The pointer only appears after the controller has been
+    // moved deliberately, and disappears once it has been still a while.
+    int poseSeen[HAND_COUNT];
+    XrPosef lastAim[HAND_COUNT];
+    float movingFor;
+    float stillFor;
+    int pointerAwake;
+    float pointerWake;
+    float pointerSleep;
+
+    // Laser. Two tiny quad layers rather than a projection layer: the whole
+    // renderer draws nothing per frame for this, the compositor places it
+    XrSwapchain pointerSwapchain;
+    uint32_t pointerImageCount;
+    XrSwapchainImageOpenGLESKHR* pointerImages;
+    int pointerArtReady;
+    int beamVisible;
+    // Ray drawn with nothing under it, so there is no cursor to go with it
+    int beamFree;
+    XrVector3f beamStart;
+    XrVector3f beamEnd;
+    XrVector3f headPos;
+    XrQuaternionf screenOrientation;
+    float beamWidth;
+
+    // Where the screen actually is. Seeded from the distance and width
+    // preferences and then owned by the grab, so moving it does not fight the
+    // sliders. Touching either slider puts it back under their control.
+    XrPosef screenPose;
+    float screenWidth;
+    float screenRadius;
+    int placementValid;
+    int sliderSeen;
+    float lastDistance;
+    float lastQuadWidth;
+
+    int grabDown[HAND_COUNT];
+    int grabMode;
+    int grabHand;
+    float grabU, grabV;
+    XrPosef grabAim;
+    XrPosef grabScreen;
+    float grabWidth;
+    float grabHeight;
+    float grabRadius;
+    // Resize works against the corner opposite the one being dragged, which
+    // stays put, and along the diagonal it started on
+    float grabOppX, grabOppY;
+    float grabDiagX, grabDiagY;
+    int poseDirty;
+
+    // Hover state, read by the frame loop to decide which handle to draw
+    int hoverKind;
+    int hoverCorner;
+    XrSwapchain barSwapchain;
+    XrSwapchain cornerSwapchain;
+    uint32_t barImageCount;
+    uint32_t cornerImageCount;
+    XrSwapchainImageOpenGLESKHR* barImages;
+    XrSwapchainImageOpenGLESKHR* cornerImages;
+    int handleArtReady;
+
+    XrSwapchain pickerSwapchain;
+    XrSwapchain envButtonSwapchain;
+    XrSwapchain outlineSwapchain;
+    uint32_t pickerImageCount;
+    uint32_t envButtonImageCount;
+    uint32_t outlineImageCount;
+    XrSwapchainImageOpenGLESKHR* pickerImages;
+    XrSwapchainImageOpenGLESKHR* envButtonImages;
+    XrSwapchainImageOpenGLESKHR* outlineImages;
+    int pickerReady;
+    int envButtonReady;
+    int outlineReady;
+    int pickerOpen;
+    int pickerHover;
+    int pickerChoice;
+    int pickerPick;
+    int envButtonHot;
 
     long statFrames;
     long statTotalNs;
@@ -608,10 +881,14 @@ static int initXrInstance(XrCtx* ctx) {
     xrEnumerateInstanceExtensionProperties(NULL, extCount, &extCount, exts);
 
     int haveGles = 0, haveAndroidCreate = 0;
+    LOGI("runtime offers %u OpenXR extensions", extCount);
     for (uint32_t i = 0; i < extCount; i++) {
+        LOGI("  extension %s", exts[i].extensionName);
         if (!strcmp(exts[i].extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME)) haveGles = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) haveAndroidCreate = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) ctx->cylinderSupported = 1;
+        if (!strcmp(exts[i].extensionName, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME)) ctx->picoInteraction = 1;
+        if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)) ctx->equirectSupported = 1;
     }
     free(exts);
 
@@ -620,12 +897,18 @@ static int initXrInstance(XrCtx* ctx) {
         return 0;
     }
 
-    const char* enabledExts[3];
+    const char* enabledExts[5];
     uint32_t enabledCount = 0;
     enabledExts[enabledCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     enabledExts[enabledCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
     if (ctx->cylinderSupported) {
         enabledExts[enabledCount++] = XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME;
+    }
+    if (ctx->picoInteraction) {
+        enabledExts[enabledCount++] = XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME;
+    }
+    if (ctx->equirectSupported) {
+        enabledExts[enabledCount++] = XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME;
     }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -1131,6 +1414,19 @@ static void pollEvents(XrCtx* ctx) {
                 handleSessionStateChange(ctx, sc->state);
                 break;
             }
+            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+                XrEventDataReferenceSpaceChangePending* change =
+                        (XrEventDataReferenceSpaceChangePending*)&event;
+                if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                    // Recentring is the user saying where forward is, so the
+                    // screen goes back to the placement a fresh install has
+                    // rather than keeping an offset from the old origin
+                    ctx->placementValid = 0;
+                    ctx->grabMode = GRAB_NONE;
+                    LOGI("recentred, screen placement reset");
+                }
+                break;
+            }
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 ctx->exitRequested = 1;
                 break;
@@ -1140,7 +1436,1011 @@ static void pollEvents(XrCtx* ctx) {
     }
 }
 
+static Vec3 vecSub(Vec3 a, Vec3 b) {
+    Vec3 r = { a.x - b.x, a.y - b.y, a.z - b.z };
+    return r;
+}
+
+static XrQuaternionf quatConj(XrQuaternionf q) {
+    XrQuaternionf r = { -q.x, -q.y, -q.z, q.w };
+    return r;
+}
+
+static XrQuaternionf quatMul(XrQuaternionf a, XrQuaternionf b) {
+    XrQuaternionf r;
+    r.w = a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z;
+    r.x = a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y;
+    r.y = a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x;
+    r.z = a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w;
+    return r;
+}
+
+// Repeated products drift off the unit sphere and the compositor is entitled
+// to reject that
+static XrQuaternionf quatNorm(XrQuaternionf q) {
+    float len = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (len < 1e-6f) {
+        XrQuaternionf id = { 0.0f, 0.0f, 0.0f, 1.0f };
+        return id;
+    }
+    q.x /= len;
+    q.y /= len;
+    q.z /= len;
+    q.w /= len;
+    return q;
+}
+
+static Vec3 quatRotate(XrQuaternionf q, Vec3 v) {
+    // v + w * (2 * cross(q.xyz, v)) + cross(q.xyz, 2 * cross(q.xyz, v))
+    Vec3 u = { q.x, q.y, q.z };
+    Vec3 t = { 2.0f * (u.y * v.z - u.z * v.y),
+               2.0f * (u.z * v.x - u.x * v.z),
+               2.0f * (u.x * v.y - u.y * v.x) };
+    Vec3 r = { v.x + q.w * t.x + (u.y * t.z - u.z * t.y),
+               v.y + q.w * t.y + (u.z * t.x - u.x * t.z),
+               v.z + q.w * t.z + (u.x * t.y - u.y * t.x) };
+    return r;
+}
+
+static float euroAlpha(float cutoff, float dt) {
+    float tau = 1.0f / (2.0f * (float)M_PI * cutoff);
+    return 1.0f / (1.0f + tau / dt);
+}
+
+static float euroFilter(EuroState* s, float x, float dt, float minCutoff, float beta) {
+    if (!s->valid || dt <= 0.0f) {
+        s->valid = 1;
+        s->x = x;
+        s->dx = 0.0f;
+        return x;
+    }
+    float dx = (x - s->x) / dt;
+    s->dx += euroAlpha(POINTER_D_CUTOFF, dt) * (dx - s->dx);
+    float cutoff = minCutoff + beta * fabsf(s->dx);
+    s->x += euroAlpha(cutoff, dt) * (x - s->x);
+    return s->x;
+}
+
+// Rotation whose local axes are the three given unit vectors. Used to stand a
+// quad layer up along the beam while keeping its face toward the viewer.
+static XrQuaternionf quatFromBasis(Vec3 x, Vec3 y, Vec3 z) {
+    float m[3][3] = {
+        { x.x, y.x, z.x },
+        { x.y, y.y, z.y },
+        { x.z, y.z, z.z },
+    };
+    float trace = m[0][0] + m[1][1] + m[2][2];
+    XrQuaternionf q;
+    if (trace > 0.0f) {
+        float s = sqrtf(trace + 1.0f) * 2.0f;
+        q.w = 0.25f * s;
+        q.x = (m[2][1] - m[1][2]) / s;
+        q.y = (m[0][2] - m[2][0]) / s;
+        q.z = (m[1][0] - m[0][1]) / s;
+    }
+    else if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) {
+        float s = sqrtf(1.0f + m[0][0] - m[1][1] - m[2][2]) * 2.0f;
+        q.w = (m[2][1] - m[1][2]) / s;
+        q.x = 0.25f * s;
+        q.y = (m[0][1] + m[1][0]) / s;
+        q.z = (m[0][2] + m[2][0]) / s;
+    }
+    else if (m[1][1] > m[2][2]) {
+        float s = sqrtf(1.0f + m[1][1] - m[0][0] - m[2][2]) * 2.0f;
+        q.w = (m[0][2] - m[2][0]) / s;
+        q.x = (m[0][1] + m[1][0]) / s;
+        q.y = 0.25f * s;
+        q.z = (m[1][2] + m[2][1]) / s;
+    }
+    else {
+        float s = sqrtf(1.0f + m[2][2] - m[0][0] - m[1][1]) * 2.0f;
+        q.w = (m[1][0] - m[0][1]) / s;
+        q.x = (m[0][2] + m[2][0]) / s;
+        q.y = (m[1][2] + m[2][1]) / s;
+        q.z = 0.25f * s;
+    }
+    return q;
+}
+
+static Vec3 vecNorm(Vec3 v) {
+    float len = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    if (len < 1e-6f) {
+        Vec3 zero = { 0.0f, 0.0f, 0.0f };
+        return zero;
+    }
+    Vec3 r = { v.x / len, v.y / len, v.z / len };
+    return r;
+}
+
+static Vec3 vecCross(Vec3 a, Vec3 b) {
+    Vec3 r = { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x };
+    return r;
+}
+
+static XrPath toPath(XrCtx* ctx, const char* str) {
+    XrPath path = XR_NULL_PATH;
+    xrStringToPath(ctx->instance, str, &path);
+    return path;
+}
+
+static XrAction makeAction(XrCtx* ctx, XrActionType type, const char* name, const char* label) {
+    XrActionCreateInfo info = { XR_TYPE_ACTION_CREATE_INFO };
+    info.actionType = type;
+    strncpy(info.actionName, name, XR_MAX_ACTION_NAME_SIZE - 1);
+    strncpy(info.localizedActionName, label, XR_MAX_LOCALIZED_ACTION_NAME_SIZE - 1);
+    info.countSubactionPaths = HAND_COUNT;
+    info.subactionPaths = ctx->handPaths;
+
+    XrAction action = XR_NULL_HANDLE;
+    if (!checkXr(xrCreateAction(ctx->actionSet, &info, &action), name)) {
+        return XR_NULL_HANDLE;
+    }
+    return action;
+}
+
+// One unsupported path rejects a whole profile, so the full set is offered
+// first and a runtime that does not recognise this controller falls back to
+// aim and trigger, which every profile has.
+static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
+    XrActionSuggestedBinding b[16];
+    uint32_t n = 0;
+    static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
+    // x and y on the left controller, a and b on the right
+    static const char* rightClick[HAND_COUNT] = { "input/x/click", "input/a/click" };
+    static const char* middleClick[HAND_COUNT] = { "input/y/click", "input/b/click" };
+    int simple = strstr(profile, "/khr/") != NULL;
+
+    for (int h = 0; h < HAND_COUNT; h++) {
+        char path[XR_MAX_PATH_LENGTH];
+
+        snprintf(path, sizeof(path), "%s/input/aim/pose", hands[h]);
+        b[n].action = ctx->aimAction;
+        b[n++].binding = toPath(ctx, path);
+
+        snprintf(path, sizeof(path), "%s/%s", hands[h],
+                 simple ? "input/select/click" : "input/trigger/value");
+        b[n].action = ctx->triggerAction;
+        b[n++].binding = toPath(ctx, path);
+
+        if (!full || simple) {
+            continue;
+        }
+
+        snprintf(path, sizeof(path), "%s/%s", hands[h], rightClick[h]);
+        b[n].action = ctx->rightClickAction;
+        b[n++].binding = toPath(ctx, path);
+
+        snprintf(path, sizeof(path), "%s/%s", hands[h], middleClick[h]);
+        b[n].action = ctx->middleClickAction;
+        b[n++].binding = toPath(ctx, path);
+
+        snprintf(path, sizeof(path), "%s/input/thumbstick", hands[h]);
+        b[n].action = ctx->scrollAction;
+        b[n++].binding = toPath(ctx, path);
+
+        snprintf(path, sizeof(path), "%s/input/thumbstick/click", hands[h]);
+        b[n].action = ctx->toggleAction;
+        b[n++].binding = toPath(ctx, path);
+
+        snprintf(path, sizeof(path), "%s/input/squeeze/value", hands[h]);
+        b[n].action = ctx->grabAction;
+        b[n++].binding = toPath(ctx, path);
+    }
+
+    XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+    suggest.interactionProfile = toPath(ctx, profile);
+    suggest.countSuggestedBindings = n;
+    suggest.suggestedBindings = b;
+
+    XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
+    if (XR_SUCCEEDED(res)) {
+        LOGI("bindings accepted for %s (%s)", profile, full ? "full" : "reduced");
+    }
+    else if (full) {
+        LOGW("full bindings rejected for %s (%d), trying aim and trigger only", profile, res);
+        suggestBindings(ctx, profile, 0);
+    }
+    else {
+        LOGW("bindings rejected for %s (%d)", profile, res);
+    }
+}
+
+static int initXrInput(XrCtx* ctx) {
+    XrActionSetCreateInfo setInfo = { XR_TYPE_ACTION_SET_CREATE_INFO };
+    strncpy(setInfo.actionSetName, "moonlight", XR_MAX_ACTION_SET_NAME_SIZE - 1);
+    strncpy(setInfo.localizedActionSetName, "Moonlight", XR_MAX_LOCALIZED_ACTION_SET_NAME_SIZE - 1);
+    if (!checkXr(xrCreateActionSet(ctx->instance, &setInfo, &ctx->actionSet), "create action set")) {
+        return 0;
+    }
+
+    ctx->handPaths[HAND_LEFT] = toPath(ctx, "/user/hand/left");
+    ctx->handPaths[HAND_RIGHT] = toPath(ctx, "/user/hand/right");
+
+    ctx->aimAction = makeAction(ctx, XR_ACTION_TYPE_POSE_INPUT, "aim", "Pointer");
+    ctx->triggerAction = makeAction(ctx, XR_ACTION_TYPE_FLOAT_INPUT, "trigger", "Left click");
+    ctx->rightClickAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "rightclick", "Right click");
+    ctx->middleClickAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "middleclick", "Middle click");
+    ctx->scrollAction = makeAction(ctx, XR_ACTION_TYPE_VECTOR2F_INPUT, "scroll", "Scroll");
+    ctx->grabAction = makeAction(ctx, XR_ACTION_TYPE_FLOAT_INPUT, "grab", "Move the screen");
+    ctx->toggleAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pointertoggle", "Pointer on or off");
+
+    if (ctx->aimAction == XR_NULL_HANDLE || ctx->triggerAction == XR_NULL_HANDLE) {
+        return 0;
+    }
+
+    suggestBindings(ctx, "/interaction_profiles/khr/simple_controller", 1);
+    suggestBindings(ctx, "/interaction_profiles/oculus/touch_controller", 1);
+    if (ctx->picoInteraction) {
+        suggestBindings(ctx, "/interaction_profiles/bytedance/pico4_controller", 1);
+    }
+
+    XrSessionActionSetsAttachInfo attach = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
+    attach.countActionSets = 1;
+    attach.actionSets = &ctx->actionSet;
+    if (!checkXr(xrAttachSessionActionSets(ctx->session, &attach), "attach action sets")) {
+        return 0;
+    }
+
+    for (int h = 0; h < HAND_COUNT; h++) {
+        XrActionSpaceCreateInfo spaceInfo = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
+        spaceInfo.action = ctx->aimAction;
+        spaceInfo.subactionPath = ctx->handPaths[h];
+        spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+        if (!checkXr(xrCreateActionSpace(ctx->session, &spaceInfo, &ctx->aimSpaces[h]),
+                     "create aim space")) {
+            return 0;
+        }
+    }
+
+    ctx->inputReady = 1;
+    ctx->pointerOn = 1;
+    LOGI("controller input ready (pico bindings %s)",
+         ctx->picoInteraction ? "offered" : "not offered by this runtime");
+    return 1;
+}
+
+static float actionFloat(XrCtx* ctx, XrAction action, int hand) {
+    if (action == XR_NULL_HANDLE) {
+        return 0.0f;
+    }
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = action;
+    get.subactionPath = hand < 0 ? XR_NULL_PATH : ctx->handPaths[hand];
+
+    XrActionStateFloat state = { XR_TYPE_ACTION_STATE_FLOAT };
+    if (XR_FAILED(xrGetActionStateFloat(ctx->session, &get, &state)) || !state.isActive) {
+        return 0.0f;
+    }
+    return state.currentState;
+}
+
+static int actionBool(XrCtx* ctx, XrAction action, int hand) {
+    if (action == XR_NULL_HANDLE) {
+        return 0;
+    }
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = action;
+    get.subactionPath = hand < 0 ? XR_NULL_PATH : ctx->handPaths[hand];
+
+    XrActionStateBoolean state = { XR_TYPE_ACTION_STATE_BOOLEAN };
+    if (XR_FAILED(xrGetActionStateBoolean(ctx->session, &get, &state)) || !state.isActive) {
+        return 0;
+    }
+    return state.currentState != 0;
+}
+
+static XrVector2f actionVec2(XrCtx* ctx, XrAction action, int hand) {
+    XrVector2f zero = { 0.0f, 0.0f };
+    if (action == XR_NULL_HANDLE) {
+        return zero;
+    }
+    XrActionStateGetInfo get = { XR_TYPE_ACTION_STATE_GET_INFO };
+    get.action = action;
+    get.subactionPath = hand < 0 ? XR_NULL_PATH : ctx->handPaths[hand];
+
+    XrActionStateVector2f state = { XR_TYPE_ACTION_STATE_VECTOR2F };
+    if (XR_FAILED(xrGetActionStateVector2f(ctx->session, &get, &state)) || !state.isActive) {
+        return zero;
+    }
+    return state.currentState;
+}
+
+// Where the aim ray lands on the screen, in 0..1 texture coordinates with v
+// running down the picture. Handles the cylinder as well, since the surface
+// bulges toward the viewer and a flat approximation is wrong at the edges by
+// the sagitta, which is a fifth of a metre on a wrapped 3 m screen.
+static int screenProject(XrPosef aim, XrPosef screen, float width, float height,
+                         float radius, int curved, float* outU, float* outV) {
+    XrQuaternionf inv = quatConj(screen.orientation);
+    Vec3 aimPos = { aim.position.x, aim.position.y, aim.position.z };
+    Vec3 screenPos = { screen.position.x, screen.position.y, screen.position.z };
+    Vec3 forward = { 0.0f, 0.0f, -1.0f };
+
+    // Both into the screen's own frame, where the surface sits in the xy plane
+    Vec3 o = quatRotate(inv, vecSub(aimPos, screenPos));
+    Vec3 d = quatRotate(inv, quatRotate(aim.orientation, forward));
+
+    float hx, hy;
+    if (curved) {
+        // Axis is vertical through the cylinder centre, which sits behind the
+        // surface by the radius. The viewer is inside, so there is one root.
+        float cz = radius;
+        float ox = o.x, oz = o.z - cz;
+        float a = d.x * d.x + d.z * d.z;
+        float b = 2.0f * (ox * d.x + oz * d.z);
+        float c = ox * ox + oz * oz - radius * radius;
+        if (a < 1e-6f) {
+            return 0;
+        }
+        float disc = b * b - 4.0f * a * c;
+        if (disc < 0.0f) {
+            return 0;
+        }
+        float t = (-b + sqrtf(disc)) / (2.0f * a);
+        if (t <= 0.0f) {
+            return 0;
+        }
+        float px = o.x + t * d.x;
+        float py = o.y + t * d.y;
+        float pz = o.z + t * d.z;
+        // Angle off the centre of the arc, which faces -z from the axis
+        float angle = atan2f(px, cz - pz);
+        float centralAngle = width / radius;
+        hx = angle / centralAngle;
+        hy = py / height;
+    }
+    else {
+        // The quad faces +z in its own frame, so the viewer has to be in front
+        // of it and pointing back at it
+        if (o.z <= 0.0f || d.z >= -1e-6f) {
+            return 0;
+        }
+        float t = -o.z / d.z;
+        hx = (o.x + t * d.x) / width;
+        hy = (o.y + t * d.y) / height;
+    }
+
+    *outU = hx + 0.5f;
+    // Texture rows run down the picture, world y runs up it
+    *outV = 0.5f - hy;
+    return 1;
+}
+
+// Which affordance the ray is over. Corners are numbered 0 top left, 1 top
+// right, 2 bottom left, 3 bottom right.
+static int hoverTest(float u, float v, float width, float height, int* corner) {
+    // Centred on the corner, reaching as far outside the picture as inside,
+    // because that is where the bracket is drawn
+    float reachM = CORNER_FRAC * width * CORNER_HOVER * 0.5f;
+    float cu = reachM / width;
+    float cv = reachM / height;
+
+    int left = fabsf(u) < cu;
+    int right = fabsf(u - 1.0f) < cu;
+    int top = fabsf(v) < cv;
+    int bottom = fabsf(v - 1.0f) < cv;
+    if ((left || right) && (top || bottom)) {
+        *corner = (top ? 0 : 2) + (right ? 1 : 0);
+        return HOVER_CORNER;
+    }
+
+    if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f) {
+        return HOVER_SCREEN;
+    }
+
+    // The move bar sits under the bottom edge, so v runs past 1 here
+    float barU = BAR_WIDTH_FRAC * BAR_HOVER * 0.5f;
+    float reach = (BAR_GAP_FRAC + BAR_HEIGHT_FRAC * 3.0f) * width / height;
+    if (v > 1.0f && v < 1.0f + reach && fabsf(u - 0.5f) < barU) {
+        return HOVER_BAR;
+    }
+
+    // Beyond the picture the ray still draws out to a margin, so it does not
+    // blink out on the way to the handles underneath
+    if (u > -HALO_FRAC && u < 1.0f + HALO_FRAC && v > -HALO_FRAC && v < 1.0f + HALO_FRAC) {
+        return HOVER_HALO;
+    }
+
+    return HOVER_NONE;
+}
+
+// The inverse of screenHit: where a texture coordinate sits in space. The beam
+// is drawn to the filtered point rather than the raw one, so the ray and the
+// cursor agree instead of the ray shaking around a steady cursor.
+static Vec3 screenPoint(float u, float v, XrPosef screen, float width, float height,
+                        float radius, int curved) {
+    Vec3 local;
+    local.y = (0.5f - v) * height;
+    if (curved) {
+        float angle = (u - 0.5f) * (width / radius);
+        local.x = radius * sinf(angle);
+        local.z = radius - radius * cosf(angle);
+    }
+    else {
+        local.x = (u - 0.5f) * width;
+        local.z = 0.0f;
+    }
+
+    Vec3 rotated = quatRotate(screen.orientation, local);
+    Vec3 world = { screen.position.x + rotated.x,
+                   screen.position.y + rotated.y,
+                   screen.position.z + rotated.z };
+    return world;
+}
+
+static int createPointerSwapchain(XrCtx* ctx) {
+    XrSwapchainCreateInfo info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    info.format = ctx->swapchainFormat;
+    info.sampleCount = 1;
+    info.width = PTR_TEX_W;
+    info.height = PTR_TEX_H;
+    info.faceCount = 1;
+    info.arraySize = 1;
+    info.mipCount = 1;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->pointerSwapchain),
+                 "create pointer swapchain")) {
+        ctx->pointerSwapchain = XR_NULL_HANDLE;
+        return 0;
+    }
+
+    xrEnumerateSwapchainImages(ctx->pointerSwapchain, 0, &ctx->pointerImageCount, NULL);
+    ctx->pointerImages = calloc(ctx->pointerImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+    for (uint32_t i = 0; i < ctx->pointerImageCount; i++) {
+        ctx->pointerImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+    }
+    xrEnumerateSwapchainImages(ctx->pointerSwapchain, ctx->pointerImageCount,
+                               &ctx->pointerImageCount,
+                               (XrSwapchainImageBaseHeader*)ctx->pointerImages);
+
+    // Handles get a swapchain each rather than a corner of the atlas, so there
+    // is no image rect origin convention to guess at
+    info.width = BAR_TEX_W;
+    info.height = BAR_TEX_H;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->barSwapchain), "create bar swapchain")) {
+        xrEnumerateSwapchainImages(ctx->barSwapchain, 0, &ctx->barImageCount, NULL);
+        ctx->barImages = calloc(ctx->barImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->barImageCount; i++) {
+            ctx->barImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->barSwapchain, ctx->barImageCount, &ctx->barImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->barImages);
+    }
+    else {
+        ctx->barSwapchain = XR_NULL_HANDLE;
+    }
+
+    info.width = PICKER_TEX_W;
+    info.height = PICKER_TEX_H;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->pickerSwapchain),
+                "create picker swapchain")) {
+        xrEnumerateSwapchainImages(ctx->pickerSwapchain, 0, &ctx->pickerImageCount, NULL);
+        ctx->pickerImages = calloc(ctx->pickerImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->pickerImageCount; i++) {
+            ctx->pickerImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->pickerSwapchain, ctx->pickerImageCount,
+                                   &ctx->pickerImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->pickerImages);
+    }
+    else {
+        ctx->pickerSwapchain = XR_NULL_HANDLE;
+    }
+
+    info.width = OUTLINE_TEX;
+    info.height = OUTLINE_TEX;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->envButtonSwapchain),
+                "create env button swapchain")) {
+        xrEnumerateSwapchainImages(ctx->envButtonSwapchain, 0, &ctx->envButtonImageCount, NULL);
+        ctx->envButtonImages = calloc(ctx->envButtonImageCount,
+                                      sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->envButtonImageCount; i++) {
+            ctx->envButtonImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->envButtonSwapchain, ctx->envButtonImageCount,
+                                   &ctx->envButtonImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->envButtonImages);
+    }
+    else {
+        ctx->envButtonSwapchain = XR_NULL_HANDLE;
+    }
+
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->outlineSwapchain),
+                "create outline swapchain")) {
+        xrEnumerateSwapchainImages(ctx->outlineSwapchain, 0, &ctx->outlineImageCount, NULL);
+        ctx->outlineImages = calloc(ctx->outlineImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->outlineImageCount; i++) {
+            ctx->outlineImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->outlineSwapchain, ctx->outlineImageCount,
+                                   &ctx->outlineImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->outlineImages);
+    }
+    else {
+        ctx->outlineSwapchain = XR_NULL_HANDLE;
+    }
+
+    info.width = CORNER_TEX_W;
+    info.height = CORNER_TEX_H;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cornerSwapchain),
+                "create corner swapchain")) {
+        xrEnumerateSwapchainImages(ctx->cornerSwapchain, 0, &ctx->cornerImageCount, NULL);
+        ctx->cornerImages = calloc(ctx->cornerImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->cornerImageCount; i++) {
+            ctx->cornerImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->cornerSwapchain, ctx->cornerImageCount,
+                                   &ctx->cornerImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->cornerImages);
+    }
+    else {
+        ctx->cornerSwapchain = XR_NULL_HANDLE;
+    }
+
+    return 1;
+}
+
+// Uploads one CPU buffer into a swapchain and hands the image straight back
+static int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+                     const unsigned char* px, int width, int height) {
+    if (chain == XR_NULL_HANDLE) {
+        return 0;
+    }
+
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquire = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    if (!checkXr(xrAcquireSwapchainImage(chain, &acquire, &index), "acquire art image")) {
+        return 0;
+    }
+    XrSwapchainImageWaitInfo wait = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wait.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(chain, &wait);
+
+    glBindTexture(GL_TEXTURE_2D, images[index].image);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, px);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(chain, &release);
+    return 1;
+}
+
+// Rows arrive bottom up, so a photo uploaded as it comes would put the sky
+// underfoot
+static int uploadFlipped(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+                         const unsigned char* px, int width, int height) {
+    size_t stride = (size_t)width * 4;
+    unsigned char* flipped = malloc(stride * height);
+    if (flipped == NULL) {
+        return 0;
+    }
+    for (int y = 0; y < height; y++) {
+        memcpy(flipped + stride * y, px + stride * (height - 1 - y), stride);
+    }
+    int ok = uploadArt(ctx, chain, images, flipped, width, height);
+    free(flipped);
+    return ok;
+}
+
+// Soft edged coverage for a distance from a shape, in pixels
+static float edgeAlpha(float distance, float halfStroke) {
+    float a = (halfStroke - distance) / 1.5f + 0.5f;
+    if (a < 0.0f) return 0.0f;
+    if (a > 1.0f) return 1.0f;
+    return a;
+}
+
+static void buildHandleArt(XrCtx* ctx) {
+    unsigned char* bar = calloc(BAR_TEX_W * BAR_TEX_H * 4, 1);
+    unsigned char* corner = calloc(CORNER_TEX_W * CORNER_TEX_H * 4, 1);
+    if (bar == NULL || corner == NULL) {
+        free(bar);
+        free(corner);
+        return;
+    }
+
+    // A rounded bar, symmetric, so the row order does not matter here
+    float barR = BAR_TEX_H * 0.5f;
+    for (int y = 0; y < BAR_TEX_H; y++) {
+        for (int x = 0; x < BAR_TEX_W; x++) {
+            float px = x + 0.5f, py = y + 0.5f;
+            float cx = px;
+            if (cx < barR) cx = barR;
+            if (cx > BAR_TEX_W - barR) cx = BAR_TEX_W - barR;
+            float dx = px - cx, dy = py - barR;
+            float d = sqrtf(dx * dx + dy * dy);
+            unsigned char* p = bar + ((y * BAR_TEX_W) + x) * 4;
+            unsigned char a = (unsigned char)(edgeAlpha(d, barR - 1.0f) * 235.0f);
+            p[0] = p[1] = p[2] = a;
+            p[3] = a;
+        }
+    }
+
+    // A rounded bracket whose outer corner sits at the middle of the tile, with
+    // the two runs going right and down from it, so centring the quad on a
+    // corner of the screen wraps that corner. Rows are written bottom up: a
+    // buffer uploaded the normal way arrives vertically flipped.
+    const float mid = CORNER_TEX_W * 0.5f;
+    const float arcR = 10.0f;
+    const float stroke = 3.0f;
+    for (int y = 0; y < CORNER_TEX_H; y++) {
+        for (int x = 0; x < CORNER_TEX_W; x++) {
+            float px = x + 0.5f, py = y + 0.5f;
+            float d;
+            if (px < mid + arcR && py < mid + arcR) {
+                float ax = px - (mid + arcR), ay = py - (mid + arcR);
+                d = fabsf(sqrtf(ax * ax + ay * ay) - arcR);
+            }
+            else if (px >= mid + arcR) {
+                d = fabsf(py - mid);
+            }
+            else {
+                d = fabsf(px - mid);
+            }
+            unsigned char* p = corner + (((CORNER_TEX_H - 1 - y) * CORNER_TEX_W) + x) * 4;
+            unsigned char a = (unsigned char)(edgeAlpha(d, stroke) * 235.0f);
+            p[0] = p[1] = p[2] = a;
+            p[3] = a;
+        }
+    }
+
+    unsigned char* outline = calloc(OUTLINE_TEX * OUTLINE_TEX * 4, 1);
+    if (outline != NULL) {
+        // Rounded rectangle border, used to mark the hovered and the selected
+        // cell in the picker
+        const float radius = 16.0f;
+        const float border = 2.5f;
+        const float half = OUTLINE_TEX * 0.5f;
+        for (int y = 0; y < OUTLINE_TEX; y++) {
+            for (int x = 0; x < OUTLINE_TEX; x++) {
+                // Signed distance to a rounded rectangle, so the ring is just
+                // the pixels whose distance is under the border width
+                float qx = fabsf(x + 0.5f - half) - (half - radius);
+                float qy = fabsf(y + 0.5f - half) - (half - radius);
+                float mx = qx > 0.0f ? qx : 0.0f;
+                float my = qy > 0.0f ? qy : 0.0f;
+                float outside = sqrtf(mx * mx + my * my);
+                float inside = (qx > qy ? qx : qy);
+                if (inside > 0.0f) {
+                    inside = 0.0f;
+                }
+                float dist = fabsf(outside + inside);
+
+                unsigned char a = (unsigned char)(edgeAlpha(dist, border) * 255.0f);
+                unsigned char* p = outline + ((y * OUTLINE_TEX) + x) * 4;
+                p[0] = p[1] = p[2] = a;
+                p[3] = a;
+            }
+        }
+    }
+
+    int ok = uploadArt(ctx, ctx->barSwapchain, ctx->barImages, bar, BAR_TEX_W, BAR_TEX_H);
+    if (outline != NULL) {
+        ctx->outlineReady = uploadArt(ctx, ctx->outlineSwapchain, ctx->outlineImages,
+                                      outline, OUTLINE_TEX, OUTLINE_TEX);
+        free(outline);
+    }
+    ok &= uploadArt(ctx, ctx->cornerSwapchain, ctx->cornerImages, corner,
+                    CORNER_TEX_W, CORNER_TEX_H);
+    ctx->handleArtReady = ok;
+
+    free(bar);
+    free(corner);
+}
+
+// Has to run on the frame loop with the session going. Waiting on a swapchain
+// image at init time blocks until the runtime is ready to hand one over, which
+// on a session that has not begun is never, and the whole session hangs behind
+// it with the shell stuck on its loading screen.
+static int uploadPointerArt(XrCtx* ctx) {
+    unsigned char* px = calloc(PTR_TEX_W * PTR_TEX_H * 4, 1);
+    if (px == NULL) {
+        return 0;
+    }
+
+    const float half = PTR_TEX_W * 0.5f;
+    for (int y = 0; y < PTR_BEAM_H; y++) {
+        // Fades at both ends. Which end of the texture meets the hand depends
+        // on how the runtime orients the image, and symmetric art does not care
+        float along = (y + 0.5f) / PTR_BEAM_H;
+        float edge = along < 0.5f ? along : 1.0f - along;
+        float lengthFade = edge < 0.12f ? edge / 0.12f : 1.0f;
+        for (int x = 0; x < PTR_TEX_W; x++) {
+            float r = fabsf((x + 0.5f) - half) / half;
+            float t = r * 3.2f;
+            float a = expf(-t * t) * lengthFade;
+            unsigned char* p = px + ((y * PTR_TEX_W) + x) * 4;
+            unsigned char lit = (unsigned char)(a * 255.0f + 0.5f);
+            p[0] = lit;
+            p[1] = lit;
+            p[2] = lit;
+            p[3] = lit;
+        }
+    }
+
+    for (int y = 0; y < PTR_DOT_H; y++) {
+        for (int x = 0; x < PTR_TEX_W; x++) {
+            float dx = ((x + 0.5f) - half) / half;
+            float dy = ((y + 0.5f) - PTR_DOT_H * 0.5f) / (PTR_DOT_H * 0.5f);
+            float r = sqrtf(dx * dx + dy * dy);
+            // Solid core with a soft edge, and a darker rim so it stays
+            // visible against a bright picture
+            float a = r < 0.45f ? 1.0f : (r < 0.75f ? (0.75f - r) / 0.30f : 0.0f);
+            float shade = r < 0.35f ? 1.0f : 0.25f;
+            unsigned char* p = px + (((PTR_BEAM_H + y) * PTR_TEX_W) + x) * 4;
+            unsigned char lit = (unsigned char)(a * 255.0f * shade + 0.5f);
+            p[0] = lit;
+            p[1] = lit;
+            p[2] = lit;
+            p[3] = (unsigned char)(a * 255.0f + 0.5f);
+        }
+    }
+
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquire = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    if (checkXr(xrAcquireSwapchainImage(ctx->pointerSwapchain, &acquire, &index),
+                "acquire pointer image")) {
+        XrSwapchainImageWaitInfo wait = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+        wait.timeout = XR_INFINITE_DURATION;
+        xrWaitSwapchainImage(ctx->pointerSwapchain, &wait);
+
+        glBindTexture(GL_TEXTURE_2D, ctx->pointerImages[index].image);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, PTR_TEX_W, PTR_TEX_H,
+                        GL_RGBA, GL_UNSIGNED_BYTE, px);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+        xrReleaseSwapchainImage(ctx->pointerSwapchain, &release);
+        // Drawn once and submitted from then on, the art never changes
+        ctx->pointerArtReady = 1;
+    }
+
+    free(px);
+    if (ctx->pointerArtReady) {
+        buildHandleArt(ctx);
+    }
+    return ctx->pointerArtReady;
+}
+
+// The sliders place the screen, the grab moves it from there. Moving either
+// slider is taken as the user asking for the placement back.
+static void updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature) {
+    int sliderMoved = ctx->sliderSeen
+            && (fabsf(distance - ctx->lastDistance) > 1e-4f
+                || fabsf(quadWidth - ctx->lastQuadWidth) > 1e-4f);
+
+    if (!ctx->placementValid || sliderMoved) {
+        memset(&ctx->screenPose, 0, sizeof(ctx->screenPose));
+        ctx->screenPose.orientation.w = 1.0f;
+        ctx->screenPose.position.z = -distance;
+        ctx->screenWidth = quadWidth;
+        // Radius runs from 4x distance (slightly curved) down to the distance
+        // itself (wrapped around the viewer) as curvature rises
+        ctx->screenRadius = distance * (1.0f + 3.0f * (1.0f - curvature));
+        ctx->placementValid = 1;
+        ctx->grabMode = GRAB_NONE;
+        ctx->poseDirty = 1;
+    }
+
+    ctx->lastDistance = distance;
+    ctx->lastQuadWidth = quadWidth;
+    ctx->sliderSeen = 1;
+}
+
+// Handed back only when a grab ends, so preferences are written once per move
+// rather than every frame of it
+static void writeInputPose(XrCtx* ctx, float* out) {
+    if (!ctx->poseDirty) {
+        return;
+    }
+    ctx->poseDirty = 0;
+    out[IN_POSE_DIRTY] = 1.0f;
+    out[IN_POSE + 0] = ctx->screenPose.position.x;
+    out[IN_POSE + 1] = ctx->screenPose.position.y;
+    out[IN_POSE + 2] = ctx->screenPose.position.z;
+    out[IN_POSE + 3] = ctx->screenPose.orientation.x;
+    out[IN_POSE + 4] = ctx->screenPose.orientation.y;
+    out[IN_POSE + 5] = ctx->screenPose.orientation.z;
+    out[IN_POSE + 6] = ctx->screenPose.orientation.w;
+    out[IN_POSE + 7] = ctx->screenWidth;
+    out[IN_POSE + 8] = ctx->screenRadius;
+}
+
+// Move and resize both work off the handle the ray was over when the grip
+// closed. Gripping the picture itself does nothing, which keeps the panel from
+// being dragged by accident while pointing at something.
+static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
+                      int hover, int corner, int offPicture, float height, int curved) {
+    for (int h = 0; h < HAND_COUNT; h++) {
+        int wasDown = ctx->grabDown[h];
+        float value = actionFloat(ctx, ctx->grabAction, h);
+        ctx->grabDown[h] = value > (wasDown ? PRESS_OFF : PRESS_ON);
+        ctx->gripEdge[h] = ctx->grabDown[h] && !wasDown;
+    }
+
+    if (ctx->grabMode != GRAB_NONE) {
+        int stillHeld = ctx->grabByTrigger ? ctx->triggerDown[ctx->grabHand]
+                                           : ctx->grabDown[ctx->grabHand];
+        if (!stillHeld || !valid[ctx->grabHand]) {
+            // Persist where it ended up, not every frame of the drag
+            ctx->grabMode = GRAB_NONE;
+            ctx->poseDirty = 1;
+            return;
+        }
+    }
+
+    if (ctx->grabMode == GRAB_NONE) {
+        if (hand < 0 || (hover != HOVER_BAR && hover != HOVER_CORNER)) {
+            return;
+        }
+
+        // Apps disagree about which button grabs, so both do. The trigger only
+        // counts where the handle hangs outside the picture, since inside it is
+        // a left click and the bottom corners of a desktop are worth clicking.
+        int byGrip = ctx->gripEdge[hand];
+        int byTrigger = ctx->triggerEdge[hand] && offPicture;
+        if (!byGrip && !byTrigger) {
+            return;
+        }
+        ctx->grabByTrigger = !byGrip;
+
+        ctx->grabHand = hand;
+        ctx->grabAim = aims[hand];
+        ctx->grabScreen = ctx->screenPose;
+        ctx->grabWidth = ctx->screenWidth;
+        ctx->grabHeight = height;
+        ctx->grabRadius = ctx->screenRadius;
+
+        if (hover == HOVER_BAR) {
+            ctx->grabMode = GRAB_MOVE;
+            return;
+        }
+
+        float u, v;
+        if (!screenProject(aims[hand], ctx->grabScreen, ctx->screenWidth, height,
+                           ctx->screenRadius, curved, &u, &v)) {
+            return;
+        }
+
+        // The corner across the diagonal is the anchor, and the drag is
+        // measured along the diagonal it started on
+        int right = (corner == 1 || corner == 3);
+        int bottom = (corner >= 2);
+        ctx->grabOppX = (right ? -0.5f : 0.5f) * ctx->grabWidth;
+        ctx->grabOppY = (bottom ? 0.5f : -0.5f) * ctx->grabHeight;
+        ctx->grabDiagX = (u - 0.5f) * ctx->grabWidth - ctx->grabOppX;
+        ctx->grabDiagY = (0.5f - v) * ctx->grabHeight - ctx->grabOppY;
+        if (fabsf(ctx->grabDiagX) < 1e-3f && fabsf(ctx->grabDiagY) < 1e-3f) {
+            return;
+        }
+        ctx->grabMode = GRAB_RESIZE;
+        return;
+    }
+
+    int h = ctx->grabHand;
+    if (ctx->grabMode == GRAB_MOVE) {
+        // Rigid attach: the screen keeps its offset and rotation relative to
+        // the hand, so it swings around naturally instead of sliding flat
+        XrQuaternionf turn = quatMul(aims[h].orientation, quatConj(ctx->grabAim.orientation));
+        Vec3 offset = { ctx->grabScreen.position.x - ctx->grabAim.position.x,
+                        ctx->grabScreen.position.y - ctx->grabAim.position.y,
+                        ctx->grabScreen.position.z - ctx->grabAim.position.z };
+        Vec3 moved = quatRotate(turn, offset);
+
+        ctx->screenPose.orientation = quatNorm(quatMul(turn, ctx->grabScreen.orientation));
+        ctx->screenPose.position.x = aims[h].position.x + moved.x;
+        ctx->screenPose.position.y = aims[h].position.y + moved.y;
+        ctx->screenPose.position.z = aims[h].position.z + moved.z;
+        return;
+    }
+
+    // Resize. Everything is measured against the pose the grab started from,
+    // so growing the screen cannot feed back into where the ray lands on it.
+    float u, v;
+    if (!screenProject(aims[h], ctx->grabScreen, ctx->grabWidth, ctx->grabHeight,
+                       ctx->grabRadius, curved, &u, &v)) {
+        return;
+    }
+
+    float dx = (u - 0.5f) * ctx->grabWidth - ctx->grabOppX;
+    float dy = (0.5f - v) * ctx->grabHeight - ctx->grabOppY;
+    float diagLen = ctx->grabDiagX * ctx->grabDiagX + ctx->grabDiagY * ctx->grabDiagY;
+    float scale = (dx * ctx->grabDiagX + dy * ctx->grabDiagY) / diagLen;
+    if (scale < 0.05f) {
+        scale = 0.05f;
+    }
+
+    float width = ctx->grabWidth * scale;
+    if (width < SCREEN_MIN_WIDTH) width = SCREEN_MIN_WIDTH;
+    if (width > SCREEN_MAX_WIDTH) width = SCREEN_MAX_WIDTH;
+    float newHeight = ctx->grabHeight * (width / ctx->grabWidth);
+
+    // Keeping the arc the same shape rather than flattening as it grows
+    ctx->screenRadius = ctx->grabRadius * (width / ctx->grabWidth);
+    ctx->screenWidth = width;
+
+    // The anchor corner stays where it was, so the screen grows away from it
+    Vec3 centreLocal;
+    centreLocal.x = ctx->grabOppX + (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * width;
+    centreLocal.y = ctx->grabOppY + (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * newHeight;
+    centreLocal.z = 0.0f;
+
+    Vec3 centre = quatRotate(ctx->grabScreen.orientation, centreLocal);
+    ctx->screenPose.orientation = ctx->grabScreen.orientation;
+    ctx->screenPose.position.x = ctx->grabScreen.position.x + centre.x;
+    ctx->screenPose.position.y = ctx->grabScreen.position.y + centre.y;
+    ctx->screenPose.position.z = ctx->grabScreen.position.z + centre.z;
+}
+
+// The picker floats just in front of the screen, centred on it
+static XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = ctx->screenWidth * PICKER_WIDTH_FRAC;
+    *outWidth = width;
+    *outHeight = width * (float)PICKER_TEX_H / (float)PICKER_TEX_W;
+
+    Vec3 local = { 0.0f, 0.0f, 0.06f };
+    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
+    XrPosef pose = ctx->screenPose;
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// Button sits to the left of the move bar, at the same height
+static void envButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float side = ctx->screenWidth * ENV_BUTTON_FRAC;
+    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
+    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
+    outLocal->x = -(barW * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + side * 0.5f);
+    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+static int envButtonHit(XrCtx* ctx, float u, float v, float height) {
+    Vec3 local;
+    float side;
+    envButtonPlacement(ctx, height, &local, &side);
+
+    // Back into uv, where the button reaches a little further than it draws
+    float cu = 0.5f + local.x / ctx->screenWidth;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
+// Where the ray lands on furniture rather than on the picture. The grid has a
+// plane of its own, everything else sits on the screen.
+static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef screenPose,
+                           float height, float radius, int curved) {
+    if (hover == HOVER_PICKER) {
+        float pickW, pickH;
+        XrPosef pose = pickerPose(ctx, &pickW, &pickH);
+        return screenPoint(u, v, pose, pickW, pickH, 0.0f, 0);
+    }
+    return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
+}
+
+static void destroyXrInput(XrCtx* ctx) {
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (ctx->aimSpaces[h] != XR_NULL_HANDLE) {
+            xrDestroySpace(ctx->aimSpaces[h]);
+            ctx->aimSpaces[h] = XR_NULL_HANDLE;
+        }
+    }
+    if (ctx->actionSet != XR_NULL_HANDLE) {
+        // Takes its actions with it
+        xrDestroyActionSet(ctx->actionSet);
+        ctx->actionSet = XR_NULL_HANDLE;
+    }
+    ctx->inputReady = 0;
+}
+
 static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
+    destroyXrInput(ctx);
+
     free(ctx->readbackBuf);
     free(ctx->modelInput);
     free(ctx->modelOutput);
@@ -1158,6 +2458,34 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->overlaySwapchain);
     }
     free(ctx->overlayImages);
+    if (ctx->pointerSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->pointerSwapchain);
+    }
+    free(ctx->pointerImages);
+    if (ctx->barSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->barSwapchain);
+    }
+    free(ctx->barImages);
+    if (ctx->cornerSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->cornerSwapchain);
+    }
+    free(ctx->cornerImages);
+    if (ctx->backgroundSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->backgroundSwapchain);
+    }
+    free(ctx->backgroundImages);
+    if (ctx->pickerSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->pickerSwapchain);
+    }
+    free(ctx->pickerImages);
+    if (ctx->envButtonSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->envButtonSwapchain);
+    }
+    free(ctx->envButtonImages);
+    if (ctx->outlineSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->outlineSwapchain);
+    }
+    free(ctx->outlineImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -1216,6 +2544,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->separationOverride = -1.0f;
     ctx->distanceOverride = -1.0f;
     ctx->screenOverride = -1.0f;
+    ctx->pointerMinCutoff = POINTER_MIN_CUTOFF;
+    ctx->pointerBeta = POINTER_BETA;
+    ctx->pointerWake = POINTER_WAKE_SEC;
+    ctx->pointerSleep = POINTER_SLEEP_SEC;
+    // 1 cm reads as a thin line at 3 m without disappearing
+    ctx->beamWidth = 0.010f;
+    ctx->envRadius = ENV_RADIUS_M;
     // Comfort comes from absolute disparity and depth comes from the steps
     // between objects, so the overall shape is pulled toward the screen plane
     // while the local detail is boosted. Measured on captured frames this is
@@ -1234,8 +2569,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
         return 0;
     }
 
-    LOGI("OpenXR init complete (cylinder=%d srgbWriteControl=%d)",
-         ctx->cylinderSupported, ctx->srgbWriteControl);
+    // Optional: a runtime with no controllers, or one that rejects every
+    // binding we know, still streams. It just has no pointer.
+    if (!initXrInput(ctx)) {
+        LOGW("controller input unavailable, pointer off");
+        destroyXrInput(ctx);
+    }
+    else if (!createPointerSwapchain(ctx)) {
+        LOGW("pointer swapchain unavailable, the ray will not be drawn");
+    }
+
+    LOGI("OpenXR init complete (cylinder=%d equirect=%d srgbWriteControl=%d)",
+         ctx->cylinderSupported, ctx->equirectSupported, ctx->srgbWriteControl);
     return (jlong)(intptr_t)ctx;
 }
 
@@ -1580,6 +2925,418 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     return FRAME_RENDER;
 }
 
+// Reads the controllers and works out where they are pointing on the screen.
+// Java turns the result into host mouse events, so nothing here knows about
+// the connection.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobject thiz,
+                                                              jlong handle, jfloat distance,
+                                                              jfloat quadWidth, jfloat curvature,
+                                                              jboolean headLocked,
+                                                              jboolean pointerEnabled,
+                                                              jfloatArray outArr) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    float out[IN_SLOTS];
+    memset(out, 0, sizeof(out));
+    // Zero is a real cell, so "nothing picked" has to be said explicitly. Every
+    // early return below would otherwise read as a press on the first one.
+    out[IN_PICKER_PICK] = -1.0f;
+
+    // Anything held has to come back up when pointing stops, or the host is
+    // left with a stuck button
+    if (ctx == NULL || !ctx->inputReady || !pointerEnabled || !ctx->placementValid
+            || ctx->sessionState != XR_SESSION_STATE_FOCUSED) {
+        if (ctx != NULL) {
+            ctx->buttonsDown = 0;
+            ctx->beamVisible = 0;
+            if (ctx->grabMode != 0) {
+                // Dropping focus mid grab has to count as letting go, or the
+                // anchor is stale when focus comes back and the screen jumps
+                ctx->grabMode = 0;
+                ctx->poseDirty = 1;
+            }
+        }
+        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        return;
+    }
+
+    XrActiveActionSet active;
+    active.actionSet = ctx->actionSet;
+    active.subactionPath = XR_NULL_PATH;
+
+    XrActionsSyncInfo sync = { XR_TYPE_ACTIONS_SYNC_INFO };
+    sync.countActiveActionSets = 1;
+    sync.activeActionSets = &active;
+    if (XR_FAILED(xrSyncActions(ctx->session, &sync))) {
+        ctx->buttonsDown = 0;
+        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        return;
+    }
+
+    int toggle = actionBool(ctx, ctx->toggleAction, -1);
+    if (toggle && !ctx->togglePrev) {
+        ctx->pointerOn = !ctx->pointerOn;
+        LOGI("pointer %s", ctx->pointerOn ? "on" : "off");
+    }
+    ctx->togglePrev = toggle;
+    out[IN_POINTER] = ctx->pointerOn ? 1.0f : 0.0f;
+
+    XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
+    float height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    int curved = curvature > 0.01f && ctx->cylinderSupported;
+    float radius = ctx->screenRadius;
+    XrPosef screenPose = ctx->screenPose;
+
+    long now = nowNs();
+    float dt = ctx->lastInputNs != 0 ? (now - ctx->lastInputNs) / 1e9f : 0.0f;
+    ctx->lastInputNs = now;
+    if (dt > 0.1f) {
+        dt = 0.1f;
+    }
+
+    float hitU[HAND_COUNT], hitV[HAND_COUNT];
+    int hovers[HAND_COUNT] = { HOVER_NONE, HOVER_NONE };
+    int corners[HAND_COUNT] = { 0, 0 };
+    int aimValid[HAND_COUNT] = { 0, 0 };
+    XrPosef aimPoses[HAND_COUNT];
+    int moved = 0;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        int wasDown = ctx->triggerDown[h];
+        float value = actionFloat(ctx, ctx->triggerAction, h);
+        ctx->triggerDown[h] = value > (wasDown ? PRESS_OFF : PRESS_ON);
+        ctx->triggerEdge[h] = ctx->triggerDown[h] && !wasDown;
+
+        XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
+        if (XR_FAILED(xrLocateSpace(ctx->aimSpaces[h], space, ctx->predictedDisplayTime, &loc))) {
+            continue;
+        }
+        const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT
+                | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+        if ((loc.locationFlags & needed) != needed) {
+            continue;
+        }
+        aimPoses[h] = loc.pose;
+        aimValid[h] = 1;
+        if (screenProject(loc.pose, screenPose, ctx->screenWidth, height, radius, curved,
+                          &hitU[h], &hitV[h])) {
+            hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, &corners[h]);
+            // The button reaches past the left end of the bar's zone, so it is
+            // tested here rather than after a hand has been picked. Otherwise
+            // the part of it outside that zone belongs to no hand at all.
+            if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR)
+                    && envButtonHit(ctx, hitU[h], hitV[h], height)) {
+                hovers[h] = HOVER_ENVBUTTON;
+            }
+        }
+
+        if (ctx->poseSeen[h] && dt > 0.0f) {
+            Vec3 now3 = { loc.pose.position.x, loc.pose.position.y, loc.pose.position.z };
+            Vec3 was3 = { ctx->lastAim[h].position.x, ctx->lastAim[h].position.y,
+                          ctx->lastAim[h].position.z };
+            Vec3 step = vecSub(now3, was3);
+            float speed = sqrtf(step.x * step.x + step.y * step.y + step.z * step.z) / dt;
+
+            // Angle between the two orientations, from the dot product of the
+            // quaternions, which is half the rotation
+            XrQuaternionf a = loc.pose.orientation, b = ctx->lastAim[h].orientation;
+            float dot = fabsf(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+            if (dot > 1.0f) {
+                dot = 1.0f;
+            }
+            float turn = 2.0f * acosf(dot) / dt;
+
+            if (speed > POINTER_MOVE_SPEED || turn > POINTER_TURN_SPEED) {
+                moved = 1;
+            }
+        }
+        ctx->lastAim[h] = loc.pose;
+        ctx->poseSeen[h] = 1;
+    }
+
+    // Deliberate movement wakes the pointer, a controller put down retires it
+    if (moved) {
+        ctx->movingFor += dt;
+        ctx->stillFor = 0.0f;
+        if (ctx->movingFor >= ctx->pointerWake) {
+            ctx->pointerAwake = 1;
+        }
+    }
+    else {
+        ctx->stillFor += dt;
+        ctx->movingFor = 0.0f;
+        if (ctx->stillFor >= ctx->pointerSleep) {
+            ctx->pointerAwake = 0;
+        }
+    }
+
+    // The hand holding the trigger wins, so a drag is never stolen by the other
+    // one drifting across the screen. Right hand otherwise.
+    int hand = -1;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (hovers[h] == HOVER_SCREEN && ctx->triggerDown[h]) {
+            hand = h;
+            break;
+        }
+    }
+    // A hand on something beats one merely near it, so a controller resting in
+    // the margin never takes the pointer off the one being aimed
+    for (int pass = 0; pass < 2 && hand < 0; pass++) {
+        for (int i = 0; i < HAND_COUNT && hand < 0; i++) {
+            int h = i == 0 ? HAND_RIGHT : HAND_LEFT;
+            if (hovers[h] == HOVER_NONE || (pass == 0 && hovers[h] == HOVER_HALO)) {
+                continue;
+            }
+            hand = h;
+        }
+    }
+
+    if (!ctx->pointerAwake && ctx->grabMode == GRAB_NONE) {
+        hand = -1;
+        for (int h = 0; h < HAND_COUNT; h++) {
+            hovers[h] = HOVER_NONE;
+        }
+    }
+
+    int hover = hand >= 0 ? hovers[hand] : HOVER_NONE;
+    if (hover == HOVER_CORNER) {
+        ctx->hoverCorner = corners[hand];
+    }
+
+    // The picker is modal: while it is open the ray belongs to it and nothing
+    // reaches the picture behind
+    ctx->pickerHover = -1;
+    ctx->envButtonHot = 0;
+    ctx->pickerPick = -1;
+    if (ctx->pickerOpen) {
+        hover = HOVER_PICKER;
+        // Anything the hands were pointing at before belongs to the screen,
+        // and reading those coordinates as grid coordinates would land the
+        // ray somewhere it never was
+        hand = -1;
+        float pickW, pickH;
+        XrPosef pose = pickerPose(ctx, &pickW, &pickH);
+        for (int h = 0; h < HAND_COUNT; h++) {
+            float pu, pv;
+            if (!aimValid[h] || !ctx->pointerAwake) {
+                continue;
+            }
+            if (!screenProject(aimPoses[h], pose, pickW, pickH, 0.0f, 0, &pu, &pv)) {
+                continue;
+            }
+            if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+                continue;
+            }
+            int col = (int)(pu * PICKER_COLS);
+            int row = (int)(pv * PICKER_ROWS);
+            if (col >= PICKER_COLS) col = PICKER_COLS - 1;
+            if (row >= PICKER_ROWS) row = PICKER_ROWS - 1;
+            ctx->pickerHover = row * PICKER_COLS + col;
+            hand = h;
+            hitU[h] = pu;
+            hitV[h] = pv;
+
+            if (ctx->triggerEdge[h]) {
+                ctx->pickerPick = ctx->pickerHover;
+                ctx->pickerChoice = ctx->pickerHover;
+                ctx->pickerOpen = 0;
+            }
+            break;
+        }
+
+        // A press that lands nowhere near the grid closes it
+        if (ctx->pickerOpen && ctx->pickerHover < 0) {
+            for (int h = 0; h < HAND_COUNT; h++) {
+                if (ctx->triggerEdge[h]) {
+                    ctx->pickerOpen = 0;
+                }
+            }
+        }
+    }
+    else if (hover == HOVER_ENVBUTTON) {
+        ctx->envButtonHot = 1;
+        if (ctx->triggerEdge[hand]) {
+            ctx->pickerOpen = 1;
+        }
+    }
+
+    // Where the handle is clear of the picture, so a trigger press there cannot
+    // have been meant as a click
+    int offPicture = hand >= 0 && (hitU[hand] < 0.0f || hitU[hand] > 1.0f
+                                   || hitV[hand] < 0.0f || hitV[hand] > 1.0f);
+    applyGrab(ctx, aimPoses, aimValid, hand, hover, ctx->hoverCorner, offPicture,
+              height, curved);
+    screenPose = ctx->screenPose;
+    height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    radius = ctx->screenRadius;
+
+    // A handle stays lit while it is being dragged, however far the ray has
+    // wandered from it in the meantime
+    if (ctx->grabMode == GRAB_MOVE) {
+        ctx->hoverKind = HOVER_BAR;
+    }
+    else if (ctx->grabMode == GRAB_RESIZE) {
+        ctx->hoverKind = HOVER_CORNER;
+    }
+    else {
+        ctx->hoverKind = hover;
+    }
+
+    XrSpaceLocation headLoc = { XR_TYPE_SPACE_LOCATION };
+    int headValid = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, space,
+                                               ctx->predictedDisplayTime, &headLoc))
+            && (headLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+    if (headValid) {
+        ctx->headPos = headLoc.pose.position;
+    }
+    ctx->screenOrientation = screenPose.orientation;
+    ctx->beamVisible = 0;
+    ctx->beamFree = 0;
+
+    if (ctx->grabMode != GRAB_NONE) {
+        // Nothing goes to the host mid drag, and the ray ends on the handle
+        // being held rather than wherever it is now pointing
+        ctx->buttonsDown = 0;
+        ctx->scrollCarry = 0.0f;
+        ctx->filterU.valid = 0;
+        ctx->filterV.valid = 0;
+
+        if (headValid) {
+            Vec3 local;
+            local.z = 0.0f;
+            if (ctx->grabMode == GRAB_MOVE) {
+                local.x = 0.0f;
+                local.y = -(height * 0.5f + (BAR_GAP_FRAC + BAR_HEIGHT_FRAC * 0.5f)
+                            * ctx->screenWidth);
+            }
+            else {
+                local.x = (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * ctx->screenWidth;
+                local.y = (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * height;
+            }
+            Vec3 handle = quatRotate(screenPose.orientation, local);
+            ctx->beamStart = aimPoses[ctx->grabHand].position;
+            ctx->beamEnd.x = screenPose.position.x + handle.x;
+            ctx->beamEnd.y = screenPose.position.y + handle.y;
+            ctx->beamEnd.z = screenPose.position.z + handle.z;
+            ctx->beamVisible = 1;
+        }
+
+        writeInputPose(ctx, out);
+        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        return;
+    }
+
+    if (!ctx->pointerOn) {
+        // The ray still shows on the handles and the grid, so the screen can
+        // be tidied and the environment changed with the mouse switched off
+        if (hand >= 0 && hover != HOVER_NONE && hover != HOVER_SCREEN) {
+            Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
+                                      height, radius, curved);
+            ctx->beamStart = aimPoses[hand].position;
+            ctx->beamEnd.x = end.x;
+            ctx->beamEnd.y = end.y;
+            ctx->beamEnd.z = end.z;
+            ctx->beamVisible = headValid;
+        }
+        ctx->buttonsDown = 0;
+        writeInputPose(ctx, out);
+        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        return;
+    }
+
+    // The bar, the button and the picker all sit off the picture, so pointing
+    // at them must not drag the host cursor to the edge
+    int hit = hover == HOVER_SCREEN || hover == HOVER_CORNER;
+    if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
+            || hover == HOVER_HALO) && headValid && hand >= 0) {
+        Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
+                                  height, radius, curved);
+        ctx->beamStart = aimPoses[hand].position;
+        ctx->beamEnd.x = end.x;
+        ctx->beamEnd.y = end.y;
+        ctx->beamEnd.z = end.z;
+        ctx->beamVisible = 1;
+    }
+    if (hit) {
+        // Filtering across a gap or a change of hands would slide the cursor
+        // in from wherever it used to be
+        if (hand != ctx->lastHand || now - ctx->lastHitNs > POINTER_RESET_NS) {
+            ctx->filterU.valid = 0;
+            ctx->filterV.valid = 0;
+        }
+        ctx->lastHand = hand;
+        ctx->lastHitNs = now;
+
+        float u = euroFilter(&ctx->filterU, hitU[hand], dt, ctx->pointerMinCutoff, ctx->pointerBeta);
+        float v = euroFilter(&ctx->filterV, hitV[hand], dt, ctx->pointerMinCutoff, ctx->pointerBeta);
+        out[IN_HIT] = 1.0f;
+        out[IN_U] = u;
+        out[IN_V] = v;
+
+        // The ray is only drawn when it lands on something, which is what
+        // makes a laser readable rather than a light show
+        Vec3 endPoint = screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
+        ctx->beamStart = aimPoses[hand].position;
+        ctx->beamEnd.x = endPoint.x;
+        ctx->beamEnd.y = endPoint.y;
+        ctx->beamEnd.z = endPoint.z;
+        ctx->beamVisible = headValid;
+    }
+
+    int mask = 0;
+    if (ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]) {
+        mask |= VR_BUTTON_LEFT;
+    }
+    if (actionBool(ctx, ctx->rightClickAction, -1)) {
+        mask |= VR_BUTTON_RIGHT;
+    }
+    if (actionBool(ctx, ctx->middleClickAction, -1)) {
+        mask |= VR_BUTTON_MIDDLE;
+    }
+    // A press only counts while aimed at the screen, but a release always
+    // does, so walking the pointer off the edge mid drag still lets go
+    ctx->buttonsDown = (ctx->buttonsDown & mask) | (hit ? mask : 0);
+    out[IN_BUTTONS] = (float)ctx->buttonsDown;
+
+    XrVector2f stick = actionVec2(ctx, ctx->scrollAction, -1);
+    if (hit && fabsf(stick.y) > SCROLL_DEADZONE) {
+        float past = (fabsf(stick.y) - SCROLL_DEADZONE) / (1.0f - SCROLL_DEADZONE);
+        ctx->scrollCarry += copysignf(past * SCROLL_CLICKS_PER_SEC * dt, stick.y);
+    }
+    else {
+        ctx->scrollCarry = 0.0f;
+    }
+    float clicks = truncf(ctx->scrollCarry);
+    ctx->scrollCarry -= clicks;
+    out[IN_SCROLL] = clicks;
+
+    // Aimed at nothing at all, so the ray runs off into the room rather than
+    // blinking out. A laser that comes and goes is harder to aim than one that
+    // always shows where the hand is looking, so the only thing that retires it
+    // is the controller being put down.
+    if (!ctx->beamVisible && ctx->pointerAwake && headValid) {
+        int free = hand;
+        if (free < 0) {
+            free = aimValid[HAND_RIGHT] ? HAND_RIGHT : (aimValid[HAND_LEFT] ? HAND_LEFT : -1);
+        }
+        if (free >= 0) {
+            Vec3 forward = { 0.0f, 0.0f, -1.0f };
+            Vec3 d = quatRotate(aimPoses[free].orientation, forward);
+            ctx->beamStart = aimPoses[free].position;
+            ctx->beamEnd.x = ctx->beamStart.x + d.x * FREE_BEAM_M;
+            ctx->beamEnd.y = ctx->beamStart.y + d.y * FREE_BEAM_M;
+            ctx->beamEnd.z = ctx->beamStart.z + d.z * FREE_BEAM_M;
+            ctx->beamVisible = 1;
+            // No target, so no cursor. The dot is what says a click would
+            // land somewhere.
+            ctx->beamFree = 1;
+        }
+    }
+
+    writeInputPose(ctx, out);
+    out[IN_PICKER_PICK] = (float)ctx->pickerPick;
+    (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+}
+
 // Integer valued tuning property, left alone if unset or unparseable
 static void propScaled(const char* name, float* target, float scale, long maxRaw) {
     char value[PROP_VALUE_MAX];
@@ -1630,6 +3387,16 @@ static void pollCaptureRequest(XrCtx* ctx) {
     propScaled(PROP_SCREEN, &ctx->screenOverride, 0.1f, 120);
     propPercent(PROP_DEPTH_GLOBAL, &ctx->depthGlobal);
     propScaled(PROP_DEPTH_LOCAL, &ctx->depthLocal, 0.01f, 400);
+    // Tenths of a Hz, and half units of speed sensitivity
+    propScaled(PROP_POINTER_CUTOFF, &ctx->pointerMinCutoff, 0.1f, 200);
+    propScaled(PROP_POINTER_BETA, &ctx->pointerBeta, 0.5f, 100);
+    // Millimetres
+    propScaled(PROP_BEAM_WIDTH, &ctx->beamWidth, 0.001f, 100);
+    // Tenths of a second
+    propScaled(PROP_POINTER_WAKE, &ctx->pointerWake, 0.1f, 100);
+    propScaled(PROP_POINTER_SLEEP, &ctx->pointerSleep, 0.1f, 600);
+    // Metres. Zero is the infinite sphere the layer starts out as.
+    propScaled(PROP_ENV_RADIUS, &ctx->envRadius, 1.0f, 200);
 
     if (ctx->captureDir[0] == '\0') {
         return;
@@ -1967,6 +3734,153 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     ctx->everRendered = 1;
 }
 
+// The thumbnail grid and the button that opens it, both drawn as Bitmaps in
+// Java. Same frame loop rule as the rest of the art. Flipped on the way in,
+// since a Bitmap runs top down and a texture does not.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobject thiz,
+                                                               jlong handle, jobject grid,
+                                                               jobject button) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    if (grid != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, grid);
+        if (px != NULL) {
+            ctx->pickerReady = uploadFlipped(ctx, ctx->pickerSwapchain, ctx->pickerImages,
+                                             px, PICKER_TEX_W, PICKER_TEX_H);
+        }
+    }
+    if (button != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, button);
+        if (px != NULL) {
+            ctx->envButtonReady = uploadFlipped(ctx, ctx->envButtonSwapchain,
+                                                ctx->envButtonImages, px,
+                                                OUTLINE_TEX, OUTLINE_TEX);
+        }
+    }
+    LOGI("picker art %s, button %s", ctx->pickerReady ? "ready" : "missing",
+         ctx->envButtonReady ? "ready" : "missing");
+}
+
+// Which cell the picker is showing as chosen, so it survives a restart
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jobject thiz,
+                                                                 jlong handle, jint choice,
+                                                                 jboolean backgroundOn) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->pickerChoice = choice;
+    ctx->backgroundEnabled = backgroundOn;
+}
+
+// The 360 photo, uploaded once from the frame loop. Same rule as the rest of
+// the art: a swapchain image cannot be waited on before the session runs.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadBackground(JNIEnv* env, jobject thiz,
+                                                                   jlong handle, jobject buffer,
+                                                                   jint width, jint height) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || buffer == NULL || width <= 0 || height <= 0) {
+        return;
+    }
+    if (!ctx->equirectSupported) {
+        LOGW("no equirect layer support, skipping the background");
+        return;
+    }
+
+    const unsigned char* px = (const unsigned char*)(*env)->GetDirectBufferAddress(env, buffer);
+    if (px == NULL) {
+        return;
+    }
+
+    // Switching environment reuses the swapchain, since every one of them is
+    // the same size. Only a different size needs a new one.
+    if (ctx->backgroundSwapchain != XR_NULL_HANDLE
+            && (ctx->backgroundWidth != width || ctx->backgroundHeight != height)) {
+        xrDestroySwapchain(ctx->backgroundSwapchain);
+        ctx->backgroundSwapchain = XR_NULL_HANDLE;
+        free(ctx->backgroundImages);
+        ctx->backgroundImages = NULL;
+        ctx->backgroundReady = 0;
+    }
+
+    if (ctx->backgroundSwapchain != XR_NULL_HANDLE) {
+        ctx->backgroundReady = uploadFlipped(ctx, ctx->backgroundSwapchain,
+                                             ctx->backgroundImages, px, width, height);
+        return;
+    }
+
+    XrSwapchainCreateInfo info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    info.format = ctx->swapchainFormat;
+    info.sampleCount = 1;
+    info.width = width;
+    info.height = height;
+    info.faceCount = 1;
+    info.arraySize = 1;
+    info.mipCount = 1;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->backgroundSwapchain),
+                 "create background swapchain")) {
+        ctx->backgroundSwapchain = XR_NULL_HANDLE;
+        return;
+    }
+
+    xrEnumerateSwapchainImages(ctx->backgroundSwapchain, 0, &ctx->backgroundImageCount, NULL);
+    ctx->backgroundImages = calloc(ctx->backgroundImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+    for (uint32_t i = 0; i < ctx->backgroundImageCount; i++) {
+        ctx->backgroundImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+    }
+    xrEnumerateSwapchainImages(ctx->backgroundSwapchain, ctx->backgroundImageCount,
+                               &ctx->backgroundImageCount,
+                               (XrSwapchainImageBaseHeader*)ctx->backgroundImages);
+
+    ctx->backgroundReady = uploadFlipped(ctx, ctx->backgroundSwapchain, ctx->backgroundImages,
+                                         px, width, height);
+    ctx->backgroundWidth = width;
+    ctx->backgroundHeight = height;
+    LOGI("background %dx%d %s", width, height, ctx->backgroundReady ? "ready" : "failed");
+}
+
+// Puts back a placement saved from a previous session. Marking the sliders as
+// already seen stops the first frame taking the screen straight back off it.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetScreenPose(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jfloatArray poseArr) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || poseArr == NULL) {
+        return;
+    }
+    float p[9];
+    if ((*env)->GetArrayLength(env, poseArr) < 9) {
+        return;
+    }
+    (*env)->GetFloatArrayRegion(env, poseArr, 0, 9, p);
+
+    if (p[7] < SCREEN_MIN_WIDTH || p[7] > SCREEN_MAX_WIDTH || p[8] <= 0.0f) {
+        LOGW("stored screen placement out of range, ignoring it");
+        return;
+    }
+
+    ctx->screenPose.position.x = p[0];
+    ctx->screenPose.position.y = p[1];
+    ctx->screenPose.position.z = p[2];
+    ctx->screenPose.orientation.x = p[3];
+    ctx->screenPose.orientation.y = p[4];
+    ctx->screenPose.orientation.z = p[5];
+    ctx->screenPose.orientation.w = p[6];
+    ctx->screenPose.orientation = quatNorm(ctx->screenPose.orientation);
+    ctx->screenWidth = p[7];
+    ctx->screenRadius = p[8];
+    ctx->placementValid = 1;
+    ctx->sliderSeen = 0;
+    LOGI("restored screen placement %.2f %.2f %.2f, %.2f m wide",
+         p[0], p[1], p[2], p[7]);
+}
+
 // Pixels come from a Bitmap the stats are drawn into on the Java side, which
 // is the only place Android will lay out text. Runs on the frame loop thread
 // so the GL context is current, and only when the text actually changed.
@@ -2077,16 +3991,65 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
     int stereo = ctx->stereoMode != DEPTH_MODE_OFF;
 
+    if (!ctx->pointerArtReady && ctx->pointerSwapchain != XR_NULL_HANDLE && ctx->shouldRender) {
+        uploadPointerArt(ctx);
+    }
+
+    updatePlacement(ctx, distance, quadWidth, curvature);
+    XrPosef screenPose = ctx->screenPose;
+    float screenWidth = ctx->screenWidth;
+    float screenHeight = screenWidth * aspect;
+
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
     endInfo.environmentBlendMode = (ctx->passthrough && ctx->alphaBlendSupported)
             ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 
+    XrCompositionLayerEquirect2KHR backgroundLayer;
     XrCompositionLayerQuad quadLayers[2];
     XrCompositionLayerCylinderKHR cylLayers[2];
     XrCompositionLayerQuad overlayLayer;
-    const XrCompositionLayerBaseHeader* layers[3];
+    XrCompositionLayerQuad beamLayer;
+    XrCompositionLayerQuad dotLayer;
+    XrCompositionLayerQuad handleLayer;
+    XrCompositionLayerQuad envButtonLayer;
+    XrCompositionLayerQuad pickerLayer;
+    XrCompositionLayerQuad outlineLayers[2];
+    const XrCompositionLayerBaseHeader* layers[16];
     uint32_t layerCount = 0;
+
+    // Submitted first so everything else sits in front of it. Passthrough wants
+    // the room instead, so the two are mutually exclusive.
+    if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough) {
+        memset(&backgroundLayer, 0, sizeof(backgroundLayer));
+        backgroundLayer.type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
+        backgroundLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        backgroundLayer.subImage.swapchain = ctx->backgroundSwapchain;
+        backgroundLayer.subImage.imageRect.offset.x = 0;
+        backgroundLayer.subImage.imageRect.offset.y = 0;
+        backgroundLayer.subImage.imageRect.extent.width = ctx->backgroundWidth;
+        backgroundLayer.subImage.imageRect.extent.height = ctx->backgroundHeight;
+        backgroundLayer.subImage.imageArrayIndex = 0;
+        // World locked, even when the screen is head locked, or the environment
+        // would swing about with the viewer
+        backgroundLayer.space = ctx->localSpace;
+        backgroundLayer.pose.orientation.w = 1.0f;
+        // A finite sphere is what gives the room a size. At zero the layer is
+        // infinitely far, so leaning about moves nothing and the eye reads it
+        // as vast. Bring it in and the parallax says how big it really is.
+        backgroundLayer.radius = ctx->envRadius;
+        backgroundLayer.centralHorizontalAngle = 6.2831853f;
+        // Width covers the full turn, so the vertical reach follows the aspect
+        // ratio. A 2:1 image fills the sphere, anything wider leaves the zenith
+        // and nadir empty rather than stretching to cover them.
+        float halfV = (float)ctx->backgroundHeight / (float)ctx->backgroundWidth * 3.1415927f;
+        if (halfV > 1.5707963f) {
+            halfV = 1.5707963f;
+        }
+        backgroundLayer.upperVerticalAngle = halfV;
+        backgroundLayer.lowerVerticalAngle = -halfV;
+        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&backgroundLayer;
+    }
 
     if (ctx->everRendered && ctx->shouldRender) {
         int viewCount = stereo ? 2 : 1;
@@ -2111,16 +4074,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
                 // Radius runs from 4x distance (slightly curved) down to the
                 // distance itself (wrapped around the viewer) as curvature rises
-                float radius = distance * (1.0f + 3.0f * (1.0f - curvature));
+                float radius = ctx->screenRadius;
                 cyl->eyeVisibility = visibility;
                 cyl->subImage = subImage;
                 cyl->space = space;
-                cyl->pose.orientation.w = 1.0f;
-                // Keep the surface at the requested distance
-                cyl->pose.position.z = radius - distance;
+                cyl->pose.orientation = screenPose.orientation;
+                // The layer pose is the axis, which sits a radius behind the
+                // surface the placement tracks
+                Vec3 axisLocal = { 0.0f, 0.0f, radius };
+                Vec3 axis = quatRotate(screenPose.orientation, axisLocal);
+                cyl->pose.position.x = screenPose.position.x + axis.x;
+                cyl->pose.position.y = screenPose.position.y + axis.y;
+                cyl->pose.position.z = screenPose.position.z + axis.z;
                 cyl->radius = radius;
-                cyl->centralAngle = quadWidth / radius;
-                cyl->aspectRatio = quadWidth / (quadWidth * aspect);
+                cyl->centralAngle = screenWidth / radius;
+                cyl->aspectRatio = 1.0f / aspect;
                 layers[layerCount++] = (const XrCompositionLayerBaseHeader*)cyl;
             }
             else {
@@ -2130,10 +4098,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 quad->eyeVisibility = visibility;
                 quad->subImage = subImage;
                 quad->space = space;
-                quad->pose.orientation.w = 1.0f;
-                quad->pose.position.z = -distance;
-                quad->size.width = quadWidth;
-                quad->size.height = quadWidth * aspect;
+                quad->pose = screenPose;
+                quad->size.width = screenWidth;
+                quad->size.height = screenHeight;
                 layers[layerCount++] = (const XrCompositionLayerBaseHeader*)quad;
             }
         }
@@ -2142,10 +4109,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         // distance, both eyes, so they read at screen depth with no disparity
         if (ctx->overlayHasContent && ctx->overlayVisible
                 && ctx->overlaySwapchain != XR_NULL_HANDLE) {
-            float quadHeight = quadWidth * aspect;
-            float overlayW = quadWidth * 0.30f;
+            float overlayW = screenWidth * 0.30f;
             float overlayH = overlayW * (float)OVERLAY_HEIGHT / (float)OVERLAY_WIDTH;
-            float margin = quadWidth * 0.02f;
+            float margin = screenWidth * 0.02f;
 
             memset(&overlayLayer, 0, sizeof(overlayLayer));
             overlayLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
@@ -2158,14 +4124,259 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             overlayLayer.subImage.imageRect.extent.height = OVERLAY_HEIGHT;
             overlayLayer.subImage.imageArrayIndex = 0;
             overlayLayer.space = space;
-            overlayLayer.pose.orientation.w = 1.0f;
-            overlayLayer.pose.position.x = -quadWidth * 0.5f + overlayW * 0.5f + margin;
-            overlayLayer.pose.position.y = quadHeight * 0.5f - overlayH * 0.5f - margin;
-            // A little in front of the screen so the two never z fight
-            overlayLayer.pose.position.z = -distance + 0.01f;
+            // Pinned to the top left of the screen in the screen's own frame,
+            // so it follows wherever the screen has been moved to
+            Vec3 statsLocal = { -screenWidth * 0.5f + overlayW * 0.5f + margin,
+                                screenHeight * 0.5f - overlayH * 0.5f - margin,
+                                // A little in front so the two never z fight
+                                0.01f };
+            Vec3 stats = quatRotate(screenPose.orientation, statsLocal);
+            overlayLayer.pose.orientation = screenPose.orientation;
+            overlayLayer.pose.position.x = screenPose.position.x + stats.x;
+            overlayLayer.pose.position.y = screenPose.position.y + stats.y;
+            overlayLayer.pose.position.z = screenPose.position.z + stats.z;
             overlayLayer.size.width = overlayW;
             overlayLayer.size.height = overlayH;
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&overlayLayer;
+        }
+
+        // The bar and the environment button share a hover area, so reaching
+        // for one keeps the other on screen rather than swapping them
+        int barArea = ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON;
+
+        // Move bar and resize corner, shown only while the ray is over them.
+        // Both live in the screen's own frame, so they travel with it.
+        if (ctx->handleArtReady && (barArea || ctx->hoverKind == HOVER_CORNER)) {
+            int isBar = barArea;
+            Vec3 local;
+            float sizeW, sizeH;
+            float roll = 0.0f;
+
+            if (isBar) {
+                sizeW = screenWidth * BAR_WIDTH_FRAC;
+                sizeH = screenWidth * BAR_HEIGHT_FRAC;
+                local.x = 0.0f;
+                local.y = -(screenHeight * 0.5f + screenWidth * BAR_GAP_FRAC + sizeH * 0.5f);
+            }
+            else {
+                sizeW = sizeH = screenWidth * CORNER_FRAC;
+                int right = ctx->hoverCorner == 1 || ctx->hoverCorner == 3;
+                int bottom = ctx->hoverCorner >= 2;
+                local.x = (right ? 0.5f : -0.5f) * screenWidth;
+                local.y = (bottom ? -0.5f : 0.5f) * screenHeight;
+                // The art is a top left bracket, so the other three are the
+                // same picture rolled about the screen normal
+                if (ctx->hoverCorner == 1) roll = -1.5707963f;
+                else if (ctx->hoverCorner == 2) roll = 1.5707963f;
+                else if (ctx->hoverCorner == 3) roll = 3.1415927f;
+            }
+            // Just off the surface so it never z fights the picture
+            local.z = 0.005f;
+
+            XrQuaternionf rollQ = { 0.0f, 0.0f, sinf(roll * 0.5f), cosf(roll * 0.5f) };
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&handleLayer, 0, sizeof(handleLayer));
+            handleLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            handleLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            handleLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            handleLayer.subImage.swapchain = isBar ? ctx->barSwapchain : ctx->cornerSwapchain;
+            handleLayer.subImage.imageRect.offset.x = 0;
+            handleLayer.subImage.imageRect.offset.y = 0;
+            handleLayer.subImage.imageRect.extent.width = isBar ? BAR_TEX_W : CORNER_TEX_W;
+            handleLayer.subImage.imageRect.extent.height = isBar ? BAR_TEX_H : CORNER_TEX_H;
+            handleLayer.subImage.imageArrayIndex = 0;
+            handleLayer.space = space;
+            handleLayer.pose.orientation = quatNorm(quatMul(screenPose.orientation, rollQ));
+            handleLayer.pose.position.x = screenPose.position.x + offset.x;
+            handleLayer.pose.position.y = screenPose.position.y + offset.y;
+            handleLayer.pose.position.z = screenPose.position.z + offset.z;
+            handleLayer.size.width = sizeW;
+            handleLayer.size.height = sizeH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&handleLayer;
+        }
+
+        // The button that opens the environment grid, left of the move bar.
+        // Stays up while the grid is open so it reads as the thing that
+        // opened it.
+        if (ctx->envButtonReady && (barArea || ctx->pickerOpen)) {
+            Vec3 local;
+            float side;
+            envButtonPlacement(ctx, screenHeight, &local, &side);
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&envButtonLayer, 0, sizeof(envButtonLayer));
+            envButtonLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            envButtonLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            envButtonLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            envButtonLayer.subImage.swapchain = ctx->envButtonSwapchain;
+            envButtonLayer.subImage.imageRect.offset.x = 0;
+            envButtonLayer.subImage.imageRect.offset.y = 0;
+            envButtonLayer.subImage.imageRect.extent.width = OUTLINE_TEX;
+            envButtonLayer.subImage.imageRect.extent.height = OUTLINE_TEX;
+            envButtonLayer.subImage.imageArrayIndex = 0;
+            envButtonLayer.space = space;
+            envButtonLayer.pose.orientation = screenPose.orientation;
+            envButtonLayer.pose.position.x = screenPose.position.x + offset.x;
+            envButtonLayer.pose.position.y = screenPose.position.y + offset.y;
+            envButtonLayer.pose.position.z = screenPose.position.z + offset.z;
+            // Grows a little when the ray is on it, which is the only feedback
+            // a quad layer can give without a second texture
+            float scale = ctx->envButtonHot ? 1.18f : 1.0f;
+            envButtonLayer.size.width = side * scale;
+            envButtonLayer.size.height = side * scale;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&envButtonLayer;
+        }
+
+        // The environment grid, floating in front of the screen, with the
+        // hovered and the chosen cell ringed
+        if (ctx->pickerOpen && ctx->pickerReady) {
+            float pickW, pickH;
+            XrPosef pickPose = pickerPose(ctx, &pickW, &pickH);
+
+            memset(&pickerLayer, 0, sizeof(pickerLayer));
+            pickerLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            pickerLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            pickerLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            pickerLayer.subImage.swapchain = ctx->pickerSwapchain;
+            pickerLayer.subImage.imageRect.offset.x = 0;
+            pickerLayer.subImage.imageRect.offset.y = 0;
+            pickerLayer.subImage.imageRect.extent.width = PICKER_TEX_W;
+            pickerLayer.subImage.imageRect.extent.height = PICKER_TEX_H;
+            pickerLayer.subImage.imageArrayIndex = 0;
+            pickerLayer.space = space;
+            pickerLayer.pose = pickPose;
+            pickerLayer.size.width = pickW;
+            pickerLayer.size.height = pickH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&pickerLayer;
+
+            if (ctx->outlineReady) {
+                float cellW = pickW / (float)PICKER_COLS;
+                float cellH = pickH / (float)PICKER_ROWS;
+                // Hover rings the cell, the choice sits inside it, so both
+                // read at once when the ray is over what is already selected
+                int marks[2] = { ctx->pickerHover, ctx->pickerChoice };
+                float scales[2] = { 1.0f, 0.84f };
+
+                for (int m = 0; m < 2; m++) {
+                    int cell = marks[m];
+                    if (cell < 0 || cell >= PICKER_CELLS) {
+                        continue;
+                    }
+                    int col = cell % PICKER_COLS;
+                    int row = cell / PICKER_COLS;
+                    Vec3 local;
+                    local.x = ((col + 0.5f) / PICKER_COLS - 0.5f) * pickW;
+                    local.y = (0.5f - (row + 0.5f) / PICKER_ROWS) * pickH;
+                    local.z = 0.004f;
+                    Vec3 offset = quatRotate(pickPose.orientation, local);
+
+                    XrCompositionLayerQuad* mark = &outlineLayers[m];
+                    memset(mark, 0, sizeof(*mark));
+                    mark->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                    mark->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    mark->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    mark->subImage.swapchain = ctx->outlineSwapchain;
+                    mark->subImage.imageRect.offset.x = 0;
+                    mark->subImage.imageRect.offset.y = 0;
+                    mark->subImage.imageRect.extent.width = OUTLINE_TEX;
+                    mark->subImage.imageRect.extent.height = OUTLINE_TEX;
+                    mark->subImage.imageArrayIndex = 0;
+                    mark->space = space;
+                    mark->pose.orientation = pickPose.orientation;
+                    mark->pose.position.x = pickPose.position.x + offset.x;
+                    mark->pose.position.y = pickPose.position.y + offset.y;
+                    mark->pose.position.z = pickPose.position.z + offset.z;
+                    mark->size.width = cellW * scales[m];
+                    mark->size.height = cellH * scales[m];
+                    layers[layerCount++] = (const XrCompositionLayerBaseHeader*)mark;
+                }
+            }
+        }
+
+        // Laser and cursor, submitted last so they sit over the picture. Two
+        // quad layers, so this costs no drawing at all: the art was uploaded
+        // once and the compositor places it from these poses.
+        if (ctx->beamVisible && ctx->pointerArtReady) {
+            Vec3 start = { ctx->beamStart.x, ctx->beamStart.y, ctx->beamStart.z };
+            Vec3 end = { ctx->beamEnd.x, ctx->beamEnd.y, ctx->beamEnd.z };
+            Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+            Vec3 along = vecSub(end, start);
+            float length = sqrtf(along.x * along.x + along.y * along.y + along.z * along.z);
+
+            Vec3 mid = { (start.x + end.x) * 0.5f, (start.y + end.y) * 0.5f,
+                         (start.z + end.z) * 0.5f };
+            Vec3 beamY = vecNorm(along);
+            Vec3 toHead = vecNorm(vecSub(head, mid));
+            Vec3 beamX = vecCross(beamY, toHead);
+            float sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
+
+            // A quad has one orientation, so the ribbon is turned to face the
+            // head. Aimed nearly along the line of sight there is no such
+            // direction to find, and any perpendicular will do: the ribbon is
+            // edge on either way. This used to give up instead, which is why
+            // the ray vanished over the lower half of the screen.
+            if (sideLen < 0.15f) {
+                Vec3 up = { 0.0f, 1.0f, 0.0f };
+                beamX = vecCross(beamY, up);
+                sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
+                if (sideLen < 0.15f) {
+                    Vec3 side = { 1.0f, 0.0f, 0.0f };
+                    beamX = vecCross(beamY, side);
+                }
+            }
+
+            if (length > 0.10f) {
+                beamX = vecNorm(beamX);
+                Vec3 beamZ = vecCross(beamX, beamY);
+
+                memset(&beamLayer, 0, sizeof(beamLayer));
+                beamLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                beamLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                beamLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                beamLayer.subImage.swapchain = ctx->pointerSwapchain;
+                beamLayer.subImage.imageRect.offset.x = 0;
+                beamLayer.subImage.imageRect.offset.y = 0;
+                beamLayer.subImage.imageRect.extent.width = PTR_TEX_W;
+                beamLayer.subImage.imageRect.extent.height = PTR_BEAM_H;
+                beamLayer.subImage.imageArrayIndex = 0;
+                beamLayer.space = space;
+                beamLayer.pose.orientation = quatFromBasis(beamX, beamY, beamZ);
+                beamLayer.pose.position.x = mid.x;
+                beamLayer.pose.position.y = mid.y;
+                beamLayer.pose.position.z = mid.z;
+                beamLayer.size.width = ctx->beamWidth;
+                beamLayer.size.height = length;
+                layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&beamLayer;
+
+                // Cursor sits just off the surface facing the viewer, which
+                // works on the cylinder as well as the flat screen
+                Vec3 dotZ = vecNorm(vecSub(head, end));
+                Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
+                Vec3 dotX = vecNorm(vecCross(worldUp, dotZ));
+                Vec3 dotY = vecCross(dotZ, dotX);
+
+                memset(&dotLayer, 0, sizeof(dotLayer));
+                dotLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                dotLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                dotLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                dotLayer.subImage.swapchain = ctx->pointerSwapchain;
+                dotLayer.subImage.imageRect.offset.x = 0;
+                dotLayer.subImage.imageRect.offset.y = PTR_BEAM_H;
+                dotLayer.subImage.imageRect.extent.width = PTR_TEX_W;
+                dotLayer.subImage.imageRect.extent.height = PTR_DOT_H;
+                dotLayer.subImage.imageArrayIndex = 0;
+                dotLayer.space = space;
+                dotLayer.pose.orientation = quatFromBasis(dotX, dotY, dotZ);
+                dotLayer.pose.position.x = end.x + dotZ.x * 0.012f;
+                dotLayer.pose.position.y = end.y + dotZ.y * 0.012f;
+                dotLayer.pose.position.z = end.z + dotZ.z * 0.012f;
+                dotLayer.size.width = 0.022f;
+                dotLayer.size.height = 0.022f;
+                if (!ctx->beamFree) {
+                    layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&dotLayer;
+                }
+            }
         }
     }
 

@@ -92,7 +92,8 @@ import java.util.Locale;
 public class Game extends Activity implements SurfaceHolder.Callback,
         OnGenericMotionListener, OnTouchListener, NvConnectionListener, EvdevListener,
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
-        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener {
+        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener,
+        XrRenderer.InputListener {
     private int lastButtonState = 0;
 
     // Only 2 touches are supported
@@ -151,6 +152,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
 
+    // Set when the launcher tore its own task down to get the 2d panels out of
+    // the way, so there is nothing left to go back to when the stream ends
+    private boolean returnToPcView;
+    private boolean pcViewStarted;
+
+    // Last absolute position sent from the VR pointer, so a still controller
+    // does not repeat the same position every frame
+    private int lastVrPointerX = -1;
+    private int lastVrPointerY = -1;
+
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
 
@@ -181,6 +192,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     public static final String EXTRA_PC_NAME = "PcName";
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
+    public static final String EXTRA_RETURN_TO_PC_VIEW = "ReturnToPcView";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -310,6 +322,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         appName = Game.this.getIntent().getStringExtra(EXTRA_APP_NAME);
         pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
+        returnToPcView = Game.this.getIntent().getBooleanExtra(EXTRA_RETURN_TO_PC_VIEW, false);
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
         int port = Game.this.getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
@@ -1027,8 +1040,34 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     @Override
+    public void finish() {
+        // The launcher took its own task down so the 2d panels would not float
+        // beside the stream, so there is no back stack to return to. Bring the
+        // PC list back instead of dropping the user at the headset home screen.
+        // This has to happen before we finish, otherwise it counts as a
+        // background launch and gets blocked.
+        if (returnToPcView && !pcViewStarted) {
+            pcViewStarted = true;
+
+            Intent i = new Intent(this, PcView.class);
+            i.setAction(Intent.ACTION_MAIN);
+            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(i);
+        }
+
+        super.finish();
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        // The stream may still have been starting up when this activity went
+        // away, in which case the normal decoder teardown never runs and the
+        // XR session outlives us
+        if (decoderRenderer != null) {
+            decoderRenderer.stopXrRenderer();
+        }
 
         if (controllerHandler != null) {
             controllerHandler.destroy();
@@ -2635,6 +2674,64 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         else if ((visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
             hideSystemUi(2000);
         }
+    }
+
+    // Controller pointer out of the VR session, on the renderer's frame loop
+    // thread. The hit point is in 0..1 across the streamed picture, so it maps
+    // straight onto an absolute mouse position the host already understands.
+    @Override
+    public void onVrPointerMove(float u, float v) {
+        if (!connected) {
+            return;
+        }
+
+        int x = (int)(u * prefConfig.width);
+        int y = (int)(v * prefConfig.height);
+        x = Math.max(0, Math.min(prefConfig.width - 1, x));
+        y = Math.max(0, Math.min(prefConfig.height - 1, y));
+        if (x == lastVrPointerX && y == lastVrPointerY) {
+            return;
+        }
+        lastVrPointerX = x;
+        lastVrPointerY = y;
+
+        conn.sendMousePosition((short)x, (short)y,
+                (short)prefConfig.width, (short)prefConfig.height);
+    }
+
+    @Override
+    public void onVrButton(int button, boolean down) {
+        if (!connected) {
+            return;
+        }
+
+        byte code;
+        switch (button) {
+            case 1:
+                code = MouseButtonPacket.BUTTON_RIGHT;
+                break;
+            case 2:
+                code = MouseButtonPacket.BUTTON_MIDDLE;
+                break;
+            default:
+                code = MouseButtonPacket.BUTTON_LEFT;
+                break;
+        }
+
+        if (down) {
+            conn.sendMouseButtonDown(code);
+        }
+        else {
+            conn.sendMouseButtonUp(code);
+        }
+    }
+
+    @Override
+    public void onVrScroll(int clicks) {
+        if (!connected) {
+            return;
+        }
+        conn.sendMouseHighResScroll((short)(clicks * 120));
     }
 
     @Override

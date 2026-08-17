@@ -1,21 +1,32 @@
 package com.limelight.binding.video;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.Path;
 import android.graphics.PorterDuff;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.SurfaceTexture;
 import android.graphics.Typeface;
+import android.preference.PreferenceManager;
 import android.view.Surface;
 
 import com.limelight.LimeLog;
 import com.limelight.preferences.PreferenceConfiguration;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -95,6 +106,71 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile float lastDepthAgeMs;
     private volatile int lastDepthSkips;
 
+    // Controller pointer. The native side does the ray maths and hands back a
+    // hit point and a button mask, this side turns that into host events.
+    private static final int IN_HIT = 0;
+    private static final int IN_U = 1;
+    private static final int IN_V = 2;
+    private static final int IN_BUTTONS = 3;
+    private static final int IN_SCROLL = 4;
+    private static final int IN_POSE_DIRTY = 6;
+    private static final int IN_POSE = 8;
+    private static final int IN_PICKER_PICK = 17;
+    private static final int IN_SLOTS = 20;
+    private static final int POSE_VALUES = 9;
+    private final float[] inputState = new float[IN_SLOTS];
+    private int heldButtons;
+    private InputListener inputListener;
+    private Context prefsContext;
+
+    // The 360 photo shown behind the screen. Decoded off the frame loop and
+    // picked up whenever it is ready, so a slow decode cannot delay the first
+    // frame and hang the shell on its loading screen.
+    private final AtomicReference<ByteBuffer> pendingBackground = new AtomicReference<>();
+    private volatile int backgroundWidth;
+    private volatile int backgroundHeight;
+
+    // Environment picker, a grid of thumbnails reachable from inside the
+    // session. The first two cells are passthrough and an empty black room,
+    // the rest are the photos in the assets folder, in name order. Must match
+    // the PICKER_ constants in xr_renderer.c.
+    private static final String ENVIRONMENT_DIR = "environments";
+    private static final int PICKER_COLS = 3;
+    private static final int PICKER_ROWS = 2;
+    private static final int PICKER_CELLS = PICKER_COLS * PICKER_ROWS;
+    private static final int PICKER_TEX_W = 768;
+    private static final int PICKER_TEX_H = 512;
+    private static final int ENV_BUTTON_TEX = 128;
+    private static final int CELL_PASSTHROUGH = 0;
+    private static final int CELL_VOID = 1;
+    private static final int CELL_FIRST_PHOTO = 2;
+    private static final int MAX_PHOTOS = PICKER_CELLS - CELL_FIRST_PHOTO;
+    private final AtomicReference<ByteBuffer> pendingPickerArt = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingEnvButton = new AtomicReference<>();
+    private String[] environmentFiles = new String[0];
+    private volatile int environmentChoice = CELL_VOID;
+    private volatile boolean passthroughOn;
+    // Which photo is in the background swapchain, so switching back to one
+    // already loaded costs nothing and the old one stays up during a decode
+    private volatile int loadedPhoto = -1;
+    private volatile int pendingPhoto = -1;
+    private volatile boolean backgroundArrived;
+    private final AtomicInteger photoRequest = new AtomicInteger();
+
+    /**
+     * Pointer events out of the VR session. Called on the frame loop thread.
+     * Buttons are 0 left, 1 right, 2 middle.
+     */
+    public interface InputListener {
+        void onVrPointerMove(float u, float v);
+        void onVrButton(int button, boolean down);
+        void onVrScroll(int clicks);
+    }
+
+    public void setInputListener(InputListener listener) {
+        this.inputListener = listener;
+    }
+
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale);
     private native void nativeSetCaptureDir(long ctx, String dir);
@@ -110,6 +186,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                        float distance, float quadWidth, float curvature,
                                        boolean headLocked, float separation, boolean eyeSwap,
                                        boolean passthrough);
+    private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
+                                          float curvature, boolean headLocked,
+                                          boolean pointerEnabled, float[] out);
+    private native void nativeSetScreenPose(long ctx, float[] pose);
+    private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
+    private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
+    private native void nativeSetEnvironment(long ctx, int choice, boolean backgroundOn);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
     private native float nativeGetWarpGpuMs(long ctx);
     private native void nativeDestroy(long ctx);
@@ -128,6 +211,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     initLatch.countDown();
                     return;
                 }
+
+                prefsContext = activity.getApplicationContext();
+                restoreScreenPose();
+                startEnvironment(prefs);
 
                 File captureDir = activity.getExternalFilesDir(null);
                 if (captureDir != null) {
@@ -319,7 +406,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // Stored as tenths of a percent of frame width
         float separation = prefs.vrStereoSeparation / 1000.0f;
         boolean eyeSwap = prefs.vrEyeSwap;
-        boolean passthrough = prefs.vrPassthrough;
+        boolean pointer = prefs.vrPointer;
         int cadence = Math.max(1, prefs.vrInferenceCadence);
 
         long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
@@ -333,6 +420,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // Native side slept already while the session is not running
                 continue;
             }
+
+            nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
+                    pointer, inputState);
+            dispatchInput();
 
             boolean newFrame = pendingFrames.getAndSet(0) > 0;
             if (newFrame) {
@@ -374,9 +465,402 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadOverlay(nativeCtx, overlay, OVERLAY_WIDTH, OVERLAY_HEIGHT);
             }
 
+            ByteBuffer grid = pendingPickerArt.getAndSet(null);
+            ByteBuffer button = pendingEnvButton.getAndSet(null);
+            if (grid != null || button != null) {
+                nativeUploadPicker(nativeCtx, grid, button);
+            }
+
+            ByteBuffer background = pendingBackground.getAndSet(null);
+            if (background != null) {
+                nativeUploadBackground(nativeCtx, background, backgroundWidth, backgroundHeight);
+                loadedPhoto = pendingPhoto;
+                backgroundArrived = true;
+                // Only now is there something to show, so this is where a
+                // freshly picked environment actually comes up
+                nativeSetEnvironment(nativeCtx, environmentChoice, backgroundVisible());
+            }
+
             nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature,
-                    headLocked, separation, eyeSwap, passthrough);
+                    headLocked, separation, eyeSwap, passthroughOn);
         }
+    }
+
+    /**
+     * Settles on a starting environment, then hands the slow half to another
+     * thread: a 4096x2048 photo takes long enough to decode that doing it here
+     * would hold up the first frame and hang the shell on its loading screen.
+     */
+    private void startEnvironment(PreferenceConfiguration prefs) {
+        try {
+            String[] found = prefsContext.getAssets().list(ENVIRONMENT_DIR);
+            if (found != null) {
+                Arrays.sort(found);
+                environmentFiles = Arrays.copyOf(found, Math.min(found.length, MAX_PHOTOS));
+            }
+        } catch (IOException e) {
+            LimeLog.warning("No environments: " + e);
+        }
+
+        int cell = PreferenceManager.getDefaultSharedPreferences(prefsContext)
+                .getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1);
+        if (cell < 0 || cell >= CELL_FIRST_PHOTO + environmentFiles.length) {
+            // Never picked one, so the passthrough checkbox decides. Anyone who
+            // left it off gets a room rather than a void.
+            cell = prefs.vrPassthrough ? CELL_PASSTHROUGH
+                    : (environmentFiles.length > 0 ? CELL_FIRST_PHOTO : CELL_VOID);
+        }
+        environmentChoice = cell;
+        passthroughOn = cell == CELL_PASSTHROUGH;
+        nativeSetEnvironment(nativeCtx, cell, false);
+
+        final int startPhoto = cell - CELL_FIRST_PHOTO;
+        Thread loader = new Thread() {
+            @Override
+            public void run() {
+                buildPickerArt();
+                if (startPhoto >= 0) {
+                    decodePhoto(startPhoto);
+                }
+            }
+        };
+        loader.setName("Video - XR Environment");
+        loader.start();
+    }
+
+    private boolean backgroundVisible() {
+        return environmentChoice >= CELL_FIRST_PHOTO && backgroundArrived;
+    }
+
+    /**
+     * A cell was picked in the grid. Switching between two photos keeps the
+     * old one up until the new one has been decoded, so the room does not
+     * blink to black on the way.
+     */
+    private void chooseEnvironment(int cell) {
+        if (cell < 0 || cell >= CELL_FIRST_PHOTO + environmentFiles.length) {
+            return;
+        }
+        environmentChoice = cell;
+        passthroughOn = cell == CELL_PASSTHROUGH;
+
+        final int photo = cell - CELL_FIRST_PHOTO;
+        if (photo >= 0 && photo != loadedPhoto) {
+            Thread loader = new Thread() {
+                @Override
+                public void run() {
+                    decodePhoto(photo);
+                }
+            };
+            loader.setName("Video - XR Environment");
+            loader.start();
+        }
+        nativeSetEnvironment(nativeCtx, cell, backgroundVisible());
+
+        // The grid is a second way to reach the passthrough switch, so the
+        // setting follows it rather than disagreeing with what is on screen
+        PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, cell)
+                .putBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING, passthroughOn)
+                .apply();
+    }
+
+    private void decodePhoto(int photo) {
+        if (photo < 0 || photo >= environmentFiles.length) {
+            return;
+        }
+        // Picking about quickly can leave more than one of these running, and
+        // only the last one asked for should reach the swapchain
+        int ticket = photoRequest.incrementAndGet();
+
+        InputStream in = null;
+        try {
+            in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + environmentFiles[photo]);
+            Bitmap bitmap = BitmapFactory.decodeStream(in);
+            if (bitmap == null || photoRequest.get() != ticket) {
+                return;
+            }
+
+            ByteBuffer pixels = ByteBuffer.allocateDirect(
+                    bitmap.getWidth() * bitmap.getHeight() * 4);
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+
+            backgroundWidth = bitmap.getWidth();
+            backgroundHeight = bitmap.getHeight();
+            bitmap.recycle();
+            pendingPhoto = photo;
+            pendingBackground.set(pixels);
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Environment " + environmentFiles[photo] + " failed: " + e);
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    /**
+     * Draws the grid and the button that opens it. Java is the only place
+     * Android will lay out text, so the labels have to be baked into the
+     * texture here rather than drawn in the shader.
+     */
+    private void buildPickerArt() {
+        final float cellW = PICKER_TEX_W / (float)PICKER_COLS;
+        final float cellH = PICKER_TEX_H / (float)PICKER_ROWS;
+        final float pad = 7.0f;
+        // Matches the radius of the hover ring drawn over it, which is a
+        // fraction of the cell rather than a pixel count
+        final float radius = cellW * 0.125f;
+
+        Bitmap grid = Bitmap.createBitmap(PICKER_TEX_W, PICKER_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(grid);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        paint.setColor(0xE0141416);
+        canvas.drawRoundRect(new RectF(1.0f, 1.0f, PICKER_TEX_W - 1.0f, PICKER_TEX_H - 1.0f),
+                radius * 0.6f, radius * 0.6f, paint);
+
+        Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        label.setColor(Color.WHITE);
+        label.setTextSize(21.0f);
+        label.setTextAlign(Paint.Align.CENTER);
+
+        for (int cell = 0; cell < PICKER_CELLS; cell++) {
+            RectF tile = new RectF(
+                    (cell % PICKER_COLS) * cellW + pad,
+                    (cell / PICKER_COLS) * cellH + pad,
+                    (cell % PICKER_COLS + 1) * cellW - pad,
+                    (cell / PICKER_COLS + 1) * cellH - pad);
+
+            String name;
+            Bitmap thumb = null;
+            if (cell == CELL_PASSTHROUGH) {
+                name = "Passthrough";
+                paint.setColor(0xFF2A3540);
+            }
+            else if (cell == CELL_VOID) {
+                name = "Black void";
+                paint.setColor(0xFF090909);
+            }
+            else if (cell - CELL_FIRST_PHOTO < environmentFiles.length) {
+                name = labelFor(environmentFiles[cell - CELL_FIRST_PHOTO]);
+                thumb = decodeThumb(environmentFiles[cell - CELL_FIRST_PHOTO], (int)tile.height());
+                paint.setColor(0xFF1E1E20);
+            }
+            else {
+                continue;
+            }
+
+            if (thumb != null) {
+                // Scaled to cover and centred, so the middle of the panorama
+                // becomes the preview rather than a squashed whole sphere
+                BitmapShader shader = new BitmapShader(thumb, Shader.TileMode.CLAMP,
+                                                       Shader.TileMode.CLAMP);
+                float scale = Math.max(tile.width() / thumb.getWidth(),
+                                       tile.height() / thumb.getHeight());
+                Matrix m = new Matrix();
+                m.setScale(scale, scale);
+                m.postTranslate(tile.centerX() - thumb.getWidth() * scale * 0.5f,
+                                tile.centerY() - thumb.getHeight() * scale * 0.5f);
+                shader.setLocalMatrix(m);
+                paint.setShader(shader);
+            }
+            paint.setStyle(Paint.Style.FILL);
+            canvas.drawRoundRect(tile, radius, radius, paint);
+            paint.setShader(null);
+            if (thumb != null) {
+                thumb.recycle();
+            }
+
+            // Dark band under the label, clipped to the bottom of the tile so
+            // it keeps the rounded corners it sits in
+            canvas.save();
+            canvas.clipRect(tile.left, tile.bottom - 44.0f, tile.right, tile.bottom);
+            paint.setColor(0xC0000000);
+            canvas.drawRoundRect(tile, radius, radius, paint);
+            canvas.restore();
+
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(2.0f);
+            paint.setColor(0x50FFFFFF);
+            canvas.drawRoundRect(tile, radius, radius, paint);
+            paint.setStyle(Paint.Style.FILL);
+
+            canvas.drawText(name, tile.centerX(), tile.bottom - 15.0f, label);
+        }
+
+        pendingPickerArt.set(toBuffer(grid));
+        grid.recycle();
+
+        pendingEnvButton.set(toBuffer(buildEnvButton()));
+    }
+
+    // A framed landscape, which is about as much as reads at this size
+    private Bitmap buildEnvButton() {
+        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6.0f);
+        canvas.drawRoundRect(new RectF(14.0f, 14.0f, 114.0f, 114.0f), 22.0f, 22.0f, paint);
+
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(46.0f, 46.0f, 9.0f, paint);
+
+        Path hills = new Path();
+        hills.moveTo(26.0f, 100.0f);
+        hills.lineTo(54.0f, 58.0f);
+        hills.lineTo(73.0f, 84.0f);
+        hills.lineTo(84.0f, 70.0f);
+        hills.lineTo(102.0f, 100.0f);
+        hills.close();
+        canvas.drawPath(hills, paint);
+
+        return button;
+    }
+
+    private static ByteBuffer toBuffer(Bitmap bitmap) {
+        ByteBuffer pixels = ByteBuffer.allocateDirect(
+                bitmap.getWidth() * bitmap.getHeight() * 4);
+        bitmap.copyPixelsToBuffer(pixels);
+        pixels.rewind();
+        return pixels;
+    }
+
+    // Sampled down on the way out of the JPEG, since a full 4096x2048 decode
+    // for a 240 pixel tile would cost 32 MB apiece
+    private Bitmap decodeThumb(String fileName, int wanted) {
+        InputStream in = null;
+        try {
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + fileName);
+            BitmapFactory.decodeStream(in, null, bounds);
+            closeQuietly(in);
+
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 1;
+            while (bounds.outHeight / (opts.inSampleSize * 2) >= wanted) {
+                opts.inSampleSize *= 2;
+            }
+
+            in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + fileName);
+            return BitmapFactory.decodeStream(in, null, opts);
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Thumbnail " + fileName + " failed: " + e);
+            return null;
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    // spaichingen_hill.jpg becomes Spaichingen Hill
+    private static String labelFor(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        String base = dot > 0 ? fileName.substring(0, dot) : fileName;
+        StringBuilder out = new StringBuilder(base.length());
+        boolean wordStart = true;
+        for (int i = 0; i < base.length(); i++) {
+            char c = base.charAt(i) == '_' ? ' ' : base.charAt(i);
+            out.append(wordStart ? Character.toUpperCase(c) : c);
+            wordStart = c == ' ';
+        }
+        return out.toString();
+    }
+
+    private static void closeQuietly(InputStream in) {
+        if (in != null) {
+            try {
+                in.close();
+            } catch (IOException ignored) {
+            }
+        }
+    }
+
+    // Moves the pointer before any press, so a click lands where the user is
+    // pointing rather than where they pointed last frame
+    private void dispatchInput() {
+        // The screen placement and the environment grid are ours either way,
+        // only the host events need somewhere to go
+        if (inputListener != null) {
+            if (inputState[IN_HIT] != 0.0f) {
+                inputListener.onVrPointerMove(inputState[IN_U], inputState[IN_V]);
+            }
+
+            int buttons = (int)inputState[IN_BUTTONS];
+            int changed = buttons ^ heldButtons;
+            if (changed != 0) {
+                for (int i = 0; i < 3; i++) {
+                    int mask = 1 << i;
+                    if ((changed & mask) != 0) {
+                        inputListener.onVrButton(i, (buttons & mask) != 0);
+                    }
+                }
+                heldButtons = buttons;
+            }
+
+            int clicks = (int)inputState[IN_SCROLL];
+            if (clicks != 0) {
+                inputListener.onVrScroll(clicks);
+            }
+        }
+
+        if (inputState[IN_POSE_DIRTY] != 0.0f) {
+            saveScreenPose();
+        }
+
+        int pick = (int)inputState[IN_PICKER_PICK];
+        if (pick >= 0) {
+            chooseEnvironment(pick);
+        }
+    }
+
+    // Written once when a grab ends, so the screen is where it was left next
+    // time. Cleared by the reset in settings.
+    private void saveScreenPose() {
+        if (prefsContext == null) {
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < POSE_VALUES; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(inputState[IN_POSE + i]);
+        }
+
+        PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                .putString(PreferenceConfiguration.VR_SCREEN_POSE_PREF_STRING, sb.toString())
+                .apply();
+    }
+
+    private void restoreScreenPose() {
+        String saved = PreferenceManager.getDefaultSharedPreferences(prefsContext)
+                .getString(PreferenceConfiguration.VR_SCREEN_POSE_PREF_STRING, null);
+        if (saved == null) {
+            return;
+        }
+
+        String[] parts = saved.split(",");
+        if (parts.length < POSE_VALUES) {
+            return;
+        }
+
+        float[] pose = new float[POSE_VALUES];
+        try {
+            for (int i = 0; i < POSE_VALUES; i++) {
+                pose[i] = Float.parseFloat(parts[i]);
+            }
+        } catch (NumberFormatException e) {
+            return;
+        }
+
+        nativeSetScreenPose(nativeCtx, pose);
     }
 
     /**

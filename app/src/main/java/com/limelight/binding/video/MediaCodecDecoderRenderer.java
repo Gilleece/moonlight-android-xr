@@ -74,6 +74,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
     private SurfaceHolder renderTarget;
     private GlPassthroughRenderer glPassthrough;
     private XrRenderer xrRenderer;
+    private volatile boolean xrRendererStopped;
     private volatile boolean stopping;
     private CrashListener crashListener;
     private boolean reportedCrash;
@@ -515,14 +516,34 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         return xrRenderer;
     }
 
+    // The connection starts on its own thread, so the activity can be gone by
+    // the time the codec asks for a surface. A session created for a dead
+    // activity never leaves IDLE, and since nothing tears it down it wedges
+    // every later attempt with the shell stuck on its loading screen.
+    public void stopXrRenderer() {
+        xrRendererStopped = true;
+        if (xrRenderer != null) {
+            // Ends the frame loop, which destroys the session on its way out.
+            // The codec facing surface is left to the normal cleanup path,
+            // since the codec may still be holding it.
+            xrRenderer.prepareForStop();
+        }
+    }
+
     // Picks the surface the codec renders into. With the GL path enabled the
     // codec feeds a SurfaceTexture and we draw it back to the display
     // ourselves. The renderer is created once and reused across codec
     // recovery, which re-runs configure with the same surface.
     private Surface getRenderSurface() {
-        if (prefs.enableVrMode) {
+        if (prefs.enableVrMode && !xrRendererStopped
+                && !activity.isFinishing() && !activity.isDestroyed()) {
             if (xrRenderer == null) {
                 XrRenderer renderer = new XrRenderer();
+                if (activity instanceof XrRenderer.InputListener) {
+                    // The activity owns the connection, so controller events
+                    // go back out through it
+                    renderer.setInputListener((XrRenderer.InputListener) activity);
+                }
                 if (renderer.start(activity, initialWidth, initialHeight, prefs)) {
                     xrRenderer = renderer;
                 }

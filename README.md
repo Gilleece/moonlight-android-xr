@@ -10,13 +10,16 @@ stereo injector, no side by side transport, no Sunshine modifications. The host 
 is feeding a VR client, so this works with any Moonlight compatible host and any game, including
 ones no depth buffer injector can reach.
 
-Everything new sits behind settings that default to off. With them off the app behaves exactly
-like stock Moonlight.
+On a headset the app starts in VR with the 3D effect already on, because the stock defaults make
+it look broken on a virtual screen. Every part of it is a setting, and turning VR mode off gives
+you stock Moonlight behaviour.
 
 ## Hardware
 
-Built and tested on Pico 4 Ultra. Quest 3 is supported by the same APK and worked through the
-early phases, but is not currently verified. Both are Snapdragon XR2 Gen 2.
+Built and tested on Pico 4 Ultra and Quest 3, both Snapdragon XR2 Gen 2, from one APK.
+
+Quest 2, Quest Pro and Pico 4 are the previous generation with much less GPU headroom. They are
+untested, and the depth model may be too expensive for them at any resolution.
 
 ## How it works
 
@@ -47,22 +50,57 @@ you build it:
   colour edges, so this shows up as depth values being slightly stale rather than as misaligned
   edges.
 
+## Using the controllers
+
+The controllers work as a mouse. Point at the screen and a laser appears, the
+trigger is left click, the thumbstick scrolls. It wakes on deliberate movement
+rather than on any nudge, and retires itself after five seconds of stillness.
+The thumbstick click turns the whole thing off if you would rather not have it.
+
+The screen itself can be moved and resized in place. Hover under it and a bar
+appears to drag it around in 6DOF, hover any corner and a bracket appears to
+resize it. Either grip or trigger holds a handle, since apps disagree about
+which one should. Where you leave it is where it will be next time, and
+recentring the headset puts it back to where a fresh install starts.
+
+To the left of the move bar is a button that opens a grid of environments:
+passthrough, an empty black room, and the bundled 360 photos. Passthrough is
+in the grid as well as in the settings, so it can be switched mid stream.
+
 ## Settings
 
-Under **VR Settings** once "Stream in VR" is enabled:
+**VR Settings**:
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Stream in VR | off | Immersive OpenXR session instead of a flat panel |
+| Stream in VR | on | Immersive OpenXR session instead of a flat panel |
 | Head locked screen | off | Screen follows your view rather than staying in the world |
 | Screen distance | 3.0 m | |
 | Screen width | 3.0 m | 3 m wide at 3 m away is about 53 degrees |
-| Stereo depth source | off | Set to "Depth model" for 3D |
-| Stereo separation | 5 | Tenths of a percent of frame width |
+| Passthrough mode | off | Show your room behind the screen. Costs performance, turn it back off if the stream suffers. Also reachable from the environment grid while streaming |
+| Realtime 3D mode | V1.0 - MiDaS Based 3D | "Off" streams flat, the rest are test patterns |
+| Stereo separation | 0.5 % | Of frame width. Above about 0.5 the picture is not any deeper, only harder on the eyes |
 | Screen curvature | 0 | 0 is flat, higher wraps the screen around you |
 
-4K is the recommended stream resolution. 720p is unusable on a virtual screen this size and 1080p
-is merely acceptable.
+**VR Debugging**, which you should not need:
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| Depth model cadence | 3 frames | Run the depth model on every Nth video frame |
+| Show depth map | off | Renders the depth map as grayscale instead of the video |
+| Swap eyes | off | |
+
+The stream defaults also change on a headset, because the stock ones look bad on a virtual screen:
+
+| Setting | Default |
+| --- | --- |
+| Resolution | 2560x1440 |
+| Frame rate | 90 |
+
+1440p is the default because 4K costs decode latency and host bitrate for a gain that is easy to
+miss. 4K is there in the list if you want it, and is worth trying. 720p is unusable on a virtual
+screen this size and 1080p is merely acceptable. Bitrate follows the resolution and frame rate as
+it does upstream, so changing either resets it.
 
 "Show performance stats while streaming" works inside the VR session and adds warp GPU time,
 depth inference time, depth age and skipped depth frames to the usual figures.
@@ -110,6 +148,9 @@ still runs on phones.
 GPLv3, as upstream. Added dependencies are all compatible: the Khronos OpenXR loader (Apache 2.0),
 LiteRT and its GPU delegate (Apache 2.0), and the MiDaS v2.1 small depth model (MIT), converted to
 TensorFlow Lite by `tools/convert_midas.py` and committed as an asset.
+
+The 360 degree environments are from [Poly Haven](https://polyhaven.com), released under CC0 and
+downsized to 4096x2048 for this app. Poly Haven is community funded and worth supporting.
 
 ---
 
