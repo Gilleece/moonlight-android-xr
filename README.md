@@ -18,9 +18,8 @@ you stock Moonlight behaviour.
 
 Built and tested on Pico 4 Ultra and Quest 3, both Snapdragon XR2 Gen 2, from one APK.
 
-Quest 2, Quest Pro and Pico 4 are the previous generation and have much less GPU headroom, so
-they default to a 1440p stream instead of 4K. They are not tested and the depth model may be too
-expensive for them at any resolution.
+Quest 2, Quest Pro and Pico 4 are the previous generation with much less GPU headroom. They are
+untested, and the depth model may be too expensive for them at any resolution.
 
 ## How it works
 
@@ -51,6 +50,23 @@ you build it:
   colour edges, so this shows up as depth values being slightly stale rather than as misaligned
   edges.
 
+## Using the controllers
+
+The controllers work as a mouse. Point at the screen and a laser appears, the
+trigger is left click, the thumbstick scrolls. It wakes on deliberate movement
+rather than on any nudge, and retires itself after five seconds of stillness.
+The thumbstick click turns the whole thing off if you would rather not have it.
+
+The screen itself can be moved and resized in place. Hover under it and a bar
+appears to drag it around in 6DOF, hover any corner and a bracket appears to
+resize it. Either grip or trigger holds a handle, since apps disagree about
+which one should. Where you leave it is where it will be next time, and
+recentring the headset puts it back to where a fresh install starts.
+
+To the left of the move bar is a button that opens a grid of environments:
+passthrough, an empty black room, and the bundled 360 photos. Passthrough is
+in the grid as well as in the settings, so it can be switched mid stream.
+
 ## Settings
 
 **VR Settings**:
@@ -61,7 +77,7 @@ you build it:
 | Head locked screen | off | Screen follows your view rather than staying in the world |
 | Screen distance | 3.0 m | |
 | Screen width | 3.0 m | 3 m wide at 3 m away is about 53 degrees |
-| Passthrough mode | off | Show your room behind the screen. Costs performance, turn it back off if the stream suffers |
+| Passthrough mode | off | Show your room behind the screen. Costs performance, turn it back off if the stream suffers. Also reachable from the environment grid while streaming |
 | Realtime 3D mode | V1.0 - MiDaS Based 3D | "Off" streams flat, the rest are test patterns |
 | Stereo separation | 0.5 % | Of frame width. Above about 0.5 the picture is not any deeper, only harder on the eyes |
 | Screen curvature | 0 | 0 is flat, higher wraps the screen around you |
@@ -78,12 +94,13 @@ The stream defaults also change on a headset, because the stock ones look bad on
 
 | Setting | Default |
 | --- | --- |
-| Resolution | 3840x2160, or 2560x1440 on Quest 2, Quest Pro and Pico 4 |
+| Resolution | 2560x1440 |
 | Frame rate | 90 |
 
-4K is the recommended stream resolution where the headset can take it. 720p is unusable on a
-virtual screen this size and 1080p is merely acceptable. Bitrate follows the resolution and frame
-rate as it does upstream, so changing either resets it.
+1440p is the default because 4K costs decode latency and host bitrate for a gain that is easy to
+miss. 4K is there in the list if you want it, and is worth trying. 720p is unusable on a virtual
+screen this size and 1080p is merely acceptable. Bitrate follows the resolution and frame rate as
+it does upstream, so changing either resets it.
 
 "Show performance stats while streaming" works inside the VR session and adds warp GPU time,
 depth inference time, depth age and skipped depth frames to the usual figures.
@@ -131,6 +148,9 @@ still runs on phones.
 GPLv3, as upstream. Added dependencies are all compatible: the Khronos OpenXR loader (Apache 2.0),
 LiteRT and its GPU delegate (Apache 2.0), and the MiDaS v2.1 small depth model (MIT), converted to
 TensorFlow Lite by `tools/convert_midas.py` and committed as an asset.
+
+The 360 degree environments are from [Poly Haven](https://polyhaven.com), released under CC0 and
+downsized to 4096x2048 for this app. Poly Haven is community funded and worth supporting.
 
 ---
 

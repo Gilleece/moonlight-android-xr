@@ -70,6 +70,16 @@
 // filtering across it would slide the cursor in from where it used to be
 #define POINTER_RESET_NS 250000000L
 
+// The pointer waits for deliberate movement before it appears, so knocking a
+// controller does not throw a laser across the picture, and it goes away again
+// once a controller has been put down
+#define POINTER_WAKE_SEC 0.5f
+#define POINTER_SLEEP_SEC 5.0f
+// Metres per second and radians per second. A resting hand manages about a
+// tenth of these.
+#define POINTER_MOVE_SPEED 0.06f
+#define POINTER_TURN_SPEED 0.35f
+
 #define VR_BUTTON_LEFT   0x1
 #define VR_BUTTON_RIGHT  0x2
 #define VR_BUTTON_MIDDLE 0x4
@@ -84,6 +94,8 @@
 #define IN_POSE_DIRTY 6
 // x y z, then the orientation quaternion, then width and cylinder radius
 #define IN_POSE     8
+// The cell just chosen in the environment grid, or -1
+#define IN_PICKER_PICK 17
 #define IN_SLOTS    20
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
@@ -121,6 +133,33 @@
 #define BAR_TEX_H 24
 #define CORNER_TEX_W 64
 #define CORNER_TEX_H 64
+
+// Environment picker. A grid of thumbnails drawn in Java and shown as one
+// quad, with the hover and selection marks as separate outline quads so
+// pointing around the grid never costs an upload.
+#define PICKER_COLS 3
+#define PICKER_ROWS 2
+#define PICKER_CELLS (PICKER_COLS * PICKER_ROWS)
+#define PICKER_TEX_W 768
+#define PICKER_TEX_H 512
+#define PICKER_WIDTH_FRAC 0.55f
+#define OUTLINE_TEX 128
+// The button that opens it, sitting to the left of the move bar
+#define ENV_BUTTON_FRAC 0.048f
+#define ENV_GAP_FRAC 0.02f
+
+#define HOVER_ENVBUTTON 4
+#define HOVER_PICKER    5
+// Nothing under the ray, but close enough to the screen to keep drawing it
+#define HOVER_HALO      6
+// How far past each edge that reaches, as a fraction of the screen
+#define HALO_FRAC 0.5f
+// How far the ray runs when it is aimed at nothing at all, in metres
+#define FREE_BEAM_M 4.0f
+
+// Radius of the environment sphere in metres. Finite, so leaning gives the
+// room a size instead of it sitting infinitely far off.
+#define ENV_RADIUS_M 12.0f
 
 // Return codes for waitBeginFrame
 #define FRAME_EXIT   -1
@@ -171,6 +210,9 @@
 #define PROP_POINTER_CUTOFF "debug.moonlight.pointercutoff"
 #define PROP_POINTER_BETA "debug.moonlight.pointerbeta"
 #define PROP_BEAM_WIDTH "debug.moonlight.beamwidth"
+#define PROP_POINTER_WAKE "debug.moonlight.pointerwake"
+#define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
+#define PROP_ENV_RADIUS "debug.moonlight.envradius"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
@@ -320,9 +362,23 @@ typedef struct {
     int everRendered;
 
     int cylinderSupported;
+    int equirectSupported;
+
+    // 360 photo shown behind everything when passthrough is off. An equirect
+    // layer, so the compositor draws the environment and we still have no
+    // projection layer and no geometry.
+    XrSwapchain backgroundSwapchain;
+    uint32_t backgroundImageCount;
+    XrSwapchainImageOpenGLESKHR* backgroundImages;
+    int backgroundWidth;
+    int backgroundHeight;
+    int backgroundReady;
+    int backgroundEnabled;
+    float envRadius;
     int srgbWriteControl;
     // Passthrough is just an environment blend mode: with alpha blend the
-    // runtime shows the room wherever our layers do not cover
+    // runtime shows the room wherever our layers do not cover. Both headsets
+    // offer it, but Meta only turns the cameras on if the manifest asks.
     int alphaBlendSupported;
     int passthrough;
 
@@ -365,6 +421,16 @@ typedef struct {
     long lastHitNs;
     int lastHand;
 
+    // Movement gate. The pointer only appears after the controller has been
+    // moved deliberately, and disappears once it has been still a while.
+    int poseSeen[HAND_COUNT];
+    XrPosef lastAim[HAND_COUNT];
+    float movingFor;
+    float stillFor;
+    int pointerAwake;
+    float pointerWake;
+    float pointerSleep;
+
     // Laser. Two tiny quad layers rather than a projection layer: the whole
     // renderer draws nothing per frame for this, the compositor places it
     XrSwapchain pointerSwapchain;
@@ -372,6 +438,8 @@ typedef struct {
     XrSwapchainImageOpenGLESKHR* pointerImages;
     int pointerArtReady;
     int beamVisible;
+    // Ray drawn with nothing under it, so there is no cursor to go with it
+    int beamFree;
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
@@ -414,6 +482,24 @@ typedef struct {
     XrSwapchainImageOpenGLESKHR* barImages;
     XrSwapchainImageOpenGLESKHR* cornerImages;
     int handleArtReady;
+
+    XrSwapchain pickerSwapchain;
+    XrSwapchain envButtonSwapchain;
+    XrSwapchain outlineSwapchain;
+    uint32_t pickerImageCount;
+    uint32_t envButtonImageCount;
+    uint32_t outlineImageCount;
+    XrSwapchainImageOpenGLESKHR* pickerImages;
+    XrSwapchainImageOpenGLESKHR* envButtonImages;
+    XrSwapchainImageOpenGLESKHR* outlineImages;
+    int pickerReady;
+    int envButtonReady;
+    int outlineReady;
+    int pickerOpen;
+    int pickerHover;
+    int pickerChoice;
+    int pickerPick;
+    int envButtonHot;
 
     long statFrames;
     long statTotalNs;
@@ -802,6 +888,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) haveAndroidCreate = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) ctx->cylinderSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME)) ctx->picoInteraction = 1;
+        if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)) ctx->equirectSupported = 1;
     }
     free(exts);
 
@@ -810,7 +897,7 @@ static int initXrInstance(XrCtx* ctx) {
         return 0;
     }
 
-    const char* enabledExts[4];
+    const char* enabledExts[5];
     uint32_t enabledCount = 0;
     enabledExts[enabledCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     enabledExts[enabledCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
@@ -819,6 +906,9 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->picoInteraction) {
         enabledExts[enabledCount++] = XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME;
+    }
+    if (ctx->equirectSupported) {
+        enabledExts[enabledCount++] = XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME;
     }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -1324,6 +1414,19 @@ static void pollEvents(XrCtx* ctx) {
                 handleSessionStateChange(ctx, sc->state);
                 break;
             }
+            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+                XrEventDataReferenceSpaceChangePending* change =
+                        (XrEventDataReferenceSpaceChangePending*)&event;
+                if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
+                    // Recentring is the user saying where forward is, so the
+                    // screen goes back to the placement a fresh install has
+                    // rather than keeping an offset from the old origin
+                    ctx->placementValid = 0;
+                    ctx->grabMode = GRAB_NONE;
+                    LOGI("recentred, screen placement reset");
+                }
+                break;
+            }
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 ctx->exitRequested = 1;
                 break;
@@ -1732,6 +1835,12 @@ static int hoverTest(float u, float v, float width, float height, int* corner) {
         return HOVER_BAR;
     }
 
+    // Beyond the picture the ray still draws out to a margin, so it does not
+    // blink out on the way to the handles underneath
+    if (u > -HALO_FRAC && u < 1.0f + HALO_FRAC && v > -HALO_FRAC && v < 1.0f + HALO_FRAC) {
+        return HOVER_HALO;
+    }
+
     return HOVER_NONE;
 }
 
@@ -1801,6 +1910,56 @@ static int createPointerSwapchain(XrCtx* ctx) {
         ctx->barSwapchain = XR_NULL_HANDLE;
     }
 
+    info.width = PICKER_TEX_W;
+    info.height = PICKER_TEX_H;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->pickerSwapchain),
+                "create picker swapchain")) {
+        xrEnumerateSwapchainImages(ctx->pickerSwapchain, 0, &ctx->pickerImageCount, NULL);
+        ctx->pickerImages = calloc(ctx->pickerImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->pickerImageCount; i++) {
+            ctx->pickerImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->pickerSwapchain, ctx->pickerImageCount,
+                                   &ctx->pickerImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->pickerImages);
+    }
+    else {
+        ctx->pickerSwapchain = XR_NULL_HANDLE;
+    }
+
+    info.width = OUTLINE_TEX;
+    info.height = OUTLINE_TEX;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->envButtonSwapchain),
+                "create env button swapchain")) {
+        xrEnumerateSwapchainImages(ctx->envButtonSwapchain, 0, &ctx->envButtonImageCount, NULL);
+        ctx->envButtonImages = calloc(ctx->envButtonImageCount,
+                                      sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->envButtonImageCount; i++) {
+            ctx->envButtonImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->envButtonSwapchain, ctx->envButtonImageCount,
+                                   &ctx->envButtonImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->envButtonImages);
+    }
+    else {
+        ctx->envButtonSwapchain = XR_NULL_HANDLE;
+    }
+
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->outlineSwapchain),
+                "create outline swapchain")) {
+        xrEnumerateSwapchainImages(ctx->outlineSwapchain, 0, &ctx->outlineImageCount, NULL);
+        ctx->outlineImages = calloc(ctx->outlineImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->outlineImageCount; i++) {
+            ctx->outlineImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->outlineSwapchain, ctx->outlineImageCount,
+                                   &ctx->outlineImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->outlineImages);
+    }
+    else {
+        ctx->outlineSwapchain = XR_NULL_HANDLE;
+    }
+
     info.width = CORNER_TEX_W;
     info.height = CORNER_TEX_H;
     if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cornerSwapchain),
@@ -1844,6 +2003,23 @@ static int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR*
     XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(chain, &release);
     return 1;
+}
+
+// Rows arrive bottom up, so a photo uploaded as it comes would put the sky
+// underfoot
+static int uploadFlipped(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+                         const unsigned char* px, int width, int height) {
+    size_t stride = (size_t)width * 4;
+    unsigned char* flipped = malloc(stride * height);
+    if (flipped == NULL) {
+        return 0;
+    }
+    for (int y = 0; y < height; y++) {
+        memcpy(flipped + stride * y, px + stride * (height - 1 - y), stride);
+    }
+    int ok = uploadArt(ctx, chain, images, flipped, width, height);
+    free(flipped);
+    return ok;
 }
 
 // Soft edged coverage for a distance from a shape, in pixels
@@ -1908,7 +2084,42 @@ static void buildHandleArt(XrCtx* ctx) {
         }
     }
 
+    unsigned char* outline = calloc(OUTLINE_TEX * OUTLINE_TEX * 4, 1);
+    if (outline != NULL) {
+        // Rounded rectangle border, used to mark the hovered and the selected
+        // cell in the picker
+        const float radius = 16.0f;
+        const float border = 2.5f;
+        const float half = OUTLINE_TEX * 0.5f;
+        for (int y = 0; y < OUTLINE_TEX; y++) {
+            for (int x = 0; x < OUTLINE_TEX; x++) {
+                // Signed distance to a rounded rectangle, so the ring is just
+                // the pixels whose distance is under the border width
+                float qx = fabsf(x + 0.5f - half) - (half - radius);
+                float qy = fabsf(y + 0.5f - half) - (half - radius);
+                float mx = qx > 0.0f ? qx : 0.0f;
+                float my = qy > 0.0f ? qy : 0.0f;
+                float outside = sqrtf(mx * mx + my * my);
+                float inside = (qx > qy ? qx : qy);
+                if (inside > 0.0f) {
+                    inside = 0.0f;
+                }
+                float dist = fabsf(outside + inside);
+
+                unsigned char a = (unsigned char)(edgeAlpha(dist, border) * 255.0f);
+                unsigned char* p = outline + ((y * OUTLINE_TEX) + x) * 4;
+                p[0] = p[1] = p[2] = a;
+                p[3] = a;
+            }
+        }
+    }
+
     int ok = uploadArt(ctx, ctx->barSwapchain, ctx->barImages, bar, BAR_TEX_W, BAR_TEX_H);
+    if (outline != NULL) {
+        ctx->outlineReady = uploadArt(ctx, ctx->outlineSwapchain, ctx->outlineImages,
+                                      outline, OUTLINE_TEX, OUTLINE_TEX);
+        free(outline);
+    }
     ok &= uploadArt(ctx, ctx->cornerSwapchain, ctx->cornerImages, corner,
                     CORNER_TEX_W, CORNER_TEX_H);
     ctx->handleArtReady = ok;
@@ -2007,7 +2218,8 @@ static void updatePlacement(XrCtx* ctx, float distance, float quadWidth, float c
         // itself (wrapped around the viewer) as curvature rises
         ctx->screenRadius = distance * (1.0f + 3.0f * (1.0f - curvature));
         ctx->placementValid = 1;
-        ctx->grabMode = 0;
+        ctx->grabMode = GRAB_NONE;
+        ctx->poseDirty = 1;
     }
 
     ctx->lastDistance = distance;
@@ -2160,6 +2372,57 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
     ctx->screenPose.position.z = ctx->grabScreen.position.z + centre.z;
 }
 
+// The picker floats just in front of the screen, centred on it
+static XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = ctx->screenWidth * PICKER_WIDTH_FRAC;
+    *outWidth = width;
+    *outHeight = width * (float)PICKER_TEX_H / (float)PICKER_TEX_W;
+
+    Vec3 local = { 0.0f, 0.0f, 0.06f };
+    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
+    XrPosef pose = ctx->screenPose;
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// Button sits to the left of the move bar, at the same height
+static void envButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float side = ctx->screenWidth * ENV_BUTTON_FRAC;
+    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
+    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
+    outLocal->x = -(barW * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + side * 0.5f);
+    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+static int envButtonHit(XrCtx* ctx, float u, float v, float height) {
+    Vec3 local;
+    float side;
+    envButtonPlacement(ctx, height, &local, &side);
+
+    // Back into uv, where the button reaches a little further than it draws
+    float cu = 0.5f + local.x / ctx->screenWidth;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
+// Where the ray lands on furniture rather than on the picture. The grid has a
+// plane of its own, everything else sits on the screen.
+static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef screenPose,
+                           float height, float radius, int curved) {
+    if (hover == HOVER_PICKER) {
+        float pickW, pickH;
+        XrPosef pose = pickerPose(ctx, &pickW, &pickH);
+        return screenPoint(u, v, pose, pickW, pickH, 0.0f, 0);
+    }
+    return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
+}
+
 static void destroyXrInput(XrCtx* ctx) {
     for (int h = 0; h < HAND_COUNT; h++) {
         if (ctx->aimSpaces[h] != XR_NULL_HANDLE) {
@@ -2207,6 +2470,22 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->cornerSwapchain);
     }
     free(ctx->cornerImages);
+    if (ctx->backgroundSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->backgroundSwapchain);
+    }
+    free(ctx->backgroundImages);
+    if (ctx->pickerSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->pickerSwapchain);
+    }
+    free(ctx->pickerImages);
+    if (ctx->envButtonSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->envButtonSwapchain);
+    }
+    free(ctx->envButtonImages);
+    if (ctx->outlineSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->outlineSwapchain);
+    }
+    free(ctx->outlineImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -2267,8 +2546,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->screenOverride = -1.0f;
     ctx->pointerMinCutoff = POINTER_MIN_CUTOFF;
     ctx->pointerBeta = POINTER_BETA;
+    ctx->pointerWake = POINTER_WAKE_SEC;
+    ctx->pointerSleep = POINTER_SLEEP_SEC;
     // 1 cm reads as a thin line at 3 m without disappearing
     ctx->beamWidth = 0.010f;
+    ctx->envRadius = ENV_RADIUS_M;
     // Comfort comes from absolute disparity and depth comes from the steps
     // between objects, so the overall shape is pulled toward the screen plane
     // while the local detail is boosted. Measured on captured frames this is
@@ -2297,8 +2579,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
         LOGW("pointer swapchain unavailable, the ray will not be drawn");
     }
 
-    LOGI("OpenXR init complete (cylinder=%d srgbWriteControl=%d)",
-         ctx->cylinderSupported, ctx->srgbWriteControl);
+    LOGI("OpenXR init complete (cylinder=%d equirect=%d srgbWriteControl=%d)",
+         ctx->cylinderSupported, ctx->equirectSupported, ctx->srgbWriteControl);
     return (jlong)(intptr_t)ctx;
 }
 
@@ -2656,6 +2938,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     float out[IN_SLOTS];
     memset(out, 0, sizeof(out));
+    // Zero is a real cell, so "nothing picked" has to be said explicitly. Every
+    // early return below would otherwise read as a press on the first one.
+    out[IN_PICKER_PICK] = -1.0f;
 
     // Anything held has to come back up when pointing stops, or the host is
     // left with a stuck button
@@ -2714,6 +2999,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     int corners[HAND_COUNT] = { 0, 0 };
     int aimValid[HAND_COUNT] = { 0, 0 };
     XrPosef aimPoses[HAND_COUNT];
+    int moved = 0;
     for (int h = 0; h < HAND_COUNT; h++) {
         int wasDown = ctx->triggerDown[h];
         float value = actionFloat(ctx, ctx->triggerAction, h);
@@ -2734,6 +3020,52 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         if (screenProject(loc.pose, screenPose, ctx->screenWidth, height, radius, curved,
                           &hitU[h], &hitV[h])) {
             hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, &corners[h]);
+            // The button reaches past the left end of the bar's zone, so it is
+            // tested here rather than after a hand has been picked. Otherwise
+            // the part of it outside that zone belongs to no hand at all.
+            if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR)
+                    && envButtonHit(ctx, hitU[h], hitV[h], height)) {
+                hovers[h] = HOVER_ENVBUTTON;
+            }
+        }
+
+        if (ctx->poseSeen[h] && dt > 0.0f) {
+            Vec3 now3 = { loc.pose.position.x, loc.pose.position.y, loc.pose.position.z };
+            Vec3 was3 = { ctx->lastAim[h].position.x, ctx->lastAim[h].position.y,
+                          ctx->lastAim[h].position.z };
+            Vec3 step = vecSub(now3, was3);
+            float speed = sqrtf(step.x * step.x + step.y * step.y + step.z * step.z) / dt;
+
+            // Angle between the two orientations, from the dot product of the
+            // quaternions, which is half the rotation
+            XrQuaternionf a = loc.pose.orientation, b = ctx->lastAim[h].orientation;
+            float dot = fabsf(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+            if (dot > 1.0f) {
+                dot = 1.0f;
+            }
+            float turn = 2.0f * acosf(dot) / dt;
+
+            if (speed > POINTER_MOVE_SPEED || turn > POINTER_TURN_SPEED) {
+                moved = 1;
+            }
+        }
+        ctx->lastAim[h] = loc.pose;
+        ctx->poseSeen[h] = 1;
+    }
+
+    // Deliberate movement wakes the pointer, a controller put down retires it
+    if (moved) {
+        ctx->movingFor += dt;
+        ctx->stillFor = 0.0f;
+        if (ctx->movingFor >= ctx->pointerWake) {
+            ctx->pointerAwake = 1;
+        }
+    }
+    else {
+        ctx->stillFor += dt;
+        ctx->movingFor = 0.0f;
+        if (ctx->stillFor >= ctx->pointerSleep) {
+            ctx->pointerAwake = 0;
         }
     }
 
@@ -2746,14 +3078,85 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             break;
         }
     }
-    if (hand < 0) {
-        hand = hovers[HAND_RIGHT] != HOVER_NONE ? HAND_RIGHT
-                : (hovers[HAND_LEFT] != HOVER_NONE ? HAND_LEFT : -1);
+    // A hand on something beats one merely near it, so a controller resting in
+    // the margin never takes the pointer off the one being aimed
+    for (int pass = 0; pass < 2 && hand < 0; pass++) {
+        for (int i = 0; i < HAND_COUNT && hand < 0; i++) {
+            int h = i == 0 ? HAND_RIGHT : HAND_LEFT;
+            if (hovers[h] == HOVER_NONE || (pass == 0 && hovers[h] == HOVER_HALO)) {
+                continue;
+            }
+            hand = h;
+        }
+    }
+
+    if (!ctx->pointerAwake && ctx->grabMode == GRAB_NONE) {
+        hand = -1;
+        for (int h = 0; h < HAND_COUNT; h++) {
+            hovers[h] = HOVER_NONE;
+        }
     }
 
     int hover = hand >= 0 ? hovers[hand] : HOVER_NONE;
     if (hover == HOVER_CORNER) {
         ctx->hoverCorner = corners[hand];
+    }
+
+    // The picker is modal: while it is open the ray belongs to it and nothing
+    // reaches the picture behind
+    ctx->pickerHover = -1;
+    ctx->envButtonHot = 0;
+    ctx->pickerPick = -1;
+    if (ctx->pickerOpen) {
+        hover = HOVER_PICKER;
+        // Anything the hands were pointing at before belongs to the screen,
+        // and reading those coordinates as grid coordinates would land the
+        // ray somewhere it never was
+        hand = -1;
+        float pickW, pickH;
+        XrPosef pose = pickerPose(ctx, &pickW, &pickH);
+        for (int h = 0; h < HAND_COUNT; h++) {
+            float pu, pv;
+            if (!aimValid[h] || !ctx->pointerAwake) {
+                continue;
+            }
+            if (!screenProject(aimPoses[h], pose, pickW, pickH, 0.0f, 0, &pu, &pv)) {
+                continue;
+            }
+            if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+                continue;
+            }
+            int col = (int)(pu * PICKER_COLS);
+            int row = (int)(pv * PICKER_ROWS);
+            if (col >= PICKER_COLS) col = PICKER_COLS - 1;
+            if (row >= PICKER_ROWS) row = PICKER_ROWS - 1;
+            ctx->pickerHover = row * PICKER_COLS + col;
+            hand = h;
+            hitU[h] = pu;
+            hitV[h] = pv;
+
+            if (ctx->triggerEdge[h]) {
+                ctx->pickerPick = ctx->pickerHover;
+                ctx->pickerChoice = ctx->pickerHover;
+                ctx->pickerOpen = 0;
+            }
+            break;
+        }
+
+        // A press that lands nowhere near the grid closes it
+        if (ctx->pickerOpen && ctx->pickerHover < 0) {
+            for (int h = 0; h < HAND_COUNT; h++) {
+                if (ctx->triggerEdge[h]) {
+                    ctx->pickerOpen = 0;
+                }
+            }
+        }
+    }
+    else if (hover == HOVER_ENVBUTTON) {
+        ctx->envButtonHot = 1;
+        if (ctx->triggerEdge[hand]) {
+            ctx->pickerOpen = 1;
+        }
     }
 
     // Where the handle is clear of the picture, so a trigger press there cannot
@@ -2787,6 +3190,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     }
     ctx->screenOrientation = screenPose.orientation;
     ctx->beamVisible = 0;
+    ctx->beamFree = 0;
 
     if (ctx->grabMode != GRAB_NONE) {
         // Nothing goes to the host mid drag, and the ray ends on the handle
@@ -2822,11 +3226,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     }
 
     if (!ctx->pointerOn) {
-        // The ray still shows on the handles, so the screen can be tidied with
-        // the mouse switched off
-        if (hover == HOVER_BAR || hover == HOVER_CORNER) {
-            Vec3 end = screenPoint(hitU[hand], hitV[hand], screenPose, ctx->screenWidth,
-                                   height, radius, curved);
+        // The ray still shows on the handles and the grid, so the screen can
+        // be tidied and the environment changed with the mouse switched off
+        if (hand >= 0 && hover != HOVER_NONE && hover != HOVER_SCREEN) {
+            Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
+                                      height, radius, curved);
             ctx->beamStart = aimPoses[hand].position;
             ctx->beamEnd.x = end.x;
             ctx->beamEnd.y = end.y;
@@ -2839,12 +3243,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         return;
     }
 
-    // The bar sits off the picture, so pointing at it must not drag the host
-    // cursor to the bottom edge
+    // The bar, the button and the picker all sit off the picture, so pointing
+    // at them must not drag the host cursor to the edge
     int hit = hover == HOVER_SCREEN || hover == HOVER_CORNER;
-    if (hover == HOVER_BAR && headValid) {
-        Vec3 end = screenPoint(hitU[hand], hitV[hand], screenPose, ctx->screenWidth,
-                               height, radius, curved);
+    if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
+            || hover == HOVER_HALO) && headValid && hand >= 0) {
+        Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
+                                  height, radius, curved);
         ctx->beamStart = aimPoses[hand].position;
         ctx->beamEnd.x = end.x;
         ctx->beamEnd.y = end.y;
@@ -2904,7 +3309,31 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     ctx->scrollCarry -= clicks;
     out[IN_SCROLL] = clicks;
 
+    // Aimed at nothing at all, so the ray runs off into the room rather than
+    // blinking out. A laser that comes and goes is harder to aim than one that
+    // always shows where the hand is looking, so the only thing that retires it
+    // is the controller being put down.
+    if (!ctx->beamVisible && ctx->pointerAwake && headValid) {
+        int free = hand;
+        if (free < 0) {
+            free = aimValid[HAND_RIGHT] ? HAND_RIGHT : (aimValid[HAND_LEFT] ? HAND_LEFT : -1);
+        }
+        if (free >= 0) {
+            Vec3 forward = { 0.0f, 0.0f, -1.0f };
+            Vec3 d = quatRotate(aimPoses[free].orientation, forward);
+            ctx->beamStart = aimPoses[free].position;
+            ctx->beamEnd.x = ctx->beamStart.x + d.x * FREE_BEAM_M;
+            ctx->beamEnd.y = ctx->beamStart.y + d.y * FREE_BEAM_M;
+            ctx->beamEnd.z = ctx->beamStart.z + d.z * FREE_BEAM_M;
+            ctx->beamVisible = 1;
+            // No target, so no cursor. The dot is what says a click would
+            // land somewhere.
+            ctx->beamFree = 1;
+        }
+    }
+
     writeInputPose(ctx, out);
+    out[IN_PICKER_PICK] = (float)ctx->pickerPick;
     (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
 }
 
@@ -2963,6 +3392,11 @@ static void pollCaptureRequest(XrCtx* ctx) {
     propScaled(PROP_POINTER_BETA, &ctx->pointerBeta, 0.5f, 100);
     // Millimetres
     propScaled(PROP_BEAM_WIDTH, &ctx->beamWidth, 0.001f, 100);
+    // Tenths of a second
+    propScaled(PROP_POINTER_WAKE, &ctx->pointerWake, 0.1f, 100);
+    propScaled(PROP_POINTER_SLEEP, &ctx->pointerSleep, 0.1f, 600);
+    // Metres. Zero is the infinite sphere the layer starts out as.
+    propScaled(PROP_ENV_RADIUS, &ctx->envRadius, 1.0f, 200);
 
     if (ctx->captureDir[0] == '\0') {
         return;
@@ -3300,9 +3734,117 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     ctx->everRendered = 1;
 }
 
-// Pixels come from a Bitmap the stats are drawn into on the Java side, which
-// is the only place Android will lay out text. Runs on the frame loop thread
-// so the GL context is current, and only when the text actually changed.
+// The thumbnail grid and the button that opens it, both drawn as Bitmaps in
+// Java. Same frame loop rule as the rest of the art. Flipped on the way in,
+// since a Bitmap runs top down and a texture does not.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobject thiz,
+                                                               jlong handle, jobject grid,
+                                                               jobject button) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    if (grid != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, grid);
+        if (px != NULL) {
+            ctx->pickerReady = uploadFlipped(ctx, ctx->pickerSwapchain, ctx->pickerImages,
+                                             px, PICKER_TEX_W, PICKER_TEX_H);
+        }
+    }
+    if (button != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, button);
+        if (px != NULL) {
+            ctx->envButtonReady = uploadFlipped(ctx, ctx->envButtonSwapchain,
+                                                ctx->envButtonImages, px,
+                                                OUTLINE_TEX, OUTLINE_TEX);
+        }
+    }
+    LOGI("picker art %s, button %s", ctx->pickerReady ? "ready" : "missing",
+         ctx->envButtonReady ? "ready" : "missing");
+}
+
+// Which cell the picker is showing as chosen, so it survives a restart
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jobject thiz,
+                                                                 jlong handle, jint choice,
+                                                                 jboolean backgroundOn) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->pickerChoice = choice;
+    ctx->backgroundEnabled = backgroundOn;
+}
+
+// The 360 photo, uploaded once from the frame loop. Same rule as the rest of
+// the art: a swapchain image cannot be waited on before the session runs.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadBackground(JNIEnv* env, jobject thiz,
+                                                                   jlong handle, jobject buffer,
+                                                                   jint width, jint height) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || buffer == NULL || width <= 0 || height <= 0) {
+        return;
+    }
+    if (!ctx->equirectSupported) {
+        LOGW("no equirect layer support, skipping the background");
+        return;
+    }
+
+    const unsigned char* px = (const unsigned char*)(*env)->GetDirectBufferAddress(env, buffer);
+    if (px == NULL) {
+        return;
+    }
+
+    // Switching environment reuses the swapchain, since every one of them is
+    // the same size. Only a different size needs a new one.
+    if (ctx->backgroundSwapchain != XR_NULL_HANDLE
+            && (ctx->backgroundWidth != width || ctx->backgroundHeight != height)) {
+        xrDestroySwapchain(ctx->backgroundSwapchain);
+        ctx->backgroundSwapchain = XR_NULL_HANDLE;
+        free(ctx->backgroundImages);
+        ctx->backgroundImages = NULL;
+        ctx->backgroundReady = 0;
+    }
+
+    if (ctx->backgroundSwapchain != XR_NULL_HANDLE) {
+        ctx->backgroundReady = uploadFlipped(ctx, ctx->backgroundSwapchain,
+                                             ctx->backgroundImages, px, width, height);
+        return;
+    }
+
+    XrSwapchainCreateInfo info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    info.format = ctx->swapchainFormat;
+    info.sampleCount = 1;
+    info.width = width;
+    info.height = height;
+    info.faceCount = 1;
+    info.arraySize = 1;
+    info.mipCount = 1;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->backgroundSwapchain),
+                 "create background swapchain")) {
+        ctx->backgroundSwapchain = XR_NULL_HANDLE;
+        return;
+    }
+
+    xrEnumerateSwapchainImages(ctx->backgroundSwapchain, 0, &ctx->backgroundImageCount, NULL);
+    ctx->backgroundImages = calloc(ctx->backgroundImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+    for (uint32_t i = 0; i < ctx->backgroundImageCount; i++) {
+        ctx->backgroundImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+    }
+    xrEnumerateSwapchainImages(ctx->backgroundSwapchain, ctx->backgroundImageCount,
+                               &ctx->backgroundImageCount,
+                               (XrSwapchainImageBaseHeader*)ctx->backgroundImages);
+
+    ctx->backgroundReady = uploadFlipped(ctx, ctx->backgroundSwapchain, ctx->backgroundImages,
+                                         px, width, height);
+    ctx->backgroundWidth = width;
+    ctx->backgroundHeight = height;
+    LOGI("background %dx%d %s", width, height, ctx->backgroundReady ? "ready" : "failed");
+}
+
 // Puts back a placement saved from a previous session. Marking the sliders as
 // already seen stops the first frame taking the screen straight back off it.
 JNIEXPORT void JNICALL
@@ -3339,6 +3881,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetScreenPose(JNIEnv* env, job
          p[0], p[1], p[2], p[7]);
 }
 
+// Pixels come from a Bitmap the stats are drawn into on the Java side, which
+// is the only place Android will lay out text. Runs on the frame loop thread
+// so the GL context is current, and only when the text actually changed.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadOverlay(JNIEnv* env, jobject thiz,
                                                                 jlong handle, jobject buffer,
@@ -3460,14 +4005,51 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     endInfo.environmentBlendMode = (ctx->passthrough && ctx->alphaBlendSupported)
             ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
 
+    XrCompositionLayerEquirect2KHR backgroundLayer;
     XrCompositionLayerQuad quadLayers[2];
     XrCompositionLayerCylinderKHR cylLayers[2];
     XrCompositionLayerQuad overlayLayer;
     XrCompositionLayerQuad beamLayer;
     XrCompositionLayerQuad dotLayer;
     XrCompositionLayerQuad handleLayer;
-    const XrCompositionLayerBaseHeader* layers[8];
+    XrCompositionLayerQuad envButtonLayer;
+    XrCompositionLayerQuad pickerLayer;
+    XrCompositionLayerQuad outlineLayers[2];
+    const XrCompositionLayerBaseHeader* layers[16];
     uint32_t layerCount = 0;
+
+    // Submitted first so everything else sits in front of it. Passthrough wants
+    // the room instead, so the two are mutually exclusive.
+    if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough) {
+        memset(&backgroundLayer, 0, sizeof(backgroundLayer));
+        backgroundLayer.type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
+        backgroundLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        backgroundLayer.subImage.swapchain = ctx->backgroundSwapchain;
+        backgroundLayer.subImage.imageRect.offset.x = 0;
+        backgroundLayer.subImage.imageRect.offset.y = 0;
+        backgroundLayer.subImage.imageRect.extent.width = ctx->backgroundWidth;
+        backgroundLayer.subImage.imageRect.extent.height = ctx->backgroundHeight;
+        backgroundLayer.subImage.imageArrayIndex = 0;
+        // World locked, even when the screen is head locked, or the environment
+        // would swing about with the viewer
+        backgroundLayer.space = ctx->localSpace;
+        backgroundLayer.pose.orientation.w = 1.0f;
+        // A finite sphere is what gives the room a size. At zero the layer is
+        // infinitely far, so leaning about moves nothing and the eye reads it
+        // as vast. Bring it in and the parallax says how big it really is.
+        backgroundLayer.radius = ctx->envRadius;
+        backgroundLayer.centralHorizontalAngle = 6.2831853f;
+        // Width covers the full turn, so the vertical reach follows the aspect
+        // ratio. A 2:1 image fills the sphere, anything wider leaves the zenith
+        // and nadir empty rather than stretching to cover them.
+        float halfV = (float)ctx->backgroundHeight / (float)ctx->backgroundWidth * 3.1415927f;
+        if (halfV > 1.5707963f) {
+            halfV = 1.5707963f;
+        }
+        backgroundLayer.upperVerticalAngle = halfV;
+        backgroundLayer.lowerVerticalAngle = -halfV;
+        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&backgroundLayer;
+    }
 
     if (ctx->everRendered && ctx->shouldRender) {
         int viewCount = stereo ? 2 : 1;
@@ -3558,11 +4140,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&overlayLayer;
         }
 
+        // The bar and the environment button share a hover area, so reaching
+        // for one keeps the other on screen rather than swapping them
+        int barArea = ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON;
+
         // Move bar and resize corner, shown only while the ray is over them.
         // Both live in the screen's own frame, so they travel with it.
-        if (ctx->handleArtReady && (ctx->hoverKind == HOVER_BAR
-                                    || ctx->hoverKind == HOVER_CORNER)) {
-            int isBar = ctx->hoverKind == HOVER_BAR;
+        if (ctx->handleArtReady && (barArea || ctx->hoverKind == HOVER_CORNER)) {
+            int isBar = barArea;
             Vec3 local;
             float sizeW, sizeH;
             float roll = 0.0f;
@@ -3611,6 +4196,104 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&handleLayer;
         }
 
+        // The button that opens the environment grid, left of the move bar.
+        // Stays up while the grid is open so it reads as the thing that
+        // opened it.
+        if (ctx->envButtonReady && (barArea || ctx->pickerOpen)) {
+            Vec3 local;
+            float side;
+            envButtonPlacement(ctx, screenHeight, &local, &side);
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&envButtonLayer, 0, sizeof(envButtonLayer));
+            envButtonLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            envButtonLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            envButtonLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            envButtonLayer.subImage.swapchain = ctx->envButtonSwapchain;
+            envButtonLayer.subImage.imageRect.offset.x = 0;
+            envButtonLayer.subImage.imageRect.offset.y = 0;
+            envButtonLayer.subImage.imageRect.extent.width = OUTLINE_TEX;
+            envButtonLayer.subImage.imageRect.extent.height = OUTLINE_TEX;
+            envButtonLayer.subImage.imageArrayIndex = 0;
+            envButtonLayer.space = space;
+            envButtonLayer.pose.orientation = screenPose.orientation;
+            envButtonLayer.pose.position.x = screenPose.position.x + offset.x;
+            envButtonLayer.pose.position.y = screenPose.position.y + offset.y;
+            envButtonLayer.pose.position.z = screenPose.position.z + offset.z;
+            // Grows a little when the ray is on it, which is the only feedback
+            // a quad layer can give without a second texture
+            float scale = ctx->envButtonHot ? 1.18f : 1.0f;
+            envButtonLayer.size.width = side * scale;
+            envButtonLayer.size.height = side * scale;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&envButtonLayer;
+        }
+
+        // The environment grid, floating in front of the screen, with the
+        // hovered and the chosen cell ringed
+        if (ctx->pickerOpen && ctx->pickerReady) {
+            float pickW, pickH;
+            XrPosef pickPose = pickerPose(ctx, &pickW, &pickH);
+
+            memset(&pickerLayer, 0, sizeof(pickerLayer));
+            pickerLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            pickerLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            pickerLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            pickerLayer.subImage.swapchain = ctx->pickerSwapchain;
+            pickerLayer.subImage.imageRect.offset.x = 0;
+            pickerLayer.subImage.imageRect.offset.y = 0;
+            pickerLayer.subImage.imageRect.extent.width = PICKER_TEX_W;
+            pickerLayer.subImage.imageRect.extent.height = PICKER_TEX_H;
+            pickerLayer.subImage.imageArrayIndex = 0;
+            pickerLayer.space = space;
+            pickerLayer.pose = pickPose;
+            pickerLayer.size.width = pickW;
+            pickerLayer.size.height = pickH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&pickerLayer;
+
+            if (ctx->outlineReady) {
+                float cellW = pickW / (float)PICKER_COLS;
+                float cellH = pickH / (float)PICKER_ROWS;
+                // Hover rings the cell, the choice sits inside it, so both
+                // read at once when the ray is over what is already selected
+                int marks[2] = { ctx->pickerHover, ctx->pickerChoice };
+                float scales[2] = { 1.0f, 0.84f };
+
+                for (int m = 0; m < 2; m++) {
+                    int cell = marks[m];
+                    if (cell < 0 || cell >= PICKER_CELLS) {
+                        continue;
+                    }
+                    int col = cell % PICKER_COLS;
+                    int row = cell / PICKER_COLS;
+                    Vec3 local;
+                    local.x = ((col + 0.5f) / PICKER_COLS - 0.5f) * pickW;
+                    local.y = (0.5f - (row + 0.5f) / PICKER_ROWS) * pickH;
+                    local.z = 0.004f;
+                    Vec3 offset = quatRotate(pickPose.orientation, local);
+
+                    XrCompositionLayerQuad* mark = &outlineLayers[m];
+                    memset(mark, 0, sizeof(*mark));
+                    mark->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                    mark->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    mark->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    mark->subImage.swapchain = ctx->outlineSwapchain;
+                    mark->subImage.imageRect.offset.x = 0;
+                    mark->subImage.imageRect.offset.y = 0;
+                    mark->subImage.imageRect.extent.width = OUTLINE_TEX;
+                    mark->subImage.imageRect.extent.height = OUTLINE_TEX;
+                    mark->subImage.imageArrayIndex = 0;
+                    mark->space = space;
+                    mark->pose.orientation = pickPose.orientation;
+                    mark->pose.position.x = pickPose.position.x + offset.x;
+                    mark->pose.position.y = pickPose.position.y + offset.y;
+                    mark->pose.position.z = pickPose.position.z + offset.z;
+                    mark->size.width = cellW * scales[m];
+                    mark->size.height = cellH * scales[m];
+                    layers[layerCount++] = (const XrCompositionLayerBaseHeader*)mark;
+                }
+            }
+        }
+
         // Laser and cursor, submitted last so they sit over the picture. Two
         // quad layers, so this costs no drawing at all: the art was uploaded
         // once and the compositor places it from these poses.
@@ -3629,9 +4312,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             float sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
 
             // A quad has one orientation, so the ribbon is turned to face the
-            // head. Looking straight down the beam it would be edge on, and
-            // there is nothing sensible to draw, so it is dropped instead.
-            if (length > 0.10f && sideLen > 0.15f) {
+            // head. Aimed nearly along the line of sight there is no such
+            // direction to find, and any perpendicular will do: the ribbon is
+            // edge on either way. This used to give up instead, which is why
+            // the ray vanished over the lower half of the screen.
+            if (sideLen < 0.15f) {
+                Vec3 up = { 0.0f, 1.0f, 0.0f };
+                beamX = vecCross(beamY, up);
+                sideLen = sqrtf(beamX.x * beamX.x + beamX.y * beamX.y + beamX.z * beamX.z);
+                if (sideLen < 0.15f) {
+                    Vec3 side = { 1.0f, 0.0f, 0.0f };
+                    beamX = vecCross(beamY, side);
+                }
+            }
+
+            if (length > 0.10f) {
                 beamX = vecNorm(beamX);
                 Vec3 beamZ = vecCross(beamX, beamY);
 
@@ -3678,7 +4373,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 dotLayer.pose.position.z = end.z + dotZ.z * 0.012f;
                 dotLayer.size.width = 0.022f;
                 dotLayer.size.height = 0.022f;
-                layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&dotLayer;
+                if (!ctx->beamFree) {
+                    layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&dotLayer;
+                }
             }
         }
     }

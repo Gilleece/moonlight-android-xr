@@ -47,3 +47,9 @@ app/.externalNativeBuild/
 *.keystore
 *.jks
 release-keystore-password.txt
+*.idsig
+
+# Full size source panoramas. Only the downsized copies under
+# app/src/main/assets/environments ship, so this is anchored to the root
+# rather than matching that folder as well.
+/Environments/

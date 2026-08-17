@@ -1062,6 +1062,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     protected void onDestroy() {
         super.onDestroy();
 
+        // The stream may still have been starting up when this activity went
+        // away, in which case the normal decoder teardown never runs and the
+        // XR session outlives us
+        if (decoderRenderer != null) {
+            decoderRenderer.stopXrRenderer();
+        }
+
         if (controllerHandler != null) {
             controllerHandler.destroy();
         }

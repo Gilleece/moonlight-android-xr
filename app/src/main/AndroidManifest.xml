@@ -59,6 +59,11 @@
         android:name="android.hardware.vr.headtracking"
         android:version="1"
         android:required="false"/>
+    <!-- Meta gates the passthrough cameras on this. Not required, since the
+         other headset does passthrough as a blend mode instead -->
+    <uses-feature
+        android:name="com.oculus.feature.PASSTHROUGH"
+        android:required="false"/>
 
     <application
         android:allowBackup="true"

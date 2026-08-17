@@ -57,10 +57,12 @@ public class PreferenceConfiguration {
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     private static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
-    private static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
+    public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
+    // Nor is this: the cell the environment grid was last left on
+    public static final String VR_ENVIRONMENT_PREF_STRING = "vr_environment";
     private static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
