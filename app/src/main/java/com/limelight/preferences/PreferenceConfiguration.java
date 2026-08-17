@@ -310,6 +310,38 @@ public class PreferenceConfiguration {
         }
     }
 
+    // Quest 2, Quest Pro and Pico 4 are the previous headset generation and have
+    // a lot less GPU headroom than the Gen 2 devices this was tuned on, so a 4K
+    // stream plus the depth model is too much for them. They start at 1440p.
+    public static String getDefaultResolution() {
+        return isPreviousGenHeadset() ? RES_1440P : DEFAULT_RESOLUTION;
+    }
+
+    private static boolean isPreviousGenHeadset() {
+        String model = Build.MODEL != null ? Build.MODEL : "";
+
+        // Meta puts the marketing name in the model, but the board name is the
+        // more stable of the two, so check both.
+        if (model.equalsIgnoreCase("Quest 2") || model.equalsIgnoreCase("Quest Pro") ||
+                "hollywood".equalsIgnoreCase(Build.DEVICE) || "seacliff".equalsIgnoreCase(Build.DEVICE)) {
+            return true;
+        }
+
+        // Pico ships a model number rather than a name. The 4 and the 4
+        // Enterprise are A81xx, the later headsets are not.
+        boolean isPico = "pico".equalsIgnoreCase(Build.MANUFACTURER) || "pico".equalsIgnoreCase(Build.BRAND);
+        return isPico && model.regionMatches(true, 0, "A81", 0, 3);
+    }
+
+    // The resolution default depends on the headset and the xml can only carry
+    // one value, so it has to be written before the xml defaults are applied.
+    public static void seedDefaultResolution(Context context) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (!prefs.contains(RESOLUTION_PREF_STRING) && !prefs.contains(LEGACY_RES_FPS_PREF_STRING)) {
+            prefs.edit().putString(RESOLUTION_PREF_STRING, getDefaultResolution()).apply();
+        }
+    }
+
     public static int getDefaultBitrate(String resString, String fpsString) {
         int width = getWidthFromResolutionString(resString);
         int height = getHeightFromResolutionString(resString);
@@ -396,7 +428,7 @@ public class PreferenceConfiguration {
     public static int getDefaultBitrate(Context context) {
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         return getDefaultBitrate(
-                prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION),
+                prefs.getString(RESOLUTION_PREF_STRING, getDefaultResolution()),
                 prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
     }
 
@@ -568,7 +600,7 @@ public class PreferenceConfiguration {
         }
         else {
             // Use the new preference location
-            String resStr = prefs.getString(RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
+            String resStr = prefs.getString(RESOLUTION_PREF_STRING, PreferenceConfiguration.getDefaultResolution());
 
             // Convert legacy resolution strings to the new style
             if (!resStr.contains("x")) {

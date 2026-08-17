@@ -10,13 +10,17 @@ stereo injector, no side by side transport, no Sunshine modifications. The host 
 is feeding a VR client, so this works with any Moonlight compatible host and any game, including
 ones no depth buffer injector can reach.
 
-Everything new sits behind settings that default to off. With them off the app behaves exactly
-like stock Moonlight.
+On a headset the app starts in VR with the 3D effect already on, because the stock defaults make
+it look broken on a virtual screen. Every part of it is a setting, and turning VR mode off gives
+you stock Moonlight behaviour.
 
 ## Hardware
 
-Built and tested on Pico 4 Ultra. Quest 3 is supported by the same APK and worked through the
-early phases, but is not currently verified. Both are Snapdragon XR2 Gen 2.
+Built and tested on Pico 4 Ultra and Quest 3, both Snapdragon XR2 Gen 2, from one APK.
+
+Quest 2, Quest Pro and Pico 4 are the previous generation and have much less GPU headroom, so
+they default to a 1440p stream instead of 4K. They are not tested and the depth model may be too
+expensive for them at any resolution.
 
 ## How it works
 
@@ -49,20 +53,37 @@ you build it:
 
 ## Settings
 
-Under **VR Settings** once "Stream in VR" is enabled:
+**VR Settings**:
 
 | Setting | Default | Notes |
 | --- | --- | --- |
-| Stream in VR | off | Immersive OpenXR session instead of a flat panel |
+| Stream in VR | on | Immersive OpenXR session instead of a flat panel |
 | Head locked screen | off | Screen follows your view rather than staying in the world |
 | Screen distance | 3.0 m | |
 | Screen width | 3.0 m | 3 m wide at 3 m away is about 53 degrees |
-| Stereo depth source | off | Set to "Depth model" for 3D |
-| Stereo separation | 5 | Tenths of a percent of frame width |
+| Passthrough mode | off | Show your room behind the screen. Costs performance, turn it back off if the stream suffers |
+| Realtime 3D mode | V1.0 - MiDaS Based 3D | "Off" streams flat, the rest are test patterns |
+| Stereo separation | 0.5 % | Of frame width. Above about 0.5 the picture is not any deeper, only harder on the eyes |
 | Screen curvature | 0 | 0 is flat, higher wraps the screen around you |
 
-4K is the recommended stream resolution. 720p is unusable on a virtual screen this size and 1080p
-is merely acceptable.
+**VR Debugging**, which you should not need:
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| Depth model cadence | 3 frames | Run the depth model on every Nth video frame |
+| Show depth map | off | Renders the depth map as grayscale instead of the video |
+| Swap eyes | off | |
+
+The stream defaults also change on a headset, because the stock ones look bad on a virtual screen:
+
+| Setting | Default |
+| --- | --- |
+| Resolution | 3840x2160, or 2560x1440 on Quest 2, Quest Pro and Pico 4 |
+| Frame rate | 90 |
+
+4K is the recommended stream resolution where the headset can take it. 720p is unusable on a
+virtual screen this size and 1080p is merely acceptable. Bitrate follows the resolution and frame
+rate as it does upstream, so changing either resets it.
 
 "Show performance stats while streaming" works inside the VR session and adds warp GPU time,
 depth inference time, depth age and skipped depth frames to the usual figures.

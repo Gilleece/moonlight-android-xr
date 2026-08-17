@@ -91,13 +91,22 @@ public class ServerHelper {
             Toast.makeText(parent, parent.getResources().getString(R.string.pair_pc_offline), Toast.LENGTH_SHORT).show();
             return;
         }
-        parent.startActivity(createStartIntent(parent, app, computer, managerBinder));
+        Intent intent = createStartIntent(parent, app, computer, managerBinder);
 
         // A headset shell keeps the 2d panels floating beside the stream, which
         // invites people to change settings mid stream and wait for something
         // to happen. Settings are read once at launch, so nothing would. The
         // stream is in its own task by then, so this only takes the panels.
-        if (PreferenceConfiguration.readPreferences(parent).enableVrMode) {
+        boolean closePanels = PreferenceConfiguration.readPreferences(parent).enableVrMode;
+        if (closePanels) {
+            // Tell the stream to put the PC list back when it ends, since we are
+            // about to remove everything it would otherwise return to
+            intent.putExtra(Game.EXTRA_RETURN_TO_PC_VIEW, true);
+        }
+
+        parent.startActivity(intent);
+
+        if (closePanels) {
             parent.finishAffinity();
         }
     }

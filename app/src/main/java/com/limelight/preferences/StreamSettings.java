@@ -258,7 +258,7 @@ public class StreamSettings extends Activity {
 
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
             if (res == null) {
-                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
+                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.getDefaultResolution());
             }
             if (fps == null) {
                 fps = prefs.getString(PreferenceConfiguration.FPS_PREF_STRING, PreferenceConfiguration.DEFAULT_FPS);

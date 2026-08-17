@@ -151,6 +151,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private MediaCodecDecoderRenderer decoderRenderer;
     private boolean reportedCrash;
 
+    // Set when the launcher tore its own task down to get the 2d panels out of
+    // the way, so there is nothing left to go back to when the stream ends
+    private boolean returnToPcView;
+    private boolean pcViewStarted;
+
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
 
@@ -181,6 +186,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     public static final String EXTRA_PC_NAME = "PcName";
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
+    public static final String EXTRA_RETURN_TO_PC_VIEW = "ReturnToPcView";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -310,6 +316,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         appName = Game.this.getIntent().getStringExtra(EXTRA_APP_NAME);
         pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
+        returnToPcView = Game.this.getIntent().getBooleanExtra(EXTRA_RETURN_TO_PC_VIEW, false);
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
         int port = Game.this.getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
@@ -1024,6 +1031,25 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         // Correct the system UI visibility flags
         hideSystemUi(50);
+    }
+
+    @Override
+    public void finish() {
+        // The launcher took its own task down so the 2d panels would not float
+        // beside the stream, so there is no back stack to return to. Bring the
+        // PC list back instead of dropping the user at the headset home screen.
+        // This has to happen before we finish, otherwise it counts as a
+        // background launch and gets blocked.
+        if (returnToPcView && !pcViewStarted) {
+            pcViewStarted = true;
+
+            Intent i = new Intent(this, PcView.class);
+            i.setAction(Intent.ACTION_MAIN);
+            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(i);
+        }
+
+        super.finish();
     }
 
     @Override
