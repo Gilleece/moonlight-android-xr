@@ -33,6 +33,11 @@
             android:text="@string/suffix_seekbar_vr_meters"
             android:title="@string/title_seekbar_vr_screen_size"/>
         <CheckBoxPreference
+            android:key="checkbox_vr_pointer"
+            android:title="@string/title_vr_pointer"
+            android:summary="@string/summary_vr_pointer"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
             android:key="checkbox_vr_passthrough"
             android:title="@string/title_vr_passthrough"
             android:summary="@string/summary_vr_passthrough"
@@ -53,6 +58,10 @@
             android:summary="@string/summary_seekbar_vr_separation"
             android:text="@string/suffix_seekbar_vr_percent"
             android:title="@string/title_seekbar_vr_separation"/>
+        <Preference
+            android:key="reset_vr_screen_pose"
+            android:title="@string/title_vr_reset_pose"
+            android:summary="@string/summary_vr_reset_pose"/>
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_curvature"
             android:defaultValue="0"
@@ -91,7 +100,7 @@
             android:summary="@string/summary_resolution_list"
             android:entries="@array/resolution_names"
             android:entryValues="@array/resolution_values"
-            android:defaultValue="3840x2160" />
+            android:defaultValue="2560x1440" />
         <ListPreference
             android:key="list_fps"
             android:title="@string/title_fps_list"

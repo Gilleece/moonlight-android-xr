@@ -523,6 +523,11 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         if (prefs.enableVrMode) {
             if (xrRenderer == null) {
                 XrRenderer renderer = new XrRenderer();
+                if (activity instanceof XrRenderer.InputListener) {
+                    // The activity owns the connection, so controller events
+                    // go back out through it
+                    renderer.setInputListener((XrRenderer.InputListener) activity);
+                }
                 if (renderer.start(activity, initialWidth, initialHeight, prefs)) {
                     xrRenderer = renderer;
                 }

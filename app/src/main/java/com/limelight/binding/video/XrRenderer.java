@@ -1,6 +1,7 @@
 package com.limelight.binding.video;
 
 import android.app.Activity;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -8,6 +9,7 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.SurfaceTexture;
 import android.graphics.Typeface;
+import android.preference.PreferenceManager;
 import android.view.Surface;
 
 import com.limelight.LimeLog;
@@ -95,6 +97,36 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile float lastDepthAgeMs;
     private volatile int lastDepthSkips;
 
+    // Controller pointer. The native side does the ray maths and hands back a
+    // hit point and a button mask, this side turns that into host events.
+    private static final int IN_HIT = 0;
+    private static final int IN_U = 1;
+    private static final int IN_V = 2;
+    private static final int IN_BUTTONS = 3;
+    private static final int IN_SCROLL = 4;
+    private static final int IN_POSE_DIRTY = 6;
+    private static final int IN_POSE = 8;
+    private static final int IN_SLOTS = 20;
+    private static final int POSE_VALUES = 9;
+    private final float[] inputState = new float[IN_SLOTS];
+    private int heldButtons;
+    private InputListener inputListener;
+    private Context prefsContext;
+
+    /**
+     * Pointer events out of the VR session. Called on the frame loop thread.
+     * Buttons are 0 left, 1 right, 2 middle.
+     */
+    public interface InputListener {
+        void onVrPointerMove(float u, float v);
+        void onVrButton(int button, boolean down);
+        void onVrScroll(int clicks);
+    }
+
+    public void setInputListener(InputListener listener) {
+        this.inputListener = listener;
+    }
+
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale);
     private native void nativeSetCaptureDir(long ctx, String dir);
@@ -110,6 +142,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                        float distance, float quadWidth, float curvature,
                                        boolean headLocked, float separation, boolean eyeSwap,
                                        boolean passthrough);
+    private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
+                                          float curvature, boolean headLocked,
+                                          boolean pointerEnabled, float[] out);
+    private native void nativeSetScreenPose(long ctx, float[] pose);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
     private native float nativeGetWarpGpuMs(long ctx);
     private native void nativeDestroy(long ctx);
@@ -128,6 +164,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     initLatch.countDown();
                     return;
                 }
+
+                prefsContext = activity.getApplicationContext();
+                restoreScreenPose();
 
                 File captureDir = activity.getExternalFilesDir(null);
                 if (captureDir != null) {
@@ -320,6 +359,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         float separation = prefs.vrStereoSeparation / 1000.0f;
         boolean eyeSwap = prefs.vrEyeSwap;
         boolean passthrough = prefs.vrPassthrough;
+        boolean pointer = prefs.vrPointer;
         int cadence = Math.max(1, prefs.vrInferenceCadence);
 
         long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
@@ -332,6 +372,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (r == FRAME_IDLE) {
                 // Native side slept already while the session is not running
                 continue;
+            }
+
+            if (inputListener != null) {
+                nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
+                        pointer, inputState);
+                dispatchInput();
             }
 
             boolean newFrame = pendingFrames.getAndSet(0) > 0;
@@ -377,6 +423,79 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature,
                     headLocked, separation, eyeSwap, passthrough);
         }
+    }
+
+    // Moves the pointer before any press, so a click lands where the user is
+    // pointing rather than where they pointed last frame
+    private void dispatchInput() {
+        if (inputState[IN_HIT] != 0.0f) {
+            inputListener.onVrPointerMove(inputState[IN_U], inputState[IN_V]);
+        }
+
+        int buttons = (int)inputState[IN_BUTTONS];
+        int changed = buttons ^ heldButtons;
+        if (changed != 0) {
+            for (int i = 0; i < 3; i++) {
+                int mask = 1 << i;
+                if ((changed & mask) != 0) {
+                    inputListener.onVrButton(i, (buttons & mask) != 0);
+                }
+            }
+            heldButtons = buttons;
+        }
+
+        int clicks = (int)inputState[IN_SCROLL];
+        if (clicks != 0) {
+            inputListener.onVrScroll(clicks);
+        }
+
+        if (inputState[IN_POSE_DIRTY] != 0.0f) {
+            saveScreenPose();
+        }
+    }
+
+    // Written once when a grab ends, so the screen is where it was left next
+    // time. Cleared by the reset in settings.
+    private void saveScreenPose() {
+        if (prefsContext == null) {
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < POSE_VALUES; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(inputState[IN_POSE + i]);
+        }
+
+        PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                .putString(PreferenceConfiguration.VR_SCREEN_POSE_PREF_STRING, sb.toString())
+                .apply();
+    }
+
+    private void restoreScreenPose() {
+        String saved = PreferenceManager.getDefaultSharedPreferences(prefsContext)
+                .getString(PreferenceConfiguration.VR_SCREEN_POSE_PREF_STRING, null);
+        if (saved == null) {
+            return;
+        }
+
+        String[] parts = saved.split(",");
+        if (parts.length < POSE_VALUES) {
+            return;
+        }
+
+        float[] pose = new float[POSE_VALUES];
+        try {
+            for (int i = 0; i < POSE_VALUES; i++) {
+                pose[i] = Float.parseFloat(parts[i]);
+            }
+        } catch (NumberFormatException e) {
+            return;
+        }
+
+        nativeSetScreenPose(nativeCtx, pose);
     }
 
     /**

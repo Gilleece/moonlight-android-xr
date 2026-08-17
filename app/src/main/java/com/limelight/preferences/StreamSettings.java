@@ -26,6 +26,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.widget.Toast;
 
 import com.limelight.LimeLog;
 import com.limelight.PcView;
@@ -258,7 +259,7 @@ public class StreamSettings extends Activity {
 
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
             if (res == null) {
-                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.getDefaultResolution());
+                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
             }
             if (fps == null) {
                 fps = prefs.getString(PreferenceConfiguration.FPS_PREF_STRING, PreferenceConfiguration.DEFAULT_FPS);
@@ -299,6 +300,21 @@ public class StreamSettings extends Activity {
                         (PreferenceCategory) findPreference("category_input_settings");
                 category.removePreference(findPreference("checkbox_absolute_mouse_mode"));
             }
+
+            // Clears a placement made with the controllers, so the distance and
+            // width sliders take over again next time the stream starts
+            findPreference("reset_vr_screen_pose").setOnPreferenceClickListener(
+                    new Preference.OnPreferenceClickListener() {
+                @Override
+                public boolean onPreferenceClick(Preference preference) {
+                    PreferenceManager.getDefaultSharedPreferences(getActivity()).edit()
+                            .remove(PreferenceConfiguration.VR_SCREEN_POSE_PREF_STRING)
+                            .apply();
+                    Toast.makeText(getActivity(), R.string.toast_vr_reset_pose,
+                            Toast.LENGTH_SHORT).show();
+                    return true;
+                }
+            });
 
             // Hide gamepad motion sensor option when running on OSes before Android 12.
             // Support for motion, LED, battery, and other extensions were introduced in S.

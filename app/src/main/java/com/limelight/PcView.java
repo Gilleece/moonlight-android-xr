@@ -130,9 +130,7 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
             setShouldDockBigOverlays(false);
         }
 
-        // Set default preferences if we've never been run. The resolution
-        // default varies by headset, so it goes in first.
-        PreferenceConfiguration.seedDefaultResolution(this);
+        // Set default preferences if we've never been run
         PreferenceManager.setDefaultValues(this, R.xml.preferences, false);
 
         // Set the correct layout for the PC grid

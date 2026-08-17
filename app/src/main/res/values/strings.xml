@@ -265,6 +265,11 @@
     <string name="title_seekbar_vr_curvature">Screen curvature</string>
     <string name="summary_seekbar_vr_curvature">0 is flat, higher values wrap the screen around you</string>
     <string name="suffix_seekbar_vr_meters">m</string>
+    <string name="title_vr_pointer">Controllers as a mouse</string>
+    <string name="summary_vr_pointer">Point at the screen with a controller to move the host mouse. Trigger clicks, A or X right clicks, thumbstick scrolls. Click the thumbstick to switch pointing off in a game that needs the mouse itself.</string>
+    <string name="title_vr_reset_pose">Reset screen position</string>
+    <string name="summary_vr_reset_pose">Put the screen back to the distance and width above, undoing any move or resize done with the controllers</string>
+    <string name="toast_vr_reset_pose">Screen position reset</string>
     <string name="title_vr_passthrough">Passthrough mode</string>
     <string name="summary_vr_passthrough">Turn on passthrough. Please note this uses more system resources, please disable if you find the stream performing poorly</string>
     <string name="title_vr_depth_source">Realtime 3D mode</string>

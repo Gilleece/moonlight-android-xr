@@ -92,7 +92,8 @@ import java.util.Locale;
 public class Game extends Activity implements SurfaceHolder.Callback,
         OnGenericMotionListener, OnTouchListener, NvConnectionListener, EvdevListener,
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
-        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener {
+        PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener,
+        XrRenderer.InputListener {
     private int lastButtonState = 0;
 
     // Only 2 touches are supported
@@ -155,6 +156,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // the way, so there is nothing left to go back to when the stream ends
     private boolean returnToPcView;
     private boolean pcViewStarted;
+
+    // Last absolute position sent from the VR pointer, so a still controller
+    // does not repeat the same position every frame
+    private int lastVrPointerX = -1;
+    private int lastVrPointerY = -1;
 
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
@@ -2661,6 +2667,64 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         else if ((visibility & View.SYSTEM_UI_FLAG_HIDE_NAVIGATION) == 0) {
             hideSystemUi(2000);
         }
+    }
+
+    // Controller pointer out of the VR session, on the renderer's frame loop
+    // thread. The hit point is in 0..1 across the streamed picture, so it maps
+    // straight onto an absolute mouse position the host already understands.
+    @Override
+    public void onVrPointerMove(float u, float v) {
+        if (!connected) {
+            return;
+        }
+
+        int x = (int)(u * prefConfig.width);
+        int y = (int)(v * prefConfig.height);
+        x = Math.max(0, Math.min(prefConfig.width - 1, x));
+        y = Math.max(0, Math.min(prefConfig.height - 1, y));
+        if (x == lastVrPointerX && y == lastVrPointerY) {
+            return;
+        }
+        lastVrPointerX = x;
+        lastVrPointerY = y;
+
+        conn.sendMousePosition((short)x, (short)y,
+                (short)prefConfig.width, (short)prefConfig.height);
+    }
+
+    @Override
+    public void onVrButton(int button, boolean down) {
+        if (!connected) {
+            return;
+        }
+
+        byte code;
+        switch (button) {
+            case 1:
+                code = MouseButtonPacket.BUTTON_RIGHT;
+                break;
+            case 2:
+                code = MouseButtonPacket.BUTTON_MIDDLE;
+                break;
+            default:
+                code = MouseButtonPacket.BUTTON_LEFT;
+                break;
+        }
+
+        if (down) {
+            conn.sendMouseButtonDown(code);
+        }
+        else {
+            conn.sendMouseButtonUp(code);
+        }
+    }
+
+    @Override
+    public void onVrScroll(int clicks) {
+        if (!connected) {
+            return;
+        }
+        conn.sendMouseHighResScroll((short)(clicks * 120));
     }
 
     @Override
