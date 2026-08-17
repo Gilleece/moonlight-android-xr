@@ -64,6 +64,15 @@
     <uses-feature
         android:name="com.oculus.feature.PASSTHROUGH"
         android:required="false"/>
+    <!-- Hand tracking. Meta wants the feature and the permission together, and
+         Pico reads its own key. All optional: controllers still work without -->
+    <uses-feature
+        android:name="oculus.software.handtracking"
+        android:required="false"/>
+    <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
+    <uses-feature
+        android:name="pvr.software.handtracking"
+        android:required="false"/>
 
     <application
         android:allowBackup="true"

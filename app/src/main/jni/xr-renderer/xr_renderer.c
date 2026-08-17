@@ -381,6 +381,16 @@ typedef struct {
     // offer it, but Meta only turns the cameras on if the manifest asks.
     int alphaBlendSupported;
     int passthrough;
+    // Hand tracking arrives as another interaction profile rather than as a
+    // separate input path, so the pointer does not know the difference
+    int handInteraction;
+    int msftHandInteraction;
+    XrPath handProfile;
+    XrPath msftHandProfile;
+    int usingHands[HAND_COUNT];
+    // A pinch that woke the pointer is not also a click, so it is swallowed
+    // until the hand opens again
+    int pinchSwallowed[HAND_COUNT];
 
     PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetGlesReqs;
 
@@ -889,6 +899,8 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) ctx->cylinderSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME)) ctx->picoInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)) ctx->equirectSupported = 1;
+        if (!strcmp(exts[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) ctx->handInteraction = 1;
+        if (!strcmp(exts[i].extensionName, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME)) ctx->msftHandInteraction = 1;
     }
     free(exts);
 
@@ -897,7 +909,7 @@ static int initXrInstance(XrCtx* ctx) {
         return 0;
     }
 
-    const char* enabledExts[5];
+    const char* enabledExts[7];
     uint32_t enabledCount = 0;
     enabledExts[enabledCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     enabledExts[enabledCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
@@ -909,6 +921,12 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->equirectSupported) {
         enabledExts[enabledCount++] = XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME;
+    }
+    if (ctx->handInteraction) {
+        enabledExts[enabledCount++] = XR_EXT_HAND_INTERACTION_EXTENSION_NAME;
+    }
+    if (ctx->msftHandInteraction) {
+        enabledExts[enabledCount++] = XR_MSFT_HAND_INTERACTION_EXTENSION_NAME;
     }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -1399,6 +1417,28 @@ static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
     }
 }
 
+// Which kind of thing is driving each hand. Hands are never still enough for
+// the movement gate to mean anything, so they wake the pointer a different way
+// and need to be told apart from controllers.
+static void refreshInputSource(XrCtx* ctx) {
+    if (ctx->session == XR_NULL_HANDLE || !ctx->inputReady) {
+        return;
+    }
+    for (int h = 0; h < HAND_COUNT; h++) {
+        XrInteractionProfileState state = { XR_TYPE_INTERACTION_PROFILE_STATE };
+        if (XR_FAILED(xrGetCurrentInteractionProfile(ctx->session, ctx->handPaths[h], &state))) {
+            continue;
+        }
+        int hands = state.interactionProfile != XR_NULL_PATH
+                && (state.interactionProfile == ctx->handProfile
+                    || state.interactionProfile == ctx->msftHandProfile);
+        if (hands != ctx->usingHands[h]) {
+            LOGI("hand %d is now driven by %s", h, hands ? "hand tracking" : "a controller");
+        }
+        ctx->usingHands[h] = hands;
+    }
+}
+
 static void pollEvents(XrCtx* ctx) {
     XrEventDataBuffer event;
     for (;;) {
@@ -1427,6 +1467,11 @@ static void pollEvents(XrCtx* ctx) {
                 }
                 break;
             }
+            case XR_TYPE_EVENT_DATA_INTERACTION_PROFILE_CHANGED:
+                // Picking a controller up or putting it down swaps the profile
+                // on that hand, and the pointer wakes differently for each
+                refreshInputSource(ctx);
+                break;
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 ctx->exitRequested = 1;
                 break;
@@ -1645,6 +1690,44 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
     }
 }
 
+// Hands come in through the same actions the controllers use, so everything
+// downstream of here treats them identically: same ray, same handles, same
+// picker. Only the paths differ, which is why this is its own function rather
+// than another flag on the one above.
+static void suggestHandBindings(XrCtx* ctx, const char* profile, const char* aim,
+                                const char* click, const char* grasp) {
+    XrActionSuggestedBinding b[6];
+    uint32_t n = 0;
+    static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
+
+    for (int h = 0; h < HAND_COUNT; h++) {
+        char path[XR_MAX_PATH_LENGTH];
+
+        snprintf(path, sizeof(path), "%s/%s", hands[h], aim);
+        b[n].action = ctx->aimAction;
+        b[n++].binding = toPath(ctx, path);
+
+        snprintf(path, sizeof(path), "%s/%s", hands[h], click);
+        b[n].action = ctx->triggerAction;
+        b[n++].binding = toPath(ctx, path);
+
+        if (grasp != NULL) {
+            snprintf(path, sizeof(path), "%s/%s", hands[h], grasp);
+            b[n].action = ctx->grabAction;
+            b[n++].binding = toPath(ctx, path);
+        }
+    }
+
+    XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+    suggest.interactionProfile = toPath(ctx, profile);
+    suggest.countSuggestedBindings = n;
+    suggest.suggestedBindings = b;
+
+    XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
+    LOGI("hand bindings %s for %s (%d)", XR_SUCCEEDED(res) ? "accepted" : "rejected",
+         profile, res);
+}
+
 static int initXrInput(XrCtx* ctx) {
     XrActionSetCreateInfo setInfo = { XR_TYPE_ACTION_SET_CREATE_INFO };
     strncpy(setInfo.actionSetName, "moonlight", XR_MAX_ACTION_SET_NAME_SIZE - 1);
@@ -1674,6 +1757,22 @@ static int initXrInput(XrCtx* ctx) {
         suggestBindings(ctx, "/interaction_profiles/bytedance/pico4_controller", 1);
     }
 
+    // Hands. aim_activate is the spec's own name for pointing at something out
+    // of reach and pinching to act on it, which is exactly what the ray does.
+    if (ctx->handInteraction) {
+        const char* profile = "/interaction_profiles/ext/hand_interaction_ext";
+        suggestHandBindings(ctx, profile, "input/aim_ext/pose",
+                            "input/aim_activate_ext/value", "input/grasp_ext/value");
+        ctx->handProfile = toPath(ctx, profile);
+    }
+    // Older runtimes that predate the EXT profile. Same idea, fewer inputs.
+    if (ctx->msftHandInteraction) {
+        const char* profile = "/interaction_profiles/microsoft/hand_interaction";
+        suggestHandBindings(ctx, profile, "input/aim/pose", "input/select/value",
+                            "input/squeeze/value");
+        ctx->msftHandProfile = toPath(ctx, profile);
+    }
+
     XrSessionActionSetsAttachInfo attach = { XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO };
     attach.countActionSets = 1;
     attach.actionSets = &ctx->actionSet;
@@ -1694,8 +1793,11 @@ static int initXrInput(XrCtx* ctx) {
 
     ctx->inputReady = 1;
     ctx->pointerOn = 1;
-    LOGI("controller input ready (pico bindings %s)",
-         ctx->picoInteraction ? "offered" : "not offered by this runtime");
+    refreshInputSource(ctx);
+    LOGI("controller input ready (pico bindings %s, hand tracking %s)",
+         ctx->picoInteraction ? "offered" : "not offered by this runtime",
+         ctx->handInteraction ? "offered" : (ctx->msftHandInteraction ? "offered as msft"
+                                                                      : "not offered"));
     return 1;
 }
 
@@ -3045,7 +3147,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
             float turn = 2.0f * acosf(dot) / dt;
 
-            if (speed > POINTER_MOVE_SPEED || turn > POINTER_TURN_SPEED) {
+            // Hands are never still, so their motion says nothing about intent
+            // and the gate would just hold the pointer on forever
+            if (!ctx->usingHands[h]
+                    && (speed > POINTER_MOVE_SPEED || turn > POINTER_TURN_SPEED)) {
                 moved = 1;
             }
         }
@@ -3053,8 +3158,39 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         ctx->poseSeen[h] = 1;
     }
 
+    // A pinch is what a hand has instead of deliberate movement: it turns the
+    // pointer on, and keeps it on for as long as pinches keep arriving. The
+    // one that does the waking is swallowed rather than passed on as a click,
+    // since the user was reaching for the pointer and not for the screen.
+    int pinching = 0;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (!ctx->usingHands[h]) {
+            ctx->pinchSwallowed[h] = 0;
+            continue;
+        }
+        if (ctx->triggerDown[h]) {
+            pinching = 1;
+            if (!ctx->pointerAwake) {
+                ctx->pointerAwake = 1;
+                ctx->pinchSwallowed[h] = 1;
+            }
+        }
+        else {
+            ctx->pinchSwallowed[h] = 0;
+        }
+        if (ctx->pinchSwallowed[h]) {
+            ctx->triggerDown[h] = 0;
+            ctx->triggerEdge[h] = 0;
+        }
+    }
+
     // Deliberate movement wakes the pointer, a controller put down retires it
-    if (moved) {
+    if (pinching) {
+        // Only the pinch clock matters while hands are in charge
+        ctx->stillFor = 0.0f;
+        ctx->movingFor = 0.0f;
+    }
+    else if (moved) {
         ctx->movingFor += dt;
         ctx->stillFor = 0.0f;
         if (ctx->movingFor >= ctx->pointerWake) {
