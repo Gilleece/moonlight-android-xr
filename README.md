@@ -1,3 +1,14 @@
+<p align="center">
+  <img src="moonlight-xr-logo-transparent.png" height="200" alt="moonlight-xr-logo"><br>
+  <a href="https://ko-fi.com/moonlightxr">
+    <img src="https://img.shields.io/badge/ko--fi-support-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white" height="35" alt="Ko-fi">
+  </a>
+  <br>
+  <a href="https://ko-fi.com/moonlightxr">
+    <strong>Support on Ko-fi</strong>
+  </a>
+</p>
+
 # Moonlight XR
 
 A fork of [Moonlight for Android](https://github.com/moonlight-stream/moonlight-android) that
