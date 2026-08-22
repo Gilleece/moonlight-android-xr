@@ -153,10 +153,20 @@
 #define ENV_BUTTON_FRAC 0.048f
 #define ENV_GAP_FRAC 0.02f
 
+// The padlock that locks the hands out, on the left edge at eye level. Away
+// from the bar on purpose: a hand resting in the lap holding a controller
+// points at the bottom of the screen, and that kept lighting the furniture
+// down there. Bigger than the env button because while locked it is the only
+// thing left to aim at, so it has to be findable without a ray to guide you.
+#define LOCK_BUTTON_FRAC 0.09f
+#define LOCK_GAP_FRAC 0.025f
+#define LOCK_TEX 128
+
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
 // Nothing under the ray, but close enough to the screen to keep drawing it
 #define HOVER_HALO      6
+#define HOVER_LOCK      7
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 // How far the ray runs when it is aimed at nothing at all, in metres
@@ -419,6 +429,23 @@ typedef struct {
     // A pinch that woke the pointer is not also a click, so it is swallowed
     // until the hand opens again
     int pinchSwallowed[SRC_COUNT];
+    // Hands locked out for the session, so a gamepad can be used without a
+    // stray pinch clicking the desktop or dragging the screen around. The
+    // padlock is the one thing they can still reach. Controllers are never
+    // affected, and it starts off every session.
+    int handsLocked;
+    int lockHot;
+    // The pinch has to start on the padlock. Sweeping onto it with one already
+    // held would otherwise read as a press, because a locked hand has its
+    // trigger cleared every frame and so arrives looking like a fresh edge.
+    int lockArmed[SRC_COUNT];
+    XrSwapchain lockSwapchain;
+    XrSwapchain unlockSwapchain;
+    uint32_t lockImageCount;
+    uint32_t unlockImageCount;
+    XrSwapchainImageOpenGLESKHR* lockImages;
+    XrSwapchainImageOpenGLESKHR* unlockImages;
+    int lockArtReady;
 
     PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetGlesReqs;
 
@@ -2346,6 +2373,41 @@ static int createPointerSwapchain(XrCtx* ctx) {
         ctx->envButtonSwapchain = XR_NULL_HANDLE;
     }
 
+    // Two padlocks rather than one, since a quad layer has no way to swap
+    // its own texture and open and shut have to read differently
+    info.width = LOCK_TEX;
+    info.height = LOCK_TEX;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->lockSwapchain),
+                "create lock swapchain")) {
+        xrEnumerateSwapchainImages(ctx->lockSwapchain, 0, &ctx->lockImageCount, NULL);
+        ctx->lockImages = calloc(ctx->lockImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->lockImageCount; i++) {
+            ctx->lockImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->lockSwapchain, ctx->lockImageCount, &ctx->lockImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->lockImages);
+    }
+    else {
+        ctx->lockSwapchain = XR_NULL_HANDLE;
+    }
+
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->unlockSwapchain),
+                "create unlock swapchain")) {
+        xrEnumerateSwapchainImages(ctx->unlockSwapchain, 0, &ctx->unlockImageCount, NULL);
+        ctx->unlockImages = calloc(ctx->unlockImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->unlockImageCount; i++) {
+            ctx->unlockImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->unlockSwapchain, ctx->unlockImageCount,
+                                   &ctx->unlockImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->unlockImages);
+    }
+    else {
+        ctx->unlockSwapchain = XR_NULL_HANDLE;
+    }
+
+    info.width = OUTLINE_TEX;
+    info.height = OUTLINE_TEX;
     if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->outlineSwapchain),
                 "create outline swapchain")) {
         xrEnumerateSwapchainImages(ctx->outlineSwapchain, 0, &ctx->outlineImageCount, NULL);
@@ -2812,6 +2874,27 @@ static int envButtonHit(XrCtx* ctx, float u, float v, float height) {
     return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
 }
 
+// Padlock sits off the left edge, halfway up
+static void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide) {
+    float side = ctx->screenWidth * LOCK_BUTTON_FRAC;
+    outLocal->x = -(ctx->screenWidth * (0.5f + LOCK_GAP_FRAC) + side * 0.5f);
+    outLocal->y = 0.0f;
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+static int lockButtonHit(XrCtx* ctx, float u, float v, float height) {
+    Vec3 local;
+    float side;
+    lockButtonPlacement(ctx, &local, &side);
+
+    float cu = 0.5f + local.x / ctx->screenWidth;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
 // Where the ray lands on furniture rather than on the picture. The grid has a
 // plane of its own, everything else sits on the screen.
 static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef screenPose,
@@ -2889,6 +2972,14 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->envButtonSwapchain);
     }
     free(ctx->envButtonImages);
+    if (ctx->lockSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->lockSwapchain);
+    }
+    free(ctx->lockImages);
+    if (ctx->unlockSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->unlockSwapchain);
+    }
+    free(ctx->unlockImages);
     if (ctx->outlineSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->outlineSwapchain);
     }
@@ -3419,6 +3510,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     int hovers[SRC_COUNT] = { HOVER_NONE, HOVER_NONE, HOVER_NONE };
     int corners[SRC_COUNT] = { 0, 0, 0 };
     int aimValid[SRC_COUNT] = { 0, 0, 0 };
+    // Tracked separately from the hover, because the lock filter below wipes
+    // the hovers and this is what says which source to spare
+    int atLock[SRC_COUNT] = { 0, 0, 0 };
     XrPosef aimPoses[SRC_COUNT];
     int moved = 0;
     for (int h = 0; h < SRC_COUNT; h++) {
@@ -3466,6 +3560,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                     && envButtonHit(ctx, hitU[h], hitV[h], height)) {
                 hovers[h] = HOVER_ENVBUTTON;
             }
+            // Off the left edge, so the halo owns that ground until the
+            // padlock claims it back
+            if (ctx->handsEnabled && hovers[h] != HOVER_ENVBUTTON
+                    && (hovers[h] == HOVER_NONE || hovers[h] == HOVER_HALO)
+                    && lockButtonHit(ctx, hitU[h], hitV[h], height)) {
+                hovers[h] = HOVER_LOCK;
+                atLock[h] = 1;
+            }
         }
 
         if (ctx->poseSeen[h] && dt > 0.0f) {
@@ -3495,6 +3597,29 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         ctx->poseSeen[h] = 1;
     }
 
+    // Locked hands reach the padlock and nothing else. Everything is dropped
+    // at once, the aim as well as the pinch, so there is no ray to chase, no
+    // click to land and no grab to start. Controllers are untouched: they
+    // never had the problem, and one has to stay able to unlock.
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (!ctx->handsLocked || !ctx->usingHands[h] || atLock[h]) {
+            continue;
+        }
+        hovers[h] = HOVER_NONE;
+        aimValid[h] = 0;
+        ctx->triggerDown[h] = 0;
+        ctx->triggerEdge[h] = 0;
+    }
+
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (!atLock[h]) {
+            ctx->lockArmed[h] = 0;
+        }
+        else if (!ctx->triggerDown[h]) {
+            ctx->lockArmed[h] = 1;
+        }
+    }
+
     // Gaze has no button of its own, so a pinch from either hand clicks
     // wherever the eyes have landed
     if (aimValid[SRC_GAZE]) {
@@ -3515,6 +3640,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     int pinching = 0;
     for (int h = 0; h < SRC_COUNT; h++) {
         if (!ctx->usingHands[h]) {
+            ctx->pinchSwallowed[h] = 0;
+            continue;
+        }
+        // A pinch on the padlock is always meant as a press. The swallow is
+        // there to keep a waking pinch off the host, and the padlock is not
+        // the host, so charging the user a pinch for it buys nothing.
+        if (atLock[h]) {
             ctx->pinchSwallowed[h] = 0;
             continue;
         }
@@ -3578,7 +3710,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         }
     }
 
-    if (!ctx->pointerAwake && ctx->grabMode == GRAB_NONE) {
+    // The padlock is reachable with the pointer asleep, because locking is
+    // what put it to sleep and there would otherwise be no way back
+    int reachingLock = hand >= 0 && atLock[hand];
+    if (!ctx->pointerAwake && !reachingLock && ctx->grabMode == GRAB_NONE) {
         hand = -1;
         for (int h = 0; h < SRC_COUNT; h++) {
             hovers[h] = HOVER_NONE;
@@ -3594,6 +3729,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // reaches the picture behind
     ctx->pickerHover = -1;
     ctx->envButtonHot = 0;
+    ctx->lockHot = 0;
     ctx->pickerPick = -1;
     if (ctx->pickerOpen) {
         hover = HOVER_PICKER;
@@ -3644,6 +3780,27 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         ctx->envButtonHot = 1;
         if (ctx->triggerEdge[hand]) {
             ctx->pickerOpen = 1;
+        }
+    }
+    else if (hover == HOVER_LOCK) {
+        ctx->lockHot = 1;
+        if (ctx->triggerEdge[hand] && ctx->lockArmed[hand]) {
+            ctx->lockArmed[hand] = 0;
+            ctx->handsLocked = !ctx->handsLocked;
+            LOGI("hands %s", ctx->handsLocked ? "locked" : "unlocked");
+            if (ctx->handsLocked) {
+                // Put the ray away and let go of anything held, so locking
+                // mid drag does not leave the screen stuck to a hand or a
+                // button down on the host
+                ctx->pointerAwake = 0;
+                ctx->buttonsDown = 0;
+                ctx->stillFor = 0.0f;
+                ctx->movingFor = 0.0f;
+                if (ctx->grabMode != GRAB_NONE) {
+                    ctx->grabMode = GRAB_NONE;
+                    ctx->poseDirty = 1;
+                }
+            }
         }
     }
 
@@ -3745,7 +3902,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // at them must not drag the host cursor to the edge
     int hit = (hover == HOVER_SCREEN || hover == HOVER_CORNER) && hand != SRC_GAZE;
     if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
-            || hover == HOVER_HALO) && headValid && hand >= 0) {
+            || hover == HOVER_LOCK || hover == HOVER_HALO) && headValid && hand >= 0) {
         Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
                                   height, radius, curved);
         ctx->beamStart = aimPoses[hand].position;
@@ -4262,6 +4419,28 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
          ctx->envButtonReady ? "ready" : "missing");
 }
 
+// The two padlocks, shut and open. Both or neither, since one on its own
+// would leave the button blank in half its states.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadLock(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jobject shut,
+                                                             jobject open) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || shut == NULL || open == NULL) {
+        return;
+    }
+    const char* shutPx = (*env)->GetDirectBufferAddress(env, shut);
+    const char* openPx = (*env)->GetDirectBufferAddress(env, open);
+    if (shutPx == NULL || openPx == NULL) {
+        return;
+    }
+    ctx->lockArtReady = uploadFlipped(ctx, ctx->lockSwapchain, ctx->lockImages,
+                                      (const unsigned char*)shutPx, LOCK_TEX, LOCK_TEX)
+            && uploadFlipped(ctx, ctx->unlockSwapchain, ctx->unlockImages,
+                             (const unsigned char*)openPx, LOCK_TEX, LOCK_TEX);
+    LOGI("lock art %s", ctx->lockArtReady ? "ready" : "missing");
+}
+
 // Which cell the picker is showing as chosen, so it survives a restart
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jobject thiz,
@@ -4511,6 +4690,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerQuad dotLayer;
     XrCompositionLayerQuad handleLayer;
     XrCompositionLayerQuad envButtonLayer;
+    XrCompositionLayerQuad lockLayer;
     XrCompositionLayerQuad pickerLayer;
     XrCompositionLayerQuad outlineLayers[2];
     const XrCompositionLayerBaseHeader* layers[16];
@@ -4724,6 +4904,39 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             envButtonLayer.size.width = side * scale;
             envButtonLayer.size.height = side * scale;
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&envButtonLayer;
+        }
+
+        // The padlock. Comes and goes like the rest of the furniture rather
+        // than sitting there permanently, so it costs nothing to look at while
+        // playing. Reaching for the bar shows it too, since that is where
+        // people go looking when they want to change something.
+        if (ctx->handsEnabled && ctx->lockArtReady
+                && (ctx->hoverKind == HOVER_LOCK || barArea)) {
+            Vec3 local;
+            float side;
+            lockButtonPlacement(ctx, &local, &side);
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&lockLayer, 0, sizeof(lockLayer));
+            lockLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            lockLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            lockLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            lockLayer.subImage.swapchain = ctx->handsLocked ? ctx->lockSwapchain
+                                                            : ctx->unlockSwapchain;
+            lockLayer.subImage.imageRect.offset.x = 0;
+            lockLayer.subImage.imageRect.offset.y = 0;
+            lockLayer.subImage.imageRect.extent.width = LOCK_TEX;
+            lockLayer.subImage.imageRect.extent.height = LOCK_TEX;
+            lockLayer.subImage.imageArrayIndex = 0;
+            lockLayer.space = space;
+            lockLayer.pose.orientation = screenPose.orientation;
+            lockLayer.pose.position.x = screenPose.position.x + offset.x;
+            lockLayer.pose.position.y = screenPose.position.y + offset.y;
+            lockLayer.pose.position.z = screenPose.position.z + offset.z;
+            float lockScale = ctx->lockHot ? 1.18f : 1.0f;
+            lockLayer.size.width = side * lockScale;
+            lockLayer.size.height = side * lockScale;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&lockLayer;
         }
 
         // The environment grid, floating in front of the screen, with the

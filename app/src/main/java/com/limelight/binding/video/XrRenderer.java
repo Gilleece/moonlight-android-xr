@@ -11,6 +11,7 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.SurfaceTexture;
@@ -141,12 +142,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int PICKER_TEX_W = 768;
     private static final int PICKER_TEX_H = 512;
     private static final int ENV_BUTTON_TEX = 128;
+    // The padlock that locks the hands out. Must match LOCK_TEX in xr_renderer.c.
+    private static final int LOCK_TEX = 128;
     private static final int CELL_PASSTHROUGH = 0;
     private static final int CELL_VOID = 1;
     private static final int CELL_FIRST_PHOTO = 2;
     private static final int MAX_PHOTOS = PICKER_CELLS - CELL_FIRST_PHOTO;
     private final AtomicReference<ByteBuffer> pendingPickerArt = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingEnvButton = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
     private String[] environmentFiles = new String[0];
     private volatile int environmentChoice = CELL_VOID;
     private volatile boolean passthroughOn;
@@ -194,6 +199,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeSetScreenPose(long ctx, float[] pose);
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
+    private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeSetEnvironment(long ctx, int choice, boolean backgroundOn);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
     private native float nativeGetWarpGpuMs(long ctx);
@@ -475,6 +481,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadPicker(nativeCtx, grid, button);
             }
 
+            ByteBuffer shut = pendingLockShut.getAndSet(null);
+            ByteBuffer open = pendingLockOpen.getAndSet(null);
+            if (shut != null && open != null) {
+                nativeUploadLock(nativeCtx, shut, open);
+            }
+
             ByteBuffer background = pendingBackground.getAndSet(null);
             if (background != null) {
                 nativeUploadBackground(nativeCtx, background, backgroundWidth, backgroundHeight);
@@ -697,6 +709,60 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         grid.recycle();
 
         pendingEnvButton.set(toBuffer(buildEnvButton()));
+
+        Bitmap shut = buildLockButton(true);
+        Bitmap open = buildLockButton(false);
+        pendingLockShut.set(toBuffer(shut));
+        pendingLockOpen.set(toBuffer(open));
+        shut.recycle();
+        open.recycle();
+    }
+
+    /**
+     * A padlock, shut or open. The shackle is the only part that changes, so
+     * the two read as one thing in two states rather than as two icons.
+     */
+    private Bitmap buildLockButton(boolean shut) {
+        Bitmap button = Bitmap.createBitmap(LOCK_TEX, LOCK_TEX, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+
+        // Shut is the state that stops things happening, so it is the louder
+        // of the two. Open sits back and stays out of the way.
+        paint.setColor(shut ? 0xFFFFFFFF : 0xB0FFFFFF);
+
+        // Shackle. Open swings clear to the right rather than lifting, which
+        // stays inside the texture at this size.
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(9.0f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        Path shackle = new Path();
+        if (shut) {
+            shackle.moveTo(42.0f, 62.0f);
+            shackle.lineTo(42.0f, 46.0f);
+            shackle.addArc(new RectF(42.0f, 24.0f, 86.0f, 68.0f), 180.0f, 180.0f);
+            shackle.moveTo(86.0f, 46.0f);
+            shackle.lineTo(86.0f, 62.0f);
+        }
+        else {
+            shackle.moveTo(42.0f, 62.0f);
+            shackle.lineTo(42.0f, 46.0f);
+            shackle.addArc(new RectF(42.0f, 24.0f, 86.0f, 68.0f), 180.0f, 160.0f);
+        }
+        canvas.drawPath(shackle, paint);
+
+        // Body
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawRoundRect(new RectF(30.0f, 60.0f, 98.0f, 108.0f), 10.0f, 10.0f, paint);
+
+        // Keyhole, punched out so it reads at a distance
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+        canvas.drawCircle(64.0f, 78.0f, 7.0f, paint);
+        canvas.drawRect(new RectF(61.0f, 78.0f, 67.0f, 96.0f), paint);
+        paint.setXfermode(null);
+
+        return button;
     }
 
     // A framed landscape, which is about as much as reads at this size
