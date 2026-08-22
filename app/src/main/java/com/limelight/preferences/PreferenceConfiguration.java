@@ -60,6 +60,7 @@ public class PreferenceConfiguration {
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
     private static final String VR_GAZE_PREF_STRING = "checkbox_vr_gaze";
+    private static final String VR_HAND_TRACKING_PREF_STRING = "checkbox_vr_hand_tracking";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on
@@ -123,6 +124,7 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
+    private static final boolean DEFAULT_VR_HAND_TRACKING = true;
     private static final boolean DEFAULT_VR_POINTER = true;
     // Tenths of a percent of frame width. 5 measured comfortable on device and
     // 7 already strained, once the depth map started using its full range.
@@ -199,6 +201,7 @@ public class PreferenceConfiguration {
     public boolean vrPassthrough;
     public boolean vrPointer;
     public boolean vrGaze;
+    public boolean vrHandTracking;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -683,6 +686,7 @@ public class PreferenceConfiguration {
         config.vrPassthrough = prefs.getBoolean(VR_PASSTHROUGH_PREF_STRING, DEFAULT_VR_PASSTHROUGH);
         config.vrPointer = prefs.getBoolean(VR_POINTER_PREF_STRING, DEFAULT_VR_POINTER);
         config.vrGaze = prefs.getBoolean(VR_GAZE_PREF_STRING, DEFAULT_VR_GAZE);
+        config.vrHandTracking = prefs.getBoolean(VR_HAND_TRACKING_PREF_STRING, DEFAULT_VR_HAND_TRACKING);
         config.vrStereoSeparation = prefs.getInt(VR_SEPARATION_PREF_STRING, DEFAULT_VR_SEPARATION);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

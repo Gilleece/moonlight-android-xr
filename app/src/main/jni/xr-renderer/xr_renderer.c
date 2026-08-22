@@ -388,6 +388,7 @@ typedef struct {
     int passthrough;
     // Hand tracking arrives as another interaction profile rather than as a
     // separate input path, so the pointer does not know the difference
+    int handsEnabled;
     int handInteraction;
     int msftHandInteraction;
     XrPath handProfile;
@@ -936,6 +937,16 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME)) ctx->eyeGaze = 1;
     }
     free(exts);
+
+    // One gate for the whole feature. With it off none of the hand extensions
+    // are enabled, so no hand profile is ever current and everything
+    // downstream sees a headset with only controllers.
+    if (!ctx->handsEnabled) {
+        ctx->handInteraction = 0;
+        ctx->msftHandInteraction = 0;
+        ctx->handTracking = 0;
+        LOGI("hand tracking off by preference");
+    }
 
     if (!haveGles || !haveAndroidCreate) {
         LOGE("required OpenXR extensions missing (gles=%d androidCreate=%d)", haveGles, haveAndroidCreate);
@@ -2916,8 +2927,10 @@ JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz,
                                                        jobject activity, jint width, jint height,
                                                        jint stereoMode, jboolean depthDebug,
-                                                       jint convergence, jint depthScale) {
+                                                       jint convergence, jint depthScale,
+                                                       jboolean handTracking) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
+    ctx->handsEnabled = handTracking;
     ctx->videoWidth = width;
     ctx->videoHeight = height;
     ctx->stereoMode = stereoMode;
