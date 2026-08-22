@@ -130,25 +130,32 @@ The APK lands in `app/build/outputs/apk/nonRoot/debug/`. Install it with `adb in
 
 ### Release APK
 
-The release build runs R8 and produces an unsigned APK, so it has to be signed before a headset
-will install it. Create a keystore once:
+A headset will not install an unsigned APK, so the release build has to be signed. Create a
+keystore once:
 
     keytool -genkeypair -v -keystore release.keystore -alias moonlightvr \
         -keyalg RSA -keysize 2048 -validity 10000
 
-Then build, align and sign:
+Then copy `keystore.properties.example` to `keystore.properties` and fill in the password. Both
+that file and the keystore are gitignored. The build picks it up on its own:
 
     ./gradlew assembleNonRootRelease
+    adb install -r app/build/outputs/apk/nonRoot/release/app-nonRoot-release.apk
+
+Without `keystore.properties` the build still works, but it produces
+`app-nonRoot-release-unsigned.apk` and you have to align and sign it yourself:
+
     zipalign -f 4 \
         app/build/outputs/apk/nonRoot/release/app-nonRoot-release-unsigned.apk \
         moonlight-vr-release.apk
-    apksigner sign --ks release.keystore moonlightvr moonlight-vr-release.apk
+    apksigner sign --ks release.keystore moonlight-vr-release.apk
     apksigner verify moonlight-vr-release.apk
     adb install -r moonlight-vr-release.apk
 
 `zipalign` and `apksigner` are in `$ANDROID_HOME/build-tools/<version>/`. The release build uses
 the `.unofficial` application ID suffix that upstream asks forks to keep, so it installs alongside
-a debug build and pairs with your host separately.
+a debug build and pairs with your host separately. Worth knowing while developing: the two are
+separate apps with separate settings, so a change tested on one is not on the other.
 
 The APK is about 55 MB, most of which is the depth model and the LiteRT native libraries for four
 ABIs. Only `arm64-v8a` is ever loaded on a headset; the other three are kept so the same build

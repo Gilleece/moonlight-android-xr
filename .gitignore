@@ -46,6 +46,7 @@ app/.externalNativeBuild/
 # Signing keys never belong in the repo
 *.keystore
 *.jks
+keystore.properties
 release-keystore-password.txt
 *.idsig
 

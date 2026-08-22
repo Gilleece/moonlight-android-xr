@@ -1,5 +1,15 @@
 apply plugin: 'com.android.application'
 
+// Signing details for the sideloaded release build, kept out of the repo.
+// Without the file the release build still works, it just comes out unsigned
+// and has to be signed by hand the way the README describes.
+def signingProps = new Properties()
+def signingPropsFile = rootProject.file('keystore.properties')
+if (signingPropsFile.exists()) {
+    signingPropsFile.withInputStream { signingProps.load(it) }
+}
+def canSign = signingProps.containsKey('storePassword')
+
 android {
     ndkVersion "27.0.12077973"
 
@@ -85,6 +95,19 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            if (canSign) {
+                storeFile rootProject.file(signingProps.getProperty('storeFile', 'release.keystore'))
+                storePassword signingProps.getProperty('storePassword')
+                keyAlias signingProps.getProperty('keyAlias', 'moonlightvr')
+                // Most keystores use one password for both
+                keyPassword signingProps.getProperty('keyPassword',
+                                                     signingProps.getProperty('storePassword'))
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix ".debug"
@@ -128,6 +151,10 @@ android {
             applicationIdSuffix ".unofficial"
             resValue "string", "app_label", "Moonlight"
             resValue "string", "app_label_root", "Moonlight (Root)"
+
+            if (canSign) {
+                signingConfig signingConfigs.release
+            }
 
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
