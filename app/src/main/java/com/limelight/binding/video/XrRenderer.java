@@ -11,7 +11,6 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
-import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.SurfaceTexture;
@@ -136,6 +135,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // the rest are the photos in the assets folder, in name order. Must match
     // the PICKER_ constants in xr_renderer.c.
     private static final String ENVIRONMENT_DIR = "environments";
+    private static final String IMAGE_DIR = "images";
     private static final int PICKER_COLS = 3;
     private static final int PICKER_ROWS = 2;
     private static final int PICKER_CELLS = PICKER_COLS * PICKER_ROWS;
@@ -143,7 +143,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int PICKER_TEX_H = 512;
     private static final int ENV_BUTTON_TEX = 128;
     // The padlock that locks the hands out. Must match LOCK_TEX in xr_renderer.c.
-    private static final int LOCK_TEX = 256;
+    private static final int LOCK_TEX = 384;
     private static final int CELL_PASSTHROUGH = 0;
     private static final int CELL_VOID = 1;
     private static final int CELL_FIRST_PHOTO = 2;
@@ -710,84 +710,47 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         pendingEnvButton.set(toBuffer(buildEnvButton()));
 
-        Bitmap shut = buildLockButton(true);
-        Bitmap open = buildLockButton(false);
-        pendingLockShut.set(toBuffer(shut));
-        pendingLockOpen.set(toBuffer(open));
-        shut.recycle();
-        open.recycle();
+        Bitmap shut = loadLockIcon("handtracking_locked.png");
+        Bitmap open = loadLockIcon("handtracking_unlocked.png");
+        // Both or neither, since one on its own would leave the button blank
+        // in half its states
+        if (shut != null && open != null) {
+            pendingLockShut.set(toBuffer(shut));
+            pendingLockOpen.set(toBuffer(open));
+        }
+        if (shut != null) {
+            shut.recycle();
+        }
+        if (open != null) {
+            open.recycle();
+        }
     }
 
-    /**
-     * A hand with a padlock badge on it, shut or open. No text, so the hand
-     * has to carry the subject and the padlock the state: greyed hand and a
-     * shut lock means hands are doing nothing, lit hand and an open one means
-     * they are live.
-     */
-    private Bitmap buildLockButton(boolean shut) {
-        Bitmap button = Bitmap.createBitmap(LOCK_TEX, LOCK_TEX, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(button);
-        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
-        paint.setColor(0xFFFFFFFF);
-        paint.setStyle(Paint.Style.FILL);
-
-        // The palm and fingers overlap, so they go down as one layer at full
-        // opacity and get faded together. Drawn one by one at partial alpha
-        // the seams show up where they cross.
-        canvas.saveLayerAlpha(0.0f, 0.0f, LOCK_TEX, LOCK_TEX, shut ? 0x60 : 0xFF);
-        canvas.drawRoundRect(new RectF(48.0f, 96.0f, 164.0f, 186.0f), 26.0f, 26.0f, paint);
-        canvas.drawRoundRect(new RectF(56.0f, 40.0f, 79.0f, 118.0f), 11.0f, 11.0f, paint);
-        canvas.drawRoundRect(new RectF(83.0f, 24.0f, 106.0f, 118.0f), 11.0f, 11.0f, paint);
-        canvas.drawRoundRect(new RectF(110.0f, 34.0f, 133.0f, 118.0f), 11.0f, 11.0f, paint);
-        canvas.drawRoundRect(new RectF(137.0f, 52.0f, 158.0f, 118.0f), 10.0f, 10.0f, paint);
-
-        // Thumb, a capsule swung out from the base of the palm
-        Path thumb = new Path();
-        thumb.addRoundRect(new RectF(38.0f, 118.0f, 72.0f, 176.0f), 17.0f, 17.0f,
-                           Path.Direction.CW);
-        Matrix swing = new Matrix();
-        swing.setRotate(-32.0f, 55.0f, 176.0f);
-        thumb.transform(swing);
-        canvas.drawPath(thumb, paint);
-        canvas.restore();
-
-        // A well punched through the hand, so the badge reads as a badge
-        // rather than merging into the palm
-        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-        canvas.drawCircle(188.0f, 192.0f, 56.0f, paint);
-        paint.setXfermode(null);
-
-        // Padlock badge. The loud half of the pair when shut, since that is
-        // the state someone needs to recognise at a glance.
-        paint.setColor(shut ? 0xFFFFFFFF : 0xA0FFFFFF);
-        paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(11.0f);
-        paint.setStrokeCap(Paint.Cap.ROUND);
-
-        RectF bow = new RectF(170.0f, 154.0f, 206.0f, 190.0f);
-        Path shackle = new Path();
-        shackle.moveTo(170.0f, 186.0f);
-        shackle.lineTo(170.0f, 172.0f);
-        if (shut) {
-            shackle.arcTo(bow, 180.0f, 180.0f);
-            shackle.lineTo(206.0f, 186.0f);
+    // The padlock art ships as a pair of PNGs. Colour carries the state, so
+    // there is nothing to tint or dim here, just a decode and a downscale.
+    private Bitmap loadLockIcon(String fileName) {
+        InputStream in = null;
+        try {
+            in = prefsContext.getAssets().open(IMAGE_DIR + "/" + fileName);
+            Bitmap full = BitmapFactory.decodeStream(in);
+            if (full == null) {
+                LimeLog.warning("Lock icon " + fileName + " did not decode");
+                return null;
+            }
+            if (full.getWidth() == LOCK_TEX && full.getHeight() == LOCK_TEX) {
+                return full;
+            }
+            Bitmap scaled = Bitmap.createScaledBitmap(full, LOCK_TEX, LOCK_TEX, true);
+            if (scaled != full) {
+                full.recycle();
+            }
+            return scaled;
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Lock icon " + fileName + " failed: " + e);
+            return null;
+        } finally {
+            closeQuietly(in);
         }
-        else {
-            // Swung clear on the right rather than lifted, which keeps it
-            // inside the texture
-            shackle.arcTo(bow, 180.0f, 140.0f);
-        }
-        canvas.drawPath(shackle, paint);
-
-        paint.setStyle(Paint.Style.FILL);
-        canvas.drawRoundRect(new RectF(158.0f, 186.0f, 218.0f, 226.0f), 9.0f, 9.0f, paint);
-
-        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-        canvas.drawCircle(188.0f, 208.0f, 6.0f, paint);
-        paint.setXfermode(null);
-
-        return button;
     }
 
     // A framed landscape, which is about as much as reads at this size
