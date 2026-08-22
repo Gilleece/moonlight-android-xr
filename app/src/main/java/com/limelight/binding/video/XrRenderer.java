@@ -143,7 +143,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int PICKER_TEX_H = 512;
     private static final int ENV_BUTTON_TEX = 128;
     // The padlock that locks the hands out. Must match LOCK_TEX in xr_renderer.c.
-    private static final int LOCK_TEX = 128;
+    private static final int LOCK_TEX = 256;
     private static final int CELL_PASSTHROUGH = 0;
     private static final int CELL_VOID = 1;
     private static final int CELL_FIRST_PHOTO = 2;
@@ -719,47 +719,72 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
-     * A padlock, shut or open. The shackle is the only part that changes, so
-     * the two read as one thing in two states rather than as two icons.
+     * A hand with a padlock badge on it, shut or open. No text, so the hand
+     * has to carry the subject and the padlock the state: greyed hand and a
+     * shut lock means hands are doing nothing, lit hand and an open one means
+     * they are live.
      */
     private Bitmap buildLockButton(boolean shut) {
         Bitmap button = Bitmap.createBitmap(LOCK_TEX, LOCK_TEX, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(button);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        paint.setColor(0xFFFFFFFF);
+        paint.setStyle(Paint.Style.FILL);
 
-        // Shut is the state that stops things happening, so it is the louder
-        // of the two. Open sits back and stays out of the way.
-        paint.setColor(shut ? 0xFFFFFFFF : 0xB0FFFFFF);
+        // The palm and fingers overlap, so they go down as one layer at full
+        // opacity and get faded together. Drawn one by one at partial alpha
+        // the seams show up where they cross.
+        canvas.saveLayerAlpha(0.0f, 0.0f, LOCK_TEX, LOCK_TEX, shut ? 0x60 : 0xFF);
+        canvas.drawRoundRect(new RectF(48.0f, 96.0f, 164.0f, 186.0f), 26.0f, 26.0f, paint);
+        canvas.drawRoundRect(new RectF(56.0f, 40.0f, 79.0f, 118.0f), 11.0f, 11.0f, paint);
+        canvas.drawRoundRect(new RectF(83.0f, 24.0f, 106.0f, 118.0f), 11.0f, 11.0f, paint);
+        canvas.drawRoundRect(new RectF(110.0f, 34.0f, 133.0f, 118.0f), 11.0f, 11.0f, paint);
+        canvas.drawRoundRect(new RectF(137.0f, 52.0f, 158.0f, 118.0f), 10.0f, 10.0f, paint);
 
-        // Shackle. Open swings clear to the right rather than lifting, which
-        // stays inside the texture at this size.
+        // Thumb, a capsule swung out from the base of the palm
+        Path thumb = new Path();
+        thumb.addRoundRect(new RectF(38.0f, 118.0f, 72.0f, 176.0f), 17.0f, 17.0f,
+                           Path.Direction.CW);
+        Matrix swing = new Matrix();
+        swing.setRotate(-32.0f, 55.0f, 176.0f);
+        thumb.transform(swing);
+        canvas.drawPath(thumb, paint);
+        canvas.restore();
+
+        // A well punched through the hand, so the badge reads as a badge
+        // rather than merging into the palm
+        paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
+        canvas.drawCircle(188.0f, 192.0f, 56.0f, paint);
+        paint.setXfermode(null);
+
+        // Padlock badge. The loud half of the pair when shut, since that is
+        // the state someone needs to recognise at a glance.
+        paint.setColor(shut ? 0xFFFFFFFF : 0xA0FFFFFF);
         paint.setStyle(Paint.Style.STROKE);
-        paint.setStrokeWidth(9.0f);
+        paint.setStrokeWidth(11.0f);
         paint.setStrokeCap(Paint.Cap.ROUND);
+
+        RectF bow = new RectF(170.0f, 154.0f, 206.0f, 190.0f);
         Path shackle = new Path();
+        shackle.moveTo(170.0f, 186.0f);
+        shackle.lineTo(170.0f, 172.0f);
         if (shut) {
-            shackle.moveTo(42.0f, 62.0f);
-            shackle.lineTo(42.0f, 46.0f);
-            shackle.addArc(new RectF(42.0f, 24.0f, 86.0f, 68.0f), 180.0f, 180.0f);
-            shackle.moveTo(86.0f, 46.0f);
-            shackle.lineTo(86.0f, 62.0f);
+            shackle.arcTo(bow, 180.0f, 180.0f);
+            shackle.lineTo(206.0f, 186.0f);
         }
         else {
-            shackle.moveTo(42.0f, 62.0f);
-            shackle.lineTo(42.0f, 46.0f);
-            shackle.addArc(new RectF(42.0f, 24.0f, 86.0f, 68.0f), 180.0f, 160.0f);
+            // Swung clear on the right rather than lifted, which keeps it
+            // inside the texture
+            shackle.arcTo(bow, 180.0f, 140.0f);
         }
         canvas.drawPath(shackle, paint);
 
-        // Body
         paint.setStyle(Paint.Style.FILL);
-        canvas.drawRoundRect(new RectF(30.0f, 60.0f, 98.0f, 108.0f), 10.0f, 10.0f, paint);
+        canvas.drawRoundRect(new RectF(158.0f, 186.0f, 218.0f, 226.0f), 9.0f, 9.0f, paint);
 
-        // Keyhole, punched out so it reads at a distance
         paint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
-        canvas.drawCircle(64.0f, 78.0f, 7.0f, paint);
-        canvas.drawRect(new RectF(61.0f, 78.0f, 67.0f, 96.0f), paint);
+        canvas.drawCircle(188.0f, 208.0f, 6.0f, paint);
         paint.setXfermode(null);
 
         return button;

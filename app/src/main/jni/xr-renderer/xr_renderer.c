@@ -160,7 +160,7 @@
 // thing left to aim at, so it has to be findable without a ray to guide you.
 #define LOCK_BUTTON_FRAC 0.09f
 #define LOCK_GAP_FRAC 0.025f
-#define LOCK_TEX 128
+#define LOCK_TEX 256
 
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
