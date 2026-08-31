@@ -330,6 +330,21 @@ static void xrLog(int prio, const char* fmt, ...) {
 
 #define DEPTH_TEX_SIZE 256
 
+// Pinned headers may predate the extension, values from the OpenXR registry
+#ifndef XR_FB_composition_layer_settings
+#define XR_FB_composition_layer_settings 1
+#define XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME "XR_FB_composition_layer_settings"
+#define XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB ((XrStructureType)1000204000)
+typedef XrFlags64 XrCompositionLayerSettingsFlagsFB;
+static const XrCompositionLayerSettingsFlagsFB XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SHARPENING_BIT_FB = 0x00000004;
+static const XrCompositionLayerSettingsFlagsFB XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB = 0x00000008;
+typedef struct XrCompositionLayerSettingsFB {
+    XrStructureType type;
+    const void* XR_MAY_ALIAS next;
+    XrCompositionLayerSettingsFlagsFB layerFlags;
+} XrCompositionLayerSettingsFB;
+#endif
+
 // setprop this to any new value to dump one frame's worth of warp inputs and
 // outputs, so shader changes can be tried on captured frames off device
 #define CAPTURE_PROP "debug.moonlight.capture"
@@ -363,6 +378,7 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define PROP_POINTER_WAKE "debug.moonlight.pointerwake"
 #define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
 #define PROP_ENV_RADIUS "debug.moonlight.envradius"
+#define PROP_SHARPEN "debug.moonlight.sharpen"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
@@ -419,6 +435,9 @@ typedef struct {
     XrSwapchainImageOpenGLESKHR* overlayImages;
     int overlayHasContent;
     int overlayVisible;
+
+    // 0 off, 1 normal, 2 quality, compositor sharpening on the screen layers
+    int sharpenMode;
 
     int videoWidth;
     int videoHeight;
@@ -521,6 +540,7 @@ typedef struct {
 
     int cylinderSupported;
     int equirectSupported;
+    int layerSettingsSupported;
 
     // 360 photo shown behind everything when passthrough is off. An equirect
     // layer, so the compositor draws the environment and we still have no
@@ -1114,6 +1134,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME)) ctx->msftHandInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) ctx->handTracking = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME)) ctx->eyeGaze = 1;
+        if (!strcmp(exts[i].extensionName, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)) ctx->layerSettingsSupported = 1;
     }
     free(exts);
 
@@ -1132,7 +1153,7 @@ static int initXrInstance(XrCtx* ctx) {
         return 0;
     }
 
-    const char* enabledExts[9];
+    const char* enabledExts[10];
     uint32_t enabledCount = 0;
     enabledExts[enabledCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
     enabledExts[enabledCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
@@ -1158,6 +1179,9 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->msftHandInteraction) {
         enabledExts[enabledCount++] = XR_MSFT_HAND_INTERACTION_EXTENSION_NAME;
+    }
+    if (ctx->layerSettingsSupported) {
+        enabledExts[enabledCount++] = XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME;
     }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -1211,6 +1235,8 @@ static int initXrInstance(XrCtx* ctx) {
         free(modes);
     }
     LOGEV("passthrough %s", ctx->alphaBlendSupported ? "available" : "not offered by this runtime");
+    LOGEV("compositor sharpening %s", ctx->layerSettingsSupported
+          ? "available (XR_FB_composition_layer_settings)" : "not offered by this runtime");
 
     // Offering the extension is not the same as having the hardware, so the
     // system is asked directly before anything is bound to a gaze
@@ -3216,7 +3242,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jobject activity, jint width, jint height,
                                                        jint stereoMode, jboolean depthDebug,
                                                        jint convergence, jint depthScale,
-                                                       jboolean handTracking) {
+                                                       jboolean handTracking, jint sharpenMode) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
     ctx->videoWidth = width;
@@ -3259,6 +3285,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->depthGlobal = 1.0f;
     ctx->convergence = convergence / 100.0f;
     ctx->depthLocal = depthScale / 100.0f;
+    ctx->sharpenMode = sharpenMode >= 0 && sharpenMode <= 2 ? sharpenMode : 0;
     // No environment logged yet, and cell 0 is a real choice
     ctx->loggedChoice = -1;
     (*env)->GetJavaVM(env, &ctx->vm);
@@ -4278,6 +4305,20 @@ static void propFlag(const char* name, int* target) {
     *target = value[0] != '0';
 }
 
+// Small integer mode property, left alone if unset or unparseable
+static void propInt(const char* name, int* target, long maxRaw) {
+    char value[PROP_VALUE_MAX];
+    value[0] = '\0';
+    if (__system_property_get(name, value) <= 0 || value[0] == '\0') {
+        return;
+    }
+    char* end = NULL;
+    long v = strtol(value, &end, 10);
+    if (end != value && v >= 0 && v <= maxRaw) {
+        *target = (int)v;
+    }
+}
+
 // Fires once each time the property is set to a value it has not seen. The
 // value becomes the filename tag, so setprop 1, 2, 3 gives three captures.
 static void pollCaptureRequest(XrCtx* ctx) {
@@ -4313,6 +4354,8 @@ static void pollCaptureRequest(XrCtx* ctx) {
     propScaled(PROP_POINTER_SLEEP, &ctx->pointerSleep, 0.1f, 600);
     // Metres. Zero is the infinite sphere the layer starts out as.
     propScaled(PROP_ENV_RADIUS, &ctx->envRadius, 1.0f, 200);
+    // 0 off, 1 normal, 2 quality
+    propInt(PROP_SHARPEN, &ctx->sharpenMode, 2);
 
     if (ctx->captureDir[0] == '\0') {
         return;
@@ -4958,8 +5001,22 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerQuad lockLayer;
     XrCompositionLayerQuad pickerLayer;
     XrCompositionLayerQuad outlineLayers[2];
+    XrCompositionLayerSettingsFB sharpenSettings;
     const XrCompositionLayerBaseHeader* layers[16];
     uint32_t layerCount = 0;
+
+    // Compositor sharpening during its sampling pass, so it costs us nothing.
+    // One struct serves every layer that wants it. NULL when off or unsupported
+    // leaves the chain untouched and today's exact behaviour.
+    const void* sharpenChain = NULL;
+    if (ctx->layerSettingsSupported && ctx->sharpenMode != 0) {
+        memset(&sharpenSettings, 0, sizeof(sharpenSettings));
+        sharpenSettings.type = XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB;
+        sharpenSettings.layerFlags = ctx->sharpenMode == 2
+                ? XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB
+                : XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SHARPENING_BIT_FB;
+        sharpenChain = &sharpenSettings;
+    }
 
     // Submitted first so everything else sits in front of it. Passthrough wants
     // the room instead, so the two are mutually exclusive.
@@ -5015,6 +5072,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 XrCompositionLayerCylinderKHR* cyl = &cylLayers[eye];
                 memset(cyl, 0, sizeof(*cyl));
                 cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
+                cyl->next = sharpenChain;
                 // Radius runs from 4x distance (slightly curved) down to the
                 // distance itself (wrapped around the viewer) as curvature rises
                 float radius = ctx->screenRadius;
@@ -5038,6 +5096,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 XrCompositionLayerQuad* quad = &quadLayers[eye];
                 memset(quad, 0, sizeof(*quad));
                 quad->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                quad->next = sharpenChain;
                 quad->eyeVisibility = visibility;
                 quad->subImage = subImage;
                 quad->space = space;
@@ -5058,6 +5117,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
             memset(&overlayLayer, 0, sizeof(overlayLayer));
             overlayLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            overlayLayer.next = sharpenChain;
             overlayLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             overlayLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             overlayLayer.subImage.swapchain = ctx->overlaySwapchain;
@@ -5212,6 +5272,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
             memset(&pickerLayer, 0, sizeof(pickerLayer));
             pickerLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            pickerLayer.next = sharpenChain;
             pickerLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             pickerLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             pickerLayer.subImage.swapchain = ctx->pickerSwapchain;

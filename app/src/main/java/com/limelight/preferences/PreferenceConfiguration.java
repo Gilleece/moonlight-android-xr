@@ -56,6 +56,7 @@ public class PreferenceConfiguration {
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     private static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
+    private static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
@@ -122,6 +123,7 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
     private static final String DEFAULT_VR_DEPTH_SOURCE = "model";
+    private static final String DEFAULT_VR_SHARPENING = "quality";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
@@ -198,6 +200,8 @@ public class PreferenceConfiguration {
     public int vrCurvature;
     // 0 off, 1 flat, 2 ramp, 3 blob, 4 eye test, 5 shift test, 6 depth model
     public int vrDepthMode;
+    // 0 off, 1 normal, 2 quality
+    public int vrSharpening;
     public boolean vrEyeSwap;
     // Tenths of a percent of frame width
     public int vrStereoSeparation;
@@ -687,6 +691,16 @@ public class PreferenceConfiguration {
         }
         else {
             config.vrDepthMode = 0;
+        }
+        String sharpening = prefs.getString(VR_SHARPENING_PREF_STRING, DEFAULT_VR_SHARPENING);
+        if (sharpening.equals("off")) {
+            config.vrSharpening = 0;
+        }
+        else if (sharpening.equals("normal")) {
+            config.vrSharpening = 1;
+        }
+        else {
+            config.vrSharpening = 2;
         }
         config.vrEyeSwap = prefs.getBoolean(VR_EYE_SWAP_PREF_STRING, DEFAULT_VR_EYE_SWAP);
         config.vrPassthrough = prefs.getBoolean(VR_PASSTHROUGH_PREF_STRING, DEFAULT_VR_PASSTHROUGH);

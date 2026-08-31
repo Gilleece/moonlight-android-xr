@@ -278,6 +278,8 @@
     <string name="summary_vr_passthrough">Turn on passthrough. Please note this uses more system resources, please disable if you find the stream performing poorly</string>
     <string name="title_vr_depth_source">Realtime 3D mode</string>
     <string name="summary_vr_depth_source">Choose the realtime 3D mode, including test patterns.</string>
+    <string name="title_vr_sharpening">Screen sharpening</string>
+    <string name="summary_vr_sharpening">Sharpen the virtual screen in the headset compositor. Costs nothing on supported headsets and is ignored on runtimes without the extension.</string>
     <string name="title_vr_depth_debug">Show depth map</string>
     <string name="summary_vr_depth_debug">Render the depth map as grayscale instead of the video, for checking depth quality</string>
     <string name="title_vr_eye_swap">Swap eyes</string>

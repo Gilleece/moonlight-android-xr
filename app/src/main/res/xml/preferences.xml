@@ -68,6 +68,13 @@
             android:summary="@string/summary_seekbar_vr_separation"
             android:text="@string/suffix_seekbar_vr_percent"
             android:title="@string/title_seekbar_vr_separation"/>
+        <ListPreference
+            android:key="list_vr_sharpening"
+            android:title="@string/title_vr_sharpening"
+            android:entries="@array/vr_sharpening_names"
+            android:entryValues="@array/vr_sharpening_values"
+            android:summary="@string/summary_vr_sharpening"
+            android:defaultValue="quality" />
         <Preference
             android:key="reset_vr_screen_pose"
             android:title="@string/title_vr_reset_pose"
