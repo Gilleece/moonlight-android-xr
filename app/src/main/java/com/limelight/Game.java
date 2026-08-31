@@ -495,6 +495,19 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 .setPersistGamepadsAfterDisconnect(!prefConfig.multiController)
                 .build();
 
+        // One line with everything a report needs to reproduce the session
+        FileLog.event("settings: res=" + prefConfig.width + "x" + prefConfig.height
+                + " fps=" + chosenFrameRate + " bitrate=" + prefConfig.bitrate
+                + " format=" + prefConfig.videoFormat + " hdr=" + willStreamHdr
+                + " pacing=" + prefConfig.framePacing + " vr=" + prefConfig.enableVrMode
+                + " depthMode=" + prefConfig.vrDepthMode
+                + " separation=" + prefConfig.vrStereoSeparation
+                + " convergence=" + prefConfig.vrConvergence
+                + " depthScale=" + prefConfig.vrDepthScale
+                + " cadence=" + prefConfig.vrInferenceCadence
+                + " passthrough=" + prefConfig.vrPassthrough
+                + " hands=" + prefConfig.vrHandTracking);
+
         // Initialize the connection
         conn = new NvConnection(getApplicationContext(),
                 new ComputerDetails.AddressTuple(host, port),
@@ -1061,6 +1074,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        FileLog.event("session ended");
 
         // The stream may still have been starting up when this activity went
         // away, in which case the normal decoder teardown never runs and the
@@ -2232,6 +2247,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void stageStarting(final String stage) {
+        FileLog.event("stage: " + stage);
+
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -2424,6 +2441,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void connectionStarted() {
+        FileLog.event("connection established");
+
         runOnUiThread(new Runnable() {
             @Override
             public void run() {

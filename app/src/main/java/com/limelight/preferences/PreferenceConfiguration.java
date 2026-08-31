@@ -70,6 +70,7 @@ public class PreferenceConfiguration {
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
     private static final String VR_CONVERGENCE_PREF_STRING = "seekbar_vr_convergence";
     private static final String VR_DEPTH_SCALE_PREF_STRING = "seekbar_vr_depth_scale";
+    public static final String FILE_LOG_PREF_STRING = "list_vr_file_log";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
     private static final String ANALOG_SCROLLING_PREF_STRING = "analog_scrolling";
@@ -136,6 +137,9 @@ public class PreferenceConfiguration {
     // do nothing. The renderer still honours them over its debug properties.
     private static final int DEFAULT_VR_CONVERGENCE = 50;
     private static final int DEFAULT_VR_DEPTH_SCALE = 100;
+    // Warnings and errors by default. The file is small, and a report that
+    // arrives without one is a round trip nobody wants.
+    public static final String DEFAULT_FILE_LOG = "basic";
     private static final boolean DEFAULT_BIND_ALL_USB = false;
     private static final boolean DEFAULT_MOUSE_EMULATION = true;
     private static final String DEFAULT_ANALOG_STICK_FOR_SCROLLING = "right";
@@ -206,6 +210,8 @@ public class PreferenceConfiguration {
     public int vrInferenceCadence;
     public int vrConvergence;
     public int vrDepthScale;
+    // off, basic or verbose
+    public String fileLogLevel;
     public boolean enableLatencyToast;
     public boolean bindAllUsb;
     public boolean mouseEmulation;
@@ -692,6 +698,7 @@ public class PreferenceConfiguration {
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);
         config.vrConvergence = prefs.getInt(VR_CONVERGENCE_PREF_STRING, DEFAULT_VR_CONVERGENCE);
         config.vrDepthScale = prefs.getInt(VR_DEPTH_SCALE_PREF_STRING, DEFAULT_VR_DEPTH_SCALE);
+        config.fileLogLevel = prefs.getString(FILE_LOG_PREF_STRING, DEFAULT_FILE_LOG);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
         config.mouseNavButtons = prefs.getBoolean(MOUSE_NAV_BUTTONS_STRING, DEFAULT_MOUSE_NAV_BUTTONS);

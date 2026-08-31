@@ -28,6 +28,7 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.widget.Toast;
 
+import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
 import com.limelight.R;
@@ -315,6 +316,14 @@ public class StreamSettings extends Activity {
                     return true;
                 }
             });
+
+            // Where the log actually is, which is the first thing anyone
+            // sending one in has to be told
+            String logPath = FileLog.getLogPath();
+            if (logPath != null) {
+                Preference logPref = findPreference(PreferenceConfiguration.FILE_LOG_PREF_STRING);
+                logPref.setSummary(logPref.getSummary() + "\n\n" + logPath);
+            }
 
             // Hide gamepad motion sensor option when running on OSes before Android 12.
             // Support for motion, LED, battery, and other extensions were introduced in S.

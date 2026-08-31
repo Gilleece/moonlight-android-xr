@@ -282,6 +282,8 @@
     <string name="summary_vr_depth_debug">Render the depth map as grayscale instead of the video, for checking depth quality</string>
     <string name="title_vr_eye_swap">Swap eyes</string>
     <string name="summary_vr_eye_swap">Swap the left and right eye images in stereo mode</string>
+    <string name="title_vr_file_log">Save a log file</string>
+    <string name="summary_vr_file_log">Keep a plain text log in Download/MoonlightXR, where the file manager on the headset can find it and you can attach it to a bug report. Restart the app for a change to take effect.</string>
     <string name="title_seekbar_vr_inference_cadence">Depth model cadence</string>
     <string name="summary_seekbar_vr_inference_cadence">Run the depth model on every Nth video frame. Higher is cheaper but depth lags further behind.</string>
     <string name="suffix_seekbar_vr_inference_cadence">frames</string>

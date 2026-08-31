@@ -101,6 +101,13 @@
             android:title="@string/title_vr_eye_swap"
             android:summary="@string/summary_vr_eye_swap"
             android:defaultValue="false"/>
+        <ListPreference
+            android:key="list_vr_file_log"
+            android:title="@string/title_vr_file_log"
+            android:entries="@array/vr_file_log_names"
+            android:entryValues="@array/vr_file_log_values"
+            android:summary="@string/summary_vr_file_log"
+            android:defaultValue="basic" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_basic_settings"
         android:key="category_basic_settings">

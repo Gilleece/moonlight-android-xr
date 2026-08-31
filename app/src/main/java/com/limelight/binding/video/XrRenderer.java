@@ -18,6 +18,7 @@ import android.graphics.Typeface;
 import android.preference.PreferenceManager;
 import android.view.Surface;
 
+import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.preferences.PreferenceConfiguration;
 
@@ -176,6 +177,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         this.inputListener = listener;
     }
 
+    private static native void nativeSetFileLog(String path, int level);
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking);
@@ -213,6 +215,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         renderThread = new Thread() {
             @Override
             public void run() {
+                // Before init, so everything the session setup finds ends up
+                // in the log too
+                nativeSetFileLog(FileLog.getLogPath(), FileLog.getLevel());
+
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking);

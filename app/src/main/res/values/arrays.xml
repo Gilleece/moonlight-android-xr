@@ -150,4 +150,14 @@
         <item>eyetest</item>
         <item>shifttest</item>
     </string-array>
+    <string-array name="vr_file_log_names">
+        <item>Off</item>
+        <item>Warnings and errors</item>
+        <item>Verbose</item>
+    </string-array>
+    <string-array name="vr_file_log_values" translatable="false">
+        <item>off</item>
+        <item>basic</item>
+        <item>verbose</item>
+    </string-array>
 </resources>
