@@ -527,10 +527,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         int cell = PreferenceManager.getDefaultSharedPreferences(prefsContext)
                 .getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1);
         if (cell < 0 || cell >= CELL_FIRST_PHOTO + environmentFiles.length) {
-            // Never picked one, so the passthrough checkbox decides. Anyone who
-            // left it off gets a room rather than a void.
-            cell = prefs.vrPassthrough ? CELL_PASSTHROUGH
-                    : (environmentFiles.length > 0 ? CELL_FIRST_PHOTO : CELL_VOID);
+            // Never picked one, so the passthrough checkbox decides: on gives
+            // the room, off gives black. A photo only shows once it is chosen.
+            cell = prefs.vrPassthrough ? CELL_PASSTHROUGH : CELL_VOID;
         }
         environmentChoice = cell;
         passthroughOn = cell == CELL_PASSTHROUGH;
