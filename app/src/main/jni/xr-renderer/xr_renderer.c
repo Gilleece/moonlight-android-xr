@@ -608,6 +608,9 @@ typedef struct {
     XrTime predictedDisplayTime;
     int shouldRender;
     int everRendered;
+    // Frames submitted while focused. Passthrough waits for the first one, see
+    // the blend mode choice in nativeEndFrame.
+    int focusedFrames;
 
     int cylinderSupported;
     int equirectSupported;
@@ -5621,8 +5624,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
-    endInfo.environmentBlendMode = (ctx->passthrough && ctx->alphaBlendSupported)
+    // Some runtimes only bring the cameras up on a change of blend mode seen
+    // after the session is focused, and asking for alpha blend from the very
+    // first frame leaves them off for the whole session. Submitting the first
+    // focused frame opaque gives every runtime the transition it wants. Later
+    // switches from the picker are long past this point.
+    int wantPassthrough = ctx->passthrough && ctx->alphaBlendSupported;
+    endInfo.environmentBlendMode = (wantPassthrough && ctx->focusedFrames > 0)
             ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    if (ctx->sessionState == XR_SESSION_STATE_FOCUSED) {
+        ctx->focusedFrames++;
+        if (wantPassthrough && ctx->focusedFrames == 1) {
+            LOGI("passthrough blend enabled after first focused frame");
+            LOGEV("passthrough blend enabled after first focused frame");
+        }
+    }
 
     XrCompositionLayerEquirect2KHR backgroundLayer;
     XrCompositionLayerQuad quadLayers[2];
