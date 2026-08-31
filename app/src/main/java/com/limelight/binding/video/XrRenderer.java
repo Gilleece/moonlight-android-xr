@@ -115,14 +115,24 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int IN_BUTTONS = 3;
     private static final int IN_SCROLL = 4;
     private static final int IN_POSE_DIRTY = 6;
+    // Which setting the panel just changed, or -1. Zero is a real id, so this
+    // is a sentinel rather than a zeroed slot.
+    private static final int IN_SETTING = 7;
     private static final int IN_POSE = 8;
-    private static final int IN_PICKER_PICK = 17;
+    private static final int IN_PICKER_PICK = 18;
+    private static final int IN_SETTING_VALUE = 19;
     private static final int IN_SLOTS = 20;
-    private static final int POSE_VALUES = 9;
+    // Ids the panel reports, matching the SETTING_ constants in xr_renderer.c
+    private static final int SETTING_SHARPEN = 0;
+    private static final int SETTING_STATS = 1;
+    // Position, orientation, width, cylinder radius, then the curvature the
+    // settings panel asked for
+    private static final int POSE_VALUES = 10;
     private final float[] inputState = new float[IN_SLOTS];
     private int heldButtons;
     private InputListener inputListener;
     private Context prefsContext;
+    private PreferenceConfiguration prefConfig;
 
     // The 360 photo shown behind the screen. Decoded off the frame loop and
     // picked up whenever it is ready, so a slow decode cannot delay the first
@@ -149,8 +159,41 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int CELL_VOID = 1;
     private static final int CELL_FIRST_PHOTO = 2;
     private static final int MAX_PHOTOS = PICKER_CELLS - CELL_FIRST_PHOTO;
+
+    // The settings panel behind the cog button. Drawn here, placed and dragged
+    // natively, so the layout has to be agreed between the two: these must
+    // match the COG_ constants in xr_renderer.c.
+    private static final int COG_TEX_W = 768;
+    private static final int COG_TEX_H = 640;
+    private static final float COG_TRACK_L = 0.42f;
+    private static final float COG_TRACK_R = 0.93f;
+    private static final float COG_TAB_BAR_B = 0.16f;
+    private static final float COG_ROW_V0 = 0.27f;
+    private static final float COG_ROW_STEP = 0.125f;
+    private static final float COG_CELL_HALF = 0.045f;
+    private static final float COG_RESET_L = 0.35f;
+    private static final float COG_RESET_R = 0.65f;
+    private static final float COG_RESET_T = 0.86f;
+    private static final float COG_RESET_B = 0.97f;
+    // Two tabs, a texture each, both uploaded once so switching is free
+    private static final int COG_TAB_SCREEN = 0;
+    private static final int COG_TAB_DISPLAY = 1;
+    private static final String[] COG_TABS = { "Screen", "Display" };
+    private static final String[] COG_SLIDER_ROWS =
+            { "Distance", "Height", "Tilt", "Curve", "Size" };
+    private static final int COG_ROW_CURVE = 3;
+    // Display tab: a label and a row of cells, one of which is in force
+    private static final String[] COG_OPTION_ROWS = { "Sharpen", "Stats" };
+    private static final String[][] COG_OPTION_CELLS = {
+            { "Off", "Normal", "Quality" },
+            { "Off", "On" }
+    };
+
     private final AtomicReference<ByteBuffer> pendingPickerArt = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingEnvButton = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingCogScreenTab = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingCogDisplayTab = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
     private String[] environmentFiles = new String[0];
@@ -180,7 +223,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static native void nativeSetFileLog(String path, int level);
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
-                                   boolean handTracking, int sharpenMode);
+                                   boolean handTracking, int sharpenMode, boolean perfOverlay);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -201,6 +244,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeSetScreenPose(long ctx, float[] pose);
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
+    private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
+                                        ByteBuffer button);
+    private native boolean nativeGetCylinderSupported(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeSetEnvironment(long ctx, int choice, boolean backgroundOn);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
@@ -221,13 +267,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
-                        prefs.vrHandTracking, prefs.vrSharpening);
+                        prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
                 }
 
                 prefsContext = activity.getApplicationContext();
+                // Held on to rather than only read here: the stats toggle on
+                // the panel writes back to this same instance, which is the one
+                // the decoder's stats path checks
+                prefConfig = prefs;
                 restoreScreenPose();
                 startEnvironment(prefs);
 
@@ -487,6 +537,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadPicker(nativeCtx, grid, button);
             }
 
+            ByteBuffer screenTab = pendingCogScreenTab.getAndSet(null);
+            ByteBuffer displayTab = pendingCogDisplayTab.getAndSet(null);
+            ByteBuffer cog = pendingCogButton.getAndSet(null);
+            if (screenTab != null || displayTab != null || cog != null) {
+                nativeUploadCog(nativeCtx, screenTab, displayTab, cog);
+            }
+
             ByteBuffer shut = pendingLockShut.getAndSet(null);
             ByteBuffer open = pendingLockOpen.getAndSet(null);
             if (shut != null && open != null) {
@@ -540,6 +597,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             @Override
             public void run() {
                 buildPickerArt();
+                buildCogArt();
                 if (startPhoto >= 0) {
                     decodePhoto(startPhoto);
                 }
@@ -715,8 +773,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         pendingEnvButton.set(toBuffer(buildEnvButton()));
 
-        Bitmap shut = loadLockIcon("handtracking_locked.png");
-        Bitmap open = loadLockIcon("handtracking_unlocked.png");
+        Bitmap shut = loadIcon("handtracking_locked.png", LOCK_TEX);
+        Bitmap open = loadIcon("handtracking_unlocked.png", LOCK_TEX);
         // Both or neither, since one on its own would leave the button blank
         // in half its states
         if (shut != null && open != null) {
@@ -731,27 +789,28 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
     }
 
-    // The padlock art ships as a pair of PNGs. Colour carries the state, so
-    // there is nothing to tint or dim here, just a decode and a downscale.
-    private Bitmap loadLockIcon(String fileName) {
+    // The padlocks and the cog ship as PNGs. Colour carries the state, so there
+    // is nothing to tint or dim here, just a decode and a downscale to whatever
+    // the swapchain it is headed for wants.
+    private Bitmap loadIcon(String fileName, int size) {
         InputStream in = null;
         try {
             in = prefsContext.getAssets().open(IMAGE_DIR + "/" + fileName);
             Bitmap full = BitmapFactory.decodeStream(in);
             if (full == null) {
-                LimeLog.warning("Lock icon " + fileName + " did not decode");
+                LimeLog.warning("Icon " + fileName + " did not decode");
                 return null;
             }
-            if (full.getWidth() == LOCK_TEX && full.getHeight() == LOCK_TEX) {
+            if (full.getWidth() == size && full.getHeight() == size) {
                 return full;
             }
-            Bitmap scaled = Bitmap.createScaledBitmap(full, LOCK_TEX, LOCK_TEX, true);
+            Bitmap scaled = Bitmap.createScaledBitmap(full, size, size, true);
             if (scaled != full) {
                 full.recycle();
             }
             return scaled;
         } catch (IOException | OutOfMemoryError e) {
-            LimeLog.warning("Lock icon " + fileName + " failed: " + e);
+            LimeLog.warning("Icon " + fileName + " failed: " + e);
             return null;
         } finally {
             closeQuietly(in);
@@ -782,6 +841,211 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         hills.lineTo(102.0f, 100.0f);
         hills.close();
         canvas.drawPath(hills, paint);
+
+        return button;
+    }
+
+    /**
+     * The settings panel and the cog that opens it. A texture per tab, both
+     * drawn once here, so changing tab in the session picks the other
+     * swapchain rather than redrawing anything. Only the labels, tracks and
+     * cells live in the texture: thumbs and selection rings are quads of their
+     * own, so using the panel costs no upload.
+     */
+    private void buildCogArt() {
+        // Curvature needs a layer type the runtime may not offer, and a slider
+        // that cannot do anything is better shown greyed than hidden
+        boolean curveOk = nativeCtx != 0 && nativeGetCylinderSupported(nativeCtx);
+
+        Bitmap screenTab = buildCogTab(COG_TAB_SCREEN, curveOk);
+        pendingCogScreenTab.set(toBuffer(screenTab));
+        screenTab.recycle();
+
+        Bitmap displayTab = buildCogTab(COG_TAB_DISPLAY, curveOk);
+        pendingCogDisplayTab.set(toBuffer(displayTab));
+        displayTab.recycle();
+
+        // Never blank: the drawn gear stands in if the art does not decode
+        Bitmap button = loadIcon("settings_icon.png", ENV_BUTTON_TEX);
+        if (button == null) {
+            button = buildCogButton();
+        }
+        pendingCogButton.set(toBuffer(button));
+        button.recycle();
+    }
+
+    private Bitmap buildCogTab(int tab, boolean curveOk) {
+        Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        drawCogChrome(canvas, tab);
+        if (tab == COG_TAB_SCREEN) {
+            drawCogSliderRows(canvas, curveOk);
+        }
+        else {
+            drawCogOptionRows(canvas);
+        }
+        return bitmap;
+    }
+
+    // Background and tab bar, the part both tabs have in common. The tab this
+    // texture belongs to is the one drawn as current.
+    private void drawCogChrome(Canvas canvas, int tab) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        paint.setColor(0xF0141416);
+        canvas.drawRoundRect(new RectF(1.0f, 1.0f, COG_TEX_W - 1.0f, COG_TEX_H - 1.0f),
+                32.0f, 32.0f, paint);
+
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextSize(25.0f);
+        text.setTextAlign(Paint.Align.CENTER);
+
+        final float barB = COG_TAB_BAR_B * COG_TEX_H;
+        final float half = COG_TEX_W * 0.5f;
+        for (int i = 0; i < COG_TABS.length; i++) {
+            boolean current = i == tab;
+            RectF slot = new RectF(i * half + 12.0f, 12.0f, (i + 1) * half - 12.0f, barB - 8.0f);
+
+            if (current) {
+                paint.setColor(0x28FFFFFF);
+                canvas.drawRoundRect(slot, 14.0f, 14.0f, paint);
+            }
+
+            text.setColor(current ? Color.WHITE : 0x60FFFFFF);
+            canvas.drawText(COG_TABS[i], slot.centerX(),
+                    slot.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+
+            if (current) {
+                // The underline is what carries at a glance, the fill alone is
+                // too subtle at this size
+                paint.setColor(0xEEFFFFFF);
+                canvas.drawRect(slot.left + 24.0f, slot.bottom - 4.0f,
+                        slot.right - 24.0f, slot.bottom, paint);
+            }
+        }
+
+        paint.setColor(0x30FFFFFF);
+        canvas.drawRect(20.0f, barB, COG_TEX_W - 20.0f, barB + 2.0f, paint);
+    }
+
+    // Screen tab: a label and a track per row, and the reset button under them
+    private void drawCogSliderRows(Canvas canvas, boolean curveOk) {
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextSize(22.0f);
+        text.setTextAlign(Paint.Align.LEFT);
+
+        Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
+        track.setStyle(Paint.Style.STROKE);
+        track.setStrokeWidth(6.0f);
+        track.setStrokeCap(Paint.Cap.ROUND);
+
+        for (int row = 0; row < COG_SLIDER_ROWS.length; row++) {
+            boolean live = row != COG_ROW_CURVE || curveOk;
+            float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
+
+            text.setColor(live ? Color.WHITE : 0x30FFFFFF);
+            // Centred on the row rather than sitting on it, so the label lines
+            // up with the track beside it
+            canvas.drawText(COG_SLIDER_ROWS[row], 0.06f * COG_TEX_W,
+                    y - (text.ascent() + text.descent()) * 0.5f, text);
+
+            track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
+            canvas.drawLine(COG_TRACK_L * COG_TEX_W, y, COG_TRACK_R * COG_TEX_W, y, track);
+        }
+
+        // A way back for a screen dragged somewhere unrecoverable
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4.0f);
+        RectF reset = new RectF(COG_RESET_L * COG_TEX_W, COG_RESET_T * COG_TEX_H,
+                COG_RESET_R * COG_TEX_W, COG_RESET_B * COG_TEX_H);
+        canvas.drawRoundRect(reset, 14.0f, 14.0f, paint);
+
+        text.setColor(Color.WHITE);
+        text.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("Reset", reset.centerX(),
+                reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    // Display tab: a label and a row of cells, one press wide each. Which cell
+    // is in force and which is under the ray are rings the native side puts
+    // over them, so nothing here has to be redrawn when one is chosen.
+    private void drawCogOptionRows(Canvas canvas) {
+        Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        label.setTextSize(22.0f);
+        label.setTextAlign(Paint.Align.LEFT);
+        label.setColor(Color.WHITE);
+
+        Paint cellText = new Paint(Paint.ANTI_ALIAS_FLAG);
+        cellText.setTextSize(19.0f);
+        cellText.setTextAlign(Paint.Align.CENTER);
+        cellText.setColor(Color.WHITE);
+
+        Paint cell = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        final float trackL = COG_TRACK_L * COG_TEX_W;
+        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float cellHalf = COG_CELL_HALF * COG_TEX_H;
+
+        for (int row = 0; row < COG_OPTION_ROWS.length; row++) {
+            float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
+            canvas.drawText(COG_OPTION_ROWS[row], 0.06f * COG_TEX_W,
+                    y - (label.ascent() + label.descent()) * 0.5f, label);
+
+            String[] names = COG_OPTION_CELLS[row];
+            float span = (trackR - trackL) / names.length;
+            for (int i = 0; i < names.length; i++) {
+                // Inset so neighbours read as separate buttons rather than one
+                // long strip
+                RectF box = new RectF(trackL + i * span + 3.0f, y - cellHalf,
+                        trackL + (i + 1) * span - 3.0f, y + cellHalf);
+
+                cell.setStyle(Paint.Style.FILL);
+                cell.setColor(0x28FFFFFF);
+                canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
+                cell.setStyle(Paint.Style.STROKE);
+                cell.setStrokeWidth(2.0f);
+                cell.setColor(0x50FFFFFF);
+                canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
+
+                canvas.drawText(names[i], box.centerX(),
+                        box.centerY() - (cellText.ascent() + cellText.descent()) * 0.5f,
+                        cellText);
+            }
+        }
+    }
+
+    // The fallback cog, drawn only when the icon asset is missing. About as
+    // much of a gear as reads at this size.
+    private Bitmap buildCogButton() {
+        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+
+        final float mid = ENV_BUTTON_TEX * 0.5f;
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(10.0f);
+        canvas.drawCircle(mid, mid, 34.0f, paint);
+
+        paint.setStrokeWidth(12.0f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        for (int tooth = 0; tooth < 8; tooth++) {
+            double angle = tooth * Math.PI / 4.0;
+            float dx = (float)Math.cos(angle);
+            float dy = (float)Math.sin(angle);
+            canvas.drawLine(mid + dx * 34.0f, mid + dy * 34.0f,
+                            mid + dx * 48.0f, mid + dy * 48.0f, paint);
+        }
+
+        // A ring rather than a filled dot, which reads as a hole through the
+        // middle of the gear the way a real one does
+        paint.setStrokeCap(Paint.Cap.BUTT);
+        paint.setStrokeWidth(8.0f);
+        canvas.drawCircle(mid, mid, 14.0f, paint);
 
         return button;
     }
@@ -880,6 +1144,41 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (pick >= 0) {
             chooseEnvironment(pick);
         }
+
+        int setting = (int)inputState[IN_SETTING];
+        if (setting >= 0) {
+            applySetting(setting, (int)inputState[IN_SETTING_VALUE]);
+        }
+    }
+
+    /**
+     * A row on the panel's display tab was pressed. The native side has
+     * already applied it to the running session, this end only has to make it
+     * stick and tell whatever else in the app cares.
+     */
+    private void applySetting(int setting, int value) {
+        if (prefsContext == null) {
+            return;
+        }
+
+        if (setting == SETTING_SHARPEN) {
+            String choice = value == 2 ? "quality" : (value == 1 ? "normal" : "off");
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putString(PreferenceConfiguration.VR_SHARPENING_PREF_STRING, choice)
+                    .apply();
+        }
+        else if (setting == SETTING_STATS) {
+            boolean on = value != 0;
+            // The decoder reads this off the same configuration object every
+            // time it is about to report, so stats stop or resume at the next
+            // one second window with nothing to restart
+            if (prefConfig != null) {
+                prefConfig.enablePerfOverlay = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.ENABLE_PERF_OVERLAY_STRING, on)
+                    .apply();
+        }
     }
 
     // Written once when a grab ends, so the screen is where it was left next
@@ -910,14 +1209,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
 
         String[] parts = saved.split(",");
-        if (parts.length < POSE_VALUES) {
+        // Anything saved before the settings panel existed is one value short,
+        // and a missing curvature means nobody has chosen one
+        if (parts.length < POSE_VALUES - 1) {
             return;
         }
 
         float[] pose = new float[POSE_VALUES];
         try {
             for (int i = 0; i < POSE_VALUES; i++) {
-                pose[i] = Float.parseFloat(parts[i]);
+                pose[i] = i < parts.length ? Float.parseFloat(parts[i]) : -1.0f;
             }
         } catch (NumberFormatException e) {
             return;

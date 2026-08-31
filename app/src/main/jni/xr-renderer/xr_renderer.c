@@ -230,11 +230,20 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define IN_SCROLL   4
 #define IN_POINTER  5
 #define IN_POSE_DIRTY 6
-// x y z, then the orientation quaternion, then width and cylinder radius
+// Which setting the panel just changed, or -1. Zero is a real id, so this one
+// has to be said explicitly rather than left at the memset.
+#define IN_SETTING  7
+// x y z, then the orientation quaternion, then width, cylinder radius and the
+// curvature the panel asked for, ten in all
 #define IN_POSE     8
 // The cell just chosen in the environment grid, or -1
-#define IN_PICKER_PICK 17
+#define IN_PICKER_PICK 18
+#define IN_SETTING_VALUE 19
 #define IN_SLOTS    20
+
+// Settings the panel can hand back to Java to be applied and stored
+#define SETTING_SHARPEN 0
+#define SETTING_STATS   1
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
@@ -295,11 +304,73 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define LOCK_GAP_FRAC 0.025f
 #define LOCK_TEX 384
 
+// Settings panel. Same shape as the picker: the art is drawn in Java and shown
+// on one quad, the thumbs are separate little quads so dragging one never costs
+// an upload.
+#define COG_TEX_W 768
+#define COG_TEX_H 640
+#define COG_WIDTH_FRAC 0.36f
+// The button that opens it, sitting to the right of the move bar, the same
+// size as the environment button on the left
+#define COG_BUTTON_FRAC 0.048f
+#define COG_THUMB_TEX 64
+
+// Where the tabs, rows and tracks sit in the panel texture. These must match
+// the COG_ constants in XrRenderer.java, which is what draws them.
+#define COG_TRACK_L 0.42f
+#define COG_TRACK_R 0.93f
+// Anything above this is the tab bar, split down the middle
+#define COG_TAB_BAR_B 0.16f
+#define COG_ROW_V0 0.27f
+#define COG_ROW_STEP 0.125f
+// Half height of a row's hit band
+#define COG_ROW_HALF 0.055f
+#define COG_RESET_L 0.35f
+#define COG_RESET_R 0.65f
+#define COG_RESET_T 0.86f
+#define COG_RESET_B 0.97f
+// Half height of an option cell, so the ring drawn over one matches the art
+#define COG_CELL_HALF 0.045f
+
+// One texture per tab, both uploaded once, so switching costs a swapchain
+// handle rather than an upload
+#define COG_TAB_SCREEN  0
+#define COG_TAB_DISPLAY 1
+#define COG_TAB_COUNT   2
+
+// Screen tab rows, in the order they are drawn
+#define COG_SLIDER_DISTANCE 0
+#define COG_SLIDER_HEIGHT   1
+#define COG_SLIDER_TILT     2
+#define COG_SLIDER_CURVE    3
+#define COG_SLIDER_SIZE     4
+#define COG_SLIDER_COUNT    5
+
+// Display tab rows. Cells rather than a track, so a press picks one instead of
+// dragging a value.
+#define COG_OPTION_SHARPEN 0
+#define COG_OPTION_STATS   1
+#define COG_OPTION_COUNT   2
+#define COG_SHARPEN_CELLS 3
+#define COG_STATS_CELLS   2
+// Metres. Deliberately well under the settings slider's 1 m floor, so the
+// screen can be brought right up to the face.
+#define COG_DIST_MIN 0.2f
+#define COG_DIST_MAX 8.0f
+// Metres either side of the reference space's eye level
+#define COG_HEIGHT_MIN -2.0f
+#define COG_HEIGHT_MAX 2.0f
+// Radians, 40 degrees each way. Pitch only, since rolling the picture is
+// nothing anyone wants and it reads as a bug.
+#define COG_TILT_MAX 0.6981f
+
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
 // Nothing under the ray, but close enough to the screen to keep drawing it
 #define HOVER_HALO      6
 #define HOVER_LOCK      7
+#define HOVER_COGBUTTON 8
+#define HOVER_COGPANEL  9
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 // How far the ray runs when it is aimed at nothing at all, in metres
@@ -741,6 +812,41 @@ typedef struct {
     // The choice the last environment line was written for, so reapplying the
     // same one after a photo decode does not repeat it
     int loggedChoice;
+
+    // One swapchain per tab, both filled at startup, so changing tab is a
+    // different handle in the layer rather than an upload
+    XrSwapchain cogPanelSwapchains[COG_TAB_COUNT];
+    XrSwapchain cogButtonSwapchain;
+    XrSwapchain cogThumbSwapchain;
+    uint32_t cogPanelImageCounts[COG_TAB_COUNT];
+    uint32_t cogButtonImageCount;
+    uint32_t cogThumbImageCount;
+    XrSwapchainImageOpenGLESKHR* cogPanelImages[COG_TAB_COUNT];
+    XrSwapchainImageOpenGLESKHR* cogButtonImages;
+    XrSwapchainImageOpenGLESKHR* cogThumbImages;
+    int cogPanelReady[COG_TAB_COUNT];
+    int cogButtonReady;
+    int cogThumbReady;
+    int cogOpen;
+    int cogTab;
+    int cogButtonHot;
+    // Which slider is being dragged and by which hand, -1 for none. The drag
+    // keeps its hand, so the other one resting on the panel cannot steal it.
+    int cogDragSlider;
+    int cogDragHand;
+    // The row under the ray, and on the display tab the cell within it
+    int cogHoverSlider;
+    int cogHoverCell;
+    // Frozen when the panel opens rather than followed every frame. The
+    // distance slider moves the screen, and a panel anchored to the screen
+    // would drag the thumb out from under the ray mid drag.
+    XrPosef cogPose;
+    float cogW, cogH;
+    // Curvature the panel asked for, or -1 while the preference still owns it,
+    // alongside the preference itself so both are readable away from the JNI
+    // entry points that carry it
+    float panelCurve;
+    float prefCurvature;
 
     long statFrames;
     long statTotalNs;
@@ -1849,6 +1955,15 @@ static XrQuaternionf quatNorm(XrQuaternionf q) {
     return q;
 }
 
+// Axis assumed normalised, which anything that came out of quatRotate on a
+// unit vector already is
+static XrQuaternionf axisAngleQuat(Vec3 axis, float angle) {
+    float half = angle * 0.5f;
+    float s = sinf(half);
+    XrQuaternionf q = { axis.x * s, axis.y * s, axis.z * s, cosf(half) };
+    return q;
+}
+
 static Vec3 quatRotate(XrQuaternionf q, Vec3 v) {
     // v + w * (2 * cross(q.xyz, v)) + cross(q.xyz, 2 * cross(q.xyz, v))
     Vec3 u = { q.x, q.y, q.z };
@@ -2578,8 +2693,64 @@ static int createPointerSwapchain(XrCtx* ctx) {
         ctx->pickerSwapchain = XR_NULL_HANDLE;
     }
 
+    info.width = COG_TEX_W;
+    info.height = COG_TEX_H;
+    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+        if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cogPanelSwapchains[tab]),
+                    "create cog panel swapchain")) {
+            xrEnumerateSwapchainImages(ctx->cogPanelSwapchains[tab], 0,
+                                       &ctx->cogPanelImageCounts[tab], NULL);
+            ctx->cogPanelImages[tab] = calloc(ctx->cogPanelImageCounts[tab],
+                                              sizeof(XrSwapchainImageOpenGLESKHR));
+            for (uint32_t i = 0; i < ctx->cogPanelImageCounts[tab]; i++) {
+                ctx->cogPanelImages[tab][i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+            }
+            xrEnumerateSwapchainImages(ctx->cogPanelSwapchains[tab],
+                                       ctx->cogPanelImageCounts[tab],
+                                       &ctx->cogPanelImageCounts[tab],
+                                       (XrSwapchainImageBaseHeader*)ctx->cogPanelImages[tab]);
+        }
+        else {
+            ctx->cogPanelSwapchains[tab] = XR_NULL_HANDLE;
+        }
+    }
+
+    info.width = COG_THUMB_TEX;
+    info.height = COG_THUMB_TEX;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cogThumbSwapchain),
+                "create cog thumb swapchain")) {
+        xrEnumerateSwapchainImages(ctx->cogThumbSwapchain, 0, &ctx->cogThumbImageCount, NULL);
+        ctx->cogThumbImages = calloc(ctx->cogThumbImageCount,
+                                     sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->cogThumbImageCount; i++) {
+            ctx->cogThumbImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->cogThumbSwapchain, ctx->cogThumbImageCount,
+                                   &ctx->cogThumbImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->cogThumbImages);
+    }
+    else {
+        ctx->cogThumbSwapchain = XR_NULL_HANDLE;
+    }
+
     info.width = OUTLINE_TEX;
     info.height = OUTLINE_TEX;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cogButtonSwapchain),
+                "create cog button swapchain")) {
+        xrEnumerateSwapchainImages(ctx->cogButtonSwapchain, 0, &ctx->cogButtonImageCount, NULL);
+        ctx->cogButtonImages = calloc(ctx->cogButtonImageCount,
+                                      sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->cogButtonImageCount; i++) {
+            ctx->cogButtonImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->cogButtonSwapchain, ctx->cogButtonImageCount,
+                                   &ctx->cogButtonImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->cogButtonImages);
+    }
+    else {
+        ctx->cogButtonSwapchain = XR_NULL_HANDLE;
+    }
+
     if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->envButtonSwapchain),
                 "create env button swapchain")) {
         xrEnumerateSwapchainImages(ctx->envButtonSwapchain, 0, &ctx->envButtonImageCount, NULL);
@@ -2800,7 +2971,30 @@ static void buildHandleArt(XrCtx* ctx) {
         }
     }
 
+    // The dot a settings slider is dragged by. Round and centred, so like the
+    // bar it does not care which way up it is uploaded.
+    unsigned char* thumb = calloc(COG_THUMB_TEX * COG_THUMB_TEX * 4, 1);
+    if (thumb != NULL) {
+        const float thumbMid = COG_THUMB_TEX * 0.5f;
+        const float thumbR = COG_THUMB_TEX * 0.42f;
+        for (int y = 0; y < COG_THUMB_TEX; y++) {
+            for (int x = 0; x < COG_THUMB_TEX; x++) {
+                float dx = x + 0.5f - thumbMid, dy = y + 0.5f - thumbMid;
+                float d = sqrtf(dx * dx + dy * dy);
+                unsigned char* p = thumb + ((y * COG_THUMB_TEX) + x) * 4;
+                unsigned char a = (unsigned char)(edgeAlpha(d, thumbR) * 235.0f);
+                p[0] = p[1] = p[2] = a;
+                p[3] = a;
+            }
+        }
+    }
+
     int ok = uploadArt(ctx, ctx->barSwapchain, ctx->barImages, bar, BAR_TEX_W, BAR_TEX_H);
+    if (thumb != NULL) {
+        ctx->cogThumbReady = uploadArt(ctx, ctx->cogThumbSwapchain, ctx->cogThumbImages,
+                                       thumb, COG_THUMB_TEX, COG_THUMB_TEX);
+        free(thumb);
+    }
     if (outline != NULL) {
         ctx->outlineReady = uploadArt(ctx, ctx->outlineSwapchain, ctx->outlineImages,
                                       outline, OUTLINE_TEX, OUTLINE_TEX);
@@ -2888,6 +3082,12 @@ static int uploadPointerArt(XrCtx* ctx) {
     return ctx->pointerArtReady;
 }
 
+// The curve in force. The panel takes over from the preference the moment it
+// is touched, and hands it back when the reset button clears it.
+static float effectiveCurvature(XrCtx* ctx) {
+    return ctx->panelCurve >= 0.0f ? ctx->panelCurve : ctx->prefCurvature;
+}
+
 // The sliders place the screen, the grab moves it from there. Moving either
 // slider is taken as the user asking for the placement back.
 static void updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature) {
@@ -2930,6 +3130,7 @@ static void writeInputPose(XrCtx* ctx, float* out) {
     out[IN_POSE + 6] = ctx->screenPose.orientation.w;
     out[IN_POSE + 7] = ctx->screenWidth;
     out[IN_POSE + 8] = ctx->screenRadius;
+    out[IN_POSE + 9] = ctx->panelCurve;
 }
 
 // Move and resize both work off the handle the ray was over when the grip
@@ -3097,6 +3298,203 @@ static int envButtonHit(XrCtx* ctx, float u, float v, float height) {
     return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
 }
 
+// The cog is the same button on the other side of the bar
+static void cogButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float side = ctx->screenWidth * COG_BUTTON_FRAC;
+    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
+    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
+    outLocal->x = barW * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + side * 0.5f;
+    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+static int cogButtonHit(XrCtx* ctx, float u, float v, float height) {
+    Vec3 local;
+    float side;
+    cogButtonPlacement(ctx, height, &local, &side);
+
+    float cu = 0.5f + local.x / ctx->screenWidth;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
+// How far the screen's face is tipped up or down, in radians. Positive is
+// looking up at it.
+static float screenPitch(XrCtx* ctx) {
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 fwd = quatRotate(ctx->screenPose.orientation, back);
+    return atan2f(fwd.y, sqrtf(fwd.x * fwd.x + fwd.z * fwd.z));
+}
+
+// The settings panel stands on top of the cog button that opens it, so it
+// reads as belonging to that button and leaves the picture clear. The caller
+// freezes what this returns for as long as the panel is open: the distance
+// slider moves the screen, and a panel that followed it would drag the thumb
+// out from under the ray halfway through a drag.
+static XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = ctx->screenWidth * COG_WIDTH_FRAC;
+    float height = width * (float)COG_TEX_H / (float)COG_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    // The button hangs below the screen, so the panel is placed off it rather
+    // than off the screen. Same height the other placements are given.
+    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    Vec3 button;
+    float side;
+    cogButtonPlacement(ctx, screenHeight, &button, &side);
+
+    Vec3 local;
+    local.x = button.x;
+    local.y = button.y + side * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + height * 0.5f;
+    local.z = 0.05f;
+
+    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
+    XrPosef pose = ctx->screenPose;
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// Where a slider's thumb sits along its track, 0 at the left end and 1 at the
+// right. Read back from the thing the slider controls rather than stored, so
+// dragging the screen about cannot leave the panel disagreeing with it.
+static float cogSliderValue(XrCtx* ctx, int slider) {
+    XrVector3f p = ctx->screenPose.position;
+    float t = 0.0f;
+
+    if (slider == COG_SLIDER_DISTANCE) {
+        float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+        t = (d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN);
+    }
+    else if (slider == COG_SLIDER_HEIGHT) {
+        t = (p.y - COG_HEIGHT_MIN) / (COG_HEIGHT_MAX - COG_HEIGHT_MIN);
+    }
+    else if (slider == COG_SLIDER_TILT) {
+        // Level sits at the middle of the track
+        t = (screenPitch(ctx) + COG_TILT_MAX) / (2.0f * COG_TILT_MAX);
+    }
+    else if (slider == COG_SLIDER_CURVE) {
+        t = effectiveCurvature(ctx);
+    }
+    else if (slider == COG_SLIDER_SIZE) {
+        t = (ctx->screenWidth - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH);
+    }
+
+    return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+}
+
+// Applies a point on the track to whatever the row controls
+static void cogApplySlider(XrCtx* ctx, int slider, float pu) {
+    float t = (pu - COG_TRACK_L) / (COG_TRACK_R - COG_TRACK_L);
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+
+    if (slider == COG_SLIDER_DISTANCE) {
+        XrVector3f p = ctx->screenPose.position;
+        float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+        float wanted = COG_DIST_MIN + t * (COG_DIST_MAX - COG_DIST_MIN);
+        if (d > 0.01f) {
+            // Straight out along the line it already sits on, so only how far
+            // away it is changes
+            float scale = wanted / d;
+            ctx->screenPose.position.x = p.x * scale;
+            ctx->screenPose.position.y = p.y * scale;
+            ctx->screenPose.position.z = p.z * scale;
+            // Keeping the arc the same shape as it moves, same reason as the
+            // resize path
+            ctx->screenRadius *= scale;
+        }
+        else {
+            // Sitting on top of the viewer, so there is no line to follow and
+            // straight ahead is the only sensible answer
+            ctx->screenPose.position.x = 0.0f;
+            ctx->screenPose.position.y = 0.0f;
+            ctx->screenPose.position.z = -wanted;
+        }
+    }
+    else if (slider == COG_SLIDER_HEIGHT) {
+        // Straight up and down, so raising the screen does not also bring it
+        // nearer the way an arc about the viewer would
+        ctx->screenPose.position.y = COG_HEIGHT_MIN + t * (COG_HEIGHT_MAX - COG_HEIGHT_MIN);
+    }
+    else if (slider == COG_SLIDER_TILT) {
+        float target = -COG_TILT_MAX + t * (2.0f * COG_TILT_MAX);
+        float delta = target - screenPitch(ctx);
+        Vec3 right = { 1.0f, 0.0f, 0.0f };
+        Vec3 axis = quatRotate(ctx->screenPose.orientation, right);
+        // Negated on purpose: turning by +theta about the local x axis takes
+        // the face's forward vector downward, and the right hand end of the
+        // track is meant to tip the screen up
+        XrQuaternionf turn = axisAngleQuat(axis, -delta);
+        // Position untouched, so it tilts about its own centre rather than
+        // swinging around the viewer
+        ctx->screenPose.orientation = quatNorm(quatMul(turn, ctx->screenPose.orientation));
+    }
+    else if (slider == COG_SLIDER_CURVE) {
+        ctx->panelCurve = t;
+        // The radius updatePlacement would have picked for this curve, so a
+        // reseed later agrees with what is on screen now
+        XrVector3f p = ctx->screenPose.position;
+        float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+        ctx->screenRadius = d * (1.0f + 3.0f * (1.0f - t));
+    }
+    else if (slider == COG_SLIDER_SIZE) {
+        float wanted = SCREEN_MIN_WIDTH + t * (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH);
+        if (ctx->screenWidth > 0.01f) {
+            // Keeping the arc the same shape rather than flattening as it
+            // grows, same rule the corner resize follows
+            ctx->screenRadius *= wanted / ctx->screenWidth;
+        }
+        // Centre and facing untouched, so it grows about the middle rather
+        // than away from a corner
+        ctx->screenWidth = wanted;
+    }
+}
+
+// Display tab rows are a row of cells rather than a track
+static int cogOptionCells(int option) {
+    return option == COG_OPTION_SHARPEN ? COG_SHARPEN_CELLS : COG_STATS_CELLS;
+}
+
+// Which cell of a row is the one in force
+static int cogOptionValue(XrCtx* ctx, int option) {
+    if (option == COG_OPTION_SHARPEN) {
+        return ctx->sharpenMode;
+    }
+    return ctx->overlayVisible ? 1 : 0;
+}
+
+// Takes effect here and now, and hands back the setting id so the frame can
+// tell Java to store it too. Both of these are read fresh every frame by the
+// code that acts on them, so there is nothing to restart.
+static int cogApplyOption(XrCtx* ctx, int option, int cell) {
+    if (option == COG_OPTION_SHARPEN) {
+        ctx->sharpenMode = cell;
+        return SETTING_SHARPEN;
+    }
+    if (option == COG_OPTION_STATS) {
+        ctx->overlayVisible = cell != 0;
+        return SETTING_STATS;
+    }
+    return -1;
+}
+
+// Which cell of a row the ray is on, or -1 off the ends
+static int cogCellAt(float pu, int cells) {
+    if (pu < COG_TRACK_L || pu > COG_TRACK_R) {
+        return -1;
+    }
+    int cell = (int)((pu - COG_TRACK_L) / (COG_TRACK_R - COG_TRACK_L) * cells);
+    if (cell < 0) cell = 0;
+    if (cell >= cells) cell = cells - 1;
+    return cell;
+}
+
 // Padlock sits off the left edge, halfway up
 static void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide) {
     float side = ctx->screenWidth * LOCK_BUTTON_FRAC;
@@ -3126,6 +3524,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
         float pickW, pickH;
         XrPosef pose = pickerPose(ctx, &pickW, &pickH);
         return screenPoint(u, v, pose, pickW, pickH, 0.0f, 0);
+    }
+    if (hover == HOVER_COGPANEL) {
+        return screenPoint(u, v, ctx->cogPose, ctx->cogW, ctx->cogH, 0.0f, 0);
     }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
@@ -3195,6 +3596,20 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->envButtonSwapchain);
     }
     free(ctx->envButtonImages);
+    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+        if (ctx->cogPanelSwapchains[tab] != XR_NULL_HANDLE) {
+            xrDestroySwapchain(ctx->cogPanelSwapchains[tab]);
+        }
+        free(ctx->cogPanelImages[tab]);
+    }
+    if (ctx->cogButtonSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->cogButtonSwapchain);
+    }
+    free(ctx->cogButtonImages);
+    if (ctx->cogThumbSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->cogThumbSwapchain);
+    }
+    free(ctx->cogThumbImages);
     if (ctx->lockSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->lockSwapchain);
     }
@@ -3242,7 +3657,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jobject activity, jint width, jint height,
                                                        jint stereoMode, jboolean depthDebug,
                                                        jint convergence, jint depthScale,
-                                                       jboolean handTracking, jint sharpenMode) {
+                                                       jboolean handTracking, jint sharpenMode,
+                                                       jboolean perfOverlay) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
     ctx->videoWidth = width;
@@ -3262,11 +3678,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->occlusionEnabled = 1;
     // Off until it earns its place in a blind comparison on device
     ctx->depthSharp = 0.0f;
-    // Shown whenever there is text to show, the preference is the real gate
-    ctx->overlayVisible = 1;
+    // Starts where the preference left it, and the panel can change it live
+    ctx->overlayVisible = perfOverlay;
     ctx->separationOverride = -1.0f;
     ctx->distanceOverride = -1.0f;
     ctx->screenOverride = -1.0f;
+    // Nothing on the settings panel is being dragged, and the curve preference
+    // still owns the curvature
+    ctx->panelCurve = -1.0f;
+    ctx->cogDragSlider = -1;
+    ctx->cogDragHand = -1;
+    ctx->cogHoverSlider = -1;
     ctx->pointerMinCutoff = POINTER_MIN_CUTOFF;
     ctx->pointerBeta = POINTER_BETA;
     ctx->aimMinCutoff = AIM_MIN_CUTOFF;
@@ -3703,10 +4125,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     memset(out, 0, sizeof(out));
     if (ctx != NULL) {
         ctx->gazeEnabled = gazeEnabled;
+        ctx->prefCurvature = curvature;
     }
     // Zero is a real cell, so "nothing picked" has to be said explicitly. Every
-    // early return below would otherwise read as a press on the first one.
+    // early return below would otherwise read as a press on the first one. Same
+    // for the setting id, and nothing clears it again once a row has written
+    // one, so the early returns carry it out too.
     out[IN_PICKER_PICK] = -1.0f;
+    out[IN_SETTING] = -1.0f;
 
     // Anything held has to come back up when pointing stops, or the host is
     // left with a stuck button
@@ -3719,6 +4145,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 // Dropping focus mid grab has to count as letting go, or the
                 // anchor is stale when focus comes back and the screen jumps
                 ctx->grabMode = 0;
+                ctx->poseDirty = 1;
+            }
+            if (ctx->cogDragSlider >= 0) {
+                // Same for a slider: a drag must not survive the trigger it
+                // was being held with going unwatched
+                ctx->cogDragSlider = -1;
+                ctx->cogDragHand = -1;
                 ctx->poseDirty = 1;
             }
         }
@@ -3749,7 +4182,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
     float height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
-    int curved = curvature > 0.01f && ctx->cylinderSupported;
+    int curved = effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
     float radius = ctx->screenRadius;
     XrPosef screenPose = ctx->screenPose;
 
@@ -3845,6 +4278,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR)
                     && envButtonHit(ctx, hitU[h], hitV[h], height)) {
                 hovers[h] = HOVER_ENVBUTTON;
+            }
+            // The cog is the same button on the other side of the bar, so it
+            // is claimed the same way
+            if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR)
+                    && cogButtonHit(ctx, hitU[h], hitV[h], height)) {
+                hovers[h] = HOVER_COGBUTTON;
             }
             // Off the left edge, so the halo owns that ground until the
             // padlock claims it back
@@ -4015,6 +4454,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // reaches the picture behind
     ctx->pickerHover = -1;
     ctx->envButtonHot = 0;
+    ctx->cogButtonHot = 0;
+    ctx->cogHoverSlider = -1;
+    ctx->cogHoverCell = -1;
     ctx->lockHot = 0;
     ctx->pickerPick = -1;
     if (ctx->pickerOpen) {
@@ -4062,10 +4504,148 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
         }
     }
+    else if (ctx->cogOpen) {
+        // Modal in the same way the grid is, and against the pose frozen when
+        // it opened rather than wherever the screen has since been dragged to
+        hover = HOVER_COGPANEL;
+        hand = -1;
+
+        // A drag keeps the hand that started it, and keeps it even once the
+        // ray has wandered off the panel, so a slider can be run to either end
+        // in one go. Only the screen tab has anything draggable.
+        if (ctx->cogDragSlider >= 0 && ctx->cogTab == COG_TAB_SCREEN) {
+            int h = ctx->cogDragHand;
+            float pu, pv;
+            if (h >= 0 && aimValid[h] && ctx->triggerDown[h]
+                    && screenProject(aimPoses[h], ctx->cogPose, ctx->cogW, ctx->cogH,
+                                     0.0f, 0, &pu, &pv)) {
+                hand = h;
+                hitU[h] = pu;
+                hitV[h] = pv;
+                ctx->cogHoverSlider = ctx->cogDragSlider;
+                cogApplySlider(ctx, ctx->cogDragSlider, pu);
+            }
+            else {
+                // Persist where it ended up rather than every frame on the way
+                // there, the same policy a grab uses
+                ctx->cogDragSlider = -1;
+                ctx->cogDragHand = -1;
+                ctx->poseDirty = 1;
+            }
+        }
+
+        for (int h = 0; hand < 0 && h < SRC_COUNT; h++) {
+            float pu, pv;
+            if (!aimValid[h] || !ctx->pointerAwake) {
+                continue;
+            }
+            if (!screenProject(aimPoses[h], ctx->cogPose, ctx->cogW, ctx->cogH,
+                               0.0f, 0, &pu, &pv)) {
+                continue;
+            }
+            if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+                continue;
+            }
+            hand = h;
+            hitU[h] = pu;
+            hitV[h] = pv;
+
+            // The tab bar runs across the top, split down the middle. A press
+            // up here changes tab and reaches nothing else.
+            if (pv < COG_TAB_BAR_B) {
+                if (ctx->triggerEdge[h]) {
+                    ctx->cogTab = pu < 0.5f ? COG_TAB_SCREEN : COG_TAB_DISPLAY;
+                    ctx->cogDragSlider = -1;
+                    ctx->cogDragHand = -1;
+                }
+                break;
+            }
+
+            int rowCount = ctx->cogTab == COG_TAB_SCREEN ? COG_SLIDER_COUNT : COG_OPTION_COUNT;
+            int row = -1;
+            for (int s = 0; s < rowCount; s++) {
+                // Curving needs a layer type this runtime may not have, and
+                // the row is drawn greyed to say so
+                if (ctx->cogTab == COG_TAB_SCREEN && s == COG_SLIDER_CURVE
+                        && !ctx->cylinderSupported) {
+                    continue;
+                }
+                if (fabsf(pv - (COG_ROW_V0 + s * COG_ROW_STEP)) < COG_ROW_HALF) {
+                    row = s;
+                    break;
+                }
+            }
+
+            if (ctx->cogTab == COG_TAB_DISPLAY) {
+                // Cells, so a press picks one rather than starting a drag
+                int cell = row >= 0 ? cogCellAt(pu, cogOptionCells(row)) : -1;
+                ctx->cogHoverSlider = cell >= 0 ? row : -1;
+                ctx->cogHoverCell = cell;
+                if (cell >= 0 && ctx->triggerEdge[h]) {
+                    int id = cogApplyOption(ctx, row, cell);
+                    if (id >= 0) {
+                        out[IN_SETTING] = (float)id;
+                        out[IN_SETTING_VALUE] = (float)cell;
+                    }
+                }
+                break;
+            }
+
+            // Sliders. The band reaches a little past both ends of the track,
+            // since the thumb hangs over them.
+            if (row >= 0 && (pu <= COG_TRACK_L - 0.04f || pu >= COG_TRACK_R + 0.04f)) {
+                row = -1;
+            }
+            ctx->cogHoverSlider = row;
+
+            int onReset = pu >= COG_RESET_L && pu <= COG_RESET_R
+                    && pv >= COG_RESET_T && pv <= COG_RESET_B;
+            if (onReset && ctx->triggerEdge[h]) {
+                // Hands the curve back to the preference and drops the
+                // placement, which is all it takes: updatePlacement reseeds
+                // from the preferences on the next frame and marks the pose
+                // dirty itself, so the reset persists with nothing else to do.
+                // The panel stays open so the jump is visible.
+                ctx->panelCurve = -1.0f;
+                ctx->placementValid = 0;
+                LOGI("screen placement reset from the panel");
+            }
+            else if (row >= 0 && ctx->triggerEdge[h]) {
+                ctx->cogDragSlider = row;
+                ctx->cogDragHand = h;
+                // Jumps to where the press landed rather than waiting for the
+                // first bit of movement
+                cogApplySlider(ctx, row, pu);
+            }
+        }
+
+        // A press that lands off the panel closes it, which is also how the
+        // cog button shuts what it opened. One inside that hits nothing is
+        // swallowed, so a near miss does not put the panel away.
+        if (hand < 0) {
+            for (int h = 0; h < SRC_COUNT; h++) {
+                if (ctx->triggerEdge[h]) {
+                    ctx->cogOpen = 0;
+                }
+            }
+        }
+    }
     else if (hover == HOVER_ENVBUTTON) {
         ctx->envButtonHot = 1;
         if (ctx->triggerEdge[hand]) {
             ctx->pickerOpen = 1;
+        }
+    }
+    else if (hover == HOVER_COGBUTTON) {
+        ctx->cogButtonHot = 1;
+        if (ctx->triggerEdge[hand]) {
+            ctx->cogOpen = !ctx->cogOpen;
+            if (ctx->cogOpen) {
+                // Always opens on the first tab, so the button does the same
+                // thing every time
+                ctx->cogTab = COG_TAB_SCREEN;
+                ctx->cogPose = cogPanelPose(ctx, &ctx->cogW, &ctx->cogH);
+            }
         }
     }
     else if (hover == HOVER_LOCK) {
@@ -4188,7 +4768,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // at them must not drag the host cursor to the edge
     int hit = (hover == HOVER_SCREEN || hover == HOVER_CORNER) && hand != SRC_GAZE;
     if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
-            || hover == HOVER_LOCK || hover == HOVER_HALO) && headValid && hand >= 0) {
+            || hover == HOVER_LOCK || hover == HOVER_HALO || hover == HOVER_COGBUTTON
+            || hover == HOVER_COGPANEL) && headValid && hand >= 0) {
         Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
                                   height, radius, curved);
         ctx->beamStart = aimPoses[hand].position;
@@ -4723,6 +5304,52 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
          ctx->envButtonReady ? "ready" : "missing");
 }
 
+// The settings panel and the cog that opens it, drawn in Java for the same
+// reason the grid is: the labels are text. Both tabs arrive together and are
+// uploaded once, so changing tab later touches nothing.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject thiz,
+                                                            jlong handle, jobject screenTab,
+                                                            jobject displayTab, jobject button) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    jobject tabs[COG_TAB_COUNT] = { screenTab, displayTab };
+    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+        if (tabs[tab] == NULL) {
+            continue;
+        }
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, tabs[tab]);
+        if (px != NULL) {
+            ctx->cogPanelReady[tab] = uploadFlipped(ctx, ctx->cogPanelSwapchains[tab],
+                                                    ctx->cogPanelImages[tab], px,
+                                                    COG_TEX_W, COG_TEX_H);
+        }
+    }
+    if (button != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, button);
+        if (px != NULL) {
+            ctx->cogButtonReady = uploadFlipped(ctx, ctx->cogButtonSwapchain,
+                                                ctx->cogButtonImages, px,
+                                                OUTLINE_TEX, OUTLINE_TEX);
+        }
+    }
+    LOGI("cog tabs %s and %s, button %s",
+         ctx->cogPanelReady[COG_TAB_SCREEN] ? "ready" : "missing",
+         ctx->cogPanelReady[COG_TAB_DISPLAY] ? "ready" : "missing",
+         ctx->cogButtonReady ? "ready" : "missing");
+}
+
+// Whether curved screens are available at all, which is what says if the panel
+// should draw its curve row live or greyed out
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetCylinderSupported(JNIEnv* env, jobject thiz,
+                                                                       jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    return (ctx != NULL && ctx->cylinderSupported) ? JNI_TRUE : JNI_FALSE;
+}
+
 // The two padlocks, shut and open. Both or neither, since one on its own
 // would leave the button blank in half its states.
 JNIEXPORT void JNICALL
@@ -4839,16 +5466,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetScreenPose(JNIEnv* env, job
     if (ctx == NULL || poseArr == NULL) {
         return;
     }
-    float p[9];
-    if ((*env)->GetArrayLength(env, poseArr) < 9) {
+    float p[10];
+    if ((*env)->GetArrayLength(env, poseArr) < 10) {
         return;
     }
-    (*env)->GetFloatArrayRegion(env, poseArr, 0, 9, p);
+    (*env)->GetFloatArrayRegion(env, poseArr, 0, 10, p);
 
     if (p[7] < SCREEN_MIN_WIDTH || p[7] > SCREEN_MAX_WIDTH || p[8] <= 0.0f) {
         LOGW("stored screen placement out of range, ignoring it");
         return;
     }
+    // Anything below zero means the panel never set a curve, and anything else
+    // out of range is not worth trusting either
+    ctx->panelCurve = (p[9] >= 0.0f && p[9] <= 1.0f) ? p[9] : -1.0f;
 
     ctx->screenPose.position.x = p[0];
     ctx->screenPose.position.y = p[1];
@@ -4926,6 +5556,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
 
     ctx->passthrough = passthrough;
+    ctx->prefCurvature = curvature;
     pollCaptureRequest(ctx);
     propFlag(PROP_PASSTHROUGH, &ctx->passthrough);
     if (ctx->separationOverride >= 0.0f) {
@@ -4980,7 +5611,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         uploadPointerArt(ctx);
     }
 
-    updatePlacement(ctx, distance, quadWidth, curvature);
+    // The panel's curve, if it has one, so a reseed keeps the curve in force
+    // rather than snapping back to the preference
+    float curve = effectiveCurvature(ctx);
+    updatePlacement(ctx, distance, quadWidth, curve);
     XrPosef screenPose = ctx->screenPose;
     float screenWidth = ctx->screenWidth;
     float screenHeight = screenWidth * aspect;
@@ -5001,7 +5635,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerQuad lockLayer;
     XrCompositionLayerQuad pickerLayer;
     XrCompositionLayerQuad outlineLayers[2];
+    XrCompositionLayerQuad cogButtonLayer;
+    XrCompositionLayerQuad cogPanelLayer;
+    XrCompositionLayerQuad cogThumbLayers[COG_SLIDER_COUNT];
+    // One per option row for what is chosen, plus one for the hover
+    XrCompositionLayerQuad cogMarkLayers[COG_OPTION_COUNT + 1];
     XrCompositionLayerSettingsFB sharpenSettings;
+    // Worst case is the screen tab open: background, both eyes, stats, the cog
+    // button, the panel, five thumbs, ray and cursor
     const XrCompositionLayerBaseHeader* layers[16];
     uint32_t layerCount = 0;
 
@@ -5068,7 +5709,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             XrEyeVisibility visibility = !stereo ? XR_EYE_VISIBILITY_BOTH :
                     (eye == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT);
 
-            if (curvature > 0.01f && ctx->cylinderSupported) {
+            if (curve > 0.01f && ctx->cylinderSupported) {
                 XrCompositionLayerCylinderKHR* cyl = &cylLayers[eye];
                 memset(cyl, 0, sizeof(*cyl));
                 cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
@@ -5108,7 +5749,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         }
 
         // Stats sit in the top left corner of the screen, same space and
-        // distance, both eyes, so they read at screen depth with no disparity
+        // distance, both eyes, so they read at screen depth with no disparity.
+        // Visibility is the gate rather than the content: switching them off
+        // leaves the last text sitting in the swapchain, since nothing comes
+        // along to overwrite it.
         if (ctx->overlayHasContent && ctx->overlayVisible
                 && ctx->overlaySwapchain != XR_NULL_HANDLE) {
             float overlayW = screenWidth * 0.30f;
@@ -5143,9 +5787,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&overlayLayer;
         }
 
-        // The bar and the environment button share a hover area, so reaching
-        // for one keeps the other on screen rather than swapping them
-        int barArea = ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON;
+        // The bar and the two buttons beside it share a hover area, so reaching
+        // for one keeps the others on screen rather than swapping them
+        int barArea = ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
+                || ctx->hoverKind == HOVER_COGBUTTON;
 
         // Move bar and resize corner, shown only while the ray is over them.
         // Both live in the screen's own frame, so they travel with it.
@@ -5229,6 +5874,35 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             envButtonLayer.size.width = side * scale;
             envButtonLayer.size.height = side * scale;
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&envButtonLayer;
+        }
+
+        // The cog that opens the settings panel, right of the move bar. Same
+        // rules as the environment button on the other side.
+        if (ctx->cogButtonReady && (barArea || ctx->cogOpen)) {
+            Vec3 local;
+            float side;
+            cogButtonPlacement(ctx, screenHeight, &local, &side);
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&cogButtonLayer, 0, sizeof(cogButtonLayer));
+            cogButtonLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            cogButtonLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            cogButtonLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            cogButtonLayer.subImage.swapchain = ctx->cogButtonSwapchain;
+            cogButtonLayer.subImage.imageRect.offset.x = 0;
+            cogButtonLayer.subImage.imageRect.offset.y = 0;
+            cogButtonLayer.subImage.imageRect.extent.width = OUTLINE_TEX;
+            cogButtonLayer.subImage.imageRect.extent.height = OUTLINE_TEX;
+            cogButtonLayer.subImage.imageArrayIndex = 0;
+            cogButtonLayer.space = space;
+            cogButtonLayer.pose.orientation = screenPose.orientation;
+            cogButtonLayer.pose.position.x = screenPose.position.x + offset.x;
+            cogButtonLayer.pose.position.y = screenPose.position.y + offset.y;
+            cogButtonLayer.pose.position.z = screenPose.position.z + offset.z;
+            float cogScale = (ctx->cogButtonHot || ctx->cogOpen) ? 1.18f : 1.0f;
+            cogButtonLayer.size.width = side * cogScale;
+            cogButtonLayer.size.height = side * cogScale;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&cogButtonLayer;
         }
 
         // The padlock. Comes and goes like the rest of the furniture rather
@@ -5327,6 +6001,111 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                     mark->size.width = cellW * scales[m];
                     mark->size.height = cellH * scales[m];
                     layers[layerCount++] = (const XrCompositionLayerBaseHeader*)mark;
+                }
+            }
+        }
+
+        // The settings panel, at the pose it was opened with. The tab is a
+        // choice of swapchain, both were filled at startup. Sharpened: it
+        // carries text.
+        if (ctx->cogOpen && ctx->cogPanelReady[ctx->cogTab]) {
+            memset(&cogPanelLayer, 0, sizeof(cogPanelLayer));
+            cogPanelLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            cogPanelLayer.next = sharpenChain;
+            cogPanelLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            cogPanelLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            cogPanelLayer.subImage.swapchain = ctx->cogPanelSwapchains[ctx->cogTab];
+            cogPanelLayer.subImage.imageRect.offset.x = 0;
+            cogPanelLayer.subImage.imageRect.offset.y = 0;
+            cogPanelLayer.subImage.imageRect.extent.width = COG_TEX_W;
+            cogPanelLayer.subImage.imageRect.extent.height = COG_TEX_H;
+            cogPanelLayer.subImage.imageArrayIndex = 0;
+            cogPanelLayer.space = space;
+            cogPanelLayer.pose = ctx->cogPose;
+            cogPanelLayer.size.width = ctx->cogW;
+            cogPanelLayer.size.height = ctx->cogH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&cogPanelLayer;
+
+            // Display tab. The cells are drawn into the texture, so what is
+            // chosen and what is under the ray are rings over them, the same
+            // trick the picker uses to mark cells without an upload. One per
+            // row for the choice, then a wider one for the hover.
+            if (ctx->cogTab == COG_TAB_DISPLAY && ctx->outlineReady) {
+                for (int m = 0; m <= COG_OPTION_COUNT; m++) {
+                    int hoverMark = m == COG_OPTION_COUNT;
+                    int option = hoverMark ? ctx->cogHoverSlider : m;
+                    int cell = hoverMark ? ctx->cogHoverCell : cogOptionValue(ctx, m);
+                    if (option < 0 || option >= COG_OPTION_COUNT || cell < 0) {
+                        continue;
+                    }
+                    float scale = hoverMark ? 1.12f : 1.0f;
+
+                    int count = cogOptionCells(option);
+                    float span = (COG_TRACK_R - COG_TRACK_L) / count;
+                    Vec3 local;
+                    local.x = (COG_TRACK_L + (cell + 0.5f) * span - 0.5f) * ctx->cogW;
+                    local.y = (0.5f - (COG_ROW_V0 + option * COG_ROW_STEP)) * ctx->cogH;
+                    local.z = 0.004f;
+                    Vec3 offset = quatRotate(ctx->cogPose.orientation, local);
+
+                    XrCompositionLayerQuad* mark = &cogMarkLayers[m];
+                    memset(mark, 0, sizeof(*mark));
+                    mark->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                    mark->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    mark->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    mark->subImage.swapchain = ctx->outlineSwapchain;
+                    mark->subImage.imageRect.offset.x = 0;
+                    mark->subImage.imageRect.offset.y = 0;
+                    mark->subImage.imageRect.extent.width = OUTLINE_TEX;
+                    mark->subImage.imageRect.extent.height = OUTLINE_TEX;
+                    mark->subImage.imageArrayIndex = 0;
+                    mark->space = space;
+                    mark->pose.orientation = ctx->cogPose.orientation;
+                    mark->pose.position.x = ctx->cogPose.position.x + offset.x;
+                    mark->pose.position.y = ctx->cogPose.position.y + offset.y;
+                    mark->pose.position.z = ctx->cogPose.position.z + offset.z;
+                    mark->size.width = span * ctx->cogW * scale;
+                    mark->size.height = 2.0f * COG_CELL_HALF * ctx->cogH * scale;
+                    layers[layerCount++] = (const XrCompositionLayerBaseHeader*)mark;
+                }
+            }
+
+            if (ctx->cogTab == COG_TAB_SCREEN && ctx->cogThumbReady) {
+                float thumbSize = ctx->cogH * 0.085f;
+                for (int s = 0; s < COG_SLIDER_COUNT; s++) {
+                    // No thumb on a row that cannot be dragged
+                    if (s == COG_SLIDER_CURVE && !ctx->cylinderSupported) {
+                        continue;
+                    }
+                    float t = cogSliderValue(ctx, s);
+                    Vec3 local;
+                    local.x = (COG_TRACK_L + t * (COG_TRACK_R - COG_TRACK_L) - 0.5f) * ctx->cogW;
+                    local.y = (0.5f - (COG_ROW_V0 + s * COG_ROW_STEP)) * ctx->cogH;
+                    local.z = 0.004f;
+                    Vec3 offset = quatRotate(ctx->cogPose.orientation, local);
+
+                    XrCompositionLayerQuad* thumb = &cogThumbLayers[s];
+                    memset(thumb, 0, sizeof(*thumb));
+                    thumb->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                    thumb->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                    thumb->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                    thumb->subImage.swapchain = ctx->cogThumbSwapchain;
+                    thumb->subImage.imageRect.offset.x = 0;
+                    thumb->subImage.imageRect.offset.y = 0;
+                    thumb->subImage.imageRect.extent.width = COG_THUMB_TEX;
+                    thumb->subImage.imageRect.extent.height = COG_THUMB_TEX;
+                    thumb->subImage.imageArrayIndex = 0;
+                    thumb->space = space;
+                    thumb->pose.orientation = ctx->cogPose.orientation;
+                    thumb->pose.position.x = ctx->cogPose.position.x + offset.x;
+                    thumb->pose.position.y = ctx->cogPose.position.y + offset.y;
+                    thumb->pose.position.z = ctx->cogPose.position.z + offset.z;
+                    // Grows under the ray, the same feedback the buttons give
+                    float grow = (ctx->cogHoverSlider == s || ctx->cogDragSlider == s)
+                            ? 1.25f : 1.0f;
+                    thumb->size.width = thumbSize * grow;
+                    thumb->size.height = thumbSize * grow;
+                    layers[layerCount++] = (const XrCompositionLayerBaseHeader*)thumb;
                 }
             }
         }

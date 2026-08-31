@@ -48,7 +48,7 @@ public class PreferenceConfiguration {
     private static final String LEGACY_DISABLE_FRAME_DROP_PREF_STRING = "checkbox_disable_frame_drop";
     private static final String ENABLE_HDR_PREF_STRING = "checkbox_enable_hdr";
     private static final String ENABLE_PIP_PREF_STRING = "checkbox_enable_pip";
-    private static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
+    public static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String ENABLE_GL_RENDER_PATH_PREF_STRING = "checkbox_enable_gl_render_path";
     private static final String ENABLE_VR_MODE_PREF_STRING = "checkbox_enable_vr_mode";
     private static final String VR_HEAD_LOCKED_PREF_STRING = "checkbox_vr_head_locked";
@@ -56,7 +56,7 @@ public class PreferenceConfiguration {
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     private static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
-    private static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
+    public static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
