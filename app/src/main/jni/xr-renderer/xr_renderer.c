@@ -202,6 +202,12 @@ static void xrLog(int prio, const char* fmt, ...) {
 // filtering across it would slide the cursor in from where it used to be
 #define POINTER_RESET_NS 250000000L
 
+// The aim pose gets its own filter so the hover zones, grabs and beam
+// origin settle along with the cursor. Position and rotation share the
+// tunables since their derivatives are the same order of magnitude.
+#define AIM_MIN_CUTOFF 1.0f
+#define AIM_BETA 20.0f
+
 // The pointer waits for deliberate movement before it appears, so knocking a
 // controller does not throw a laser across the picture, and it goes away again
 // once a controller has been put down
@@ -351,6 +357,8 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define PROP_DEPTH_LOCAL "debug.moonlight.depthlocal"
 #define PROP_POINTER_CUTOFF "debug.moonlight.pointercutoff"
 #define PROP_POINTER_BETA "debug.moonlight.pointerbeta"
+#define PROP_AIM_CUTOFF "debug.moonlight.aimcutoff"
+#define PROP_AIM_BETA "debug.moonlight.aimbeta"
 #define PROP_BEAM_WIDTH "debug.moonlight.beamwidth"
 #define PROP_POINTER_WAKE "debug.moonlight.pointerwake"
 #define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
@@ -372,6 +380,14 @@ typedef struct {
     float x;
     float dx;
 } EuroState;
+
+// One euro on a rotation: angular speed drives the cutoff and the blend
+// is a lerp toward the new sample, which is fine at per frame angles
+typedef struct {
+    int valid;
+    XrQuaternionf q;
+    float dAngle;
+} EuroQuatState;
 
 typedef struct {
     JavaVM* vm;
@@ -614,6 +630,12 @@ typedef struct {
     float pointerBeta;
     long lastHitNs;
     int lastHand;
+
+    // One euro filter state for the aim pose, per hand
+    EuroState aimFilterPos[HAND_COUNT][3];
+    EuroQuatState aimFilterRot[HAND_COUNT];
+    float aimMinCutoff;
+    float aimBeta;
 
     // Movement gate. The pointer only appears after the controller has been
     // moved deliberately, and disappears once it has been still a while.
@@ -1830,6 +1852,41 @@ static float euroFilter(EuroState* s, float x, float dt, float minCutoff, float 
     float cutoff = minCutoff + beta * fabsf(s->dx);
     s->x += euroAlpha(cutoff, dt) * (x - s->x);
     return s->x;
+}
+
+static XrQuaternionf euroFilterQuat(EuroQuatState* s, XrQuaternionf q, float dt,
+                                    float minCutoff, float beta) {
+    if (!s->valid || dt <= 0.0f) {
+        s->valid = 1;
+        s->q = q;
+        s->dAngle = 0.0f;
+        return q;
+    }
+    // Quaternions cover every rotation twice, so take the near side
+    float dot = s->q.x * q.x + s->q.y * q.y + s->q.z * q.z + s->q.w * q.w;
+    if (dot < 0.0f) {
+        q.x = -q.x; q.y = -q.y; q.z = -q.z; q.w = -q.w;
+        dot = -dot;
+    }
+    if (dot > 1.0f) {
+        dot = 1.0f;
+    }
+    float speed = 2.0f * acosf(dot) / dt;
+    s->dAngle += euroAlpha(POINTER_D_CUTOFF, dt) * (speed - s->dAngle);
+    float cutoff = minCutoff + beta * s->dAngle;
+    float a = euroAlpha(cutoff, dt);
+    XrQuaternionf r = {
+        s->q.x + a * (q.x - s->q.x),
+        s->q.y + a * (q.y - s->q.y),
+        s->q.z + a * (q.z - s->q.z),
+        s->q.w + a * (q.w - s->q.w),
+    };
+    float len = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w);
+    if (len > 0.0f) {
+        r.x /= len; r.y /= len; r.z /= len; r.w /= len;
+    }
+    s->q = r;
+    return r;
 }
 
 // Rotation whose local axes are the three given unit vectors. Used to stand a
@@ -3186,6 +3243,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->screenOverride = -1.0f;
     ctx->pointerMinCutoff = POINTER_MIN_CUTOFF;
     ctx->pointerBeta = POINTER_BETA;
+    ctx->aimMinCutoff = AIM_MIN_CUTOFF;
+    ctx->aimBeta = AIM_BETA;
     ctx->pointerWake = POINTER_WAKE_SEC;
     ctx->pointerSleep = POINTER_SLEEP_SEC;
     // 1 cm reads as a thin line at 3 m without disappearing
@@ -3721,12 +3780,36 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 loc.pose = ctx->handRay[h];
             }
             else {
+                // Filtering across a tracking gap would sweep the ray in
+                // from wherever the hand was last seen
+                if (h < HAND_COUNT) {
+                    ctx->aimFilterPos[h][0].valid = 0;
+                    ctx->aimFilterPos[h][1].valid = 0;
+                    ctx->aimFilterPos[h][2].valid = 0;
+                    ctx->aimFilterRot[h].valid = 0;
+                }
                 continue;
             }
         }
-        aimPoses[h] = loc.pose;
+        // Hands and controllers go through the pose filter. Gaze does not:
+        // eyes move in saccades and the cursor is already smoothed downstream.
+        if (h < HAND_COUNT) {
+            XrPosef f = loc.pose;
+            f.position.x = euroFilter(&ctx->aimFilterPos[h][0], f.position.x, dt,
+                                      ctx->aimMinCutoff, ctx->aimBeta);
+            f.position.y = euroFilter(&ctx->aimFilterPos[h][1], f.position.y, dt,
+                                      ctx->aimMinCutoff, ctx->aimBeta);
+            f.position.z = euroFilter(&ctx->aimFilterPos[h][2], f.position.z, dt,
+                                      ctx->aimMinCutoff, ctx->aimBeta);
+            f.orientation = euroFilterQuat(&ctx->aimFilterRot[h], f.orientation, dt,
+                                           ctx->aimMinCutoff, ctx->aimBeta);
+            aimPoses[h] = f;
+        }
+        else {
+            aimPoses[h] = loc.pose;
+        }
         aimValid[h] = 1;
-        if (screenProject(loc.pose, screenPose, ctx->screenWidth, height, radius, curved,
+        if (screenProject(aimPoses[h], screenPose, ctx->screenWidth, height, radius, curved,
                           &hitU[h], &hitV[h])) {
             hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, &corners[h]);
             // The button reaches past the left end of the bar's zone, so it is
@@ -4221,6 +4304,8 @@ static void pollCaptureRequest(XrCtx* ctx) {
     // Tenths of a Hz, and half units of speed sensitivity
     propScaled(PROP_POINTER_CUTOFF, &ctx->pointerMinCutoff, 0.1f, 200);
     propScaled(PROP_POINTER_BETA, &ctx->pointerBeta, 0.5f, 100);
+    propScaled(PROP_AIM_CUTOFF, &ctx->aimMinCutoff, 0.1f, 200);
+    propScaled(PROP_AIM_BETA, &ctx->aimBeta, 0.5f, 100);
     // Millimetres
     propScaled(PROP_BEAM_WIDTH, &ctx->beamWidth, 0.001f, 100);
     // Tenths of a second
