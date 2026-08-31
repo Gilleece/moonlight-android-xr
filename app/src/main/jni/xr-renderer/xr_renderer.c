@@ -3242,7 +3242,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jobject activity, jint width, jint height,
                                                        jint stereoMode, jboolean depthDebug,
                                                        jint convergence, jint depthScale,
-                                                       jboolean handTracking) {
+                                                       jboolean handTracking, jint sharpenMode) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
     ctx->videoWidth = width;
@@ -3285,6 +3285,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->depthGlobal = 1.0f;
     ctx->convergence = convergence / 100.0f;
     ctx->depthLocal = depthScale / 100.0f;
+    ctx->sharpenMode = sharpenMode >= 0 && sharpenMode <= 2 ? sharpenMode : 0;
     // No environment logged yet, and cell 0 is a real choice
     ctx->loggedChoice = -1;
     (*env)->GetJavaVM(env, &ctx->vm);

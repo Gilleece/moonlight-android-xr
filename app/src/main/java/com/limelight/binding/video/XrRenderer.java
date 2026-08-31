@@ -180,7 +180,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static native void nativeSetFileLog(String path, int level);
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
-                                   boolean handTracking);
+                                   boolean handTracking, int sharpenMode);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -221,7 +221,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
-                        prefs.vrHandTracking);
+                        prefs.vrHandTracking, prefs.vrSharpening);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
