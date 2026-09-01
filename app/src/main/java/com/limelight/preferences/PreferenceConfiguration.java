@@ -166,12 +166,12 @@ public class PreferenceConfiguration {
     // beside the depth slider that gives it something to do.
     public static final int DEFAULT_VR_CONVERGENCE = 50;
     private static final int DEFAULT_VR_DEPTH_SCALE = 100;
-    // Off until it is asked for, and half strength when it is, which is where
-    // the panel's tick sits
-    public static final boolean DEFAULT_VR_AMBILIGHT = false;
+    // On at half strength, which is where the panel's tick sits. Anyone who has
+    // already turned it off keeps their saved value
+    public static final boolean DEFAULT_VR_AMBILIGHT = true;
     public static final int DEFAULT_VR_AMBILIGHT_LEVEL = 50;
-    // On, unlike the glow: inside a room the light off the picture is most of
-    // what makes the place look lit at all
+    // Inside a room the light off the picture is most of what makes the place
+    // look lit at all
     public static final boolean DEFAULT_VR_ROOM_LIGHT = true;
     // Warnings and errors by default. The file is small, and a report that
     // arrives without one is a round trip nobody wants.
