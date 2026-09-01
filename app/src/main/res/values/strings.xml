@@ -292,6 +292,9 @@
     <string name="title_seekbar_vr_separation">Stereo separation</string>
     <string name="summary_seekbar_vr_separation">How far apart the two eye views are, as a percent of frame width. Above about 0.5 the picture does not look any deeper but is harder on the eyes.</string>
     <string name="suffix_seekbar_vr_percent">%</string>
+    <string name="gen1_warning_title">Older headset detected</string>
+    <string name="gen1_warning_text">This app is intended for Quest 3 / Pico 4 Ultra or newer headsets. Performance on Quest 2 / Pico 4 generation headsets or earlier has not been tested and is expected to be poor. A lower performance profile has been applied to help keep the experience enjoyable. Turning off realtime 3D will give a huge performance boost, but it\'s likely the reason you downloaded this app! Just a heads up. Thanks and enjoy!</string>
+    <string name="warning_dialog_never_again">Don\'t show this again</string>
     <string name="title_enable_gl_render_path">Render through OpenGL (Experimental)</string>
     <string name="summary_enable_gl_render_path">Route decoded video through an OpenGL texture before display. Should look identical to normal rendering. HDR streams will be tone clamped with this on.</string>
     <string name="title_enable_perf_overlay">Show performance stats while streaming</string>
@@ -320,6 +323,7 @@
 
     <string name="fps_30">30 FPS</string>
     <string name="fps_60">60 FPS</string>
+    <string name="fps_72">72 FPS</string>
     <string name="fps_90">90 FPS</string>
     <string name="fps_120">120 FPS</string>
 
