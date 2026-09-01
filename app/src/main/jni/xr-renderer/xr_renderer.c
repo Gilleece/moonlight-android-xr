@@ -247,6 +247,8 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define SETTING_SEPARATION 2
 #define SETTING_CONVERGENCE 3
 #define SETTING_RESET_3D 4
+#define SETTING_AMBILIGHT 5
+#define SETTING_AMBI_LEVEL 6
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
@@ -374,9 +376,14 @@ static void xrLog(int prio, const char* fmt, ...) {
 // dragging a value.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_STATS   1
-#define COG_OPTION_COUNT   2
+#define COG_OPTION_AMBILIGHT 2
+#define COG_OPTION_COUNT   3
 #define COG_SHARPEN_CELLS 3
 #define COG_STATS_CELLS   2
+#define COG_AMBI_CELLS    2
+// The one row on this tab that is a track rather than cells, under the option
+// rows, so the glow can be turned down without leaving the tab it lives on
+#define COG_DISPLAY_SLIDER_ROW 3
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
 #define COG_DIST_MIN 0.2f
@@ -412,6 +419,16 @@ static void xrLog(int prio, const char* fmt, ...) {
 // Radius of the environment sphere in metres. Finite, so leaning gives the
 // room a size instead of it sitting infinitely far off.
 #define ENV_RADIUS_M 12.0f
+
+// Ambilight. The frame is boiled down to a tiny colour texture once a frame,
+// and a soft quad behind the screen is filled from it, so whatever the picture
+// is sitting in front of picks up the colours on it.
+#define AMBI_SAMPLE_TEX 32
+#define GLOW_TEX 256
+// How much larger than the screen the glow quad is, and how far behind it
+// sits in metres
+#define GLOW_SCALE 1.7f
+#define GLOW_BEHIND_M 0.05f
 
 // Return codes for waitBeginFrame
 #define FRAME_EXIT   -1
@@ -483,6 +500,8 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
 #define PROP_ENV_RADIUS "debug.moonlight.envradius"
 #define PROP_SHARPEN "debug.moonlight.sharpen"
+#define PROP_AMBILIGHT "debug.moonlight.ambilight"
+#define PROP_AMBI_SMOOTH "debug.moonlight.ambismooth"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
@@ -613,6 +632,29 @@ typedef struct {
     float distanceOverride;
     float screenOverride;
 
+    // Ambilight. The frame is sampled down to a tiny colour texture, which the
+    // glow quad behind the screen is then drawn from. Kept apart from the depth
+    // passes: the glow works with the depth model off.
+    GLuint ambiProgram;
+    GLint ambiTexMatrixUniform;
+    GLuint ambiTexture;
+    GLuint ambiFbo;
+    // Whether there is anything in that texture yet, since the first frame has
+    // nothing to smooth against
+    int ambiSeeded;
+    float ambiSmooth;
+    GLuint glowProgram;
+    GLint glowIntensityUniform;
+    GLuint glowFbo;
+    XrSwapchain glowSwapchain;
+    uint32_t glowImageCount;
+    XrSwapchainImageOpenGLESKHR* glowImages;
+    int glowRendered;
+    int ambilightOn;
+    float ambiIntensity;
+    // What the debug property asked for, or -1 while the panel still owns it
+    int ambiOverride;
+
     GLuint oesTexture;
     GLuint program;
     GLint texMatrixUniform;
@@ -648,6 +690,11 @@ typedef struct {
     int cylinderSupported;
     int equirectSupported;
     int layerSettingsSupported;
+    // How many composition layers this runtime will take in one frame, asked
+    // for rather than assumed, and whether a frame has already been caught
+    // crowding it
+    int maxLayerCount;
+    int layerLimitWarned;
 
     // 360 photo shown behind everything when passthrough is off. An equirect
     // layer, so the compositor draws the environment and we still have no
@@ -1166,6 +1213,84 @@ static const char* DOWNSCALE_FRAGMENT_SRC =
     "    fragColor = vec4(sum * (1.0 / 16.0), 1.0);\n"
     "}\n";
 
+// Feeds the ambilight. Thirty two square is coarse enough to read as a wash
+// rather than as a blurred copy of the picture, and the same 4x4 box the depth
+// downscale uses is what keeps it steady: one tap per output texel and the
+// colours crawl as the sample points cross detail in the frame.
+static const char* AMBI_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "#extension GL_OES_EGL_image_external_essl3 : require\n"
+    "precision highp float;\n"
+    "in vec2 v_plain;\n"
+    "uniform samplerExternalOES u_texture;\n"
+    "uniform mat4 u_texmatrix;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "    vec3 sum = vec3(0.0);\n"
+    "    for (int y = 0; y < 4; y++) {\n"
+    "        for (int x = 0; x < 4; x++) {\n"
+    "            vec2 off = (vec2(float(x), float(y)) - 1.5) * (0.25 / 32.0);\n"
+    "            vec2 tc = v_plain + off;\n"
+    "            sum += texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy).rgb;\n"
+    "        }\n"
+    "    }\n"
+    "    fragColor = vec4(sum * (1.0 / 16.0), 1.0);\n"
+    "}\n";
+
+// The glow itself. The quad is larger than the screen, so the middle of it
+// covers the picture and only the border is ever seen. Sampling the colour
+// texture over that middle and letting the clamp carry the edge texels outward
+// is what spreads the frame's colours into the space around it.
+static const char* GLOW_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "in vec2 v_plain;\n"
+    "uniform sampler2D u_texture;\n"
+    "uniform float u_intensity;\n"
+    "out vec4 fragColor;\n"
+    // 1.7 is GLOW_SCALE and 32.0 is AMBI_SAMPLE_TEX, both kept in step by hand
+    "const float scale = 1.7;\n"
+    "const float size = 32.0;\n"
+    "void main() {\n"
+    "    vec2 uv = v_plain;\n"
+    "    vec2 fuv = (uv - 0.5) * scale + 0.5;\n"
+    // A cubic B spline over the colour texture, done as four bilinear fetches.
+    // Plain bilinear puts a crease at every texel boundary, and magnified this
+    // far those creases are the lines that showed across the glow. This kernel
+    // approximates rather than interpolates, so it smooths the texel to texel
+    // steps on the way as well.
+    "    vec2 tc = fuv * size - 0.5;\n"
+    "    vec2 base = floor(tc);\n"
+    "    vec2 f = tc - base;\n"
+    "    vec2 f2 = f * f;\n"
+    "    vec2 f3 = f2 * f;\n"
+    "    vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;\n"
+    "    vec2 w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;\n"
+    "    vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;\n"
+    "    vec2 w3 = f3 / 6.0;\n"
+    // Each pair of taps folds into one bilinear fetch placed between them, so
+    // sixteen texel reads come out of four
+    "    vec2 g0 = w0 + w1;\n"
+    "    vec2 g1 = w2 + w3;\n"
+    "    vec2 h0 = (base - 0.5 + w1 / g0) / size;\n"
+    "    vec2 h1 = (base + 1.5 + w3 / g1) / size;\n"
+    "    vec3 c00 = texture(u_texture, vec2(h0.x, h0.y)).rgb;\n"
+    "    vec3 c10 = texture(u_texture, vec2(h1.x, h0.y)).rgb;\n"
+    "    vec3 c01 = texture(u_texture, vec2(h0.x, h1.y)).rgb;\n"
+    "    vec3 c11 = texture(u_texture, vec2(h1.x, h1.y)).rgb;\n"
+    "    vec3 color = mix(mix(c11, c01, g0.x), mix(c10, c00, g0.x), g0.y);\n"
+    // Distance out into the border, 0 at the screen edge and 1 at the rim
+    "    vec2 d = max(abs(uv - 0.5) - 0.5 / scale, 0.0) / (0.5 - 0.5 / scale);\n"
+    "    float t = min(length(d), 1.0);\n"
+    // Flat at both ends, so neither the start of the fade nor the rim draws a
+    // line of its own. Squared to keep about the strength the plain curve had.
+    "    float s = t * t * (3.0 - 2.0 * t);\n"
+    "    float fall = (1.0 - s) * (1.0 - s);\n"
+    "    float a = fall * u_intensity;\n"
+    // Premultiplied, which is what the runtime composites the panel art as
+    "    fragColor = vec4(color * a, a);\n"
+    "}\n";
+
 // Same fullscreen strip as the 2d GL path, x y u v
 static const float VERTEX_DATA[] = {
     -1.0f, -1.0f, 0.0f, 0.0f,
@@ -1389,6 +1514,16 @@ static int initXrInstance(XrCtx* ctx) {
     LOGEV("passthrough %s", ctx->alphaBlendSupported ? "available" : "not offered by this runtime");
     LOGEV("compositor sharpening %s", ctx->layerSettingsSupported
           ? "available (XR_FB_composition_layer_settings)" : "not offered by this runtime");
+
+    // How many layers a frame may carry. The furniture, the panel and the glow
+    // all come and go on their own, so the ceiling is worth knowing rather than
+    // guessing at. A runtime that will not say gets the spec's minimum.
+    ctx->maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
+    XrSystemProperties layerProps = { XR_TYPE_SYSTEM_PROPERTIES };
+    if (!XR_FAILED(xrGetSystemProperties(ctx->instance, ctx->systemId, &layerProps))
+            && layerProps.graphicsProperties.maxLayerCount > 0) {
+        ctx->maxLayerCount = (int)layerProps.graphicsProperties.maxLayerCount;
+    }
 
     // Offering the extension is not the same as having the hardware, so the
     // system is asked directly before anything is bound to a gaze
@@ -1681,6 +1816,55 @@ static int initUpsample(XrCtx* ctx) {
     return 1;
 }
 
+// GL side of the ambilight: the colour texture the frame is sampled into and
+// the program that spreads it over the glow quad. Set up whatever the depth
+// settings are, since the glow needs no depth of any kind.
+static int initAmbilight(XrCtx* ctx) {
+    if (!linkProgram(&ctx->ambiProgram, AMBI_FRAGMENT_SRC, "frame colour sample")) {
+        return 0;
+    }
+    ctx->ambiTexMatrixUniform = glGetUniformLocation(ctx->ambiProgram, "u_texmatrix");
+    glUseProgram(ctx->ambiProgram);
+    glUniform1i(glGetUniformLocation(ctx->ambiProgram, "u_texture"), 0);
+
+    glGenTextures(1, &ctx->ambiTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    // The glow reads past both ends of this on purpose, and the clamp is what
+    // carries the frame's edge colours out to the rim of the quad
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, &ctx->ambiFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->ambiFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->ambiTexture, 0);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("ambilight framebuffer incomplete: 0x%x", status);
+        return 0;
+    }
+
+    if (!linkProgram(&ctx->glowProgram, GLOW_FRAGMENT_SRC, "glow")) {
+        return 0;
+    }
+    ctx->glowIntensityUniform = glGetUniformLocation(ctx->glowProgram, "u_intensity");
+    glUseProgram(ctx->glowProgram);
+    glUniform1i(glGetUniformLocation(ctx->glowProgram, "u_texture"), 0);
+
+    // Nothing attached yet: the target is whichever swapchain image the frame
+    // acquires
+    glGenFramebuffers(1, &ctx->glowFbo);
+
+    LOGI("ambilight ready, sampling %dx%d into a %dx%d glow",
+         AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, GLOW_TEX, GLOW_TEX);
+    return 1;
+}
+
 // GL side of the depth model path: the downscale target the frame is
 // rendered into, and the staging buffers it is read back through
 static int initDepthModel(XrCtx* ctx) {
@@ -1826,6 +2010,10 @@ static int initGl(XrCtx* ctx) {
     // extension colors will look washed out and we would need a shader fix.
     if (ctx->swapchainFormat == GL_SRGB8_ALPHA8 && !ctx->srgbWriteControl) {
         LOGW("GL_EXT_sRGB_write_control not available, expect wrong gamma");
+    }
+
+    if (!initAmbilight(ctx)) {
+        return 0;
     }
 
     if (ctx->stereoMode == DEPTH_MODE_MODEL) {
@@ -2863,6 +3051,24 @@ static int createPointerSwapchain(XrCtx* ctx) {
         ctx->outlineSwapchain = XR_NULL_HANDLE;
     }
 
+    // The one chain here that is redrawn every frame rather than filled once,
+    // since it is made out of whatever the picture is showing
+    info.width = GLOW_TEX;
+    info.height = GLOW_TEX;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->glowSwapchain),
+                "create glow swapchain")) {
+        xrEnumerateSwapchainImages(ctx->glowSwapchain, 0, &ctx->glowImageCount, NULL);
+        ctx->glowImages = calloc(ctx->glowImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->glowImageCount; i++) {
+            ctx->glowImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->glowSwapchain, ctx->glowImageCount, &ctx->glowImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->glowImages);
+    }
+    else {
+        ctx->glowSwapchain = XR_NULL_HANDLE;
+    }
+
     info.width = CORNER_TEX_W;
     info.height = CORNER_TEX_H;
     if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cornerSwapchain),
@@ -3470,7 +3676,8 @@ static int cogTabRowCount(int tab) {
     if (tab == COG_TAB_3D) {
         return COG_ROW3D_COUNT;
     }
-    return COG_OPTION_COUNT;
+    // The option rows, then the glow level track under them
+    return COG_DISPLAY_SLIDER_ROW + 1;
 }
 
 // Where a slider's thumb sits along its track, 0 at the left end and 1 at the
@@ -3480,7 +3687,12 @@ static float cogSliderValue(XrCtx* ctx, int tab, int slider) {
     XrVector3f p = ctx->screenPose.position;
     float t = 0.0f;
 
-    if (tab == COG_TAB_3D) {
+    if (tab == COG_TAB_DISPLAY) {
+        // Only one row on this tab has a thumb, so which one it is does not
+        // need asking
+        t = ctx->ambiIntensity;
+    }
+    else if (tab == COG_TAB_3D) {
         if (slider == COG_ROW3D_SEPARATION) {
             t = ctx->separationCurrent / COG_SEP_MAX;
         }
@@ -3520,6 +3732,14 @@ static void cogApplySlider(XrCtx* ctx, int tab, int slider, float pu) {
     float t = (pu - COG_TRACK_L) / (COG_TRACK_R - COG_TRACK_L);
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
+
+    if (tab == COG_TAB_DISPLAY) {
+        // Five percent steps, so the thumb shows exactly what the preference
+        // will be written with when the drag ends
+        int units = (int)roundf(t * 20.0f) * 5;
+        ctx->ambiIntensity = units / 100.0f;
+        return;
+    }
 
     if (tab == COG_TAB_3D) {
         if (slider == COG_ROW3D_SEPARATION) {
@@ -3623,15 +3843,24 @@ static void cogApplySlider(XrCtx* ctx, int tab, int slider, float pu) {
     }
 }
 
-// Display tab rows are a row of cells rather than a track
+// The option rows on the display tab are a row of cells rather than a track
 static int cogOptionCells(int option) {
-    return option == COG_OPTION_SHARPEN ? COG_SHARPEN_CELLS : COG_STATS_CELLS;
+    if (option == COG_OPTION_SHARPEN) {
+        return COG_SHARPEN_CELLS;
+    }
+    if (option == COG_OPTION_AMBILIGHT) {
+        return COG_AMBI_CELLS;
+    }
+    return COG_STATS_CELLS;
 }
 
 // Which cell of a row is the one in force
 static int cogOptionValue(XrCtx* ctx, int option) {
     if (option == COG_OPTION_SHARPEN) {
         return ctx->sharpenMode;
+    }
+    if (option == COG_OPTION_AMBILIGHT) {
+        return ctx->ambilightOn ? 1 : 0;
     }
     return ctx->overlayVisible ? 1 : 0;
 }
@@ -3647,6 +3876,11 @@ static int cogApplyOption(XrCtx* ctx, int option, int cell) {
     if (option == COG_OPTION_STATS) {
         ctx->overlayVisible = cell != 0;
         return SETTING_STATS;
+    }
+    if (option == COG_OPTION_AMBILIGHT) {
+        ctx->ambilightOn = cell != 0;
+        LOGEV("ambilight %s from the panel", ctx->ambilightOn ? "on" : "off");
+        return SETTING_AMBILIGHT;
     }
     return -1;
 }
@@ -3677,6 +3911,11 @@ static void cogDragEnded(XrCtx* ctx, float* out) {
             out[IN_SETTING] = (float)SETTING_CONVERGENCE;
             out[IN_SETTING_VALUE] = roundf(ctx->convergence * 100.0f);
         }
+    }
+    else if (tab == COG_TAB_DISPLAY) {
+        out[IN_SETTING] = (float)SETTING_AMBI_LEVEL;
+        // Whole percent, the preference's units
+        out[IN_SETTING_VALUE] = roundf(ctx->ambiIntensity * 100.0f);
     }
 }
 
@@ -3760,6 +3999,18 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     free(ctx->depthScratch);
     free(ctx->depthColSums);
 
+    // Destroying the context below would take these anyway. Said explicitly so
+    // the glow's resources go together with the swapchain it draws into.
+    glDeleteFramebuffers(1, &ctx->ambiFbo);
+    glDeleteFramebuffers(1, &ctx->glowFbo);
+    glDeleteTextures(1, &ctx->ambiTexture);
+    if (ctx->ambiProgram != 0) {
+        glDeleteProgram(ctx->ambiProgram);
+    }
+    if (ctx->glowProgram != 0) {
+        glDeleteProgram(ctx->glowProgram);
+    }
+
     if (ctx->swapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->swapchain);
     }
@@ -3818,6 +4069,10 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->outlineSwapchain);
     }
     free(ctx->outlineImages);
+    if (ctx->glowSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->glowSwapchain);
+    }
+    free(ctx->glowImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -3854,7 +4109,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jint stereoMode, jboolean depthDebug,
                                                        jint convergence, jint depthScale,
                                                        jboolean handTracking, jint sharpenMode,
-                                                       jboolean perfOverlay) {
+                                                       jboolean perfOverlay, jboolean ambilight,
+                                                       jint ambiLevel) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
     ctx->videoWidth = width;
@@ -3908,6 +4164,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->convergence = convergence / 100.0f;
     ctx->depthLocal = depthScale / 100.0f;
     ctx->sharpenMode = sharpenMode >= 0 && sharpenMode <= 2 ? sharpenMode : 0;
+    // The panel owns the glow until a debug property says otherwise
+    ctx->ambilightOn = ambilight;
+    ctx->ambiIntensity = (ambiLevel < 0 ? 0 : (ambiLevel > 100 ? 100 : ambiLevel)) / 100.0f;
+    ctx->ambiOverride = -1;
+    // Roughly ten frames to cross a scene cut, which reads as the glow
+    // following the picture rather than flashing with it
+    ctx->ambiSmooth = 0.08f;
     // No environment logged yet, and cell 0 is a real choice
     ctx->loggedChoice = -1;
     (*env)->GetJavaVM(env, &ctx->vm);
@@ -3929,8 +4192,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
         LOGW("pointer swapchain unavailable, the ray will not be drawn");
     }
 
-    LOGI("OpenXR init complete (cylinder=%d equirect=%d srgbWriteControl=%d)",
-         ctx->cylinderSupported, ctx->equirectSupported, ctx->srgbWriteControl);
+    LOGI("OpenXR init complete (cylinder=%d equirect=%d srgbWriteControl=%d maxLayers=%d)",
+         ctx->cylinderSupported, ctx->equirectSupported, ctx->srgbWriteControl,
+         ctx->maxLayerCount);
     return (jlong)(intptr_t)ctx;
 }
 
@@ -4711,8 +4975,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
         // A drag keeps the hand that started it, and keeps it even once the
         // ray has wandered off the panel, so a slider can be run to either end
-        // in one go. The display tab has cells rather than anything draggable.
-        if (ctx->cogDragSlider >= 0 && ctx->cogTab != COG_TAB_DISPLAY) {
+        // in one go. The display tab is cells apart from its one level row.
+        if (ctx->cogDragSlider >= 0
+                && (ctx->cogTab != COG_TAB_DISPLAY
+                    || ctx->cogDragSlider == COG_DISPLAY_SLIDER_ROW)) {
             int h = ctx->cogDragHand;
             float pu, pv;
             if (h >= 0 && aimValid[h] && ctx->triggerDown[h]
@@ -4779,6 +5045,24 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
 
             if (ctx->cogTab == COG_TAB_DISPLAY) {
+                if (row == COG_DISPLAY_SLIDER_ROW) {
+                    // The one track on this tab, handled the way the other
+                    // tabs' rows are, including the band reaching a little
+                    // past both ends for the thumb hanging over them
+                    if (pu <= COG_TRACK_L - 0.04f || pu >= COG_TRACK_R + 0.04f) {
+                        row = -1;
+                    }
+                    ctx->cogHoverSlider = row;
+                    ctx->cogHoverCell = -1;
+                    if (row >= 0 && ctx->triggerEdge[h]) {
+                        ctx->cogDragSlider = row;
+                        ctx->cogDragHand = h;
+                        // Jumps to where the press landed, same as the others
+                        cogApplySlider(ctx, ctx->cogTab, row, pu);
+                    }
+                    break;
+                }
+
                 // Cells, so a press picks one rather than starting a drag
                 int cell = row >= 0 ? cogCellAt(pu, cogOptionCells(row)) : -1;
                 ctx->cogHoverSlider = cell >= 0 ? row : -1;
@@ -5152,6 +5436,11 @@ static void pollCaptureRequest(XrCtx* ctx) {
     propScaled(PROP_ENV_RADIUS, &ctx->envRadius, 1.0f, 200);
     // 0 off, 1 normal, 2 quality
     propInt(PROP_SHARPEN, &ctx->sharpenMode, 2);
+    // 0 forces the glow off, 1 to 100 forces it on at that intensity, and
+    // unset leaves the panel in charge. Same trap as the rest of these: one
+    // left set from an earlier session quietly overrides the panel.
+    propInt(PROP_AMBILIGHT, &ctx->ambiOverride, 100);
+    propPercent(PROP_AMBI_SMOOTH, &ctx->ambiSmooth);
 
     if (ctx->captureDir[0] == '\0') {
         return;
@@ -5273,6 +5562,102 @@ static void runOffsetSearch(XrCtx* ctx, float separation) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// What the glow is doing this frame. The panel owns it, with the debug
+// property over the top of it the way the separation override works.
+static void ambiEffective(XrCtx* ctx, int* on, float* level) {
+    int enabled = ctx->ambilightOn;
+    float value = ctx->ambiIntensity;
+    if (ctx->ambiOverride >= 0) {
+        enabled = ctx->ambiOverride > 0;
+        value = ctx->ambiOverride / 100.0f;
+    }
+    *on = enabled;
+    *level = value;
+}
+
+// Boils the frame down to the tiny colour texture. Kept self contained and
+// free of anything glow shaped, since it is the frame's colours rather than
+// the glow that anything else would want.
+static void runFrameColorSample(XrCtx* ctx, const float* texMatrix) {
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->ambiFbo);
+    glViewport(0, 0, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX);
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+
+    glUseProgram(ctx->ambiProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
+    glUniformMatrix4fv(ctx->ambiTexMatrixUniform, 1, GL_FALSE, texMatrix);
+
+    // Mixed into what is already there rather than replacing it. A cut to a
+    // different scene would otherwise strobe the whole glow in one frame,
+    // where this takes about ten to get there. The first frame has nothing to
+    // mix with, so it lands whole.
+    if (ctx->ambiSeeded) {
+        glEnable(GL_BLEND);
+        glBlendColor(ctx->ambiSmooth, ctx->ambiSmooth, ctx->ambiSmooth, ctx->ambiSmooth);
+        glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA);
+    }
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glDisable(GL_BLEND);
+    ctx->ambiSeeded = 1;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// Spreads those colours over the glow quad, into an image the compositor then
+// places behind the screen
+static void runGlowRender(XrCtx* ctx) {
+    if (ctx->glowSwapchain == XR_NULL_HANDLE) {
+        return;
+    }
+
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquire = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    if (!checkXr(xrAcquireSwapchainImage(ctx->glowSwapchain, &acquire, &index),
+                 "acquire glow image")) {
+        return;
+    }
+    XrSwapchainImageWaitInfo wait = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wait.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(ctx->glowSwapchain, &wait);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->glowFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->glowImages[index].image, 0);
+    glViewport(0, 0, GLOW_TEX, GLOW_TEX);
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+
+    int on;
+    float level;
+    ambiEffective(ctx, &on, &level);
+
+    glUseProgram(ctx->glowProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
+    glUniform1f(ctx->glowIntensityUniform, level);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(ctx->glowSwapchain, &release);
+    ctx->glowRendered = 1;
+}
+
 static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
@@ -5291,6 +5676,16 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     }
     if (occluding) {
         runOffsetSearch(ctx, separation);
+    }
+
+    // Inside the query window with the rest of them, so what the glow costs
+    // shows up in the same GPU number
+    int glowOn;
+    float glowLevel;
+    ambiEffective(ctx, &glowOn, &glowLevel);
+    if (glowOn) {
+        runFrameColorSample(ctx, texMatrix);
+        runGlowRender(ctx);
     }
 
     uint32_t imageIndex = 0;
@@ -5862,6 +6257,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     }
 
     XrCompositionLayerEquirect2KHR backgroundLayer;
+    XrCompositionLayerQuad glowLayer;
     XrCompositionLayerQuad quadLayers[2];
     XrCompositionLayerCylinderKHR cylLayers[2];
     XrCompositionLayerQuad overlayLayer;
@@ -5878,11 +6274,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMarkLayers[COG_OPTION_COUNT + 1];
     XrCompositionLayerSettingsFB sharpenSettings;
-    // Worst case reachable is the screen tab open: background, both eyes,
-    // stats, the cog button, the panel, six thumbs, ray and cursor, which is
-    // 13. The panel is modal, so the grid and the hover furniture are all off
-    // while it is up. Sized well past that anyway: an overflow here is a
-    // smashed stack, and the margin costs four pointers.
+    // Worst case reachable is the screen tab open: background, the glow, both
+    // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
+    // is 15. The panel is modal, and since the frame a modal opens now sheds
+    // the bar furniture too, the two can no longer land in one frame together.
+    // Sized well past that anyway: an overflow here is a smashed stack, and the
+    // margin costs five pointers.
     const XrCompositionLayerBaseHeader* layers[20];
     uint32_t layerCount = 0;
 
@@ -5930,6 +6327,37 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         backgroundLayer.upperVerticalAngle = halfV;
         backgroundLayer.lowerVerticalAngle = -halfV;
         layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&backgroundLayer;
+    }
+
+    // The glow, over the environment and under the picture. Deliberately not
+    // sharpened: being soft is the whole of the effect.
+    int glowOn;
+    float glowLevel;
+    ambiEffective(ctx, &glowOn, &glowLevel);
+    if (glowOn && ctx->glowRendered && ctx->everRendered && ctx->shouldRender) {
+        memset(&glowLayer, 0, sizeof(glowLayer));
+        glowLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+        glowLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        glowLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+        glowLayer.subImage.swapchain = ctx->glowSwapchain;
+        glowLayer.subImage.imageRect.offset.x = 0;
+        glowLayer.subImage.imageRect.offset.y = 0;
+        glowLayer.subImage.imageRect.extent.width = GLOW_TEX;
+        glowLayer.subImage.imageRect.extent.height = GLOW_TEX;
+        glowLayer.subImage.imageArrayIndex = 0;
+        glowLayer.space = space;
+        glowLayer.pose.orientation = screenPose.orientation;
+        // Local +z is behind the picture, the same direction the cylinder puts
+        // its axis. Far enough back that the two never z fight, near enough
+        // that the glow reads as coming off the screen.
+        Vec3 behindLocal = { 0.0f, 0.0f, GLOW_BEHIND_M };
+        Vec3 behind = quatRotate(screenPose.orientation, behindLocal);
+        glowLayer.pose.position.x = screenPose.position.x + behind.x;
+        glowLayer.pose.position.y = screenPose.position.y + behind.y;
+        glowLayer.pose.position.z = screenPose.position.z + behind.z;
+        glowLayer.size.width = screenWidth * GLOW_SCALE;
+        glowLayer.size.height = screenHeight * GLOW_SCALE;
+        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&glowLayer;
     }
 
     if (ctx->everRendered && ctx->shouldRender) {
@@ -6028,9 +6456,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         }
 
         // The bar and the two buttons beside it share a hover area, so reaching
-        // for one keeps the others on screen rather than swapping them
-        int barArea = ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
-                || ctx->hoverKind == HOVER_COGBUTTON;
+        // for one keeps the others on screen rather than swapping them. A modal
+        // takes it away on the very frame it opens: the hover is still on the
+        // button that was pressed, so the furniture and the panel would both go
+        // up for one frame, and that stack overflowed the runtime's layer limit
+        // and cost the whole frame with a -24 on device.
+        int barArea = !ctx->pickerOpen && !ctx->cogOpen
+                && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
+                    || ctx->hoverKind == HOVER_COGBUTTON);
 
         // Move bar and resize corner, shown only while the ray is over them.
         // Both live in the screen's own frame, so they travel with it.
@@ -6310,7 +6743,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 }
             }
 
-            if (ctx->cogTab != COG_TAB_DISPLAY && ctx->cogThumbReady) {
+            if (ctx->cogThumbReady) {
                 float thumbSize = ctx->cogH * 0.085f;
                 int rowCount = cogTabRowCount(ctx->cogTab);
                 for (int s = 0; s < rowCount; s++) {
@@ -6320,6 +6753,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                         continue;
                     }
                     if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
+                        continue;
+                    }
+                    // Which on the display tab is every row but the level one,
+                    // since the rest are cells with rings over them
+                    if (ctx->cogTab == COG_TAB_DISPLAY && s != COG_DISPLAY_SLIDER_ROW) {
                         continue;
                     }
                     float t = cogSliderValue(ctx, ctx->cogTab, s);
@@ -6442,6 +6880,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&dotLayer;
             }
         }
+    }
+
+    // Said once and only once, since a frame that crowds the limit is usually
+    // every frame after it. Nothing is dropped here: a missing layer is a
+    // silent bug, where the count in the log points straight at the culprit.
+    if (layerCount >= (uint32_t)ctx->maxLayerCount && !ctx->layerLimitWarned) {
+        ctx->layerLimitWarned = 1;
+        LOGW("submitted %u composition layers against a limit of %d",
+             layerCount, ctx->maxLayerCount);
     }
 
     endInfo.layerCount = layerCount;
