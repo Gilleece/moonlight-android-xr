@@ -503,6 +503,33 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define GLOW_SCALE 1.7f
 #define GLOW_BEHIND_M 0.05f
 
+// Letterbox and pillarbox. A movie arrives with black bars baked into the
+// frame, and sampling the frame's true edges then washes the room in black.
+// A second copy of the sample pass is read back now and then, the bars are
+// counted off each edge, and the pass that feeds the glow is cropped to the
+// picture inside them.
+// How many frames of the sample pass between readbacks, so this costs 4 KB a
+// couple of times a second
+#define AMBI_BAR_PERIOD 30
+// Average of max(r,g,b) below which a row or column counts as bar. High enough
+// to cover limited range black arriving unexpanded at 16/255.
+#define AMBI_BAR_LUMA 0.09f
+// Most texels of 32 one edge may eat. Wider than any real aspect ratio needs,
+// and it keeps a content region that cannot collapse.
+#define AMBI_BAR_MAX 10
+// Ticks a larger bar must hold before the crop grows, and ticks a smaller one
+// must hold before it shrinks. Growing slowly keeps a dark scene from being
+// mistaken for a bar; shrinking sooner gets the picture back quickly when the
+// bars really do go.
+#define AMBI_BAR_APPLY 4
+#define AMBI_BAR_RELEASE 2
+// Edge order used by every bar array below, in the plain quad's uv space
+#define AMBI_EDGE_LEFT 0
+#define AMBI_EDGE_RIGHT 1
+#define AMBI_EDGE_BOTTOM 2
+#define AMBI_EDGE_TOP 3
+#define AMBI_EDGES 4
+
 // The 3d room. A dark interior, drawn per eye into the one projection layer
 // this renderer has, instead of the environment sphere. Which room, 0 for none:
 // 1 is generated here, 2 is the baked model that ships in the assets.
@@ -636,6 +663,7 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_SHARPEN "debug.moonlight.sharpen"
 #define PROP_AMBILIGHT "debug.moonlight.ambilight"
 #define PROP_AMBI_SMOOTH "debug.moonlight.ambismooth"
+#define PROP_LETTERBOX "debug.moonlight.letterbox"
 #define PROP_ROOM "debug.moonlight.room"
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
@@ -775,12 +803,33 @@ typedef struct {
     // passes: the glow works with the depth model off.
     GLuint ambiProgram;
     GLint ambiTexMatrixUniform;
+    GLint ambiCropUniform;
     GLuint ambiTexture;
     GLuint ambiFbo;
     // Whether there is anything in that texture yet, since the first frame has
     // nothing to smooth against
     int ambiSeeded;
     float ambiSmooth;
+
+    // Letterbox detection. The same program draws the frame uncropped and
+    // unsmoothed into a second target that is read back on the CPU, so the
+    // bars are counted from a current frame rather than from the smoothed one
+    // the glow is looking at.
+    GLuint ambiDetectTexture;
+    GLuint ambiDetectFbo;
+    // 1 detects and crops, 0 leaves the whole frame alone
+    int ambiBarDetect;
+    // Frames of the sample pass since the last readback
+    int ambiBarCounter;
+    // Per edge, in AMBI_EDGE_* order. The applied count is what the crop is
+    // built from; the streaks are how long a larger or smaller count has held.
+    int ambiBarApplied[AMBI_EDGES];
+    int ambiBarGrowTicks[AMBI_EDGES];
+    int ambiBarGrowMin[AMBI_EDGES];
+    int ambiBarShrinkTicks[AMBI_EDGES];
+    int ambiBarShrinkMax[AMBI_EDGES];
+    // x0, y0, w, h in the plain quad's uv space, 0 0 1 1 for the whole frame
+    float ambiCrop[4];
     GLuint glowProgram;
     GLint glowIntensityUniform;
     GLuint glowFbo;
@@ -1523,6 +1572,9 @@ static const char* DOWNSCALE_FRAGMENT_SRC =
 // rather than as a blurred copy of the picture, and the same 4x4 box the depth
 // downscale uses is what keeps it steady: one tap per output texel and the
 // colours crawl as the sample points cross detail in the frame.
+// u_crop is the region of the frame worth sampling, x0 y0 w h, and letterbox
+// detection narrows it to the picture inside the black bars. At 0 0 1 1 the
+// output is what it was before there was a crop at all.
 static const char* AMBI_FRAGMENT_SRC =
     "#version 300 es\n"
     "#extension GL_OES_EGL_image_external_essl3 : require\n"
@@ -1530,13 +1582,17 @@ static const char* AMBI_FRAGMENT_SRC =
     "in vec2 v_plain;\n"
     "uniform samplerExternalOES u_texture;\n"
     "uniform mat4 u_texmatrix;\n"
+    "uniform vec4 u_crop;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
+    "    vec2 base = u_crop.xy + v_plain * u_crop.zw;\n"
     "    vec3 sum = vec3(0.0);\n"
     "    for (int y = 0; y < 4; y++) {\n"
     "        for (int x = 0; x < 4; x++) {\n"
-    "            vec2 off = (vec2(float(x), float(y)) - 1.5) * (0.25 / 32.0);\n"
-    "            vec2 tc = v_plain + off;\n"
+    // Shrunk with the crop, so the box stays inside the content it belongs to
+    // instead of reaching back over the bar
+    "            vec2 off = (vec2(float(x), float(y)) - 1.5) * (0.25 / 32.0) * u_crop.zw;\n"
+    "            vec2 tc = base + off;\n"
     "            sum += texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy).rgb;\n"
     "        }\n"
     "    }\n"
@@ -2216,6 +2272,7 @@ static int initAmbilight(XrCtx* ctx) {
         return 0;
     }
     ctx->ambiTexMatrixUniform = glGetUniformLocation(ctx->ambiProgram, "u_texmatrix");
+    ctx->ambiCropUniform = glGetUniformLocation(ctx->ambiProgram, "u_crop");
     glUseProgram(ctx->ambiProgram);
     glUniform1i(glGetUniformLocation(ctx->ambiProgram, "u_texture"), 0);
 
@@ -2238,6 +2295,28 @@ static int initAmbilight(XrCtx* ctx) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     if (status != GL_FRAMEBUFFER_COMPLETE) {
         LOGE("ambilight framebuffer incomplete: 0x%x", status);
+        return 0;
+    }
+
+    // The letterbox detector's own target. Same size and format, never sampled
+    // by anything: it exists to be drawn once in a while and read back.
+    glGenTextures(1, &ctx->ambiDetectTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->ambiDetectTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, &ctx->ambiDetectFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->ambiDetectFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->ambiDetectTexture, 0);
+    status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("letterbox framebuffer incomplete: 0x%x", status);
         return 0;
     }
 
@@ -4997,8 +5076,10 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     // Destroying the context below would take these anyway. Said explicitly so
     // the glow's resources go together with the swapchain it draws into.
     glDeleteFramebuffers(1, &ctx->ambiFbo);
+    glDeleteFramebuffers(1, &ctx->ambiDetectFbo);
     glDeleteFramebuffers(1, &ctx->glowFbo);
     glDeleteTextures(1, &ctx->ambiTexture);
+    glDeleteTextures(1, &ctx->ambiDetectTexture);
     if (ctx->ambiProgram != 0) {
         glDeleteProgram(ctx->ambiProgram);
     }
@@ -5217,6 +5298,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     // Roughly ten frames to cross a scene cut, which reads as the glow
     // following the picture rather than flashing with it
     ctx->ambiSmooth = 0.08f;
+    // Letterbox detection on, with nothing found yet, so the sample pass starts
+    // on the whole frame
+    ctx->ambiBarDetect = 1;
+    ctx->ambiCrop[0] = 0.0f;
+    ctx->ambiCrop[1] = 0.0f;
+    ctx->ambiCrop[2] = 1.0f;
+    ctx->ambiCrop[3] = 1.0f;
     // No environment logged yet, and cell 0 is a real choice
     ctx->loggedChoice = -1;
     (*env)->GetJavaVM(env, &ctx->vm);
@@ -6754,6 +6842,10 @@ static void pollCaptureRequest(XrCtx* ctx) {
     // left set from an earlier session quietly overrides the panel.
     propInt(PROP_AMBILIGHT, &ctx->ambiOverride, 100);
     propPercent(PROP_AMBI_SMOOTH, &ctx->ambiSmooth);
+    // 0 samples the whole frame, black bars and all, and 1 or unset crops the
+    // sample to the picture inside them. Same trap again: one left at 0 from an
+    // earlier session quietly turns the detection off.
+    propFlag(PROP_LETTERBOX, &ctx->ambiBarDetect);
     // 0 forces the room off, 1 forces the minimal room, 2 the psx cinema, and
     // unset leaves the picker in charge
     propInt(PROP_ROOM, &ctx->roomOverride, 2);
@@ -6896,6 +6988,172 @@ static void ambiEffective(XrCtx* ctx, int* on, float* level) {
     *level = value;
 }
 
+// The whole frame, which is what the sample pass used before there was a crop
+// and what the detector always draws
+static const float AMBI_CROP_FULL[4] = { 0.0f, 0.0f, 1.0f, 1.0f };
+
+// One edge of the hysteresis. The crop grows only once a larger bar has held
+// for AMBI_BAR_APPLY ticks, and then only to the smallest of them, so a dark
+// scene that reads as bar for a moment moves nothing. It shrinks after
+// AMBI_BAR_RELEASE ticks, to the largest of those, which is the same idea the
+// other way: the least the evidence supports.
+static void ambiBarEdge(XrCtx* ctx, int edge, int measured) {
+    if (measured > ctx->ambiBarApplied[edge]) {
+        ctx->ambiBarShrinkTicks[edge] = 0;
+        if (ctx->ambiBarGrowTicks[edge] == 0 || measured < ctx->ambiBarGrowMin[edge]) {
+            ctx->ambiBarGrowMin[edge] = measured;
+        }
+        ctx->ambiBarGrowTicks[edge]++;
+        if (ctx->ambiBarGrowTicks[edge] >= AMBI_BAR_APPLY) {
+            ctx->ambiBarApplied[edge] = ctx->ambiBarGrowMin[edge];
+            ctx->ambiBarGrowTicks[edge] = 0;
+        }
+        return;
+    }
+    if (measured < ctx->ambiBarApplied[edge]) {
+        ctx->ambiBarGrowTicks[edge] = 0;
+        if (ctx->ambiBarShrinkTicks[edge] == 0 || measured > ctx->ambiBarShrinkMax[edge]) {
+            ctx->ambiBarShrinkMax[edge] = measured;
+        }
+        ctx->ambiBarShrinkTicks[edge]++;
+        if (ctx->ambiBarShrinkTicks[edge] >= AMBI_BAR_RELEASE) {
+            ctx->ambiBarApplied[edge] = ctx->ambiBarShrinkMax[edge];
+            ctx->ambiBarShrinkTicks[edge] = 0;
+        }
+        return;
+    }
+    ctx->ambiBarGrowTicks[edge] = 0;
+    ctx->ambiBarShrinkTicks[edge] = 0;
+}
+
+// Counts black bars in a readback of the sample texture and folds the result
+// into the applied crop. Rows and columns are named by the readback's own
+// order: row 0 is the v = 0 end of the quad, which is not necessarily the
+// picture's top, since the SurfaceTexture transform may flip on the way in.
+// Nothing here or downstream cares, because the crop is applied in the same
+// space it was measured in.
+static void detectAmbiBars(XrCtx* ctx, const unsigned char* rgba) {
+    const int n = AMBI_SAMPLE_TEX;
+    float rowSum[AMBI_SAMPLE_TEX];
+    float colSum[AMBI_SAMPLE_TEX];
+    for (int i = 0; i < n; i++) {
+        rowSum[i] = 0.0f;
+        colSum[i] = 0.0f;
+    }
+    for (int y = 0; y < n; y++) {
+        for (int x = 0; x < n; x++) {
+            const unsigned char* p = rgba + ((size_t)y * n + x) * 4;
+            // The brightest channel rather than a weighted luma: a saturated
+            // blue at the edge of the picture is not a bar, and the weights
+            // would nearly call it one
+            int m = p[0] > p[1] ? p[0] : p[1];
+            if (p[2] > m) {
+                m = p[2];
+            }
+            float l = m * (1.0f / 255.0f);
+            rowSum[y] += l;
+            colSum[x] += l;
+        }
+    }
+
+    int rowBar[AMBI_SAMPLE_TEX];
+    int colBar[AMBI_SAMPLE_TEX];
+    int rowsBar = 0;
+    int colsBar = 0;
+    for (int i = 0; i < n; i++) {
+        rowBar[i] = rowSum[i] * (1.0f / n) < AMBI_BAR_LUMA;
+        colBar[i] = colSum[i] * (1.0f / n) < AMBI_BAR_LUMA;
+        rowsBar += rowBar[i];
+        colsBar += colBar[i];
+    }
+
+    // A frame that reads as bar end to end is a fade or a stall, not a
+    // letterbox. Cropping it would pick a content region out of nothing and
+    // then have to walk back out of it when the picture returns. Each axis
+    // gets the rule on its own, which also covers the frame being black.
+    int measured[AMBI_EDGES];
+    memset(measured, 0, sizeof(measured));
+    if (rowsBar < n) {
+        while (measured[AMBI_EDGE_BOTTOM] < n && rowBar[measured[AMBI_EDGE_BOTTOM]]) {
+            measured[AMBI_EDGE_BOTTOM]++;
+        }
+        while (measured[AMBI_EDGE_TOP] < n && rowBar[n - 1 - measured[AMBI_EDGE_TOP]]) {
+            measured[AMBI_EDGE_TOP]++;
+        }
+    }
+    if (colsBar < n) {
+        while (measured[AMBI_EDGE_LEFT] < n && colBar[measured[AMBI_EDGE_LEFT]]) {
+            measured[AMBI_EDGE_LEFT]++;
+        }
+        while (measured[AMBI_EDGE_RIGHT] < n && colBar[n - 1 - measured[AMBI_EDGE_RIGHT]]) {
+            measured[AMBI_EDGE_RIGHT]++;
+        }
+    }
+
+    int changed = 0;
+    for (int e = 0; e < AMBI_EDGES; e++) {
+        if (measured[e] > AMBI_BAR_MAX) {
+            measured[e] = AMBI_BAR_MAX;
+        }
+        int before = ctx->ambiBarApplied[e];
+        ambiBarEdge(ctx, e, measured[e]);
+        if (ctx->ambiBarApplied[e] != before) {
+            changed = 1;
+        }
+    }
+    if (!changed) {
+        return;
+    }
+
+    int left = ctx->ambiBarApplied[AMBI_EDGE_LEFT];
+    int right = ctx->ambiBarApplied[AMBI_EDGE_RIGHT];
+    int bottom = ctx->ambiBarApplied[AMBI_EDGE_BOTTOM];
+    int top = ctx->ambiBarApplied[AMBI_EDGE_TOP];
+    ctx->ambiCrop[0] = left / (float)n;
+    ctx->ambiCrop[1] = bottom / (float)n;
+    ctx->ambiCrop[2] = (n - left - right) / (float)n;
+    ctx->ambiCrop[3] = (n - bottom - top) / (float)n;
+    // Top and bottom here are the v = 1 and v = 0 ends of the readback, not
+    // the picture's own, for the reason in the comment above
+    LOGI("ambilight bars: top %d bottom %d left %d right %d", top, bottom, left, right);
+}
+
+// Draws the frame uncropped into the detector's target and reads it straight
+// back. Sets up all of its own state: it runs well after the sample pass, from
+// a point where the video draw has left the program, viewport and texture units
+// on something else entirely.
+static void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix) {
+    const int n = AMBI_SAMPLE_TEX;
+    unsigned char rgba[AMBI_SAMPLE_TEX * AMBI_SAMPLE_TEX * 4];
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->ambiDetectFbo);
+    glViewport(0, 0, n, n);
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+
+    glUseProgram(ctx->ambiProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
+    glUniformMatrix4fv(ctx->ambiTexMatrixUniform, 1, GL_FALSE, texMatrix);
+    glUniform4fv(ctx->ambiCropUniform, 1, AMBI_CROP_FULL);
+    // The current frame whole. Both the crop, which would hide the bars being
+    // looked for, and the smoothing, which would drag old ones in for ten
+    // frames after a cut, are off for this one draw.
+    glDisable(GL_BLEND);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    detectAmbiBars(ctx, rgba);
+}
+
 // Boils the frame down to the tiny colour texture. Kept self contained and
 // free of anything glow shaped, since it is the frame's colours rather than
 // the glow that anything else would want.
@@ -6910,6 +7168,12 @@ static void runFrameColorSample(XrCtx* ctx, const float* texMatrix) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glUniformMatrix4fv(ctx->ambiTexMatrixUniform, 1, GL_FALSE, texMatrix);
+    // Whatever the detector last settled on, so the glow and the room's light
+    // come from the picture rather than from the bars around it. With the
+    // detection off the crop is not applied, but the state it found is kept,
+    // so turning it back on picks up where it was.
+    glUniform4fv(ctx->ambiCropUniform, 1,
+                 ctx->ambiBarDetect ? ctx->ambiCrop : AMBI_CROP_FULL);
 
     // Mixed into what is already there rather than replacing it. A cut to a
     // different scene would otherwise strobe the whole glow in one frame,
@@ -7698,7 +7962,8 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     // is taken for either of them. It happens here rather than with the room's
     // draw, which now follows the video, so the room is lit from this frame's
     // colour rather than the last one's.
-    if (glowOn || roomOn) {
+    int sampled = glowOn || roomOn;
+    if (sampled) {
         runFrameColorSample(ctx, texMatrix);
     }
     if (glowOn) {
@@ -7917,6 +8182,21 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
                 ctx->timerPendingFrames[other] = 0;
                 LOGW("XR warp: gave up on a GPU timer query that never landed");
             }
+        }
+    }
+
+    // Letterbox detection, once every so many frames the colour sample ran, so
+    // it stops with the sample rather than running on its own. Down here rather
+    // than beside the sample on purpose: this reads the result back, and a
+    // readback inside the query window can leave a query that never becomes
+    // available on this driver, which is the same trap the capture path avoids
+    // by not timing itself at all. The room's query has not opened yet either,
+    // so the read sits between the two.
+    if (sampled && ctx->ambiBarDetect) {
+        ctx->ambiBarCounter++;
+        if (ctx->ambiBarCounter >= AMBI_BAR_PERIOD) {
+            ctx->ambiBarCounter = 0;
+            runAmbiBarDetect(ctx, texMatrix);
         }
     }
 
