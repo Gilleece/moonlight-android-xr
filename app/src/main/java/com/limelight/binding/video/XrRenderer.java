@@ -122,7 +122,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int IN_POSE = 8;
     private static final int IN_PICKER_PICK = 18;
     private static final int IN_SETTING_VALUE = 19;
-    private static final int IN_SLOTS = 20;
+    // What the in world keyboard just typed, or -1. Backspace is 8, so the
+    // sentinel has to sit below every real code.
+    private static final int IN_KEY = 20;
+    private static final int IN_SLOTS = 21;
     // Ids the panel reports, matching the SETTING_ constants in xr_renderer.c
     private static final int SETTING_SHARPEN = 0;
     private static final int SETTING_STATS = 1;
@@ -213,6 +216,90 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // xr_renderer.c.
     private static final float COG_SEP_CAP_T = 5.0f / 15.0f;
 
+    // The in world keyboard. Three sheets of the same layout, one per state,
+    // handed over in state order, along with the geometry that goes with them:
+    // the native side is given key rectangles and codes and knows nothing else
+    // about it. KB_TEX_W, KB_TEX_H and the code values must match the KB_
+    // constants in xr_renderer.c.
+    private static final int KB_TEX_W = 1120;
+    private static final int KB_TEX_H = 448;
+    private static final int KB_CODE_SHIFT = -2;
+    private static final int KB_CODE_SYMBOLS = -3;
+    private static final int KB_CODE_HIDE = -4;
+    // Key widths per row, in units where a plain key is 1, and where each row
+    // starts. One table for all three states, so every state has to lay its
+    // keys out the same way.
+    private static final float[][] KB_ROW_WIDTHS = {
+            { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+            { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+            { 1, 1, 1, 1, 1, 1, 1, 1, 1 },
+            { 1.5f, 1, 1, 1, 1, 1, 1, 1, 1.5f },
+            { 1.5f, 1, 4, 1, 1.5f, 1 }
+    };
+    // Only the home row is inset, the way it is on a real keyboard
+    private static final float[] KB_ROW_INDENT = { 0.0f, 0.0f, 0.5f, 0.0f, 0.0f };
+    private static final float KB_ROW_UNITS = 10.0f;
+    // Margins and the gap between two keys, all as fractions of the panel
+    private static final float KB_PAD_U = 0.012f;
+    private static final float KB_PAD_V = 0.030f;
+    private static final float KB_GAP_U = 0.005f;
+    private static final float KB_GAP_V = 0.014f;
+
+    private static final String[][] KB_LABELS_LOWER = {
+            { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+            { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
+            { "a", "s", "d", "f", "g", "h", "j", "k", "l" },
+            { "Shift", "z", "x", "c", "v", "b", "n", "m", "Del" },
+            { "?123", ",", "space", ".", "Enter", "Hide" }
+    };
+    private static final int[][] KB_CODES_LOWER = {
+            { '1', '2', '3', '4', '5', '6', '7', '8', '9', '0' },
+            { 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p' },
+            { 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l' },
+            { KB_CODE_SHIFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', 8 },
+            { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
+    };
+    private static final String[][] KB_LABELS_UPPER = {
+            { "!", "@", "#", "$", "%", "^", "&", "*", "(", ")" },
+            { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
+            { "A", "S", "D", "F", "G", "H", "J", "K", "L" },
+            { "Shift", "Z", "X", "C", "V", "B", "N", "M", "Del" },
+            { "?123", ",", "space", ".", "Enter", "Hide" }
+    };
+    private static final int[][] KB_CODES_UPPER = {
+            { '!', '@', '#', '$', '%', '^', '&', '*', '(', ')' },
+            { 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P' },
+            { 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L' },
+            { KB_CODE_SHIFT, 'Z', 'X', 'C', 'V', 'B', 'N', 'M', 8 },
+            { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
+    };
+    // The brackets row has one slot fewer than a letter row, since the
+    // geometry is shared, so tab takes the place shift had
+    private static final String[][] KB_LABELS_SYMBOLS = {
+            { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+            { "@", "#", "$", "%", "&", "*", "-", "+", "(", ")" },
+            { "!", "\"", "'", ":", ";", "/", "?", "_", "=" },
+            { "Tab", "<", ">", "[", "]", "{", "}", "\\", "Del" },
+            { "ABC", ",", "space", ".", "Enter", "Hide" }
+    };
+    private static final int[][] KB_CODES_SYMBOLS = {
+            { '1', '2', '3', '4', '5', '6', '7', '8', '9', '0' },
+            { '@', '#', '$', '%', '&', '*', '-', '+', '(', ')' },
+            { '!', '"', '\'', ':', ';', '/', '?', '_', '=' },
+            { 9, '<', '>', '[', ']', '{', '}', '\\', 8 },
+            { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
+    };
+
+    private final AtomicReference<ByteBuffer> pendingKbLower = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingKbUpper = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingKbSymbols = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingKbButton = new AtomicReference<>();
+    // Built next to the art and read on the frame loop when it uploads
+    private volatile float[] kbKeyRects;
+    private volatile int[] kbCodesLower;
+    private volatile int[] kbCodesUpper;
+    private volatile int[] kbCodesSymbols;
+
     private final AtomicReference<ByteBuffer> pendingPickerArt = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingEnvButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogScreenTab = new AtomicReference<>();
@@ -239,6 +326,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         void onVrPointerMove(float u, float v);
         void onVrButton(int button, boolean down);
         void onVrScroll(int clicks);
+        // A key from the in world keyboard. Unicode with the shift already
+        // applied, or backspace, tab, enter and space as their control codes.
+        void onVrKey(int code);
     }
 
     public void setInputListener(InputListener listener) {
@@ -272,6 +362,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
     private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
                                         ByteBuffer tab3d, ByteBuffer button);
+    private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
+                                             ByteBuffer symbols, ByteBuffer buttonIcon,
+                                             float[] keyRects, int[] codesLower,
+                                             int[] codesUpper, int[] codesSymbols);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeSetEnvironment(long ctx, int choice, boolean backgroundOn);
@@ -572,6 +666,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadCog(nativeCtx, screenTab, displayTab, tab3d, cog);
             }
 
+            ByteBuffer kbLower = pendingKbLower.getAndSet(null);
+            ByteBuffer kbUpper = pendingKbUpper.getAndSet(null);
+            ByteBuffer kbSymbols = pendingKbSymbols.getAndSet(null);
+            ByteBuffer kbButton = pendingKbButton.getAndSet(null);
+            if (kbLower != null || kbUpper != null || kbSymbols != null || kbButton != null) {
+                nativeUploadKeyboard(nativeCtx, kbLower, kbUpper, kbSymbols, kbButton,
+                        kbKeyRects, kbCodesLower, kbCodesUpper, kbCodesSymbols);
+            }
+
             ByteBuffer shut = pendingLockShut.getAndSet(null);
             ByteBuffer open = pendingLockOpen.getAndSet(null);
             if (shut != null && open != null) {
@@ -626,6 +729,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             public void run() {
                 buildPickerArt();
                 buildCogArt();
+                buildKeyboardArt();
                 if (startPhoto >= 0) {
                     decodePhoto(startPhoto);
                 }
@@ -1199,6 +1303,147 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         return button;
     }
 
+    /**
+     * The in world keyboard: one sheet of art per state, the button that opens
+     * it, and the layout the native side hit tests against. All three sheets
+     * share one set of key rectangles, so the art and the hit test are built
+     * from the same numbers and cannot drift apart.
+     */
+    private void buildKeyboardArt() {
+        kbKeyRects = buildKeyRects();
+        kbCodesLower = flatten(KB_CODES_LOWER);
+        kbCodesUpper = flatten(KB_CODES_UPPER);
+        kbCodesSymbols = flatten(KB_CODES_SYMBOLS);
+
+        Bitmap lower = buildKeyboardSheet(KB_LABELS_LOWER, kbKeyRects);
+        pendingKbLower.set(toBuffer(lower));
+        lower.recycle();
+
+        Bitmap upper = buildKeyboardSheet(KB_LABELS_UPPER, kbKeyRects);
+        pendingKbUpper.set(toBuffer(upper));
+        upper.recycle();
+
+        Bitmap symbols = buildKeyboardSheet(KB_LABELS_SYMBOLS, kbKeyRects);
+        pendingKbSymbols.set(toBuffer(symbols));
+        symbols.recycle();
+
+        Bitmap button = buildKeyboardButton();
+        pendingKbButton.set(toBuffer(button));
+        button.recycle();
+    }
+
+    // Left, top, right and bottom of every key as fractions of the panel, rows
+    // top down, keys left to right. The row widths are in key units, so this is
+    // where they turn into a place on the texture.
+    private static float[] buildKeyRects() {
+        int keys = 0;
+        for (float[] row : KB_ROW_WIDTHS) {
+            keys += row.length;
+        }
+
+        float[] rects = new float[keys * 4];
+        float unit = (1.0f - 2.0f * KB_PAD_U) / KB_ROW_UNITS;
+        float rowHeight = (1.0f - 2.0f * KB_PAD_V) / KB_ROW_WIDTHS.length;
+        int at = 0;
+        for (int row = 0; row < KB_ROW_WIDTHS.length; row++) {
+            float x = KB_ROW_INDENT[row];
+            for (int key = 0; key < KB_ROW_WIDTHS[row].length; key++) {
+                float w = KB_ROW_WIDTHS[row][key];
+                rects[at++] = KB_PAD_U + x * unit + KB_GAP_U * 0.5f;
+                rects[at++] = KB_PAD_V + row * rowHeight + KB_GAP_V * 0.5f;
+                rects[at++] = KB_PAD_U + (x + w) * unit - KB_GAP_U * 0.5f;
+                rects[at++] = KB_PAD_V + (row + 1) * rowHeight - KB_GAP_V * 0.5f;
+                x += w;
+            }
+        }
+        return rects;
+    }
+
+    private static int[] flatten(int[][] rows) {
+        int keys = 0;
+        for (int[] row : rows) {
+            keys += row.length;
+        }
+
+        int[] flat = new int[keys];
+        int at = 0;
+        for (int[] row : rows) {
+            for (int code : row) {
+                flat[at++] = code;
+            }
+        }
+        return flat;
+    }
+
+    // One state's worth of keys, drawn as caps on the same dark rounded panel
+    // the settings use
+    private Bitmap buildKeyboardSheet(String[][] labels, float[] rects) {
+        Bitmap bitmap = Bitmap.createBitmap(KB_TEX_W, KB_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        paint.setColor(0xF0141416);
+        canvas.drawRoundRect(new RectF(1.0f, 1.0f, KB_TEX_W - 1.0f, KB_TEX_H - 1.0f),
+                32.0f, 32.0f, paint);
+
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setColor(Color.WHITE);
+
+        int at = 0;
+        for (String[] row : labels) {
+            for (String label : row) {
+                RectF box = new RectF(rects[at] * KB_TEX_W, rects[at + 1] * KB_TEX_H,
+                        rects[at + 2] * KB_TEX_W, rects[at + 3] * KB_TEX_H);
+                at += 4;
+
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(0x28FFFFFF);
+                canvas.drawRoundRect(box, 10.0f, 10.0f, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(2.0f);
+                paint.setColor(0x50FFFFFF);
+                canvas.drawRoundRect(box, 10.0f, 10.0f, paint);
+
+                // A single character is what the key types, so it gets the
+                // room. The named keys are wordier and have to fit.
+                text.setTextSize(label.length() == 1 ? 34.0f : 22.0f);
+                canvas.drawText(label, box.centerX(),
+                        box.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+            }
+        }
+
+        return bitmap;
+    }
+
+    // A keyboard outline with a few keys in it, which is about as much as reads
+    // at this size
+    private Bitmap buildKeyboardButton() {
+        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6.0f);
+        canvas.drawRoundRect(new RectF(12.0f, 28.0f, 116.0f, 100.0f), 14.0f, 14.0f, paint);
+
+        paint.setStyle(Paint.Style.FILL);
+        for (int row = 0; row < 2; row++) {
+            float y = 42.0f + row * 16.0f;
+            for (int key = 0; key < 4; key++) {
+                float x = 26.0f + key * 20.0f;
+                canvas.drawRoundRect(new RectF(x, y, x + 14.0f, y + 12.0f), 3.0f, 3.0f, paint);
+            }
+        }
+        canvas.drawRoundRect(new RectF(44.0f, 74.0f, 84.0f, 86.0f), 3.0f, 3.0f, paint);
+
+        return button;
+    }
+
     private static ByteBuffer toBuffer(Bitmap bitmap) {
         ByteBuffer pixels = ByteBuffer.allocateDirect(
                 bitmap.getWidth() * bitmap.getHeight() * 4);
@@ -1282,6 +1527,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             int clicks = (int)inputState[IN_SCROLL];
             if (clicks != 0) {
                 inputListener.onVrScroll(clicks);
+            }
+
+            // Every real code is 8 or more, so anything at zero or above is a
+            // key rather than the sentinel
+            int key = (int)inputState[IN_KEY];
+            if (key >= 0) {
+                inputListener.onVrKey(key);
             }
         }
 
