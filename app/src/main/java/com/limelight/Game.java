@@ -61,6 +61,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.util.Rational;
 import android.view.Display;
 import android.view.InputDevice;
@@ -164,6 +165,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // does not repeat the same position every frame
     private int lastVrPointerX = -1;
     private int lastVrPointerY = -1;
+
+    // Hosts only count a second click as a double click if it lands within a
+    // few pixels of the first, and a hand held pointer always drifts between
+    // the two trigger pulls. Hold the cursor on the click point for a moment
+    // after a left button up unless the pointer really moves off it.
+    private static final long VR_CLICK_FREEZE_MS = 600;
+    private long vrClickFreezeUntil;
+    private int vrClickFreezeX;
+    private int vrClickFreezeY;
 
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
@@ -2712,6 +2722,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         int y = (int)(v * prefConfig.height);
         x = Math.max(0, Math.min(prefConfig.width - 1, x));
         y = Math.max(0, Math.min(prefConfig.height - 1, y));
+
+        if (vrClickFreezeUntil != 0) {
+            if (SystemClock.uptimeMillis() < vrClickFreezeUntil && isNearVrClickAnchor(x, y)) {
+                // Swallow the drift so the next click lands on the same pixel
+                return;
+            }
+
+            // Moved away or waited too long, so the double click is off anyway
+            vrClickFreezeUntil = 0;
+        }
+
         if (x == lastVrPointerX && y == lastVrPointerY) {
             return;
         }
@@ -2743,10 +2764,31 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         if (down) {
             conn.sendMouseButtonDown(code);
+
+            // Dragging has to track the pointer, so nothing is held back while
+            // the button is down
+            if (code == MouseButtonPacket.BUTTON_LEFT) {
+                vrClickFreezeUntil = 0;
+            }
         }
         else {
             conn.sendMouseButtonUp(code);
+
+            if (code == MouseButtonPacket.BUTTON_LEFT && lastVrPointerX >= 0) {
+                vrClickFreezeX = lastVrPointerX;
+                vrClickFreezeY = lastVrPointerY;
+                vrClickFreezeUntil = SystemClock.uptimeMillis() + VR_CLICK_FREEZE_MS;
+            }
         }
+    }
+
+    // Within one percent of the frame width of where the last click landed,
+    // about 25 px at 2560 wide
+    private boolean isNearVrClickAnchor(int x, int y) {
+        int radius = Math.max(1, prefConfig.width / 100);
+        int dx = x - vrClickFreezeX;
+        int dy = y - vrClickFreezeY;
+        return dx * dx + dy * dy <= radius * radius;
     }
 
     @Override
