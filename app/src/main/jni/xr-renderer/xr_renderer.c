@@ -243,7 +243,10 @@ static void xrLog(int prio, const char* fmt, ...) {
 // The key the in world keyboard just typed, or -1. Unicode with the shift
 // already applied, plus the four control codes below 32.
 #define IN_KEY      20
-#define IN_SLOTS    21
+// Set to 1 the frame the exit prompt is confirmed. Nothing else is meaningful
+// here, so a zeroed slot says nothing happened.
+#define IN_EXIT     21
+#define IN_SLOTS    22
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -254,6 +257,7 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define SETTING_AMBILIGHT 5
 #define SETTING_AMBI_LEVEL 6
 #define SETTING_ROOM_LIGHT 7
+#define SETTING_HEAD_LOCK 8
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
@@ -396,16 +400,19 @@ static void xrLog(int prio, const char* fmt, ...) {
 // dragging a value.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_STATS   1
-#define COG_OPTION_AMBILIGHT 2
-#define COG_OPTION_ROOM_LIGHT 3
-#define COG_OPTION_COUNT   4
+#define COG_OPTION_HEAD_LOCK 2
+#define COG_OPTION_AMBILIGHT 3
+#define COG_OPTION_ROOM_LIGHT 4
+#define COG_OPTION_COUNT   5
 #define COG_SHARPEN_CELLS 3
 #define COG_STATS_CELLS   2
+#define COG_HEAD_LOCK_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
-// rows, so the glow can be turned down without leaving the tab it lives on
-#define COG_DISPLAY_SLIDER_ROW 4
+// rows, so the glow can be turned down without leaving the tab it lives on.
+// Six rows on this tab now, the same grid the screen tab already fills.
+#define COG_DISPLAY_SLIDER_ROW 5
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
 #define COG_DIST_MIN 0.2f
@@ -444,6 +451,28 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define KB_CODE_SYMBOLS -3
 #define KB_CODE_HIDE    -4
 
+// The button that ends the stream, furthest out on the left of the bar, and
+// the prompt it opens. Ending a session by accident costs a reconnect, so the
+// button asks first. The sheet is drawn in Java like the other panels, one per
+// lit button, so hovering one is another handle in the layer rather than an
+// upload. Must match the EXIT_ constants in XrRenderer.java.
+#define EXIT_TEX_W 512
+#define EXIT_TEX_H 256
+#define EXIT_WIDTH_FRAC 0.30f
+// Which zone of the sheet the ray is on, and the sheet drawn with that zone
+// lit, so the two share their numbering
+#define EXIT_ZONE_NONE   0
+#define EXIT_ZONE_EXIT   1
+#define EXIT_ZONE_CANCEL 2
+#define EXIT_ART_COUNT   3
+// Where the two buttons sit on the sheet, as fractions of it
+#define EXIT_BTN_T 0.56f
+#define EXIT_BTN_B 0.86f
+#define EXIT_EXIT_L 0.08f
+#define EXIT_EXIT_R 0.46f
+#define EXIT_CANCEL_L 0.54f
+#define EXIT_CANCEL_R 0.92f
+
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
 // Nothing under the ray, but close enough to the screen to keep drawing it
@@ -453,6 +482,8 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define HOVER_COGPANEL  9
 #define HOVER_KBBUTTON  10
 #define HOVER_KBPANEL   11
+#define HOVER_EXITBUTTON 12
+#define HOVER_EXITPROMPT 13
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 // How far the ray runs when it is aimed at nothing at all, in metres
@@ -478,13 +509,22 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define ROOM_STYLE_MINIMAL 1
 #define ROOM_STYLE_PSX 2
 #define ROOM_EYES 2
-// The whole of what the runtime recommends per eye, capped here. Half of it
-// was soft enough against the video layer beside it to see, and this is what
-// the room costs to keep its edges as sharp. A Gen 1 headset stays on half,
-// capped at the smaller number, since it has neither the memory nor the fill
-// rate for the rest.
-#define ROOM_MAX_EYE_FULL 2560
-#define ROOM_MAX_EYE 1280
+// How big the room renders per eye, picked by the Environment Res setting.
+// Half of what the runtime recommends was soft enough against the video layer
+// beside it to see, so low is only for headsets that cannot hold more, and the
+// three tiers above it all take the recommendation and cap it. Ultra is the
+// exception and the reason it is marked experimental: it ignores the
+// recommendation for a fixed size, so a runtime that asks for much less than
+// this ends up drawing a room several times the area it sized itself for.
+// EnvResTier, matching PreferenceConfiguration
+#define ENV_RES_LOW 0
+#define ENV_RES_STANDARD 1
+#define ENV_RES_HIGH 2
+#define ENV_RES_ULTRA 3
+#define ROOM_MAX_EYE_FULL 2560     // high
+#define ROOM_MAX_EYE_STANDARD 1760 // standard
+#define ROOM_MAX_EYE 1280          // low, on half the recommendation
+#define ROOM_ULTRA_EYE 2800        // ultra, taken rather than capped
 // Ten floats a vertex: position, colour, spill weight, texture coordinate and
 // one spare
 #define ROOM_VERTEX_FLOATS 10
@@ -826,13 +866,14 @@ typedef struct {
     XrPosef savedScreenPose;
     float savedScreenWidth;
     float savedScreenRadius;
-    // What the runtime asks for per eye, read once at startup. Only the room
-    // has any use for it.
+    // What the runtime asks for per eye, and the most it will accept, read once
+    // at startup. Only the room has any use for either.
     int recommendedEyeWidth;
     int recommendedEyeHeight;
-    // Whether this is one of the XR2 Gen 1 headsets, decided on the Java side.
-    // Only the room reads it, to draw itself smaller there.
-    int gen1Headset;
+    int maxEyeWidth;
+    int maxEyeHeight;
+    // Which Environment Res tier the room draws at, chosen on the Java side
+    int envResTier;
 
     GLuint oesTexture;
     GLuint program;
@@ -979,6 +1020,21 @@ typedef struct {
     // without this the press that picks something goes on to click whatever the
     // modal was covering as soon as it closes.
     int triggerSwallowed[SRC_COUNT];
+    // Diagnostics for the click path, written but never acted on. The analog
+    // value is kept as the action reported it, and the low water mark and the
+    // dip count run for the length of one press, which is what says whether a
+    // fast pair of taps merged into a single one at the hysteresis.
+    float triggerValue[HAND_COUNT];
+    float triggerHoldMin[HAND_COUNT];
+    int triggerDipFrames[HAND_COUNT];
+    // Dips that climbed back over the press threshold without ever reaching
+    // the release one. Frames alone cannot tell those from the ramp of an
+    // ordinary slow release, and these are the taps that went missing.
+    int triggerRetaps[HAND_COUNT];
+    int triggerDipping[HAND_COUNT];
+    int trigLogDown[HAND_COUNT];
+    int trigLogRaw;
+    int trigLogLeft;
     // Indexed by the chosen source, and gaze has no grip, so it needs the
     // extra slot even though nothing ever writes to it
     int gripEdge[SRC_COUNT];
@@ -1053,10 +1109,9 @@ typedef struct {
     // attitude it had and just turns to stay square to the viewer.
     float grabPitch;
     float grabRoll;
-    // Resize works against the corner opposite the one being dragged, which
-    // stays put, and along the diagonal it started on
+    // Resize scales about the centre, which stays put. These are the corner
+    // opposite the one being dragged, and their signs say which corner is held.
     float grabOppX, grabOppY;
-    float grabDiagX, grabDiagY;
     int poseDirty;
 
     // Hover state, read by the frame loop to decide which handle to draw
@@ -1145,6 +1200,26 @@ typedef struct {
     // its own: the screen can be moved while it is up
     XrPosef kbPose;
     float kbW, kbH;
+
+    // The exit button and its prompt. One sheet per lit button, all filled at
+    // startup, so hovering one costs a handle rather than an upload.
+    XrSwapchain exitButtonSwapchain;
+    XrSwapchain exitPromptSwapchains[EXIT_ART_COUNT];
+    uint32_t exitButtonImageCount;
+    uint32_t exitPromptImageCounts[EXIT_ART_COUNT];
+    XrSwapchainImageOpenGLESKHR* exitButtonImages;
+    XrSwapchainImageOpenGLESKHR* exitPromptImages[EXIT_ART_COUNT];
+    int exitButtonReady;
+    int exitPromptReady[EXIT_ART_COUNT];
+    int exitConfirmOpen;
+    int exitButtonHot;
+    // Which of the prompt's buttons the ray is on, which is also the sheet
+    // to show
+    int exitHoverZone;
+    // Frozen when the prompt opens, like the settings panel: the screen stays
+    // draggable behind it and the buttons must not move under the ray
+    XrPosef exitPose;
+    float exitW, exitH;
 
     // Curvature the panel asked for, or -1 while the preference still owns it,
     // alongside the preference itself so both are readable away from the JNI
@@ -1833,8 +1908,11 @@ static int initXrInstance(XrCtx* ctx) {
                 configViewCount, &configViewCount, configViews))) {
             ctx->recommendedEyeWidth = (int)configViews[0].recommendedImageRectWidth;
             ctx->recommendedEyeHeight = (int)configViews[0].recommendedImageRectHeight;
-            LOGI("recommended render size %dx%d per eye, %u views",
-                 ctx->recommendedEyeWidth, ctx->recommendedEyeHeight, configViewCount);
+            ctx->maxEyeWidth = (int)configViews[0].maxImageRectWidth;
+            ctx->maxEyeHeight = (int)configViews[0].maxImageRectHeight;
+            LOGI("recommended render size %dx%d per eye (max %dx%d), %u views",
+                 ctx->recommendedEyeWidth, ctx->recommendedEyeHeight,
+                 ctx->maxEyeWidth, ctx->maxEyeHeight, configViewCount);
         }
         free(configViews);
     }
@@ -3417,16 +3495,19 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
 static int hoverTest(float u, float v, float width, float height, int cornersLive,
                      int* corner) {
     if (cornersLive) {
-        // Centred on the corner, reaching as far outside the picture as
-        // inside, because that is where the bracket is drawn
-        float reachM = CORNER_FRAC * width * CORNER_HOVER * 0.5f;
+        // Centred where the bracket is drawn, which is a half bracket outside
+        // the corner in both axes, with the same reach each way as before
+        float sideM = CORNER_FRAC * width;
+        float reachM = sideM * CORNER_HOVER * 0.5f;
         float cu = reachM / width;
         float cv = reachM / height;
+        float outU = sideM * 0.5f / width;
+        float outV = sideM * 0.5f / height;
 
-        int left = fabsf(u) < cu;
-        int right = fabsf(u - 1.0f) < cu;
-        int top = fabsf(v) < cv;
-        int bottom = fabsf(v - 1.0f) < cv;
+        int left = fabsf(u + outU) < cu;
+        int right = fabsf(u - (1.0f + outU)) < cu;
+        int top = fabsf(v + outV) < cv;
+        int bottom = fabsf(v - (1.0f + outV)) < cv;
         if ((left || right) && (top || bottom)) {
             *corner = (top ? 0 : 2) + (right ? 1 : 0);
             return HOVER_CORNER;
@@ -3475,6 +3556,29 @@ static Vec3 screenPoint(float u, float v, XrPosef screen, float width, float hei
                    screen.position.y + rotated.y,
                    screen.position.z + rotated.z };
     return world;
+}
+
+// Furniture pinned to the picture has to ride the picture. A curved screen
+// bows toward the viewer at the edges, so anything left in the flat plane ends
+// up behind the surface, and by more the wider the screen gets. Takes a point
+// in the screen's flat local frame, where z is how far proud of the surface it
+// should sit, and puts it on the cylinder. The yaw handed back turns a quad to
+// lie along the surface there rather than cutting through it.
+static void curveLocal(Vec3* local, float radius, int curved, float* outYaw) {
+    float yaw = 0.0f;
+    if (curved && radius > 1e-3f) {
+        // Local x is arc length from the centre, the same parameter screenPoint
+        // and the cylinder layer use, so it holds outside the picture too
+        float angle = local->x / radius;
+        // Proud of the surface means toward the axis, which is past the viewer
+        float proud = radius - local->z;
+        local->x = proud * sinf(angle);
+        local->z = radius - proud * cosf(angle);
+        yaw = -angle;
+    }
+    if (outYaw != NULL) {
+        *outYaw = yaw;
+    }
 }
 
 static int createPointerSwapchain(XrCtx* ctx) {
@@ -3598,6 +3702,28 @@ static int createPointerSwapchain(XrCtx* ctx) {
         }
     }
 
+    info.width = EXIT_TEX_W;
+    info.height = EXIT_TEX_H;
+    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
+        if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->exitPromptSwapchains[sheet]),
+                    "create exit prompt swapchain")) {
+            xrEnumerateSwapchainImages(ctx->exitPromptSwapchains[sheet], 0,
+                                       &ctx->exitPromptImageCounts[sheet], NULL);
+            ctx->exitPromptImages[sheet] = calloc(ctx->exitPromptImageCounts[sheet],
+                                                  sizeof(XrSwapchainImageOpenGLESKHR));
+            for (uint32_t i = 0; i < ctx->exitPromptImageCounts[sheet]; i++) {
+                ctx->exitPromptImages[sheet][i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+            }
+            xrEnumerateSwapchainImages(ctx->exitPromptSwapchains[sheet],
+                                       ctx->exitPromptImageCounts[sheet],
+                                       &ctx->exitPromptImageCounts[sheet],
+                                       (XrSwapchainImageBaseHeader*)ctx->exitPromptImages[sheet]);
+        }
+        else {
+            ctx->exitPromptSwapchains[sheet] = XR_NULL_HANDLE;
+        }
+    }
+
     info.width = OUTLINE_TEX;
     info.height = OUTLINE_TEX;
     if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->kbButtonSwapchain),
@@ -3646,6 +3772,22 @@ static int createPointerSwapchain(XrCtx* ctx) {
     }
     else {
         ctx->envButtonSwapchain = XR_NULL_HANDLE;
+    }
+
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->exitButtonSwapchain),
+                "create exit button swapchain")) {
+        xrEnumerateSwapchainImages(ctx->exitButtonSwapchain, 0, &ctx->exitButtonImageCount, NULL);
+        ctx->exitButtonImages = calloc(ctx->exitButtonImageCount,
+                                       sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->exitButtonImageCount; i++) {
+            ctx->exitButtonImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->exitButtonSwapchain, ctx->exitButtonImageCount,
+                                   &ctx->exitButtonImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->exitButtonImages);
+    }
+    else {
+        ctx->exitButtonSwapchain = XR_NULL_HANDLE;
     }
 
     // Two padlocks rather than one, since a quad layer has no way to swap
@@ -4156,23 +4298,20 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
             return;
         }
 
+        // The hit itself is not needed any more, but a ray that misses the
+        // plane has nothing to measure the drag against
         float u, v;
         if (!screenProject(aims[hand], ctx->grabScreen, ctx->screenWidth, height,
                            ctx->screenRadius, curved, &u, &v)) {
             return;
         }
 
-        // The corner across the diagonal is the anchor, and the drag is
-        // measured along the diagonal it started on
+        // The centre is the anchor, and the drag runs along the half diagonal
+        // out to the corner being held
         int right = (corner == 1 || corner == 3);
         int bottom = (corner >= 2);
         ctx->grabOppX = (right ? -0.5f : 0.5f) * ctx->grabWidth;
         ctx->grabOppY = (bottom ? 0.5f : -0.5f) * ctx->grabHeight;
-        ctx->grabDiagX = (u - 0.5f) * ctx->grabWidth - ctx->grabOppX;
-        ctx->grabDiagY = (0.5f - v) * ctx->grabHeight - ctx->grabOppY;
-        if (fabsf(ctx->grabDiagX) < 1e-3f && fabsf(ctx->grabDiagY) < 1e-3f) {
-            return;
-        }
         ctx->grabMode = GRAB_RESIZE;
         return;
     }
@@ -4215,10 +4354,17 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
         return;
     }
 
-    float dx = (u - 0.5f) * ctx->grabWidth - ctx->grabOppX;
-    float dy = (0.5f - v) * ctx->grabHeight - ctx->grabOppY;
-    float diagLen = ctx->grabDiagX * ctx->grabDiagX + ctx->grabDiagY * ctx->grabDiagY;
-    float scale = (dx * ctx->grabDiagX + dy * ctx->grabDiagY) / diagLen;
+    // Measured from the centre, since that is what holds. The half diagonal is
+    // the held corner's own position, so projecting onto it keeps that corner
+    // under the ray. Measuring from the far corner along the whole diagonal,
+    // as this did when that corner was the anchor, would leave the bracket
+    // creeping out at half the speed of the hand.
+    float px = (u - 0.5f) * ctx->grabWidth;
+    float py = (0.5f - v) * ctx->grabHeight;
+    float halfX = -ctx->grabOppX;
+    float halfY = -ctx->grabOppY;
+    float halfLen = halfX * halfX + halfY * halfY;
+    float scale = (px * halfX + py * halfY) / halfLen;
     if (scale < 0.05f) {
         scale = 0.05f;
     }
@@ -4226,23 +4372,15 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
     float width = ctx->grabWidth * scale;
     if (width < SCREEN_MIN_WIDTH) width = SCREEN_MIN_WIDTH;
     if (width > SCREEN_MAX_WIDTH) width = SCREEN_MAX_WIDTH;
-    float newHeight = ctx->grabHeight * (width / ctx->grabWidth);
 
     // Keeping the arc the same shape rather than flattening as it grows
     ctx->screenRadius = ctx->grabRadius * (width / ctx->grabWidth);
     ctx->screenWidth = width;
 
-    // The anchor corner stays where it was, so the screen grows away from it
-    Vec3 centreLocal;
-    centreLocal.x = ctx->grabOppX + (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * width;
-    centreLocal.y = ctx->grabOppY + (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * newHeight;
-    centreLocal.z = 0.0f;
-
-    Vec3 centre = quatRotate(ctx->grabScreen.orientation, centreLocal);
+    // The centre stays where it was, so the screen grows evenly about the spot
+    // it was placed on rather than walking off towards one corner
+    ctx->screenPose.position = ctx->grabScreen.position;
     ctx->screenPose.orientation = ctx->grabScreen.orientation;
-    ctx->screenPose.position.x = ctx->grabScreen.position.x + centre.x;
-    ctx->screenPose.position.y = ctx->grabScreen.position.y + centre.y;
-    ctx->screenPose.position.z = ctx->grabScreen.position.z + centre.z;
 }
 
 // The picker floats just in front of the screen, centred on it
@@ -4400,6 +4538,75 @@ static int kbKeyAt(XrCtx* ctx, float u, float v) {
         }
     }
     return found;
+}
+
+// The exit button is the left hand mirror of the keyboard button: one place
+// further out along the bar than the environment button, and past the left end
+// of the bar's own zone
+static void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float side = ctx->screenWidth * COG_BUTTON_FRAC;
+    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
+    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
+    float gap = ctx->screenWidth * ENV_GAP_FRAC;
+    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap);
+    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+static int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
+    Vec3 local;
+    float side;
+    exitButtonPlacement(ctx, height, &local, &side);
+
+    float cu = 0.5f + local.x / ctx->screenWidth;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
+// The prompt stands on the button that opened it, the way the settings panel
+// stands on the cog. Frozen for as long as it is up for the same reason: the
+// screen can still be dragged behind it, and the two buttons must not move out
+// from under the ray on the way to a press.
+static XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = ctx->screenWidth * EXIT_WIDTH_FRAC;
+    float height = width * (float)EXIT_TEX_H / (float)EXIT_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    Vec3 button;
+    float side;
+    exitButtonPlacement(ctx, screenHeight, &button, &side);
+
+    Vec3 local;
+    local.x = button.x;
+    local.y = button.y + side * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + height * 0.5f;
+    local.z = 0.05f;
+
+    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
+    XrPosef pose = ctx->screenPose;
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// Which of the prompt's two buttons a point is on, in the sheet's own
+// coordinates. Everything else on it is a question and a background.
+static int exitPromptZone(float u, float v) {
+    if (v < EXIT_BTN_T || v > EXIT_BTN_B) {
+        return EXIT_ZONE_NONE;
+    }
+    if (u >= EXIT_EXIT_L && u <= EXIT_EXIT_R) {
+        return EXIT_ZONE_EXIT;
+    }
+    if (u >= EXIT_CANCEL_L && u <= EXIT_CANCEL_R) {
+        return EXIT_ZONE_CANCEL;
+    }
+    return EXIT_ZONE_NONE;
 }
 
 // How many rows a tab has, whatever kind they are
@@ -4582,6 +4789,9 @@ static int cogOptionCells(int option) {
     if (option == COG_OPTION_SHARPEN) {
         return COG_SHARPEN_CELLS;
     }
+    if (option == COG_OPTION_HEAD_LOCK) {
+        return COG_HEAD_LOCK_CELLS;
+    }
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
@@ -4591,10 +4801,15 @@ static int cogOptionCells(int option) {
     return COG_STATS_CELLS;
 }
 
-// Which cell of a row is the one in force
-static int cogOptionValue(XrCtx* ctx, int option) {
+// Which cell of a row is the one in force. Head lock is the one value this side
+// does not keep: it arrives with the frame, and reading it back means the ring
+// still tells the truth if something outside the panel changes it.
+static int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     if (option == COG_OPTION_SHARPEN) {
         return ctx->sharpenMode;
+    }
+    if (option == COG_OPTION_HEAD_LOCK) {
+        return headLocked ? 1 : 0;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         return ctx->ambilightOn ? 1 : 0;
@@ -4616,6 +4831,15 @@ static int cogApplyOption(XrCtx* ctx, int option, int cell) {
     if (option == COG_OPTION_STATS) {
         ctx->overlayVisible = cell != 0;
         return SETTING_STATS;
+    }
+    if (option == COG_OPTION_HEAD_LOCK) {
+        // Nothing to set here: Java writes the preference it already hands down
+        // every frame, and the space is picked from that value on the next one.
+        // Left live inside a room like the screen light row, since the picker
+        // can drop the room at any moment. In one the wall wins and the screen
+        // stays put whatever this says.
+        LOGEV("head lock %s from the panel", cell != 0 ? "on" : "off");
+        return SETTING_HEAD_LOCK;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         ctx->ambilightOn = cell != 0;
@@ -4675,7 +4899,10 @@ static int cogCellAt(float pu, int cells) {
     return cell;
 }
 
-// Padlock sits off the left edge, halfway up
+// Padlock sits clear of the left edge, halfway up, in the screen's flat local
+// frame. Where the picture is curved the draw puts this on the surface, and
+// the arc length that comes out of it is the same x, so the hit test below
+// still reads straight off these numbers.
 static void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide) {
     float side = ctx->screenWidth * LOCK_BUTTON_FRAC;
     outLocal->x = -(ctx->screenWidth * (0.5f + LOCK_GAP_FRAC) + side * 0.5f);
@@ -4727,6 +4954,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     }
     if (hover == HOVER_KBPANEL) {
         return screenPoint(u, v, ctx->kbPose, ctx->kbW, ctx->kbH, 0.0f, 0);
+    }
+    if (hover == HOVER_EXITPROMPT) {
+        return screenPoint(u, v, ctx->exitPose, ctx->exitW, ctx->exitH, 0.0f, 0);
     }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
@@ -4846,6 +5076,16 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->kbButtonSwapchain);
     }
     free(ctx->kbButtonImages);
+    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
+        if (ctx->exitPromptSwapchains[sheet] != XR_NULL_HANDLE) {
+            xrDestroySwapchain(ctx->exitPromptSwapchains[sheet]);
+        }
+        free(ctx->exitPromptImages[sheet]);
+    }
+    if (ctx->exitButtonSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->exitButtonSwapchain);
+    }
+    free(ctx->exitButtonImages);
     if (ctx->lockSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->lockSwapchain);
     }
@@ -4904,10 +5144,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jboolean handTracking, jint sharpenMode,
                                                        jboolean perfOverlay, jboolean ambilight,
                                                        jint ambiLevel, jboolean roomLight,
-                                                       jboolean gen1Headset) {
+                                                       jint envResTier) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
-    ctx->gen1Headset = gen1Headset;
+    // EnvResTier: 0 low, 1 standard, 2 high, 3 ultra
+    ctx->envResTier = envResTier;
     ctx->videoWidth = width;
     ctx->videoHeight = height;
     ctx->stereoMode = stereoMode;
@@ -5494,6 +5735,29 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             ctx->triggerDown[h] = value > (wasDown ? PRESS_OFF : PRESS_ON)
                     || jointPinching(ctx, h, space, &headLoc.pose, headValid);
             ctx->triggerEdge[h] = ctx->triggerDown[h] && !wasDown;
+
+            // Diagnostics only. A press held from a pinch reads zero here, so
+            // a hand click shows as a hold that never leaves 0.00.
+            ctx->triggerValue[h] = value;
+            if (ctx->triggerEdge[h]) {
+                ctx->triggerHoldMin[h] = value;
+                ctx->triggerDipFrames[h] = 0;
+                ctx->triggerRetaps[h] = 0;
+                ctx->triggerDipping[h] = 0;
+            }
+            else if (ctx->triggerDown[h]) {
+                if (value < ctx->triggerHoldMin[h]) {
+                    ctx->triggerHoldMin[h] = value;
+                }
+                if (value < PRESS_ON) {
+                    ctx->triggerDipFrames[h]++;
+                    ctx->triggerDipping[h] = 1;
+                }
+                else if (ctx->triggerDipping[h]) {
+                    ctx->triggerRetaps[h]++;
+                    ctx->triggerDipping[h] = 0;
+                }
+            }
         }
         else if (!ctx->eyeGaze || !ctx->gazeEnabled
                  || ctx->aimSpaces[SRC_GAZE] == XR_NULL_HANDLE) {
@@ -5582,6 +5846,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                     || hovers[h] == HOVER_HALO)
                     && kbButtonHit(ctx, hitU[h], hitV[h], height)) {
                 hovers[h] = HOVER_KBBUTTON;
+            }
+            // The exit button is the same distance out on the left, so it sits
+            // past that end of the bar's zone and has to claim the halo back
+            // the same way
+            if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR
+                    || hovers[h] == HOVER_HALO)
+                    && exitButtonHit(ctx, hitU[h], hitV[h], height)) {
+                hovers[h] = HOVER_EXITBUTTON;
             }
             // Off the left edge, so the halo owns that ground until the
             // padlock claims it back
@@ -5768,6 +6040,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     ctx->kbButtonHot = 0;
     ctx->kbHoverKey = -1;
     ctx->kbKeyDown = 0;
+    ctx->exitButtonHot = 0;
+    ctx->exitHoverZone = EXIT_ZONE_NONE;
     if (ctx->pickerOpen) {
         hover = HOVER_PICKER;
         // Anything the hands were pointing at before belongs to the screen,
@@ -6000,6 +6274,55 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
         }
     }
+    else if (ctx->exitConfirmOpen) {
+        // Modal like the grid and the panel, and against the pose frozen when
+        // it opened. Ending the stream is not something to do by accident, so
+        // nothing outside the prompt is reachable while it is up.
+        hover = HOVER_EXITPROMPT;
+        hand = -1;
+
+        for (int h = 0; h < SRC_COUNT; h++) {
+            float pu, pv;
+            if (!aimValid[h] || !ctx->pointerAwake) {
+                continue;
+            }
+            if (!screenProject(aimPoses[h], ctx->exitPose, ctx->exitW, ctx->exitH,
+                               0.0f, 0, &pu, &pv)) {
+                continue;
+            }
+            if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+                continue;
+            }
+            hand = h;
+            hitU[h] = pu;
+            hitV[h] = pv;
+            ctx->exitHoverZone = exitPromptZone(pu, pv);
+
+            if (ctx->triggerEdge[h]) {
+                if (ctx->exitHoverZone == EXIT_ZONE_EXIT) {
+                    // Said once. Java takes the session down from here, and
+                    // the prompt closes either way so a refused exit leaves
+                    // the button usable.
+                    out[IN_EXIT] = 1.0f;
+                    LOGI("exit confirmed from the prompt");
+                }
+                ctx->exitConfirmOpen = 0;
+                swallowTrigger(ctx, h);
+            }
+            break;
+        }
+
+        // A press anywhere off the sheet puts it away, the way one off the
+        // grid closes that
+        if (hand < 0) {
+            for (int h = 0; h < SRC_COUNT; h++) {
+                if (ctx->triggerEdge[h]) {
+                    ctx->exitConfirmOpen = 0;
+                    swallowTrigger(ctx, h);
+                }
+            }
+        }
+    }
     else if (hover == HOVER_ENVBUTTON) {
         ctx->envButtonHot = 1;
         if (ctx->triggerEdge[hand]) {
@@ -6029,6 +6352,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 ctx->kbPose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
             }
             LOGI("keyboard %s", ctx->kbOpen ? "open" : "closed");
+        }
+    }
+    else if (hover == HOVER_EXITBUTTON) {
+        ctx->exitButtonHot = 1;
+        if (ctx->triggerEdge[hand]) {
+            ctx->exitConfirmOpen = 1;
+            ctx->exitHoverZone = EXIT_ZONE_NONE;
+            ctx->exitPose = exitPromptPose(ctx, &ctx->exitW, &ctx->exitH);
+            // The press belonged to the button, not to the host behind it
+            swallowTrigger(ctx, hand);
+            LOGI("exit prompt open");
         }
     }
     else if (hover == HOVER_KBPANEL) {
@@ -6090,7 +6424,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // furniture and the keys themselves keep their own meanings. Every source
     // is checked rather than the one doing the pointing, so a second hand can
     // dismiss it while the first is still on the screen.
-    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen) {
+    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen) {
         for (int h = 0; h < SRC_COUNT; h++) {
             if (!aimValid[h] || !ctx->pointerAwake || !ctx->triggerEdge[h]) {
                 continue;
@@ -6166,9 +6500,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                             * ctx->screenWidth);
             }
             else {
-                local.x = (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * ctx->screenWidth;
-                local.y = (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * height;
+                // The bracket being held sits a half bracket outside the
+                // corner, so the ray has to end out there with it
+                float side = ctx->screenWidth * CORNER_FRAC;
+                local.x = (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * (ctx->screenWidth + side);
+                local.y = (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * (height + side);
             }
+            curveLocal(&local, radius, curved, NULL);
             Vec3 handle = quatRotate(screenPose.orientation, local);
             ctx->beamStart = aimPoses[ctx->grabHand].position;
             ctx->beamEnd.x = screenPose.position.x + handle.x;
@@ -6206,7 +6544,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
             || hover == HOVER_LOCK || hover == HOVER_HALO || hover == HOVER_COGBUTTON
             || hover == HOVER_COGPANEL || hover == HOVER_KBBUTTON
-            || hover == HOVER_KBPANEL) && headValid && hand >= 0) {
+            || hover == HOVER_KBPANEL || hover == HOVER_EXITBUTTON
+            || hover == HOVER_EXITPROMPT) && headValid && hand >= 0) {
         Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
                                   height, radius, curved);
         ctx->beamStart = aimPoses[hand].position;
@@ -6259,6 +6598,38 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // does, so walking the pointer off the edge mid drag still lets go
     ctx->buttonsDown = (ctx->buttonsDown & mask) | (hit ? mask : 0);
     out[IN_BUTTONS] = (float)ctx->buttonsDown;
+
+    // Diagnostics for the click path, one line per transition, so an ordinary
+    // click costs two. A release carries the low water mark of the analog
+    // value and how many frames it spent under the press threshold, which is
+    // what tells a genuine pair of taps from two that merged into one press.
+    int rawNow = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT];
+    int leftNow = (ctx->buttonsDown & VR_BUTTON_LEFT) ? 1 : 0;
+    if (rawNow != ctx->trigLogRaw || leftNow != ctx->trigLogLeft
+            || ctx->triggerDown[HAND_LEFT] != ctx->trigLogDown[HAND_LEFT]
+            || ctx->triggerDown[HAND_RIGHT] != ctx->trigLogDown[HAND_RIGHT]) {
+        char rel[80];
+        rel[0] = '\0';
+        for (int h = 0; h < HAND_COUNT; h++) {
+            if (ctx->trigLogDown[h] && !ctx->triggerDown[h]) {
+                snprintf(rel, sizeof(rel),
+                         " up hand=%d holdMin=%.2f dipFrames=%d retaps=%d",
+                         h, ctx->triggerHoldMin[h], ctx->triggerDipFrames[h],
+                         ctx->triggerRetaps[h]);
+            }
+        }
+        LOGI("trig: raw=%d%d val=%.2f,%.2f swal=%d%d edge=%d%d hit=%d awake=%d left=%d%s",
+             ctx->triggerDown[HAND_LEFT], ctx->triggerDown[HAND_RIGHT],
+             ctx->triggerValue[HAND_LEFT], ctx->triggerValue[HAND_RIGHT],
+             ctx->triggerSwallowed[HAND_LEFT], ctx->triggerSwallowed[HAND_RIGHT],
+             ctx->triggerEdge[HAND_LEFT], ctx->triggerEdge[HAND_RIGHT],
+             hit ? 1 : 0, ctx->pointerAwake, leftNow, rel);
+
+        ctx->trigLogRaw = rawNow;
+        ctx->trigLogLeft = leftNow;
+        ctx->trigLogDown[HAND_LEFT] = ctx->triggerDown[HAND_LEFT];
+        ctx->trigLogDown[HAND_RIGHT] = ctx->triggerDown[HAND_RIGHT];
+    }
 
     XrVector2f stick = actionVec2(ctx, ctx->scrollAction, -1);
     if (hit && fabsf(stick.y) > SCROLL_DEADZONE) {
@@ -6952,25 +7323,43 @@ static int initRoom(XrCtx* ctx) {
     }
     ctx->roomFailed = 1;
 
-    // The whole of what the runtime recommends per eye, so the room's edges are
-    // as sharp as the video layer sitting in front of them. That is a couple of
-    // hundred megabytes between the side by side colour swapchain and the depth
-    // buffer, which is the reason none of it exists until a room is picked. Gen
-    // 1 headsets keep the half size the room started on, and a runtime that
-    // will not say what it wants gets a modest guess.
-    int half = ctx->gen1Headset;
-    int maxEye = half ? ROOM_MAX_EYE : ROOM_MAX_EYE_FULL;
-    int eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth : 1024;
-    int eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight : 1024;
-    if (half) {
-        eyeW /= 2;
-        eyeH /= 2;
+    // What the runtime recommends per eye, capped by the chosen tier, so the
+    // room's edges are as sharp as the video layer sitting in front of them.
+    // That is a couple of hundred megabytes between the side by side colour
+    // swapchain and the depth buffer, which is the reason none of it exists
+    // until a room is picked. A runtime that will not say what it wants gets a
+    // modest guess. Ultra takes a fixed size instead and only asks the runtime
+    // for its ceiling, since a recommendation is the one number it is trying to
+    // ignore.
+    int tier = ctx->envResTier;
+    int eyeW;
+    int eyeH;
+    if (tier == ENV_RES_ULTRA) {
+        eyeW = ROOM_ULTRA_EYE;
+        eyeH = ROOM_ULTRA_EYE;
+        if (ctx->maxEyeWidth > 0 && eyeW > ctx->maxEyeWidth) {
+            eyeW = ctx->maxEyeWidth;
+        }
+        if (ctx->maxEyeHeight > 0 && eyeH > ctx->maxEyeHeight) {
+            eyeH = ctx->maxEyeHeight;
+        }
     }
-    if (eyeW > maxEye) {
-        eyeW = maxEye;
-    }
-    if (eyeH > maxEye) {
-        eyeH = maxEye;
+    else {
+        int maxEye = tier == ENV_RES_LOW ? ROOM_MAX_EYE
+                   : tier == ENV_RES_HIGH ? ROOM_MAX_EYE_FULL
+                   : ROOM_MAX_EYE_STANDARD;
+        eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth : 1024;
+        eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight : 1024;
+        if (tier == ENV_RES_LOW) {
+            eyeW /= 2;
+            eyeH /= 2;
+        }
+        if (eyeW > maxEye) {
+            eyeW = maxEye;
+        }
+        if (eyeH > maxEye) {
+            eyeH = maxEye;
+        }
     }
 
     XrSwapchainCreateInfo info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
@@ -7074,7 +7463,11 @@ static int initRoom(XrCtx* ctx) {
     ctx->roomEyeHeight = eyeH;
     ctx->roomReady = 1;
     ctx->roomFailed = 0;
-    LOGEV("room ready at %dx%d per eye", eyeW, eyeH);
+    const char* tierName = tier == ENV_RES_LOW ? "low"
+                         : tier == ENV_RES_HIGH ? "high"
+                         : tier == ENV_RES_ULTRA ? "ultra"
+                         : "standard";
+    LOGEV("room ready at %dx%d per eye, env res %s", eyeW, eyeH, tierName);
     return 1;
 }
 
@@ -7710,6 +8103,48 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboard(JNIEnv* env, jo
          ctx->kbButtonReady ? "ready" : "missing", ctx->kbKeyCount);
 }
 
+// The exit button and the prompt behind it. One sheet per lit button, handed
+// over in zone order, so which one is showing is a swapchain handle rather than
+// an upload.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobject thiz,
+                                                              jlong handle, jobject button,
+                                                              jobject promptPlain,
+                                                              jobject promptExitHot,
+                                                              jobject promptCancelHot) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    if (button != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, button);
+        if (px != NULL) {
+            ctx->exitButtonReady = uploadFlipped(ctx, ctx->exitButtonSwapchain,
+                                                 ctx->exitButtonImages, px,
+                                                 OUTLINE_TEX, OUTLINE_TEX);
+        }
+    }
+
+    jobject sheets[EXIT_ART_COUNT] = { promptPlain, promptExitHot, promptCancelHot };
+    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
+        if (sheets[sheet] == NULL) {
+            continue;
+        }
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, sheets[sheet]);
+        if (px != NULL) {
+            ctx->exitPromptReady[sheet] = uploadFlipped(ctx, ctx->exitPromptSwapchains[sheet],
+                                                        ctx->exitPromptImages[sheet], px,
+                                                        EXIT_TEX_W, EXIT_TEX_H);
+        }
+    }
+
+    LOGI("exit button %s, prompt %s, %s and %s",
+         ctx->exitButtonReady ? "ready" : "missing",
+         ctx->exitPromptReady[EXIT_ZONE_NONE] ? "ready" : "missing",
+         ctx->exitPromptReady[EXIT_ZONE_EXIT] ? "ready" : "missing",
+         ctx->exitPromptReady[EXIT_ZONE_CANCEL] ? "ready" : "missing");
+}
+
 // Whether curved screens are available at all, which is what says if the panel
 // should draw its curve row live or greyed out
 JNIEXPORT jboolean JNICALL
@@ -8150,6 +8585,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrPosef screenPose = ctx->screenPose;
     float screenWidth = ctx->screenWidth;
     float screenHeight = screenWidth * aspect;
+    // The same test the picture's own layer makes below, so the furniture that
+    // is pinned to the picture sits on whichever surface actually goes up
+    int screenCurved = curve > 0.01f && ctx->cylinderSupported;
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
@@ -8188,20 +8626,26 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerQuad kbButtonLayer;
     XrCompositionLayerQuad kbPanelLayer;
     XrCompositionLayerQuad kbMarkLayer;
+    XrCompositionLayerQuad exitButtonLayer;
+    XrCompositionLayerQuad exitPromptLayer;
     XrCompositionLayerQuad cogThumbLayers[COG_SLIDER_COUNT];
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMarkLayers[COG_OPTION_COUNT + 1];
     XrCompositionLayerSettingsFB sharpenSettings;
-    // Worst case reachable is the screen tab open: background, the glow, both
-    // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
-    // is 15, or 16 with a stereo background's second layer, exactly this
-    // runtime's limit. The 3d room replaces the environment layer and sheds
-    // the move pill and the screen tab's thumbs, so it only ever comes to
-    // less. The panel is modal, and since the frame a modal opens now sheds
-    // the bar furniture too, the two can no longer land in one frame together.
+    // Worst case reachable is a tab with six rows open: background, the glow,
+    // both eyes, stats, the cog button, the panel, six thumbs, ray and cursor,
+    // which is 15, or 16 with a stereo background's second layer, exactly this
+    // runtime's limit. The display tab comes to one more, its six rings plus
+    // the glow level thumb where the screen tab has six thumbs and no rings.
+    // The 3d room replaces the environment layer and sheds the move pill and
+    // the screen tab's thumbs, so it only ever comes to less. The panel is
+    // modal, and since the frame a modal opens now sheds the bar furniture
+    // too, the two can no longer land in one frame together.
     // The keyboard sheds the same furniture and adds only its panel and one
-    // ring, so it comes to 9. Sized well past that anyway: an overflow here is
-    // a smashed stack, and the margin costs five pointers.
+    // ring, so it comes to 9. The exit prompt sheds it too and adds its own
+    // sheet and the button that opened it, so it comes to less again. Sized
+    // well past that anyway: an overflow here is a smashed stack, and the
+    // margin costs five pointers.
     const XrCompositionLayerBaseHeader* layers[20];
     uint32_t layerCount = 0;
 
@@ -8435,9 +8879,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         // up for one frame, and that stack overflowed the runtime's layer limit
         // and cost the whole frame with a -24 on device.
         int barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
+                && !ctx->exitConfirmOpen
                 && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                     || ctx->hoverKind == HOVER_COGBUTTON
-                    || ctx->hoverKind == HOVER_KBBUTTON);
+                    || ctx->hoverKind == HOVER_KBBUTTON
+                    || ctx->hoverKind == HOVER_EXITBUTTON);
 
         // Move bar and resize corner, shown only while the ray is over them.
         // Both live in the screen's own frame, so they travel with it. Neither
@@ -8460,8 +8906,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 sizeW = sizeH = screenWidth * CORNER_FRAC;
                 int right = ctx->hoverCorner == 1 || ctx->hoverCorner == 3;
                 int bottom = ctx->hoverCorner >= 2;
-                local.x = (right ? 0.5f : -0.5f) * screenWidth;
-                local.y = (bottom ? -0.5f : 0.5f) * screenHeight;
+                // Half a bracket outside the corner in both axes, so its inner
+                // tip touches the corner and none of it covers the picture
+                local.x = (right ? 0.5f : -0.5f) * (screenWidth + sizeW);
+                local.y = (bottom ? -0.5f : 0.5f) * (screenHeight + sizeH);
                 // The art is a top left bracket, so the other three are the
                 // same picture rolled about the screen normal
                 if (ctx->hoverCorner == 1) roll = -1.5707963f;
@@ -8470,8 +8918,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             }
             // Just off the surface so it never z fights the picture
             local.z = 0.005f;
+            // On a curved screen the corners come a long way toward the
+            // viewer, so both the place and the facing follow the surface
+            float yaw = 0.0f;
+            curveLocal(&local, ctx->screenRadius, screenCurved, &yaw);
 
             XrQuaternionf rollQ = { 0.0f, 0.0f, sinf(roll * 0.5f), cosf(roll * 0.5f) };
+            Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
+            XrQuaternionf turnQ = quatMul(axisAngleQuat(yawAxis, yaw), rollQ);
             Vec3 offset = quatRotate(screenPose.orientation, local);
 
             memset(&handleLayer, 0, sizeof(handleLayer));
@@ -8485,7 +8939,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             handleLayer.subImage.imageRect.extent.height = isBar ? BAR_TEX_H : CORNER_TEX_H;
             handleLayer.subImage.imageArrayIndex = 0;
             handleLayer.space = space;
-            handleLayer.pose.orientation = quatNorm(quatMul(screenPose.orientation, rollQ));
+            handleLayer.pose.orientation = quatNorm(quatMul(screenPose.orientation, turnQ));
             handleLayer.pose.position.x = screenPose.position.x + offset.x;
             handleLayer.pose.position.y = screenPose.position.y + offset.y;
             handleLayer.pose.position.z = screenPose.position.z + offset.z;
@@ -8585,6 +9039,59 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&kbButtonLayer;
         }
 
+        // The button that ends the stream, furthest out on the left. Stays up
+        // while its prompt is open, like the environment button does, so it
+        // reads as the thing that asked the question.
+        if (ctx->exitButtonReady && (barArea || ctx->exitConfirmOpen)) {
+            Vec3 local;
+            float side;
+            exitButtonPlacement(ctx, screenHeight, &local, &side);
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&exitButtonLayer, 0, sizeof(exitButtonLayer));
+            exitButtonLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            exitButtonLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            exitButtonLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            exitButtonLayer.subImage.swapchain = ctx->exitButtonSwapchain;
+            exitButtonLayer.subImage.imageRect.offset.x = 0;
+            exitButtonLayer.subImage.imageRect.offset.y = 0;
+            exitButtonLayer.subImage.imageRect.extent.width = OUTLINE_TEX;
+            exitButtonLayer.subImage.imageRect.extent.height = OUTLINE_TEX;
+            exitButtonLayer.subImage.imageArrayIndex = 0;
+            exitButtonLayer.space = space;
+            exitButtonLayer.pose.orientation = screenPose.orientation;
+            exitButtonLayer.pose.position.x = screenPose.position.x + offset.x;
+            exitButtonLayer.pose.position.y = screenPose.position.y + offset.y;
+            exitButtonLayer.pose.position.z = screenPose.position.z + offset.z;
+            float exitScale = (ctx->exitButtonHot || ctx->exitConfirmOpen) ? 1.18f : 1.0f;
+            exitButtonLayer.size.width = side * exitScale;
+            exitButtonLayer.size.height = side * exitScale;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&exitButtonLayer;
+        }
+
+        // The prompt itself, on the pose frozen when it opened. Which sheet is
+        // up is which of its buttons the ray is on, so lighting one costs a
+        // handle rather than an upload. Sharpened like the grid, since what it
+        // carries is text.
+        if (ctx->exitConfirmOpen && ctx->exitPromptReady[ctx->exitHoverZone]) {
+            memset(&exitPromptLayer, 0, sizeof(exitPromptLayer));
+            exitPromptLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            exitPromptLayer.next = sharpenChain;
+            exitPromptLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            exitPromptLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            exitPromptLayer.subImage.swapchain = ctx->exitPromptSwapchains[ctx->exitHoverZone];
+            exitPromptLayer.subImage.imageRect.offset.x = 0;
+            exitPromptLayer.subImage.imageRect.offset.y = 0;
+            exitPromptLayer.subImage.imageRect.extent.width = EXIT_TEX_W;
+            exitPromptLayer.subImage.imageRect.extent.height = EXIT_TEX_H;
+            exitPromptLayer.subImage.imageArrayIndex = 0;
+            exitPromptLayer.space = space;
+            exitPromptLayer.pose = ctx->exitPose;
+            exitPromptLayer.size.width = ctx->exitW;
+            exitPromptLayer.size.height = ctx->exitH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&exitPromptLayer;
+        }
+
         // The padlock. Comes and goes like the rest of the furniture rather
         // than sitting there permanently, so it costs nothing to look at while
         // playing. Reaching for the bar shows it too, since that is where
@@ -8593,7 +9100,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 && (ctx->hoverKind == HOVER_LOCK || barArea)) {
             Vec3 local;
             float side;
+            float lockYaw = 0.0f;
             lockButtonPlacement(ctx, &local, &side);
+            // Hangs off the left edge, which on a curved screen is well in
+            // front of the flat plane the placement is measured in
+            curveLocal(&local, ctx->screenRadius, screenCurved, &lockYaw);
+            Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
             Vec3 offset = quatRotate(screenPose.orientation, local);
 
             memset(&lockLayer, 0, sizeof(lockLayer));
@@ -8608,7 +9120,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             lockLayer.subImage.imageRect.extent.height = LOCK_TEX;
             lockLayer.subImage.imageArrayIndex = 0;
             lockLayer.space = space;
-            lockLayer.pose.orientation = screenPose.orientation;
+            lockLayer.pose.orientation = quatNorm(quatMul(screenPose.orientation,
+                                                          axisAngleQuat(yawAxis, lockYaw)));
             lockLayer.pose.position.x = screenPose.position.x + offset.x;
             lockLayer.pose.position.y = screenPose.position.y + offset.y;
             lockLayer.pose.position.z = screenPose.position.z + offset.z;
@@ -8719,7 +9232,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 for (int m = 0; m <= COG_OPTION_COUNT; m++) {
                     int hoverMark = m == COG_OPTION_COUNT;
                     int option = hoverMark ? ctx->cogHoverSlider : m;
-                    int cell = hoverMark ? ctx->cogHoverCell : cogOptionValue(ctx, m);
+                    int cell = hoverMark ? ctx->cogHoverCell
+                            : cogOptionValue(ctx, m, headLocked);
                     if (option < 0 || option >= COG_OPTION_COUNT || cell < 0) {
                         continue;
                     }
@@ -8811,7 +9325,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         // ray ringed. Sharpened, since it is all text. It stands down while a
         // modal is up rather than stacking under one: the two together would
         // crowd the runtime's layer ceiling, and the modal has the ray anyway.
-        if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen
+        if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
                 && ctx->kbPanelReady[ctx->kbState]) {
             memset(&kbPanelLayer, 0, sizeof(kbPanelLayer));
             kbPanelLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;

@@ -152,6 +152,18 @@
         <item>eyetest</item>
         <item>shifttest</item>
     </string-array>
+    <string-array name="vr_env_res_names">
+        <item>Low</item>
+        <item>Standard</item>
+        <item>High</item>
+        <item>Ultra (Experimental)</item>
+    </string-array>
+    <string-array name="vr_env_res_values" translatable="false">
+        <item>low</item>
+        <item>standard</item>
+        <item>high</item>
+        <item>ultra</item>
+    </string-array>
     <string-array name="vr_sharpening_names">
         <item>Off</item>
         <item>Normal</item>

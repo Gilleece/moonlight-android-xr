@@ -61,6 +61,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.SystemClock;
+import android.util.Log;
 import android.util.Rational;
 import android.view.Display;
 import android.view.InputDevice;
@@ -164,6 +166,31 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // does not repeat the same position every frame
     private int lastVrPointerX = -1;
     private int lastVrPointerY = -1;
+
+    // A host tests position as well as timing before it calls two clicks a
+    // double, and a hand held pointer drifts a few pixels between the taps.
+    // The moves carrying that drift are what break the test. Correcting it
+    // with a position packet on the second tap does not work either, since
+    // the host batches mouse moves but not button events, so the correction
+    // can land after the click it was meant to lead. Nothing is sent instead:
+    // the first tap anchors the cursor and drift near that anchor is dropped,
+    // which leaves the host on the pixel it already has.
+    private static final long VR_CLICK_HOLD_MS = 500;
+    // Tight while the button is held, so a drag or a text selection still
+    // moves the cursor, and wider once it is up, to cover the 5 to 27 px of
+    // drift measured between the taps of a natural pair
+    private static final int VR_HOLD_DIV_DOWN = 200;
+    private static final int VR_HOLD_DIV_UP = 72;
+    private long vrLastLeftDownTime;
+    private long vrLastLeftUpTime;
+    private int vrHoldX;
+    private int vrHoldY;
+    private boolean vrHoldActive;
+    private boolean vrLeftDown;
+
+    // Click timings go out under the renderer's tag, so one logcat filter
+    // catches these and the native side together
+    private static final String VR_CLICK_TAG = "moonlight-xr";
 
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
@@ -2712,6 +2739,24 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         int y = (int)(v * prefConfig.height);
         x = Math.max(0, Math.min(prefConfig.width - 1, x));
         y = Math.max(0, Math.min(prefConfig.height - 1, y));
+
+        // Just clicked, so small drift is dropped rather than sent on. The
+        // host stays on the pixel the click landed at, which is what a second
+        // tap needs to find. lastVrPointer is left alone with it.
+        if (vrHoldActive) {
+            long since = SystemClock.uptimeMillis() - vrLastLeftDownTime;
+            int radius = vrHoldRadius();
+            int dx = x - vrHoldX;
+            int dy = y - vrHoldY;
+            if (since < VR_CLICK_HOLD_MS && dx * dx + dy * dy <= radius * radius) {
+                return;
+            }
+
+            vrHoldActive = false;
+            Log.i(VR_CLICK_TAG, "click: hold ended by " + (since >= VR_CLICK_HOLD_MS
+                    ? "timeout" : "escape " + (int)Math.sqrt(dx * dx + dy * dy) + "px"));
+        }
+
         if (x == lastVrPointerX && y == lastVrPointerY) {
             return;
         }
@@ -2743,10 +2788,64 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
         if (down) {
             conn.sendMouseButtonDown(code);
+
+            if (code == MouseButtonPacket.BUTTON_LEFT) {
+                long now = SystemClock.uptimeMillis();
+                int atX = lastVrPointerX;
+                int atY = lastVrPointerY;
+                String hold;
+
+                if (vrHoldActive) {
+                    // Nothing has gone out since the first tap, so the host is
+                    // still on the anchor and a chain needs no position work
+                    hold = "held on anchor " + vrHoldX + "," + vrHoldY;
+                }
+                else if (atX < 0) {
+                    hold = "no hold (no pointer yet)";
+                }
+                else {
+                    vrHoldX = atX;
+                    vrHoldY = atY;
+                    vrHoldActive = true;
+                    hold = "hold from " + atX + "," + atY;
+                }
+
+                Log.i(VR_CLICK_TAG, "click: down " + sinceVrClick(now, vrLastLeftDownTime)
+                        + "ms since down, " + sinceVrClick(now, vrLastLeftUpTime)
+                        + "ms since up, at " + atX + "," + atY + ", " + hold);
+
+                // The window runs from the most recent tap, so a chain of them
+                // keeps the cursor on the first one's pixel
+                vrLastLeftDownTime = now;
+                vrLeftDown = true;
+            }
         }
         else {
             conn.sendMouseButtonUp(code);
+
+            if (code == MouseButtonPacket.BUTTON_LEFT) {
+                long now = SystemClock.uptimeMillis();
+                Log.i(VR_CLICK_TAG, "click: up after "
+                        + sinceVrClick(now, vrLastLeftDownTime) + "ms held");
+                vrLastLeftUpTime = now;
+
+                // The hold itself carries on, only its radius opens up
+                vrLeftDown = false;
+            }
         }
+    }
+
+    // -1 for the first click of the session, where there is nothing to measure
+    // back to
+    private static long sinceVrClick(long now, long then) {
+        return then == 0 ? -1 : now - then;
+    }
+
+    // Half a percent of the frame width with the button down, about 13 px at
+    // 2560 wide, and one part in 72 with it up, about 35 px
+    private int vrHoldRadius() {
+        int div = vrLeftDown ? VR_HOLD_DIV_DOWN : VR_HOLD_DIV_UP;
+        return Math.max(1, prefConfig.width / div);
     }
 
     @Override
@@ -2787,6 +2886,25 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         else {
             conn.sendUtf8Text(String.valueOf((char)code));
         }
+    }
+
+    /**
+     * The exit button in the session was confirmed. Finishing is the same way
+     * out the quit shortcut takes, and it carries the teardown and the trip
+     * back to the PC list with it, so there is nothing to disconnect here.
+     */
+    @Override
+    public void onVrExit() {
+        if (!connected) {
+            return;
+        }
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                finish();
+            }
+        });
     }
 
     private void sendVrKeyPress(short keyMap, byte modifier) {

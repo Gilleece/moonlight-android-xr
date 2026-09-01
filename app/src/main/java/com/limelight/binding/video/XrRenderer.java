@@ -128,7 +128,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // What the in world keyboard just typed, or -1. Backspace is 8, so the
     // sentinel has to sit below every real code.
     private static final int IN_KEY = 20;
-    private static final int IN_SLOTS = 21;
+    // Set the frame the exit prompt is confirmed, and nothing else, so a zeroed
+    // slot says the stream carries on
+    private static final int IN_EXIT = 21;
+    private static final int IN_SLOTS = 22;
     // Ids the panel reports, matching the SETTING_ constants in xr_renderer.c
     private static final int SETTING_SHARPEN = 0;
     private static final int SETTING_STATS = 1;
@@ -138,6 +141,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int SETTING_AMBILIGHT = 5;
     private static final int SETTING_AMBI_LEVEL = 6;
     private static final int SETTING_ROOM_LIGHT = 7;
+    private static final int SETTING_HEAD_LOCK = 8;
     // Position, orientation, width, cylinder radius, then the curvature the
     // settings panel asked for
     private static final int POSE_VALUES = 10;
@@ -239,19 +243,22 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             "Screen size cannot be changed in a 3D environment. "
                     + "Please choose a different environment to customise the screen size.";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Screen light is the wash the picture
-    // throws over a 3d room, which only shows in one, but it stays live here
-    // like the rest: the picker can put a room up at any moment.
+    // the glow level track under them. Head locked sits with the picture rows
+    // so the two light rows and the level track they belong with stay together
+    // at the bottom. Screen light is the wash the picture throws over a 3d
+    // room, which only shows in one, and head lock is ignored in one, but both
+    // stay live here like the rest: the picker can put a room up at any moment.
     private static final String[] COG_OPTION_ROWS =
-            { "Sharpen", "Stats", "Glow", "Screen light" };
+            { "Sharpen", "Stats", "Head locked", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" }
     };
     // Must match COG_DISPLAY_SLIDER_ROW in xr_renderer.c
-    private static final int COG_DISPLAY_SLIDER_ROW = 4;
+    private static final int COG_DISPLAY_SLIDER_ROW = 5;
     // 3D tab: two sliders, drawn the same way the screen tab's are. Only
     // values that take effect the moment they move belong on the panel, which
     // is why the depth source itself stays in the 2d settings.
@@ -345,6 +352,28 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile int[] kbCodesUpper;
     private volatile int[] kbCodesSymbols;
 
+    // The button that ends the stream and the prompt it opens. One sheet per
+    // lit button, in zone order, so which one shows is a swapchain handle on
+    // the native side rather than an upload. These must match the EXIT_
+    // constants in xr_renderer.c.
+    private static final int EXIT_TEX_W = 512;
+    private static final int EXIT_TEX_H = 256;
+    private static final int EXIT_ZONE_NONE = 0;
+    private static final int EXIT_ZONE_EXIT = 1;
+    private static final int EXIT_ZONE_CANCEL = 2;
+    private static final float EXIT_BTN_T = 0.56f;
+    private static final float EXIT_BTN_B = 0.86f;
+    private static final float EXIT_EXIT_L = 0.08f;
+    private static final float EXIT_EXIT_R = 0.46f;
+    private static final float EXIT_CANCEL_L = 0.54f;
+    private static final float EXIT_CANCEL_R = 0.92f;
+    private static final String EXIT_QUESTION = "Exit the stream?";
+
+    private final AtomicReference<ByteBuffer> pendingExitButton = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingExitPlain = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingExitHot = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingCancelHot = new AtomicReference<>();
+
     private final AtomicReference<ByteBuffer> pendingPickerArt = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingEnvButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogScreenTab = new AtomicReference<>();
@@ -382,6 +411,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // A key from the in world keyboard. Unicode with the shift already
         // applied, or backspace, tab, enter and space as their control codes.
         void onVrKey(int code);
+        // The exit prompt was confirmed, so the session is to end
+        void onVrExit();
     }
 
     public void setInputListener(InputListener listener) {
@@ -389,11 +420,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     private static native void nativeSetFileLog(String path, int level);
+    // envResTier is the EnvResTier the room renders at: 0 low, 1 standard,
+    // 2 high, 3 ultra
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, boolean perfOverlay,
                                    boolean ambilight, int ambiLevel, boolean roomLight,
-                                   boolean gen1Headset);
+                                   int envResTier);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -422,6 +455,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                              ByteBuffer symbols, ByteBuffer buttonIcon,
                                              float[] keyRects, int[] codesLower,
                                              int[] codesUpper, int[] codesSymbols);
+    private native void nativeUploadExit(long ctx, ByteBuffer button, ByteBuffer promptPlain,
+                                         ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeSetEnvironment(long ctx, int choice, boolean backgroundOn);
@@ -445,7 +480,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
                         prefs.vrAmbilight, prefs.vrAmbilightLevel, prefs.vrRoomLight,
-                        PreferenceConfiguration.isXr2Gen1Headset());
+                        prefs.vrEnvResTier);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
@@ -645,7 +680,6 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         float distance = prefs.vrDistance / 10.0f;
         float quadWidth = prefs.vrScreenSize / 10.0f;
         float curvature = prefs.vrCurvature / 100.0f;
-        boolean headLocked = prefs.vrHeadLocked;
         // Stored as tenths of a percent of frame width
         float separation = prefs.vrStereoSeparation / 1000.0f;
         boolean eyeSwap = prefs.vrEyeSwap;
@@ -664,6 +698,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // Native side slept already while the session is not running
                 continue;
             }
+
+            // Read fresh each frame rather than once on the way in: the panel's
+            // row writes it back to this same object, and the space is picked
+            // from it on both sides of the frame, so a press takes effect on
+            // the next one with no native state to keep in step.
+            boolean headLocked = prefs.vrHeadLocked;
 
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
                     pointer, gaze, inputState);
@@ -732,6 +772,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (kbLower != null || kbUpper != null || kbSymbols != null || kbButton != null) {
                 nativeUploadKeyboard(nativeCtx, kbLower, kbUpper, kbSymbols, kbButton,
                         kbKeyRects, kbCodesLower, kbCodesUpper, kbCodesSymbols);
+            }
+
+            ByteBuffer exitButton = pendingExitButton.getAndSet(null);
+            ByteBuffer exitPlain = pendingExitPlain.getAndSet(null);
+            ByteBuffer exitHot = pendingExitHot.getAndSet(null);
+            ByteBuffer cancelHot = pendingCancelHot.getAndSet(null);
+            if (exitButton != null || exitPlain != null || exitHot != null || cancelHot != null) {
+                nativeUploadExit(nativeCtx, exitButton, exitPlain, exitHot, cancelHot);
             }
 
             ByteBuffer shut = pendingLockShut.getAndSet(null);
@@ -814,6 +862,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 buildPickerArt();
                 buildCogArt();
                 buildKeyboardArt();
+                buildExitArt();
                 loadRoomAssets();
                 if (startPhoto >= 0) {
                     decodePhoto(startPhoto);
@@ -1834,6 +1883,114 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         return button;
     }
 
+    /**
+     * The button that ends the stream and the prompt it opens. The prompt is
+     * drawn three times, once plain and once with each of its buttons lit, so
+     * hovering one in the session picks another sheet rather than costing an
+     * upload.
+     */
+    private void buildExitArt() {
+        Bitmap button = buildExitButton();
+        pendingExitButton.set(toBuffer(button));
+        button.recycle();
+
+        Bitmap plain = buildExitPrompt(EXIT_ZONE_NONE);
+        pendingExitPlain.set(toBuffer(plain));
+        plain.recycle();
+
+        Bitmap exitHot = buildExitPrompt(EXIT_ZONE_EXIT);
+        pendingExitHot.set(toBuffer(exitHot));
+        exitHot.recycle();
+
+        Bitmap cancelHot = buildExitPrompt(EXIT_ZONE_CANCEL);
+        pendingCancelHot.set(toBuffer(cancelHot));
+        cancelHot.recycle();
+    }
+
+    // A power symbol, in the same weight and colour as the buttons either side
+    // of it: a ring open at the top with a bar standing in the gap
+    private Bitmap buildExitButton() {
+        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+
+        final float mid = ENV_BUTTON_TEX * 0.5f;
+        final float radius = 36.0f;
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(9.0f);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+
+        // Starts a little past the top on one side and comes back round to the
+        // same place on the other, which leaves the gap centred
+        RectF ring = new RectF(mid - radius, mid - radius, mid + radius, mid + radius);
+        canvas.drawArc(ring, -60.0f, 300.0f, false, paint);
+
+        canvas.drawLine(mid, mid - radius - 10.0f, mid, mid - 2.0f, paint);
+
+        return button;
+    }
+
+    // The prompt sheet: the question, and the two buttons under it. The zone
+    // passed in is the one drawn lit, or none of them.
+    private Bitmap buildExitPrompt(int hot) {
+        Bitmap bitmap = Bitmap.createBitmap(EXIT_TEX_W, EXIT_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+
+        // The same dark sheet the settings panel and the keyboard sit on
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        paint.setColor(0xF0141416);
+        canvas.drawRoundRect(new RectF(1.0f, 1.0f, EXIT_TEX_W - 1.0f, EXIT_TEX_H - 1.0f),
+                32.0f, 32.0f, paint);
+
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setColor(Color.WHITE);
+        text.setTextSize(34.0f);
+        float questionY = EXIT_TEX_H * 0.30f;
+        canvas.drawText(EXIT_QUESTION, EXIT_TEX_W * 0.5f,
+                questionY - (text.ascent() + text.descent()) * 0.5f, text);
+
+        // Leaving is the destructive half, so it is the one that reads red.
+        // Both are the same shape, so neither is the easier target.
+        drawExitChoice(canvas, paint, text, EXIT_EXIT_L, EXIT_EXIT_R, "Exit",
+                0xFFE05A5A, hot == EXIT_ZONE_EXIT);
+        drawExitChoice(canvas, paint, text, EXIT_CANCEL_L, EXIT_CANCEL_R, "Cancel",
+                0xEEFFFFFF, hot == EXIT_ZONE_CANCEL);
+
+        return bitmap;
+    }
+
+    // One of the prompt's buttons. Hovering fills it, which is what says which
+    // of the two a press would land on.
+    private void drawExitChoice(Canvas canvas, Paint paint, Paint text, float left, float right,
+                                String label, int colour, boolean hot) {
+        RectF box = new RectF(left * EXIT_TEX_W, EXIT_BTN_T * EXIT_TEX_H,
+                right * EXIT_TEX_W, EXIT_BTN_B * EXIT_TEX_H);
+
+        if (hot) {
+            paint.setStyle(Paint.Style.FILL);
+            // The button's own colour, kept faint enough to read as a wash
+            // behind the label rather than as a filled block
+            paint.setColor((colour & 0x00FFFFFF) | 0x38000000);
+            canvas.drawRoundRect(box, 16.0f, 16.0f, paint);
+        }
+
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(hot ? 5.0f : 3.0f);
+        paint.setColor(colour);
+        canvas.drawRoundRect(box, 16.0f, 16.0f, paint);
+        paint.setStyle(Paint.Style.FILL);
+
+        text.setColor(colour);
+        text.setTextSize(30.0f);
+        canvas.drawText(label, box.centerX(),
+                box.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
     private static ByteBuffer toBuffer(Bitmap bitmap) {
         ByteBuffer pixels = ByteBuffer.allocateDirect(
                 bitmap.getWidth() * bitmap.getHeight() * 4);
@@ -1934,6 +2091,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (key >= 0) {
                 inputListener.onVrKey(key);
             }
+
+            // Cleared here as well as being written once natively, so a frame
+            // that lands while the activity is on its way out cannot ask twice
+            if (inputState[IN_EXIT] != 0.0f) {
+                inputState[IN_EXIT] = 0.0f;
+                inputListener.onVrExit();
+            }
         }
 
         // A 3d room forces the picture onto its wall, so what comes back while
@@ -1998,6 +2162,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.VR_ROOM_LIGHT_PREF_STRING, on)
+                    .apply();
+        }
+        else if (setting == SETTING_HEAD_LOCK) {
+            boolean on = value != 0;
+            // The frame loop reads this off the same configuration object every
+            // frame and passes it down, so the screen follows the head, or
+            // stops following it, on the next one. A room ignores it either
+            // way, which is why the row stays live in one rather than greying.
+            if (prefConfig != null) {
+                prefConfig.vrHeadLocked = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_HEAD_LOCKED_PREF_STRING, on)
                     .apply();
         }
         else if (setting == SETTING_AMBI_LEVEL) {

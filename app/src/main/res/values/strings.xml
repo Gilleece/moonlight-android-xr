@@ -254,7 +254,7 @@
     <string name="summary_settings_back">Return to the computer list</string>
     <string name="category_vr_settings">VR Settings</string>
     <string name="category_vr_debug">VR Debugging</string>
-    <string name="title_enable_vr_mode">Stream in VR (Experimental)</string>
+    <string name="title_enable_vr_mode">Stream in VR</string>
     <string name="summary_enable_vr_mode">Show the stream on a virtual screen in an immersive VR session. Headsets only, and the only mode with a 3D effect.</string>
     <string name="title_vr_head_locked">Head locked screen</string>
     <string name="summary_vr_head_locked">Keep the virtual screen fixed in front of your view instead of anchored in the world</string>
@@ -278,6 +278,8 @@
     <string name="summary_vr_passthrough">Turn on passthrough. Please note this uses more system resources, please disable if you find the stream performing poorly</string>
     <string name="title_vr_depth_source">Realtime 3D mode</string>
     <string name="summary_vr_depth_source">Choose the realtime 3D mode, including test patterns.</string>
+    <string name="title_vr_env_res">Environment Res</string>
+    <string name="summary_vr_env_res">How sharply the 3D room around the screen is rendered. Higher costs more GPU time. Ultra is experimental and may cause hitches or stutter.</string>
     <string name="title_vr_sharpening">Screen sharpening</string>
     <string name="summary_vr_sharpening">Sharpen the virtual screen in the headset compositor. Costs nothing on supported headsets and is ignored on runtimes without the extension.</string>
     <string name="title_vr_depth_debug">Show depth map</string>
