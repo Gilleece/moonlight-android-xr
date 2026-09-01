@@ -3417,16 +3417,19 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
 static int hoverTest(float u, float v, float width, float height, int cornersLive,
                      int* corner) {
     if (cornersLive) {
-        // Centred on the corner, reaching as far outside the picture as
-        // inside, because that is where the bracket is drawn
-        float reachM = CORNER_FRAC * width * CORNER_HOVER * 0.5f;
+        // Centred where the bracket is drawn, which is a half bracket outside
+        // the corner in both axes, with the same reach each way as before
+        float sideM = CORNER_FRAC * width;
+        float reachM = sideM * CORNER_HOVER * 0.5f;
         float cu = reachM / width;
         float cv = reachM / height;
+        float outU = sideM * 0.5f / width;
+        float outV = sideM * 0.5f / height;
 
-        int left = fabsf(u) < cu;
-        int right = fabsf(u - 1.0f) < cu;
-        int top = fabsf(v) < cv;
-        int bottom = fabsf(v - 1.0f) < cv;
+        int left = fabsf(u + outU) < cu;
+        int right = fabsf(u - (1.0f + outU)) < cu;
+        int top = fabsf(v + outV) < cv;
+        int bottom = fabsf(v - (1.0f + outV)) < cv;
         if ((left || right) && (top || bottom)) {
             *corner = (top ? 0 : 2) + (right ? 1 : 0);
             return HOVER_CORNER;
@@ -3475,6 +3478,29 @@ static Vec3 screenPoint(float u, float v, XrPosef screen, float width, float hei
                    screen.position.y + rotated.y,
                    screen.position.z + rotated.z };
     return world;
+}
+
+// Furniture pinned to the picture has to ride the picture. A curved screen
+// bows toward the viewer at the edges, so anything left in the flat plane ends
+// up behind the surface, and by more the wider the screen gets. Takes a point
+// in the screen's flat local frame, where z is how far proud of the surface it
+// should sit, and puts it on the cylinder. The yaw handed back turns a quad to
+// lie along the surface there rather than cutting through it.
+static void curveLocal(Vec3* local, float radius, int curved, float* outYaw) {
+    float yaw = 0.0f;
+    if (curved && radius > 1e-3f) {
+        // Local x is arc length from the centre, the same parameter screenPoint
+        // and the cylinder layer use, so it holds outside the picture too
+        float angle = local->x / radius;
+        // Proud of the surface means toward the axis, which is past the viewer
+        float proud = radius - local->z;
+        local->x = proud * sinf(angle);
+        local->z = radius - proud * cosf(angle);
+        yaw = -angle;
+    }
+    if (outYaw != NULL) {
+        *outYaw = yaw;
+    }
 }
 
 static int createPointerSwapchain(XrCtx* ctx) {
@@ -4675,7 +4701,10 @@ static int cogCellAt(float pu, int cells) {
     return cell;
 }
 
-// Padlock sits off the left edge, halfway up
+// Padlock sits clear of the left edge, halfway up, in the screen's flat local
+// frame. Where the picture is curved the draw puts this on the surface, and
+// the arc length that comes out of it is the same x, so the hit test below
+// still reads straight off these numbers.
 static void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide) {
     float side = ctx->screenWidth * LOCK_BUTTON_FRAC;
     outLocal->x = -(ctx->screenWidth * (0.5f + LOCK_GAP_FRAC) + side * 0.5f);
@@ -6166,9 +6195,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                             * ctx->screenWidth);
             }
             else {
-                local.x = (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * ctx->screenWidth;
-                local.y = (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * height;
+                // The bracket being held sits a half bracket outside the
+                // corner, so the ray has to end out there with it
+                float side = ctx->screenWidth * CORNER_FRAC;
+                local.x = (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * (ctx->screenWidth + side);
+                local.y = (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * (height + side);
             }
+            curveLocal(&local, radius, curved, NULL);
             Vec3 handle = quatRotate(screenPose.orientation, local);
             ctx->beamStart = aimPoses[ctx->grabHand].position;
             ctx->beamEnd.x = screenPose.position.x + handle.x;
@@ -8150,6 +8183,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrPosef screenPose = ctx->screenPose;
     float screenWidth = ctx->screenWidth;
     float screenHeight = screenWidth * aspect;
+    // The same test the picture's own layer makes below, so the furniture that
+    // is pinned to the picture sits on whichever surface actually goes up
+    int screenCurved = curve > 0.01f && ctx->cylinderSupported;
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
@@ -8460,8 +8496,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 sizeW = sizeH = screenWidth * CORNER_FRAC;
                 int right = ctx->hoverCorner == 1 || ctx->hoverCorner == 3;
                 int bottom = ctx->hoverCorner >= 2;
-                local.x = (right ? 0.5f : -0.5f) * screenWidth;
-                local.y = (bottom ? -0.5f : 0.5f) * screenHeight;
+                // Half a bracket outside the corner in both axes, so its inner
+                // tip touches the corner and none of it covers the picture
+                local.x = (right ? 0.5f : -0.5f) * (screenWidth + sizeW);
+                local.y = (bottom ? -0.5f : 0.5f) * (screenHeight + sizeH);
                 // The art is a top left bracket, so the other three are the
                 // same picture rolled about the screen normal
                 if (ctx->hoverCorner == 1) roll = -1.5707963f;
@@ -8470,8 +8508,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             }
             // Just off the surface so it never z fights the picture
             local.z = 0.005f;
+            // On a curved screen the corners come a long way toward the
+            // viewer, so both the place and the facing follow the surface
+            float yaw = 0.0f;
+            curveLocal(&local, ctx->screenRadius, screenCurved, &yaw);
 
             XrQuaternionf rollQ = { 0.0f, 0.0f, sinf(roll * 0.5f), cosf(roll * 0.5f) };
+            Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
+            XrQuaternionf turnQ = quatMul(axisAngleQuat(yawAxis, yaw), rollQ);
             Vec3 offset = quatRotate(screenPose.orientation, local);
 
             memset(&handleLayer, 0, sizeof(handleLayer));
@@ -8485,7 +8529,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             handleLayer.subImage.imageRect.extent.height = isBar ? BAR_TEX_H : CORNER_TEX_H;
             handleLayer.subImage.imageArrayIndex = 0;
             handleLayer.space = space;
-            handleLayer.pose.orientation = quatNorm(quatMul(screenPose.orientation, rollQ));
+            handleLayer.pose.orientation = quatNorm(quatMul(screenPose.orientation, turnQ));
             handleLayer.pose.position.x = screenPose.position.x + offset.x;
             handleLayer.pose.position.y = screenPose.position.y + offset.y;
             handleLayer.pose.position.z = screenPose.position.z + offset.z;
@@ -8593,7 +8637,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 && (ctx->hoverKind == HOVER_LOCK || barArea)) {
             Vec3 local;
             float side;
+            float lockYaw = 0.0f;
             lockButtonPlacement(ctx, &local, &side);
+            // Hangs off the left edge, which on a curved screen is well in
+            // front of the flat plane the placement is measured in
+            curveLocal(&local, ctx->screenRadius, screenCurved, &lockYaw);
+            Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
             Vec3 offset = quatRotate(screenPose.orientation, local);
 
             memset(&lockLayer, 0, sizeof(lockLayer));
@@ -8608,7 +8657,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             lockLayer.subImage.imageRect.extent.height = LOCK_TEX;
             lockLayer.subImage.imageArrayIndex = 0;
             lockLayer.space = space;
-            lockLayer.pose.orientation = screenPose.orientation;
+            lockLayer.pose.orientation = quatNorm(quatMul(screenPose.orientation,
+                                                          axisAngleQuat(yawAxis, lockYaw)));
             lockLayer.pose.position.x = screenPose.position.x + offset.x;
             lockLayer.pose.position.y = screenPose.position.y + offset.y;
             lockLayer.pose.position.z = screenPose.position.z + offset.z;
