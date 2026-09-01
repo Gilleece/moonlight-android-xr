@@ -355,6 +355,10 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define COG_TAB_DISPLAY 1
 #define COG_TAB_3D      2
 #define COG_TAB_COUNT   3
+// And one more sheet than there are tabs: the screen tab has a second face for
+// when a room hangs the picture and none of its rows can do anything
+#define COG_ART_ROOM_SCREEN 3
+#define COG_ART_COUNT       4
 
 // Screen tab rows, in the order they are drawn
 #define COG_SLIDER_DISTANCE 0
@@ -1007,18 +1011,18 @@ typedef struct {
     // same one after a photo decode does not repeat it
     int loggedChoice;
 
-    // One swapchain per tab, both filled at startup, so changing tab is a
+    // One swapchain per sheet, all filled at startup, so changing tab is a
     // different handle in the layer rather than an upload
-    XrSwapchain cogPanelSwapchains[COG_TAB_COUNT];
+    XrSwapchain cogPanelSwapchains[COG_ART_COUNT];
     XrSwapchain cogButtonSwapchain;
     XrSwapchain cogThumbSwapchain;
-    uint32_t cogPanelImageCounts[COG_TAB_COUNT];
+    uint32_t cogPanelImageCounts[COG_ART_COUNT];
     uint32_t cogButtonImageCount;
     uint32_t cogThumbImageCount;
-    XrSwapchainImageOpenGLESKHR* cogPanelImages[COG_TAB_COUNT];
+    XrSwapchainImageOpenGLESKHR* cogPanelImages[COG_ART_COUNT];
     XrSwapchainImageOpenGLESKHR* cogButtonImages;
     XrSwapchainImageOpenGLESKHR* cogThumbImages;
-    int cogPanelReady[COG_TAB_COUNT];
+    int cogPanelReady[COG_ART_COUNT];
     int cogButtonReady;
     int cogThumbReady;
     int cogOpen;
@@ -2600,6 +2604,9 @@ typedef struct {
     // stands so the two never fight for the same pixels
     float screenMountY;
     float screenProud;
+    // How wide it is hung. The room sizes its own picture rather than taking
+    // the size slider's, since the wall it goes on is a known size.
+    float screenWidth;
     // Distance at which the screen's light is down to half
     float spillRadius;
     // How much of that light a fully lit vertex takes
@@ -3285,21 +3292,25 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
 
 
 // Which affordance the ray is over. Corners are numbered 0 top left, 1 top
-// right, 2 bottom left, 3 bottom right.
-static int hoverTest(float u, float v, float width, float height, int* corner) {
-    // Centred on the corner, reaching as far outside the picture as inside,
-    // because that is where the bracket is drawn
-    float reachM = CORNER_FRAC * width * CORNER_HOVER * 0.5f;
-    float cu = reachM / width;
-    float cv = reachM / height;
+// right, 2 bottom left, 3 bottom right, and are skipped where they are not
+// drawn so the ray falls through to what is behind them.
+static int hoverTest(float u, float v, float width, float height, int cornersLive,
+                     int* corner) {
+    if (cornersLive) {
+        // Centred on the corner, reaching as far outside the picture as
+        // inside, because that is where the bracket is drawn
+        float reachM = CORNER_FRAC * width * CORNER_HOVER * 0.5f;
+        float cu = reachM / width;
+        float cv = reachM / height;
 
-    int left = fabsf(u) < cu;
-    int right = fabsf(u - 1.0f) < cu;
-    int top = fabsf(v) < cv;
-    int bottom = fabsf(v - 1.0f) < cv;
-    if ((left || right) && (top || bottom)) {
-        *corner = (top ? 0 : 2) + (right ? 1 : 0);
-        return HOVER_CORNER;
+        int left = fabsf(u) < cu;
+        int right = fabsf(u - 1.0f) < cu;
+        int top = fabsf(v) < cv;
+        int bottom = fabsf(v - 1.0f) < cv;
+        if ((left || right) && (top || bottom)) {
+            *corner = (top ? 0 : 2) + (right ? 1 : 0);
+            return HOVER_CORNER;
+        }
     }
 
     if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f) {
@@ -3407,7 +3418,7 @@ static int createPointerSwapchain(XrCtx* ctx) {
 
     info.width = COG_TEX_W;
     info.height = COG_TEX_H;
-    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
         if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cogPanelSwapchains[tab]),
                     "create cog panel swapchain")) {
             xrEnumerateSwapchainImages(ctx->cogPanelSwapchains[tab], 0,
@@ -3862,6 +3873,13 @@ static int roomEffective(XrCtx* ctx) {
     return ctx->roomOverride >= 0 ? ctx->roomOverride : ctx->roomStyle;
 }
 
+// A room places and sizes its own picture, so every row on the screen tab is
+// dead while one is on. The panel shows a note in their place, and the input
+// side has to agree with what is drawn.
+static int cogScreenLocked(XrCtx* ctx) {
+    return ctx->cogTab == COG_TAB_SCREEN && roomEffective(ctx) > 0;
+}
+
 // The sliders place the screen, the grab moves it from there. Moving either
 // slider is taken as the user asking for the placement back. Says whether it
 // reseeded, since a room holding the screen has to know the placement waiting
@@ -3981,8 +3999,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
 
     if (ctx->grabMode == GRAB_NONE) {
         // A 3d room holds the picture on its wall and forces the pose every
-        // frame, so a drag could only fight it. The bar and the corners still
-        // light up, they just have nothing to move.
+        // frame, so a drag could only fight it. Neither handle is drawn there,
+        // and the corners are not even hovered.
         if (roomEffective(ctx) > 0) {
             return;
         }
@@ -4652,7 +4670,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->envButtonSwapchain);
     }
     free(ctx->envButtonImages);
-    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
         if (ctx->cogPanelSwapchains[tab] != XR_NULL_HANDLE) {
             xrDestroySwapchain(ctx->cogPanelSwapchains[tab]);
         }
@@ -5380,7 +5398,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         }
         else if (screenProject(aimPoses[h], screenPose, ctx->screenWidth, height, radius, curved,
                                &hitU[h], &hitV[h])) {
-            hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, &corners[h]);
+            // No corner brackets in a room, so nothing there claims the ray
+            hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, !roomOn,
+                                  &corners[h]);
             // The button reaches past the left end of the bar's zone, so it is
             // tested here rather than after a hand has been picked. Otherwise
             // the part of it outside that zone belongs to no hand at all.
@@ -5634,7 +5654,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         // A drag keeps the hand that started it, and keeps it even once the
         // ray has wandered off the panel, so a slider can be run to either end
         // in one go. The display tab is cells apart from its one level row.
-        if (ctx->cogDragSlider >= 0
+        if (ctx->cogDragSlider >= 0 && cogScreenLocked(ctx)) {
+            // A room took the picture mid drag, which only a debug property
+            // can do, and there is nothing left under the thumb to move
+            cogDragEnded(ctx, out);
+        }
+        else if (ctx->cogDragSlider >= 0
                 && (ctx->cogTab != COG_TAB_DISPLAY
                     || ctx->cogDragSlider == COG_DISPLAY_SLIDER_ROW)) {
             int h = ctx->cogDragHand;
@@ -5679,6 +5704,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                     ctx->cogDragSlider = -1;
                     ctx->cogDragHand = -1;
                 }
+                break;
+            }
+
+            // Below the tabs the screen tab is a note while a room is on, so
+            // rows, tracks and the reset button are all out of reach. The
+            // press is still swallowed, since it landed on the panel.
+            if (cogScreenLocked(ctx)) {
+                ctx->cogHoverSlider = -1;
+                ctx->cogHoverCell = -1;
                 break;
             }
 
@@ -6407,6 +6441,9 @@ static RoomParams minimalRoomParams(void) {
     // behind the picture catches some of its light too.
     p.screenMountY = 0.6f;
     p.screenProud = 0.10f;
+    // Half again the 3 m the sliders start on. A wall nine metres across can
+    // carry it, and at this distance it is what the room is for.
+    p.screenWidth = 4.5f;
     Vec3 screenAt = { 0.0f, p.screenMountY, p.screenZ + p.screenProud };
     p.screenAt = screenAt;
     p.spillRadius = 2.2f;
@@ -6453,9 +6490,10 @@ static void applyRoomPlacement(XrCtx* ctx, int roomOn, float aspect, int reseede
     }
 
     RoomParams p = minimalRoomParams();
-    // Sized to fit the wall it hangs on, with a margin either way. The size
-    // slider still moves, this only catches what will not fit.
-    float width = ctx->screenWidth;
+    // The room says how big its picture is, not the size slider: the wall is a
+    // known size and the picture is hung to suit it. The clamps below only
+    // catch a room whose width does not fit its own wall.
+    float width = p.screenWidth;
     float maxWidth = 2.0f * p.halfWidth - 0.4f;
     float maxHeight = (p.ceilingY - p.floorY) - 0.3f;
     if (width > maxWidth) {
@@ -7080,19 +7118,20 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
 }
 
 // The settings panel and the cog that opens it, drawn in Java for the same
-// reason the grid is: the labels are text. Every tab arrives together and is
-// uploaded once, so changing tab later touches nothing.
+// reason the grid is: the labels are text. Every sheet arrives together and is
+// uploaded once, so changing tab later touches nothing. The last one is the
+// screen tab as it reads inside a room.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject thiz,
                                                             jlong handle, jobject screenTab,
                                                             jobject displayTab, jobject tab3d,
-                                                            jobject button) {
+                                                            jobject roomTab, jobject button) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
-    jobject tabs[COG_TAB_COUNT] = { screenTab, displayTab, tab3d };
-    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+    jobject tabs[COG_ART_COUNT] = { screenTab, displayTab, tab3d, roomTab };
+    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
         if (tabs[tab] == NULL) {
             continue;
         }
@@ -7111,10 +7150,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject
                                                 OUTLINE_TEX, OUTLINE_TEX);
         }
     }
-    LOGI("cog tabs %s, %s and %s, button %s",
+    LOGI("cog tabs %s, %s and %s, room screen %s, button %s",
          ctx->cogPanelReady[COG_TAB_SCREEN] ? "ready" : "missing",
          ctx->cogPanelReady[COG_TAB_DISPLAY] ? "ready" : "missing",
          ctx->cogPanelReady[COG_TAB_3D] ? "ready" : "missing",
+         ctx->cogPanelReady[COG_ART_ROOM_SCREEN] ? "ready" : "missing",
          ctx->cogButtonReady ? "ready" : "missing");
 }
 
@@ -7521,10 +7561,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerSettingsFB sharpenSettings;
     // Worst case reachable is the screen tab open: background, the glow, both
     // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
-    // is 15. The 3d room replaces the environment layer one for one, so it
-    // adds nothing to that. The panel is modal, and since the frame a modal
-    // opens now sheds the bar furniture too, the two can no longer land in one
-    // frame together.
+    // is 15. The 3d room replaces the environment layer one for one, and sheds
+    // the move pill and the screen tab's thumbs, so it only ever comes to
+    // less. The panel is modal, and since the frame a modal opens now sheds
+    // the bar furniture too, the two can no longer land in one frame together.
     // The keyboard sheds the same furniture and adds only its panel and one
     // ring, so it comes to 9. Sized well past that anyway: an overflow here is
     // a smashed stack, and the margin costs five pointers.
@@ -7744,8 +7784,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                     || ctx->hoverKind == HOVER_KBBUTTON);
 
         // Move bar and resize corner, shown only while the ray is over them.
-        // Both live in the screen's own frame, so they travel with it.
-        if (ctx->handleArtReady && (barArea || ctx->hoverKind == HOVER_CORNER)) {
+        // Both live in the screen's own frame, so they travel with it. Neither
+        // goes up in a room, where the wall holds the picture and there is
+        // nothing for either to move. The buttons beside the bar still come up
+        // on the same hover.
+        if (ctx->handleArtReady && !roomOn && (barArea || ctx->hoverKind == HOVER_CORNER)) {
             int isBar = barArea;
             Vec3 local;
             float sizeW, sizeH;
@@ -7987,15 +8030,16 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         }
 
         // The settings panel, at the pose it was opened with. The tab is a
-        // choice of swapchain, both were filled at startup. Sharpened: it
-        // carries text.
-        if (ctx->cogOpen && ctx->cogPanelReady[ctx->cogTab]) {
+        // choice of swapchain, all were filled at startup, and in a room the
+        // screen tab picks its own sheet. Sharpened: it carries text.
+        int cogArt = cogScreenLocked(ctx) ? COG_ART_ROOM_SCREEN : ctx->cogTab;
+        if (ctx->cogOpen && ctx->cogPanelReady[cogArt]) {
             memset(&cogPanelLayer, 0, sizeof(cogPanelLayer));
             cogPanelLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
             cogPanelLayer.next = sharpenChain;
             cogPanelLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             cogPanelLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            cogPanelLayer.subImage.swapchain = ctx->cogPanelSwapchains[ctx->cogTab];
+            cogPanelLayer.subImage.swapchain = ctx->cogPanelSwapchains[cogArt];
             cogPanelLayer.subImage.imageRect.offset.x = 0;
             cogPanelLayer.subImage.imageRect.offset.y = 0;
             cogPanelLayer.subImage.imageRect.extent.width = COG_TEX_W;
@@ -8051,7 +8095,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 }
             }
 
-            if (ctx->cogThumbReady) {
+            // Nothing to drag on the sheet the room shows, so no thumbs go
+            // over it either
+            if (ctx->cogThumbReady && !cogScreenLocked(ctx)) {
                 float thumbSize = ctx->cogH * 0.085f;
                 int rowCount = cogTabRowCount(ctx->cogTab);
                 for (int s = 0; s < rowCount; s++) {

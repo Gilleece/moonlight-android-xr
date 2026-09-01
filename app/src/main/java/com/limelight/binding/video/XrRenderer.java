@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -192,7 +193,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Clear of the last row, which reaches 0.80 plus the half band
     private static final float COG_RESET_T = 0.87f;
     private static final float COG_RESET_B = 0.97f;
-    // Three tabs, a texture each, all uploaded once so switching is free
+    // Three tabs, a texture each, all uploaded once so switching is free, and
+    // a fourth sheet handed over after them: the screen tab as it reads while
+    // a 3d room hangs the picture, which the native side picks for itself.
     private static final int COG_TAB_SCREEN = 0;
     private static final int COG_TAB_DISPLAY = 1;
     private static final int COG_TAB_3D = 2;
@@ -202,6 +205,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int COG_ROW_TILT = 2;
     private static final int COG_ROW_ROTATE = 3;
     private static final int COG_ROW_CURVE = 4;
+    // What stands in for those rows in a room, where the wall decides both the
+    // placement and the size
+    private static final String COG_ROOM_NOTICE =
+            "Screen size cannot be changed in a 3D environment. "
+                    + "Please choose a different environment to customise the screen size.";
     // Display tab: a label and a row of cells, one of which is in force, and
     // the glow level track under them
     private static final String[] COG_OPTION_ROWS = { "Sharpen", "Stats", "Glow" };
@@ -310,6 +318,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final AtomicReference<ByteBuffer> pendingCogScreenTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogDisplayTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCog3dTab = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingCogRoomTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
@@ -366,7 +375,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
     private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
-                                        ByteBuffer tab3d, ByteBuffer button);
+                                        ByteBuffer tab3d, ByteBuffer roomTab, ByteBuffer button);
     private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
                                              ByteBuffer symbols, ByteBuffer buttonIcon,
                                              float[] keyRects, int[] codesLower,
@@ -666,9 +675,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             ByteBuffer screenTab = pendingCogScreenTab.getAndSet(null);
             ByteBuffer displayTab = pendingCogDisplayTab.getAndSet(null);
             ByteBuffer tab3d = pendingCog3dTab.getAndSet(null);
+            ByteBuffer roomTab = pendingCogRoomTab.getAndSet(null);
             ByteBuffer cog = pendingCogButton.getAndSet(null);
-            if (screenTab != null || displayTab != null || tab3d != null || cog != null) {
-                nativeUploadCog(nativeCtx, screenTab, displayTab, tab3d, cog);
+            if (screenTab != null || displayTab != null || tab3d != null
+                    || roomTab != null || cog != null) {
+                nativeUploadCog(nativeCtx, screenTab, displayTab, tab3d, roomTab, cog);
             }
 
             ByteBuffer kbLower = pendingKbLower.getAndSet(null);
@@ -1047,11 +1058,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
-     * The settings panel and the cog that opens it. A texture per tab, both
-     * drawn once here, so changing tab in the session picks the other
-     * swapchain rather than redrawing anything. Only the labels, tracks and
-     * cells live in the texture: thumbs and selection rings are quads of their
-     * own, so using the panel costs no upload.
+     * The settings panel and the cog that opens it. A texture per tab and one
+     * more for the screen tab in a room, all drawn once here, so changing tab
+     * in the session picks another swapchain rather than redrawing anything.
+     * Only the labels, tracks and cells live in the texture: thumbs and
+     * selection rings are quads of their own, so using the panel costs no
+     * upload.
      */
     private void buildCogArt() {
         // Curvature needs a layer type the runtime may not offer, and a slider
@@ -1072,6 +1084,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         pendingCog3dTab.set(toBuffer(tab3d));
         tab3d.recycle();
 
+        Bitmap roomTab = buildCogRoomTab();
+        pendingCogRoomTab.set(toBuffer(roomTab));
+        roomTab.recycle();
+
         // Never blank: the drawn gear stands in if the art does not decode
         Bitmap button = loadIcon("settings_icon.png", ENV_BUTTON_TEX);
         if (button == null) {
@@ -1079,6 +1095,18 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
         pendingCogButton.set(toBuffer(button));
         button.recycle();
+    }
+
+    // The screen tab as it reads inside a 3d room: the same chrome, and a note
+    // where the rows would be, since the room hangs and sizes the picture
+    // itself. The native side shows this sheet in place of the screen tab
+    // while a room is on.
+    private Bitmap buildCogRoomTab() {
+        Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        drawCogChrome(canvas, COG_TAB_SCREEN);
+        drawCogRoomNotice(canvas);
+        return bitmap;
     }
 
     private Bitmap buildCogTab(int tab, boolean curveOk, boolean stereoOk) {
@@ -1187,6 +1215,45 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         text.setTextAlign(Paint.Align.CENTER);
         canvas.drawText("Reset", reset.centerX(),
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    // What the screen tab carries in a room instead of its rows: the reason
+    // there are none, centred in the body under the tab bar
+    private void drawCogRoomNotice(Canvas canvas) {
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextSize(22.0f);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setColor(0xC0FFFFFF);
+
+        String[] lines = wrapText(COG_ROOM_NOTICE, text, 0.80f * COG_TEX_W);
+        float step = (text.descent() - text.ascent()) * 1.4f;
+        float middle = (COG_TAB_BAR_B * COG_TEX_H + COG_TEX_H) * 0.5f;
+        float y = middle - (lines.length - 1) * step * 0.5f
+                - (text.ascent() + text.descent()) * 0.5f;
+        for (String line : lines) {
+            canvas.drawText(line, COG_TEX_W * 0.5f, y, text);
+            y += step;
+        }
+    }
+
+    // Greedy word wrap, which is all one fixed sentence on a fixed panel needs
+    private static String[] wrapText(String message, Paint paint, float width) {
+        ArrayList<String> lines = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String word : message.split(" ")) {
+            if (line.length() > 0 && paint.measureText(line + " " + word) > width) {
+                lines.add(line.toString());
+                line.setLength(0);
+            }
+            if (line.length() > 0) {
+                line.append(' ');
+            }
+            line.append(word);
+        }
+        if (line.length() > 0) {
+            lines.add(line.toString());
+        }
+        return lines.toArray(new String[0]);
     }
 
     // 3D tab: the two values worth reaching mid stream. Depth runs past the
