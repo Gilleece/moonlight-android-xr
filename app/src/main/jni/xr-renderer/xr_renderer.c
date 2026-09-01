@@ -1080,10 +1080,9 @@ typedef struct {
     // attitude it had and just turns to stay square to the viewer.
     float grabPitch;
     float grabRoll;
-    // Resize works against the corner opposite the one being dragged, which
-    // stays put, and along the diagonal it started on
+    // Resize scales about the centre, which stays put. These are the corner
+    // opposite the one being dragged, and their signs say which corner is held.
     float grabOppX, grabOppY;
-    float grabDiagX, grabDiagY;
     int poseDirty;
 
     // Hover state, read by the frame loop to decide which handle to draw
@@ -4267,23 +4266,20 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
             return;
         }
 
+        // The hit itself is not needed any more, but a ray that misses the
+        // plane has nothing to measure the drag against
         float u, v;
         if (!screenProject(aims[hand], ctx->grabScreen, ctx->screenWidth, height,
                            ctx->screenRadius, curved, &u, &v)) {
             return;
         }
 
-        // The corner across the diagonal is the anchor, and the drag is
-        // measured along the diagonal it started on
+        // The centre is the anchor, and the drag runs along the half diagonal
+        // out to the corner being held
         int right = (corner == 1 || corner == 3);
         int bottom = (corner >= 2);
         ctx->grabOppX = (right ? -0.5f : 0.5f) * ctx->grabWidth;
         ctx->grabOppY = (bottom ? 0.5f : -0.5f) * ctx->grabHeight;
-        ctx->grabDiagX = (u - 0.5f) * ctx->grabWidth - ctx->grabOppX;
-        ctx->grabDiagY = (0.5f - v) * ctx->grabHeight - ctx->grabOppY;
-        if (fabsf(ctx->grabDiagX) < 1e-3f && fabsf(ctx->grabDiagY) < 1e-3f) {
-            return;
-        }
         ctx->grabMode = GRAB_RESIZE;
         return;
     }
@@ -4326,10 +4322,17 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
         return;
     }
 
-    float dx = (u - 0.5f) * ctx->grabWidth - ctx->grabOppX;
-    float dy = (0.5f - v) * ctx->grabHeight - ctx->grabOppY;
-    float diagLen = ctx->grabDiagX * ctx->grabDiagX + ctx->grabDiagY * ctx->grabDiagY;
-    float scale = (dx * ctx->grabDiagX + dy * ctx->grabDiagY) / diagLen;
+    // Measured from the centre, since that is what holds. The half diagonal is
+    // the held corner's own position, so projecting onto it keeps that corner
+    // under the ray. Measuring from the far corner along the whole diagonal,
+    // as this did when that corner was the anchor, would leave the bracket
+    // creeping out at half the speed of the hand.
+    float px = (u - 0.5f) * ctx->grabWidth;
+    float py = (0.5f - v) * ctx->grabHeight;
+    float halfX = -ctx->grabOppX;
+    float halfY = -ctx->grabOppY;
+    float halfLen = halfX * halfX + halfY * halfY;
+    float scale = (px * halfX + py * halfY) / halfLen;
     if (scale < 0.05f) {
         scale = 0.05f;
     }
@@ -4337,23 +4340,15 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
     float width = ctx->grabWidth * scale;
     if (width < SCREEN_MIN_WIDTH) width = SCREEN_MIN_WIDTH;
     if (width > SCREEN_MAX_WIDTH) width = SCREEN_MAX_WIDTH;
-    float newHeight = ctx->grabHeight * (width / ctx->grabWidth);
 
     // Keeping the arc the same shape rather than flattening as it grows
     ctx->screenRadius = ctx->grabRadius * (width / ctx->grabWidth);
     ctx->screenWidth = width;
 
-    // The anchor corner stays where it was, so the screen grows away from it
-    Vec3 centreLocal;
-    centreLocal.x = ctx->grabOppX + (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * width;
-    centreLocal.y = ctx->grabOppY + (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * newHeight;
-    centreLocal.z = 0.0f;
-
-    Vec3 centre = quatRotate(ctx->grabScreen.orientation, centreLocal);
+    // The centre stays where it was, so the screen grows evenly about the spot
+    // it was placed on rather than walking off towards one corner
+    ctx->screenPose.position = ctx->grabScreen.position;
     ctx->screenPose.orientation = ctx->grabScreen.orientation;
-    ctx->screenPose.position.x = ctx->grabScreen.position.x + centre.x;
-    ctx->screenPose.position.y = ctx->grabScreen.position.y + centre.y;
-    ctx->screenPose.position.z = ctx->grabScreen.position.z + centre.z;
 }
 
 // The picker floats just in front of the screen, centred on it
