@@ -152,10 +152,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     // Environment picker, a grid of thumbnails reachable from inside the
     // session. The first two cells are passthrough and an empty black room,
-    // then the photos in the assets folder in name order, and the last two are
-    // the cinema rooms in their two tiers. The cinemas sit at the end so a
-    // saved cell from an older install still means what it used to. Must match
-    // the PICKER_ constants in xr_renderer.c.
+    // then the photos in the assets folder in name order, and after them the
+    // 3d rooms. The rooms sit at the end so a saved cell from an older install
+    // still means what it used to. Must match the PICKER_ constants in
+    // xr_renderer.c.
     private static final String ENVIRONMENT_DIR = "environments";
     private static final String IMAGE_DIR = "images";
     private static final int PICKER_COLS = 4;
@@ -169,11 +169,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int CELL_PASSTHROUGH = 0;
     private static final int CELL_VOID = 1;
     private static final int CELL_FIRST_PHOTO = 2;
-    // Shared with the 2d side, which warns about the fancy tier on a Gen 1
-    // headset before the session starts
-    private static final int CELL_CINEMA_LITE = PreferenceConfiguration.VR_ENV_CINEMA_LITE;
-    private static final int CELL_CINEMA_FANCY = PreferenceConfiguration.VR_ENV_CINEMA_FANCY;
-    private static final int MAX_PHOTOS = CELL_CINEMA_LITE - CELL_FIRST_PHOTO;
+    // Shared with the 2d side, so it can recognise the cell without reaching
+    // in here
+    private static final int CELL_MINIMAL_ROOM = PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
+    private static final int MAX_PHOTOS = CELL_MINIMAL_ROOM - CELL_FIRST_PHOTO;
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout has to be agreed between the two: these must
@@ -729,7 +728,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         passthroughOn = cell == CELL_PASSTHROUGH;
         nativeSetEnvironment(nativeCtx, cell, false);
 
-        final int startPhoto = isCinemaCell(cell) ? -1 : cell - CELL_FIRST_PHOTO;
+        final int startPhoto = isRoomCell(cell) ? -1 : cell - CELL_FIRST_PHOTO;
         Thread loader = new Thread() {
             @Override
             public void run() {
@@ -745,19 +744,20 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         loader.start();
     }
 
-    private static boolean isCinemaCell(int cell) {
-        return cell == CELL_CINEMA_LITE || cell == CELL_CINEMA_FANCY;
+    // A cell that is a fully 3d room rather than a photo or a plain background
+    private static boolean isRoomCell(int cell) {
+        return cell == CELL_MINIMAL_ROOM;
     }
 
     // A cell is worth switching to if it is one of the fixed ones or a photo
     // that actually shipped in the assets
     private boolean cellExists(int cell) {
         return cell >= 0
-                && (cell < CELL_FIRST_PHOTO + environmentFiles.length || isCinemaCell(cell));
+                && (cell < CELL_FIRST_PHOTO + environmentFiles.length || isRoomCell(cell));
     }
 
     private boolean backgroundVisible() {
-        // Only a photo has anything behind it. Asking for it on a cinema cell
+        // Only a photo has anything behind it. Asking for it on a room cell
         // would leave whichever photo was decoded last showing through.
         return environmentChoice >= CELL_FIRST_PHOTO
                 && environmentChoice < CELL_FIRST_PHOTO + environmentFiles.length
@@ -776,7 +776,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         environmentChoice = cell;
         passthroughOn = cell == CELL_PASSTHROUGH;
 
-        final int photo = isCinemaCell(cell) ? -1 : cell - CELL_FIRST_PHOTO;
+        final int photo = isRoomCell(cell) ? -1 : cell - CELL_FIRST_PHOTO;
         if (photo >= 0 && photo != loadedPhoto) {
             Thread loader = new Thread() {
                 @Override
@@ -874,10 +874,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 name = "Black void";
                 paint.setColor(0xFF090909);
             }
-            else if (isCinemaCell(cell)) {
+            else if (isRoomCell(cell)) {
                 // No photo to preview, so the room is sketched on the tile
                 // below once the base colour is down
-                name = cell == CELL_CINEMA_FANCY ? "Cinema deluxe" : "Cinema";
+                name = "Minimal room";
                 paint.setColor(0xFF0B0B0E);
             }
             else if (cell - CELL_FIRST_PHOTO < environmentFiles.length) {
@@ -909,8 +909,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (thumb != null) {
                 thumb.recycle();
             }
-            if (isCinemaCell(cell)) {
-                drawCinemaTile(canvas, paint, tile, radius, cell == CELL_CINEMA_FANCY);
+            if (isRoomCell(cell)) {
+                drawRoomTile(canvas, paint, tile, radius);
             }
 
             // Dark band under the label, clipped to the bottom of the tile so
@@ -952,13 +952,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
-     * The thumbnail for a cinema cell, drawn rather than photographed: a lit
-     * screen up in a dark room with the seat backs in front of it. The deluxe
-     * tier gets more rows and a pair of wall lights, which is roughly what
-     * separates the two rooms themselves.
+     * The thumbnail for a room cell, drawn rather than photographed: a lit
+     * screen on the wall of a bare dark room, with a faint line low down where
+     * the floor meets it.
      */
-    private void drawCinemaTile(Canvas canvas, Paint paint, RectF tile, float radius,
-                                boolean fancy) {
+    private void drawRoomTile(Canvas canvas, Paint paint, RectF tile, float radius) {
         canvas.save();
         // Clipped to the tile so nothing leaks past the rounded corners
         Path clip = new Path();
@@ -972,7 +970,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // behind it standing in for the light it throws on the wall
         float screenW = w * 0.62f;
         float screenH = screenW * 9.0f / 16.0f;
-        float screenTop = tile.top + h * 0.17f;
+        float screenTop = tile.top + h * 0.24f;
         RectF screen = new RectF(tile.centerX() - screenW * 0.5f, screenTop,
                 tile.centerX() + screenW * 0.5f, screenTop + screenH);
 
@@ -983,36 +981,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         paint.setColor(0xFFDCE6F4);
         canvas.drawRect(screen, paint);
 
-        // Seat backs, nearly black against that light, each row a little wider
-        // and a little darker than the one behind it
-        int rows = fancy ? 4 : 2;
-        float bandTop = tile.top + h * 0.52f;
-        float rowStep = h * 0.50f / rows;
-        float seatH = rowStep * 0.72f;
-        float seatRadius = seatH * 0.45f;
-        for (int r = 0; r < rows; r++) {
-            float t = rows > 1 ? r / (float)(rows - 1) : 0.0f;
-            float inset = w * (0.18f - 0.16f * t);
-            float top = bandTop + r * rowStep;
-            int grey = (int)(0x2C - 0x1E * t);
-            paint.setColor(0xFF000000 | (grey << 16) | (grey << 8) | (grey + 5));
-            canvas.drawRoundRect(new RectF(tile.left + inset, top,
-                    tile.right - inset, top + seatH), seatRadius, seatRadius, paint);
-        }
-
-        if (fancy) {
-            // Warm sconces on the side walls, a dot inside a wider glow
-            float glow = w * 0.055f;
-            float y = tile.top + h * 0.45f;
-            float left = tile.left + w * 0.075f;
-            float right = tile.right - w * 0.075f;
-            paint.setColor(0x50FFC98A);
-            canvas.drawCircle(left, y, glow, paint);
-            canvas.drawCircle(right, y, glow, paint);
-            paint.setColor(0xFFFFD9A0);
-            canvas.drawCircle(left, y, glow * 0.35f, paint);
-            canvas.drawCircle(right, y, glow * 0.35f, paint);
-        }
+        // Where the floor meets the wall, faint enough to read as a room
+        // rather than as a line across the tile
+        paint.setColor(0x28FFFFFF);
+        float floorY = tile.top + h * 0.78f;
+        canvas.drawRect(new RectF(tile.left, floorY, tile.right, floorY + 1.5f), paint);
 
         canvas.restore();
     }
@@ -1633,7 +1606,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
         }
 
-        if (inputState[IN_POSE_DIRTY] != 0.0f) {
+        // A 3d room forces the picture onto its wall, so what comes back while
+        // one is on is the wall's placement rather than the user's. Writing it
+        // would lose where they had the screen in every other environment.
+        if (inputState[IN_POSE_DIRTY] != 0.0f && !isRoomCell(environmentChoice)) {
             saveScreenPose();
         }
 

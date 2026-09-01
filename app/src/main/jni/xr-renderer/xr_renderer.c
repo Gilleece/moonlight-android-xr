@@ -2,7 +2,7 @@
 // SurfaceTexture whose OES texture lives in the EGL context created here.
 // Each new video frame is drawn into a single swapchain that the compositor
 // shows on a quad (or cylinder) visible to both eyes, so the compositor does
-// all the reprojection work. The cinema room is the one exception: it is real
+// all the reprojection work. The 3d room is the one exception: it is real
 // geometry drawn per eye into a projection layer, in place of the environment.
 
 #include <jni.h>
@@ -302,10 +302,8 @@ static void xrLog(int prio, const char* fmt, ...) {
 // columns
 #define PICKER_WIDTH_FRAC 0.73f
 #define OUTLINE_TEX 128
-// The two cinema cells at the end of the grid. Must match CELL_CINEMA_LITE and
-// CELL_CINEMA_FANCY in XrRenderer.java.
-#define ENV_CELL_CINEMA_LITE 6
-#define ENV_CELL_CINEMA_FANCY 7
+// The room cell in the grid. Must match CELL_MINIMAL_ROOM in XrRenderer.java.
+#define ENV_CELL_MINIMAL_ROOM 6
 // The button that opens it, sitting to the left of the move bar
 #define ENV_BUTTON_FRAC 0.048f
 #define ENV_GAP_FRAC 0.02f
@@ -460,34 +458,25 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define GLOW_SCALE 1.7f
 #define GLOW_BEHIND_M 0.05f
 
-// Cinema room. A dark procedural interior, drawn per eye into the one
+// The 3d room. A dark procedural interior, drawn per eye into the one
 // projection layer this renderer has, instead of the environment sphere.
-#define CINEMA_TIER_LITE 1
-#define CINEMA_TIER_FANCY 2
-#define CINEMA_EYES 2
+// Which room, 0 for none. Only the one style so far, and the number is here so
+// a second one slots in beside it.
+#define ROOM_STYLE_MINIMAL 1
+#define ROOM_EYES 2
 // Half of whatever the runtime recommends per eye, capped here. The room is
 // dark and low frequency, so half resolution is where this starts and the
 // number to measure against.
-#define CINEMA_MAX_EYE 1280
-// Ten floats a vertex: position, colour, spill weight, the point on the
-// picture that lights this one, and one spare
-#define CINEMA_VERTEX_FLOATS 10
-#define CINEMA_FACES 6
+#define ROOM_MAX_EYE 1280
+// Eight floats a vertex: position, colour, spill weight and one spare
+#define ROOM_VERTEX_FLOATS 8
+#define ROOM_FACES 6
 // Which of the six faces a vertex came off, since each is coloured its own way
-#define CINEMA_SURF_WALL    0
-#define CINEMA_SURF_FLOOR   1
-#define CINEMA_SURF_CEILING 2
-// Sides of a box the fancy tier builds its seats and wall lights out of, so a
-// box standing on the floor or hung on a wall can leave out what nothing sees
-#define CINEMA_BOX_NEGX 0x01
-#define CINEMA_BOX_POSX 0x02
-#define CINEMA_BOX_NEGY 0x04
-#define CINEMA_BOX_POSY 0x08
-#define CINEMA_BOX_NEGZ 0x10
-#define CINEMA_BOX_POSZ 0x20
-#define CINEMA_BOX_ALL  0x3f
+#define ROOM_SURF_WALL    0
+#define ROOM_SURF_FLOOR   1
+#define ROOM_SURF_CEILING 2
 // Sixteen bit indices, so this is as many vertices as one room can hold
-#define CINEMA_MAX_VERTS 65535
+#define ROOM_MAX_VERTS 65535
 
 // Return codes for waitBeginFrame
 #define FRAME_EXIT   -1
@@ -568,7 +557,7 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_SHARPEN "debug.moonlight.sharpen"
 #define PROP_AMBILIGHT "debug.moonlight.ambilight"
 #define PROP_AMBI_SMOOTH "debug.moonlight.ambismooth"
-#define PROP_CINEMA "debug.moonlight.cinema"
+#define PROP_ROOM "debug.moonlight.room"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
@@ -722,44 +711,49 @@ typedef struct {
     // What the debug property asked for, or -1 while the panel still owns it
     int ambiOverride;
 
-    // Which cinema room the picker is on: 0 none, 1 lite, 2 fancy. Same
+    // Which room the picker is on: 0 none, 1 the minimal room. Same
     // arrangement as the glow, with a debug property that can force it.
-    int cinemaTier;
-    int cinemaOverride;
-    // Everything the room is drawn with, built the first frame a tier asks
+    int roomStyle;
+    int roomOverride;
+    // Everything the room is drawn with, built the first frame a style asks
     // for it rather than at startup, the way the background photo arrives.
     // One side by side image, a half of it per eye.
-    XrSwapchain cinemaSwapchain;
-    uint32_t cinemaImageCount;
-    XrSwapchainImageOpenGLESKHR* cinemaImages;
-    GLuint cinemaFbo;
-    GLuint cinemaDepthBuffer;
-    GLuint cinemaProgram;
-    GLint cinemaViewProjUniform;
-    GLint cinemaSpillGainUniform;
-    GLint cinemaZonedUniform;
-    GLuint cinemaVertexBuffer;
-    GLuint cinemaIndexBuffer;
-    int cinemaVertexCount;
-    int cinemaIndexCount;
-    // Which tier the buffers hold, so the picker moving between the two rooms
+    XrSwapchain roomSwapchain;
+    uint32_t roomImageCount;
+    XrSwapchainImageOpenGLESKHR* roomImages;
+    GLuint roomFbo;
+    GLuint roomDepthBuffer;
+    GLuint roomProgram;
+    GLint roomViewProjUniform;
+    GLint roomSpillGainUniform;
+    GLuint roomVertexBuffer;
+    GLuint roomIndexBuffer;
+    int roomVertexCount;
+    int roomIndexCount;
+    // Which style the buffers hold, so the picker moving between rooms
     // rebuilds them. 0 until the first build.
-    int cinemaBuiltTier;
-    int cinemaEyeWidth;
-    int cinemaEyeHeight;
-    int cinemaReady;
+    int roomBuiltStyle;
+    int roomEyeWidth;
+    int roomEyeHeight;
+    int roomReady;
     // One failed attempt is enough: nothing about it will be different next
     // frame, and retrying every frame would only fill the log
-    int cinemaFailed;
-    int cinemaRendered;
-    float cinemaSpillGain;
-    float cinemaClear[3];
+    int roomFailed;
+    int roomRendered;
+    float roomSpillGain;
+    float roomClear[3];
     // Both eyes as the room was last drawn from them, which is what the
     // projection layer has to be submitted with. Nothing else in here locates
     // a view, since every other layer is placed by the compositor.
-    XrView cinemaViews[CINEMA_EYES];
-    int cinemaViewsValid;
-    // What the runtime asks for per eye, read once at startup. Only the cinema
+    XrView roomViews[ROOM_EYES];
+    int roomViewsValid;
+    // The room hangs the picture on its far wall, so where the user had it is
+    // put aside for as long as one is on and handed back on the way out
+    int roomHoldingScreen;
+    XrPosef savedScreenPose;
+    float savedScreenWidth;
+    float savedScreenRadius;
+    // What the runtime asks for per eye, read once at startup. Only the room
     // has any use for it.
     int recommendedEyeWidth;
     int recommendedEyeHeight;
@@ -1124,6 +1118,9 @@ static PFNGETQUERYOBJECTUI64VEXT pfnGetQueryObjectui64v;
 #ifndef GL_QUERY_RESULT_AVAILABLE_EXT
 #define GL_QUERY_RESULT_AVAILABLE_EXT 0x8867
 #endif
+#ifndef GL_GPU_DISJOINT_EXT
+#define GL_GPU_DISJOINT_EXT 0x8FBB
+#endif
 
 static const char* VERTEX_SRC =
     "#version 300 es\n"
@@ -1429,22 +1426,20 @@ static const char* GLOW_FRAGMENT_SRC =
     "    fragColor = vec4(color * a, a);\n"
     "}\n";
 
-// The cinema room. All of the shading is per vertex: the room is a few hundred
+// The 3d room. All of the shading is per vertex: the room is a few hundred
 // vertices of flat wall, its colours are baked, and the only thing that changes
 // frame to frame is how much of the screen's light lands on each of them. That
 // leaves the fragment side a pass through, which is what keeps a full screen
 // projection layer affordable.
-static const char* CINEMA_VERTEX_SRC =
+static const char* ROOM_VERTEX_SRC =
     "#version 300 es\n"
     "precision highp float;\n"
     "in vec3 a_position;\n"
     "in vec3 a_color;\n"
     "in float a_spill;\n"
-    "in vec2 a_spilluv;\n"
     "uniform mat4 u_viewproj;\n"
     "uniform sampler2D u_ambi;\n"
     "uniform float u_spillGain;\n"
-    "uniform float u_zoned;\n"
     "out vec3 v_color;\n"
     "void main() {\n"
     // Five taps over the frame's colour texture, centre and the middle of each
@@ -1455,16 +1450,11 @@ static const char* CINEMA_VERTEX_SRC =
     "    lit += texture(u_ambi, vec2(0.5, 0.15)).rgb;\n"
     "    lit += texture(u_ambi, vec2(0.5, 0.85)).rgb;\n"
     "    vec3 wash = lit * 0.2;\n"
-    // The fancy room reads the part of the picture each surface faces instead.
-    // Only most of the way there: at 0.65 a zone still carries some of the
-    // whole frame, so no corner of the room ever detaches from the rest of it.
-    "    vec3 zone = texture(u_ambi, a_spilluv).rgb;\n"
-    "    vec3 spill = mix(wash, zone, u_zoned * 0.65);\n"
-    "    v_color = a_color + spill * (a_spill * u_spillGain);\n"
+    "    v_color = a_color + wash * (a_spill * u_spillGain);\n"
     "    gl_Position = u_viewproj * vec4(a_position, 1.0);\n"
     "}\n";
 
-static const char* CINEMA_FRAGMENT_SRC =
+static const char* ROOM_FRAGMENT_SRC =
     "#version 300 es\n"
     "precision mediump float;\n"
     "in vec3 v_color;\n"
@@ -1715,7 +1705,7 @@ static int initXrInstance(XrCtx* ctx) {
     }
 
     // What the runtime would like a rendered view to be. Asked once, and the
-    // cinema room is the only thing that renders one, so nothing else looks at
+    // 3d room is the only thing that renders one, so nothing else looks at
     // it. Worth a line either way: it says what a headset's own idea of full
     // resolution is.
     uint32_t configViewCount = 0;
@@ -2604,60 +2594,22 @@ typedef struct {
     float wallLevel;
     float floorLevel;
     float ceilingLevel;
-    // Where the picture sits by default, which is what the light is baked from
+    // Where the picture hangs, which is what the light is baked from
     Vec3 screenAt;
-    // Half of that picture, which is what the baked spill uv is measured across
-    float screenHalfW;
-    float screenHalfH;
+    // How high on the wall the picture is mounted, and how far off the wall it
+    // stands so the two never fight for the same pixels
+    float screenMountY;
+    float screenProud;
     // Distance at which the screen's light is down to half
     float spillRadius;
     // How much of that light a fully lit vertex takes
     float spillGain;
     unsigned seed;
-
-    // Seating, which only the fancy tier has any of. Rows run across the room
-    // with an aisle down the middle, each one a little higher than the row in
-    // front of it. Zero rows and the generator skips the lot.
-    int seatRows;
-    int seatsPerRow;
-    float firstRowZ;
-    float rowSpacing;
-    float rowRise;
-    float seatWidth;
-    float seatDepth;
-    float seatBaseHeight;
-    float seatBackHeight;
-    // Centre to centre across a row, and half the gap left down the middle
-    float seatPitch;
-    float aisleHalf;
-    // Near black with a little warmth in it. A row of seats is a silhouette
-    // against the picture, not furniture on show.
-    float seatRgb[3];
-    // How far the baked contact shadows are allowed to take a vertex down
-    float aoStrength;
-
-    // Wall lights, fancy tier only, this many on each side wall
-    int sconcesPerWall;
-    float sconceY;
-    float sconceSize;
-    float sconceColor[3];
-    // The warm patch each one leaves on the wall around it
-    float sconceHaloRadius;
-    float sconceHaloLevel;
-} CinemaParams;
-
-// Where one of the wall lights sits. Side is -1 or 1 for the two side walls,
-// and they are spread evenly down the room with the ends left clear.
-static Vec3 cinemaSconceAt(const CinemaParams* p, int side, int index) {
-    float depth = p->backZ - p->screenZ;
-    Vec3 at = { (float)side * p->halfWidth, p->sconceY,
-                p->screenZ + depth * (float)(index + 1) / (float)(p->sconcesPerWall + 1) };
-    return at;
-}
+} RoomParams;
 
 // A dither of about one 255th, from the seed and the vertex number. Without it
 // the wall gradients are shallow enough over enough pixels to band.
-static float cinemaDither(unsigned seed, unsigned index) {
+static float roomDither(unsigned seed, unsigned index) {
     unsigned h = seed + index * 2654435761u;
     h ^= h >> 15;
     h *= 2246822519u;
@@ -2670,7 +2622,7 @@ static float cinemaDither(unsigned seed, unsigned index) {
 // What a point on the room is painted, before any of the screen's light lands
 // on it. Near black throughout: everything here is a gradient between shades
 // of almost nothing, and the picture is what the eye should be adapting to.
-static void cinemaVertexColor(const CinemaParams* p, int tier, int surface, Vec3 pos, float* rgb) {
+static void roomVertexColor(const RoomParams* p, int surface, Vec3 pos, float* rgb) {
     // 0 at the screen wall, 1 at the back of the room
     float back = (pos.z - p->screenZ) / (p->backZ - p->screenZ);
     // 0 on the floor, 1 at the ceiling
@@ -2678,22 +2630,9 @@ static void cinemaVertexColor(const CinemaParams* p, int tier, int surface, Vec3
     // 0 down the middle, 1 at either side wall
     float side = fabsf(pos.x) / p->halfWidth;
 
-    if (surface == CINEMA_SURF_FLOOR) {
-        // A faint darker strip where an aisle would run, which gives the floor
-        // something to be read as a floor by
-        float aisle = 1.0f - 0.22f * expf(-(pos.x * pos.x) / (2.0f * 0.6f * 0.6f));
-        float level = p->floorLevel * aisle * (1.0f - 0.35f * back * back);
-        if (tier >= CINEMA_TIER_FANCY && p->seatRows > 0) {
-            // Under the seating, where a floor sees very little of anything.
-            // Faded out over the ends of the block so it has no edge in it.
-            float front = p->firstRowZ - p->rowSpacing * 0.5f;
-            float rear = p->firstRowZ + ((float)p->seatRows - 0.5f) * p->rowSpacing;
-            float half = (rear - front) * 0.5f;
-            float t = fabsf(pos.z - (front + half)) / half;
-            float inside = t < 1.0f ? 1.0f - t * t : 0.0f;
-            level *= 1.0f - 0.30f * p->aoStrength * inside;
-        }
-        // Carpet, so a shade warmer and a shade lighter than the walls
+    if (surface == ROOM_SURF_FLOOR) {
+        float level = p->floorLevel * (1.0f - 0.35f * back * back);
+        // A shade warmer and a shade lighter than the walls
         rgb[0] = level * 1.00f;
         rgb[1] = level * 0.93f;
         rgb[2] = level * 0.84f;
@@ -2701,7 +2640,7 @@ static void cinemaVertexColor(const CinemaParams* p, int tier, int surface, Vec3
     }
 
     float level;
-    if (surface == CINEMA_SURF_CEILING) {
+    if (surface == ROOM_SURF_CEILING) {
         level = p->ceilingLevel * (1.0f - 0.30f * back);
     }
     else {
@@ -2713,29 +2652,12 @@ static void cinemaVertexColor(const CinemaParams* p, int tier, int surface, Vec3
     rgb[0] = level;
     rgb[1] = level;
     rgb[2] = level;
-
-    // The warm patch each wall light throws on the wall behind it. Baked, so
-    // the subdivision has to be fine enough to carry it, which is why the
-    // fancy room subdivides further than the lite one.
-    if (tier >= CINEMA_TIER_FANCY && surface == CINEMA_SURF_WALL) {
-        float glow = 0.0f;
-        for (int s = -1; s <= 1; s += 2) {
-            for (int i = 0; i < p->sconcesPerWall; i++) {
-                Vec3 d = vecSub(pos, cinemaSconceAt(p, s, i));
-                float d2 = vecDot(d, d);
-                glow += expf(-d2 / (2.0f * p->sconceHaloRadius * p->sconceHaloRadius));
-            }
-        }
-        rgb[0] += p->sconceColor[0] * p->sconceHaloLevel * glow;
-        rgb[1] += p->sconceColor[1] * p->sconceHaloLevel * glow;
-        rgb[2] += p->sconceColor[2] * p->sconceHaloLevel * glow;
-    }
 }
 
 // How much of the picture's light reaches a point on the room. Baked from a
 // single point where the screen sits by default: a distance and a facing term
 // is as much of a light that size as a dark wall ever shows.
-static float cinemaSpillWeight(const CinemaParams* p, Vec3 pos, Vec3 normal) {
+static float roomSpillWeight(const RoomParams* p, Vec3 pos, Vec3 normal) {
     Vec3 toScreen = vecSub(p->screenAt, pos);
     float dist = sqrtf(vecDot(toScreen, toScreen));
     if (dist < 1e-4f) {
@@ -2759,25 +2681,11 @@ static float cinemaSpillWeight(const CinemaParams* p, Vec3 pos, Vec3 normal) {
     return weight;
 }
 
-// Which part of the picture lights a point in the room. The point is dropped
-// straight onto the default screen rectangle and clamped to it, so the left
-// wall reads the left of the frame, the ceiling the top of it, and the floor
-// and the seating the bottom. Baked, and only ever asked to keep one part of
-// the room following a different part of the picture from another.
-static void cinemaSpillUV(const CinemaParams* p, Vec3 pos, float* uv) {
-    float u = 0.5f + (pos.x - p->screenAt.x) / (2.0f * p->screenHalfW);
-    float v = 0.5f + (pos.y - p->screenAt.y) / (2.0f * p->screenHalfH);
-    uv[0] = u < 0.0f ? 0.0f : (u > 1.0f ? 1.0f : u);
-    uv[1] = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
-}
-
 // Writes one vertex in the layout the room's buffer is in
-static void cinemaWriteVertex(const CinemaParams* p, float* verts, int index, Vec3 pos,
-                              const float* rgb, float spill) {
-    float dither = cinemaDither(p->seed, (unsigned)index);
-    float uv[2];
-    cinemaSpillUV(p, pos, uv);
-    float* out = verts + (size_t)index * CINEMA_VERTEX_FLOATS;
+static void roomWriteVertex(const RoomParams* p, float* verts, int index, Vec3 pos,
+                            const float* rgb, float spill) {
+    float dither = roomDither(p->seed, (unsigned)index);
+    float* out = verts + (size_t)index * ROOM_VERTEX_FLOATS;
     out[0] = pos.x;
     out[1] = pos.y;
     out[2] = pos.z;
@@ -2785,142 +2693,35 @@ static void cinemaWriteVertex(const CinemaParams* p, float* verts, int index, Ve
     out[4] = rgb[1] + dither;
     out[5] = rgb[2] + dither;
     out[6] = spill;
-    out[7] = uv[0];
-    out[8] = uv[1];
-    out[9] = 0.0f;
+    out[7] = 0.0f;
 }
 
-// An axis aligned box, one quad per side the mask asks for. Faces are wound the
-// same way the room is, counter clockwise seen from the side the viewer is on,
-// which for these is the outside. A surface of -1 takes the flat colour handed
-// in, anything else is coloured the way that kind of room surface is.
-static int cinemaEmitBox(const CinemaParams* p, int tier, Vec3 lo, Vec3 hi, unsigned mask,
-                         int surface, const float* flat, float spillScale, float* verts,
-                         int maxVerts, unsigned short* indices, int maxIndices,
-                         int* written, int* used) {
-    float w = hi.x - lo.x;
-    float h = hi.y - lo.y;
-    float d = hi.z - lo.z;
-    // Origin and the two edges of each side, ordered so the cross product of
-    // the two points out of the box
-    struct {
-        unsigned bit;
-        Vec3 origin;
-        Vec3 edgeU;
-        Vec3 edgeV;
-    } sides[CINEMA_FACES] = {
-        { CINEMA_BOX_NEGX, { lo.x, lo.y, lo.z }, { 0.0f, 0.0f, d }, { 0.0f, h, 0.0f } },
-        { CINEMA_BOX_POSX, { hi.x, lo.y, lo.z }, { 0.0f, h, 0.0f }, { 0.0f, 0.0f, d } },
-        { CINEMA_BOX_NEGY, { lo.x, lo.y, lo.z }, { w, 0.0f, 0.0f }, { 0.0f, 0.0f, d } },
-        { CINEMA_BOX_POSY, { lo.x, hi.y, lo.z }, { 0.0f, 0.0f, d }, { w, 0.0f, 0.0f } },
-        { CINEMA_BOX_NEGZ, { lo.x, lo.y, lo.z }, { 0.0f, h, 0.0f }, { w, 0.0f, 0.0f } },
-        { CINEMA_BOX_POSZ, { lo.x, lo.y, hi.z }, { w, 0.0f, 0.0f }, { 0.0f, h, 0.0f } },
-    };
-
-    for (int f = 0; f < CINEMA_FACES; f++) {
-        if ((mask & sides[f].bit) == 0) {
-            continue;
-        }
-        if (*written + 4 > maxVerts || *used + 6 > maxIndices) {
-            return 0;
-        }
-        Vec3 normal = vecNorm(vecCross(sides[f].edgeU, sides[f].edgeV));
-        int base = *written;
-        for (int corner = 0; corner < 4; corner++) {
-            float u = (corner == 1 || corner == 3) ? 1.0f : 0.0f;
-            float v = corner >= 2 ? 1.0f : 0.0f;
-            Vec3 pos = {
-                sides[f].origin.x + sides[f].edgeU.x * u + sides[f].edgeV.x * v,
-                sides[f].origin.y + sides[f].edgeU.y * u + sides[f].edgeV.y * v,
-                sides[f].origin.z + sides[f].edgeU.z * u + sides[f].edgeV.z * v,
-            };
-            float rgb[3];
-            if (surface >= 0) {
-                cinemaVertexColor(p, tier, surface, pos, rgb);
-            }
-            else {
-                rgb[0] = flat[0];
-                rgb[1] = flat[1];
-                rgb[2] = flat[2];
-            }
-            cinemaWriteVertex(p, verts, *written, pos, rgb,
-                              cinemaSpillWeight(p, pos, normal) * spillScale);
-            (*written)++;
-        }
-        indices[(*used)++] = (unsigned short)base;
-        indices[(*used)++] = (unsigned short)(base + 1);
-        indices[(*used)++] = (unsigned short)(base + 3);
-        indices[(*used)++] = (unsigned short)base;
-        indices[(*used)++] = (unsigned short)(base + 3);
-        indices[(*used)++] = (unsigned short)(base + 2);
-    }
-    return 1;
-}
-
-// The fake contact shadows on one seat, run over the vertices it just wrote.
-// Nothing here is traced: a seat is dark where it meets the row it stands on
-// and dark in the crease where the back meets the cushion, and that is the
-// whole of what the eye asks for. The gap to the seat beside it is baked into
-// the colour of the sides themselves, since these are all corner vertices and
-// a shadow across the width of a box has nowhere to fall off.
-static void cinemaSeatShade(const CinemaParams* p, float* verts, int from, int to,
-                            float platformY, float baseTopY, float creaseZ) {
-    for (int v = from; v < to; v++) {
-        float* q = verts + (size_t)v * CINEMA_VERTEX_FLOATS;
-        float occ = 0.90f * expf(-(q[1] - platformY) / 0.22f);
-        // Tight in z, since the back and the cushion are flush behind and a
-        // wider falloff would draw a line across the flat of them
-        float crease = (q[1] - baseTopY) / 0.20f;
-        float toCrease = (q[2] - creaseZ) / 0.12f;
-        occ += 0.60f * expf(-crease * crease) * expf(-toCrease * toCrease);
-        if (occ > 1.0f) {
-            occ = 1.0f;
-        }
-        float ao = 1.0f - p->aoStrength * occ;
-        q[3] *= ao;
-        q[4] *= ao;
-        q[5] *= ao;
-    }
-}
-
-// The most a tier can ask for, so a caller can size its buffers without
-// knowing how the room is put together. Boxes are counted whole, since a few
-// unused vertices of headroom are cheaper than counting the masked out sides.
-static void cinemaMaxCounts(const CinemaParams* p, int tier, int* maxVerts, int* maxIndices) {
-    int verts = CINEMA_FACES * (p->subdiv + 1) * (p->subdiv + 1);
-    int used = CINEMA_FACES * p->subdiv * p->subdiv * 6;
-    if (tier >= CINEMA_TIER_FANCY) {
-        // Two boxes a seat, one platform a row, and the wall lights
-        int boxes = p->seatRows * (p->seatsPerRow * 2 + 1) + p->sconcesPerWall * 2;
-        verts += boxes * CINEMA_FACES * 4;
-        used += boxes * CINEMA_FACES * 6;
-    }
-    *maxVerts = verts;
-    *maxIndices = used;
+// The most a room can ask for, so a caller can size its buffers without
+// knowing how the room is put together
+static void roomMaxCounts(const RoomParams* p, int* maxVerts, int* maxIndices) {
+    *maxVerts = ROOM_FACES * (p->subdiv + 1) * (p->subdiv + 1);
+    *maxIndices = ROOM_FACES * p->subdiv * p->subdiv * 6;
 }
 
 // Builds the whole room, vertices and indices, into buffers the caller owns.
-// The lite tier is the shell on its own, the fancy one adds the seating and
-// the wall lights to it.
+// One style so far, the bare shell.
 //
-// Triangles are wound counter clockwise seen from inside the box, and the
-// boxes the fancy tier adds are wound counter clockwise seen from outside
-// them, which is the same rule: the side the viewer is on faces front.
-// Culling is left off all the same, since nothing in here is ever seen from
-// behind and there is nothing for a cull to save.
-static int buildCinemaGeometry(const CinemaParams* p, int tier, float* verts, int maxVerts,
-                               unsigned short* indices, int maxIndices,
-                               int* vertexCount, int* indexCount) {
+// Triangles are wound counter clockwise seen from inside the box, so the side
+// the viewer is on faces front. Culling is left off all the same, since nothing
+// in here is ever seen from behind and there is nothing for a cull to save.
+static int buildRoomGeometry(const RoomParams* p, int style, float* verts, int maxVerts,
+                             unsigned short* indices, int maxIndices,
+                             int* vertexCount, int* indexCount) {
     int n = p->subdiv;
-    if (n < 1 || tier < CINEMA_TIER_LITE) {
+    if (n < 1 || style < ROOM_STYLE_MINIMAL) {
         return 0;
     }
     int needVerts = 0;
     int needIndices = 0;
-    cinemaMaxCounts(p, tier, &needVerts, &needIndices);
+    roomMaxCounts(p, &needVerts, &needIndices);
     // Past the index type is a badly chosen parameter rather than a room worth
     // drawing, so it fails here the same way a short buffer does
-    if (needVerts > CINEMA_MAX_VERTS || needVerts > maxVerts || needIndices > maxIndices) {
+    if (needVerts > ROOM_MAX_VERTS || needVerts > maxVerts || needIndices > maxIndices) {
         return 0;
     }
 
@@ -2935,26 +2736,26 @@ static int buildCinemaGeometry(const CinemaParams* p, int tier, float* verts, in
         Vec3 edgeU;
         Vec3 edgeV;
         int surface;
-    } faces[CINEMA_FACES] = {
+    } faces[ROOM_FACES] = {
         // The wall the picture hangs on
         { { -p->halfWidth, p->floorY, p->screenZ },
-          { width, 0.0f, 0.0f }, { 0.0f, height, 0.0f }, CINEMA_SURF_WALL },
+          { width, 0.0f, 0.0f }, { 0.0f, height, 0.0f }, ROOM_SURF_WALL },
         // Behind the viewer
         { { p->halfWidth, p->floorY, p->backZ },
-          { -width, 0.0f, 0.0f }, { 0.0f, height, 0.0f }, CINEMA_SURF_WALL },
+          { -width, 0.0f, 0.0f }, { 0.0f, height, 0.0f }, ROOM_SURF_WALL },
         { { -p->halfWidth, p->floorY, p->screenZ },
-          { 0.0f, height, 0.0f }, { 0.0f, 0.0f, depth }, CINEMA_SURF_WALL },
+          { 0.0f, height, 0.0f }, { 0.0f, 0.0f, depth }, ROOM_SURF_WALL },
         { { p->halfWidth, p->floorY, p->screenZ },
-          { 0.0f, 0.0f, depth }, { 0.0f, height, 0.0f }, CINEMA_SURF_WALL },
+          { 0.0f, 0.0f, depth }, { 0.0f, height, 0.0f }, ROOM_SURF_WALL },
         { { -p->halfWidth, p->floorY, p->screenZ },
-          { 0.0f, 0.0f, depth }, { width, 0.0f, 0.0f }, CINEMA_SURF_FLOOR },
+          { 0.0f, 0.0f, depth }, { width, 0.0f, 0.0f }, ROOM_SURF_FLOOR },
         { { -p->halfWidth, p->ceilingY, p->screenZ },
-          { width, 0.0f, 0.0f }, { 0.0f, 0.0f, depth }, CINEMA_SURF_CEILING },
+          { width, 0.0f, 0.0f }, { 0.0f, 0.0f, depth }, ROOM_SURF_CEILING },
     };
 
     int written = 0;
     int used = 0;
-    for (int f = 0; f < CINEMA_FACES; f++) {
+    for (int f = 0; f < ROOM_FACES; f++) {
         Vec3 normal = vecNorm(vecCross(faces[f].edgeU, faces[f].edgeV));
         int base = written;
 
@@ -2969,9 +2770,9 @@ static int buildCinemaGeometry(const CinemaParams* p, int tier, float* verts, in
                 };
 
                 float rgb[3];
-                cinemaVertexColor(p, tier, faces[f].surface, pos, rgb);
-                cinemaWriteVertex(p, verts, written, pos, rgb,
-                                  cinemaSpillWeight(p, pos, normal));
+                roomVertexColor(p, faces[f].surface, pos, rgb);
+                roomWriteVertex(p, verts, written, pos, rgb,
+                                roomSpillWeight(p, pos, normal));
                 written++;
             }
         }
@@ -2988,102 +2789,6 @@ static int buildCinemaGeometry(const CinemaParams* p, int tier, float* verts, in
                 indices[used++] = a;
                 indices[used++] = d;
                 indices[used++] = c;
-            }
-        }
-    }
-
-    if (tier >= CINEMA_TIER_FANCY) {
-        // The seat rows, each one on a low platform that lifts it above the row
-        // in front. A seat is a cushion with a back standing on the rear of it,
-        // and neither of them needs an underside.
-        int perSide = p->seatsPerRow / 2;
-        float platformHalfX = p->aisleHalf + (float)perSide * p->seatPitch + 0.7f;
-        if (platformHalfX > p->halfWidth) {
-            platformHalfX = p->halfWidth;
-        }
-        float backDepth = p->seatDepth * 0.28f;
-        for (int row = 0; row < p->seatRows; row++) {
-            float rowZ = p->firstRowZ + (float)row * p->rowSpacing;
-            float rowY = p->floorY + p->rowRise * (float)row;
-
-            // The front row is on the floor itself, so it has nothing to stand
-            // on and no step to draw
-            if (row > 0) {
-                Vec3 lo = { -platformHalfX, p->floorY, rowZ - p->rowSpacing * 0.5f };
-                Vec3 hi = { platformHalfX, rowY, rowZ + p->rowSpacing * 0.5f };
-                // The tread and the riser that looks down the room, which is
-                // the one a viewer at the back sees. The other one is inside
-                // the platform behind it, the sides are lost in the aisles and
-                // the underside is the floor, so none of them are drawn. The
-                // back row has nothing behind it and needs both risers.
-                unsigned mask = CINEMA_BOX_POSY | CINEMA_BOX_NEGZ;
-                if (row == p->seatRows - 1) {
-                    mask |= CINEMA_BOX_POSZ;
-                }
-                if (!cinemaEmitBox(p, tier, lo, hi, mask, CINEMA_SURF_FLOOR, NULL, 1.0f, verts,
-                                   maxVerts, indices, maxIndices, &written, &used)) {
-                    return 0;
-                }
-            }
-
-            for (int seat = 0; seat < p->seatsPerRow; seat++) {
-                // Half the row either side of the aisle the floor already has
-                // a strip of, so the two agree
-                int side = seat < perSide ? -1 : 1;
-                int place = seat < perSide ? perSide - 1 - seat : seat - perSide;
-                float centreX = (float)side
-                        * (p->aisleHalf + ((float)place + 0.5f) * p->seatPitch);
-                float rearZ = rowZ + p->seatDepth * 0.5f;
-                float baseTopY = rowY + p->seatBaseHeight;
-                int from = written;
-
-                // The back stands on the cushion rather than beside it, so no
-                // two sides of the pair end up in the same plane fighting for
-                // the same pixels
-                Vec3 baseLo = { centreX - p->seatWidth * 0.5f, rowY, rowZ - p->seatDepth * 0.5f };
-                Vec3 baseHi = { centreX + p->seatWidth * 0.5f, baseTopY, rearZ };
-                Vec3 backLo = { baseLo.x, baseTopY, rearZ - backDepth };
-                Vec3 backHi = { baseHi.x, baseTopY + p->seatBackHeight, rearZ };
-                // Every vertex of a box is a corner of it, so a shadow that
-                // varies across the seat has nowhere to vary. The two sides
-                // are the ones that look into the gap to the next seat along,
-                // so they carry that part of it as a colour of their own.
-                unsigned gapSides = CINEMA_BOX_NEGX | CINEMA_BOX_POSX;
-                unsigned shown = (CINEMA_BOX_ALL & ~CINEMA_BOX_NEGY) & ~gapSides;
-                float gap = 1.0f - p->aoStrength * 0.5f;
-                float gapRgb[3] = { p->seatRgb[0] * gap, p->seatRgb[1] * gap,
-                                    p->seatRgb[2] * gap };
-                if (!cinemaEmitBox(p, tier, baseLo, baseHi, shown, -1, p->seatRgb, 1.0f, verts,
-                                   maxVerts, indices, maxIndices, &written, &used)
-                        || !cinemaEmitBox(p, tier, baseLo, baseHi, gapSides, -1, gapRgb, 1.0f,
-                                          verts, maxVerts, indices, maxIndices, &written, &used)
-                        || !cinemaEmitBox(p, tier, backLo, backHi, shown, -1, p->seatRgb, 1.0f,
-                                          verts, maxVerts, indices, maxIndices, &written, &used)
-                        || !cinemaEmitBox(p, tier, backLo, backHi, gapSides, -1, gapRgb, 1.0f,
-                                          verts, maxVerts, indices, maxIndices, &written, &used)) {
-                    return 0;
-                }
-                cinemaSeatShade(p, verts, from, written, rowY, baseTopY, backLo.z);
-            }
-        }
-
-        // The wall lights. The one thing in the room that gives off light
-        // rather than taking it, so they are painted bright and the picture is
-        // not allowed to tint them.
-        float size = p->sconceSize;
-        for (int s = -1; s <= 1; s += 2) {
-            for (int i = 0; i < p->sconcesPerWall; i++) {
-                Vec3 at = cinemaSconceAt(p, s, i);
-                // Tall, narrow and barely off the wall, which is the shape
-                // that reads as a light rather than as a box on a wall
-                float proud = size * 0.20f;
-                Vec3 lo = { s < 0 ? at.x : at.x - proud, at.y - size * 0.5f, at.z - size * 0.22f };
-                Vec3 hi = { s < 0 ? at.x + proud : at.x, at.y + size * 0.5f, at.z + size * 0.22f };
-                unsigned mask = CINEMA_BOX_ALL & ~(s < 0 ? CINEMA_BOX_NEGX : CINEMA_BOX_POSX);
-                if (!cinemaEmitBox(p, tier, lo, hi, mask, -1, p->sconceColor, 0.0f, verts,
-                                   maxVerts, indices, maxIndices, &written, &used)) {
-                    return 0;
-                }
             }
         }
     }
@@ -4151,14 +3856,23 @@ static float effectiveCurvature(XrCtx* ctx) {
     return ctx->panelCurve >= 0.0f ? ctx->panelCurve : ctx->prefCurvature;
 }
 
+// Which room is in force, the picker's unless the debug property has taken it
+// over. 0 is no room at all, which is every other environment.
+static int roomEffective(XrCtx* ctx) {
+    return ctx->roomOverride >= 0 ? ctx->roomOverride : ctx->roomStyle;
+}
+
 // The sliders place the screen, the grab moves it from there. Moving either
-// slider is taken as the user asking for the placement back.
-static void updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature) {
+// slider is taken as the user asking for the placement back. Says whether it
+// reseeded, since a room holding the screen has to know the placement waiting
+// behind it has changed.
+static int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature) {
     int sliderMoved = ctx->sliderSeen
             && (fabsf(distance - ctx->lastDistance) > 1e-4f
                 || fabsf(quadWidth - ctx->lastQuadWidth) > 1e-4f);
+    int reseeded = !ctx->placementValid || sliderMoved;
 
-    if (!ctx->placementValid || sliderMoved) {
+    if (reseeded) {
         memset(&ctx->screenPose, 0, sizeof(ctx->screenPose));
         ctx->screenPose.orientation.w = 1.0f;
         ctx->screenPose.position.z = -distance;
@@ -4174,6 +3888,7 @@ static void updatePlacement(XrCtx* ctx, float distance, float quadWidth, float c
     ctx->lastDistance = distance;
     ctx->lastQuadWidth = quadWidth;
     ctx->sliderSeen = 1;
+    return reseeded;
 }
 
 // Handed back only when a grab ends, so preferences are written once per move
@@ -4265,6 +3980,12 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
     }
 
     if (ctx->grabMode == GRAB_NONE) {
+        // A 3d room holds the picture on its wall and forces the pose every
+        // frame, so a drag could only fight it. The bar and the corners still
+        // light up, they just have nothing to move.
+        if (roomEffective(ctx) > 0) {
+            return;
+        }
         if (hand < 0 || (hover != HOVER_BAR && hover != HOVER_CORNER)) {
             return;
         }
@@ -4891,12 +4612,12 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
 
     // Same for the room, whose resources only exist at all if a frame ever ran
     // with it on
-    glDeleteFramebuffers(1, &ctx->cinemaFbo);
-    glDeleteRenderbuffers(1, &ctx->cinemaDepthBuffer);
-    glDeleteBuffers(1, &ctx->cinemaVertexBuffer);
-    glDeleteBuffers(1, &ctx->cinemaIndexBuffer);
-    if (ctx->cinemaProgram != 0) {
-        glDeleteProgram(ctx->cinemaProgram);
+    glDeleteFramebuffers(1, &ctx->roomFbo);
+    glDeleteRenderbuffers(1, &ctx->roomDepthBuffer);
+    glDeleteBuffers(1, &ctx->roomVertexBuffer);
+    glDeleteBuffers(1, &ctx->roomIndexBuffer);
+    if (ctx->roomProgram != 0) {
+        glDeleteProgram(ctx->roomProgram);
     }
 
     if (ctx->swapchain != XR_NULL_HANDLE) {
@@ -4971,10 +4692,10 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->glowSwapchain);
     }
     free(ctx->glowImages);
-    if (ctx->cinemaSwapchain != XR_NULL_HANDLE) {
-        xrDestroySwapchain(ctx->cinemaSwapchain);
+    if (ctx->roomSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->roomSwapchain);
     }
-    free(ctx->cinemaImages);
+    free(ctx->roomImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -5072,8 +4793,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->ambilightOn = ambilight;
     ctx->ambiIntensity = (ambiLevel < 0 ? 0 : (ambiLevel > 100 ? 100 : ambiLevel)) / 100.0f;
     ctx->ambiOverride = -1;
-    // Same for the cinema, which the picker sets and a property can force
-    ctx->cinemaOverride = -1;
+    // Same for the room, which the picker sets and a property can force
+    ctx->roomOverride = -1;
     // Roughly ten frames to cross a scene cut, which reads as the glow
     // following the picture rather than flashing with it
     ctx->ambiSmooth = 0.08f;
@@ -5551,9 +5272,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     ctx->togglePrev = toggle;
     out[IN_POINTER] = ctx->pointerOn ? 1.0f : 0.0f;
 
-    XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
+    // Both of these have to agree with what endFrame submits, or the ray lands
+    // somewhere other than where the picture is drawn. A room world locks it
+    // and flattens it whatever the preference and the panel say.
+    int roomOn = roomEffective(ctx) > 0;
+    XrSpace space = (headLocked && !roomOn) ? ctx->viewSpace : ctx->localSpace;
     float height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
-    int curved = effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
+    int curved = !roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
     float radius = ctx->screenRadius;
     XrPosef screenPose = ctx->screenPose;
 
@@ -6440,9 +6165,9 @@ static void pollCaptureRequest(XrCtx* ctx) {
     // left set from an earlier session quietly overrides the panel.
     propInt(PROP_AMBILIGHT, &ctx->ambiOverride, 100);
     propPercent(PROP_AMBI_SMOOTH, &ctx->ambiSmooth);
-    // 0 forces the cinema off, 1 and 2 force a tier, and unset leaves the
+    // 0 forces the room off, 1 forces the minimal room, and unset leaves the
     // picker in charge
-    propInt(PROP_CINEMA, &ctx->cinemaOverride, 2);
+    propInt(PROP_ROOM, &ctx->roomOverride, 1);
 
     if (ctx->captureDir[0] == '\0') {
         return;
@@ -6577,12 +6302,6 @@ static void ambiEffective(XrCtx* ctx, int* on, float* level) {
     *level = value;
 }
 
-// Which cinema tier is in force, the picker's unless the debug property has
-// taken it over
-static int cinemaEffective(XrCtx* ctx) {
-    return ctx->cinemaOverride >= 0 ? ctx->cinemaOverride : ctx->cinemaTier;
-}
-
 // Boils the frame down to the tiny colour texture. Kept self contained and
 // free of anything glow shaped, since it is the frame's colours rather than
 // the glow that anything else would want.
@@ -6667,9 +6386,10 @@ static void runGlowRender(XrCtx* ctx) {
 }
 
 // The room as it stands, which the generator and the shipped look both come
-// out of. Metres, and the origin is where the viewer starts.
-static CinemaParams cinemaLiteParams(void) {
-    CinemaParams p;
+// out of. Metres, and the origin is where the viewer starts. Bare walls with
+// nothing in them: the picture is the only thing here worth looking at.
+static RoomParams minimalRoomParams(void) {
+    RoomParams p;
     memset(&p, 0, sizeof(p));
     p.halfWidth = 4.5f;
     p.floorY = -1.4f;
@@ -6682,96 +6402,124 @@ static CinemaParams cinemaLiteParams(void) {
     p.wallLevel = 0.055f;
     p.floorLevel = 0.065f;
     p.ceilingLevel = 0.038f;
-    // The default screen placement, well in front of the wall behind it, so
-    // the wall picks up a halo rather than an even wash
-    Vec3 screenAt = { 0.0f, 0.0f, -3.0f };
+    // Where the picture is hung, and the point the spill is baked from. The
+    // bake point sits proud of the wall the way the screen does, so the wall
+    // behind the picture catches some of its light too.
+    p.screenMountY = 0.6f;
+    p.screenProud = 0.10f;
+    Vec3 screenAt = { 0.0f, p.screenMountY, p.screenZ + p.screenProud };
     p.screenAt = screenAt;
-    // Three metres wide at sixteen by nine, which is what the placement
-    // defaults come to
-    p.screenHalfW = 1.5f;
-    p.screenHalfH = 0.85f;
     p.spillRadius = 2.2f;
     p.spillGain = 0.30f;
     p.seed = 0x9e3779b9u;
-    // Nothing else: the seat and sconce counts stay at zero, which is what
-    // keeps the lite room the bare shell it has always been
     return p;
 }
 
-// The same room with the seating, the wall lights and the zoned spill in it
-static CinemaParams cinemaFancyParams(void) {
-    CinemaParams p = cinemaLiteParams();
-    // Twice the shell's subdivision, since the walls now carry the warm patch
-    // each light leaves on them and eight quads a side would show its corners
-    p.subdiv = 16;
-
-    p.seatRows = 4;
-    p.seatsPerRow = 6;
-    p.firstRowZ = -4.6f;
-    p.rowSpacing = 1.05f;
-    // Enough of a rake over four rows to read as one without the back row
-    // ending up in the ceiling
-    p.rowRise = 0.12f;
-    p.seatWidth = 0.62f;
-    p.seatDepth = 0.60f;
-    p.seatBaseHeight = 0.42f;
-    p.seatBackHeight = 0.52f;
-    p.seatPitch = 0.70f;
-    // Half the aisle the floor already has a darker strip down
-    p.aisleHalf = 0.55f;
-    p.seatRgb[0] = 0.032f;
-    p.seatRgb[1] = 0.029f;
-    p.seatRgb[2] = 0.026f;
-    p.aoStrength = 0.55f;
-
-    p.sconcesPerWall = 3;
-    // About head height off the floor, the way a real one is hung
-    p.sconceY = 0.55f;
-    p.sconceSize = 0.34f;
-    // Warm, and dim enough that it is a light in a dark room rather than a
-    // white block on the wall
-    p.sconceColor[0] = 0.32f;
-    p.sconceColor[1] = 0.26f;
-    p.sconceColor[2] = 0.19f;
-    p.sconceHaloRadius = 0.85f;
-    p.sconceHaloLevel = 0.20f;
-    return p;
+// Which room a style asks for. One so far, and anything unknown falls back to
+// it rather than leaving the buffers empty.
+static RoomParams roomParams(int style) {
+    (void)style;
+    return minimalRoomParams();
 }
 
-// Generates a tier's room and hands it to the buffers. Called once for the
-// first room and again whenever the picker moves between the two: a one off
-// pass over a few thousand vertices, which is cheaper than keeping both rooms
+// In a 3d room the picture hangs on the far wall, so the placement the sliders
+// and the grab produce is put aside on the way in and handed back on the way
+// out. Nothing is written to preferences either way: what the user set up in a
+// normal environment is still there when they come back to one.
+static void applyRoomPlacement(XrCtx* ctx, int roomOn, float aspect, int reseeded) {
+    if (roomOn && !ctx->roomHoldingScreen) {
+        ctx->savedScreenPose = ctx->screenPose;
+        ctx->savedScreenWidth = ctx->screenWidth;
+        ctx->savedScreenRadius = ctx->screenRadius;
+        ctx->roomHoldingScreen = 1;
+        // Anything held would spend the rest of the drag fighting the wall
+        ctx->grabMode = GRAB_NONE;
+    }
+    else if (roomOn && reseeded) {
+        // The panel's reset landed while the room had the screen. What it
+        // seeded is the placement that should be waiting when the room ends.
+        ctx->savedScreenPose = ctx->screenPose;
+        ctx->savedScreenWidth = ctx->screenWidth;
+        ctx->savedScreenRadius = ctx->screenRadius;
+    }
+    else if (!roomOn && ctx->roomHoldingScreen) {
+        ctx->screenPose = ctx->savedScreenPose;
+        ctx->screenWidth = ctx->savedScreenWidth;
+        ctx->screenRadius = ctx->savedScreenRadius;
+        ctx->roomHoldingScreen = 0;
+    }
+    if (!roomOn) {
+        return;
+    }
+
+    RoomParams p = minimalRoomParams();
+    // Sized to fit the wall it hangs on, with a margin either way. The size
+    // slider still moves, this only catches what will not fit.
+    float width = ctx->screenWidth;
+    float maxWidth = 2.0f * p.halfWidth - 0.4f;
+    float maxHeight = (p.ceilingY - p.floorY) - 0.3f;
+    if (width > maxWidth) {
+        width = maxWidth;
+    }
+    if (width * aspect > maxHeight) {
+        width = maxHeight / aspect;
+    }
+    float height = width * aspect;
+    // And hung where the whole of it is on the wall rather than through the
+    // floor or the ceiling
+    float mount = p.screenMountY;
+    float lowest = p.floorY + height * 0.5f + 0.1f;
+    float highest = p.ceilingY - height * 0.5f - 0.1f;
+    if (mount < lowest) {
+        mount = lowest;
+    }
+    if (mount > highest) {
+        mount = highest;
+    }
+
+    // Square to the wall and facing the viewer, the same identity orientation
+    // the placement starts out with
+    memset(&ctx->screenPose, 0, sizeof(ctx->screenPose));
+    ctx->screenPose.orientation.w = 1.0f;
+    ctx->screenPose.position.y = mount;
+    ctx->screenPose.position.z = p.screenZ + p.screenProud;
+    ctx->screenWidth = width;
+}
+
+// Generates a style's room and hands it to the buffers. Called once for the
+// first room and again whenever the picker moves to another: a one off pass
+// over a few thousand vertices, which is cheaper than keeping every room
 // resident for a switch that may never come.
-static int uploadCinemaGeometry(XrCtx* ctx, int tier) {
-    CinemaParams params = tier >= CINEMA_TIER_FANCY ? cinemaFancyParams() : cinemaLiteParams();
+static int uploadRoomGeometry(XrCtx* ctx, int style) {
+    RoomParams params = roomParams(style);
     int maxVerts = 0;
     int maxIndices = 0;
-    cinemaMaxCounts(&params, tier, &maxVerts, &maxIndices);
-    float* verts = malloc((size_t)maxVerts * CINEMA_VERTEX_FLOATS * sizeof(float));
+    roomMaxCounts(&params, &maxVerts, &maxIndices);
+    float* verts = malloc((size_t)maxVerts * ROOM_VERTEX_FLOATS * sizeof(float));
     unsigned short* indices = malloc((size_t)maxIndices * sizeof(unsigned short));
     if (verts == NULL || indices == NULL) {
         free(verts);
         free(indices);
-        LOGE("cinema geometry allocation failed");
+        LOGE("room geometry allocation failed");
         return 0;
     }
 
     int vertexCount = 0;
     int indexCount = 0;
-    int ok = buildCinemaGeometry(&params, tier, verts, maxVerts, indices, maxIndices,
-                                 &vertexCount, &indexCount);
+    int ok = buildRoomGeometry(&params, style, verts, maxVerts, indices, maxIndices,
+                               &vertexCount, &indexCount);
     if (ok) {
-        if (ctx->cinemaVertexBuffer == 0) {
-            glGenBuffers(1, &ctx->cinemaVertexBuffer);
+        if (ctx->roomVertexBuffer == 0) {
+            glGenBuffers(1, &ctx->roomVertexBuffer);
         }
-        glBindBuffer(GL_ARRAY_BUFFER, ctx->cinemaVertexBuffer);
+        glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
         glBufferData(GL_ARRAY_BUFFER,
-                     (GLsizeiptr)vertexCount * CINEMA_VERTEX_FLOATS * sizeof(float),
+                     (GLsizeiptr)vertexCount * ROOM_VERTEX_FLOATS * sizeof(float),
                      verts, GL_STATIC_DRAW);
-        if (ctx->cinemaIndexBuffer == 0) {
-            glGenBuffers(1, &ctx->cinemaIndexBuffer);
+        if (ctx->roomIndexBuffer == 0) {
+            glGenBuffers(1, &ctx->roomIndexBuffer);
         }
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->cinemaIndexBuffer);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->roomIndexBuffer);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)indexCount * sizeof(unsigned short),
                      indices, GL_STATIC_DRAW);
         // Everything else in here draws from client arrays with no buffer
@@ -6779,45 +6527,45 @@ static int uploadCinemaGeometry(XrCtx* ctx, int tier) {
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
-        ctx->cinemaVertexCount = vertexCount;
-        ctx->cinemaIndexCount = indexCount;
-        ctx->cinemaSpillGain = params.spillGain;
+        ctx->roomVertexCount = vertexCount;
+        ctx->roomIndexCount = indexCount;
+        ctx->roomSpillGain = params.spillGain;
         // Darker than any surface in the room, so anything the geometry misses
         // reads as the far end of the same room rather than as a hole in it
-        ctx->cinemaClear[0] = params.wallLevel * 0.5f;
-        ctx->cinemaClear[1] = params.wallLevel * 0.5f;
-        ctx->cinemaClear[2] = params.wallLevel * 0.5f;
-        LOGEV("cinema room ready, tier %d, %d vertices, %d indices",
-              tier, vertexCount, indexCount);
+        ctx->roomClear[0] = params.wallLevel * 0.5f;
+        ctx->roomClear[1] = params.wallLevel * 0.5f;
+        ctx->roomClear[2] = params.wallLevel * 0.5f;
+        LOGEV("room ready, style %d, %d vertices, %d indices",
+              style, vertexCount, indexCount);
     }
     free(verts);
     free(indices);
     if (!ok) {
-        LOGE("cinema geometry build failed for tier %d", tier);
+        LOGE("room geometry build failed for style %d", style);
     }
     return ok;
 }
 
 // Brings up everything the room draws with, the first frame that asks for it.
 // Mid session swapchain creation is already how the background photo arrives.
-static int initCinema(XrCtx* ctx) {
-    if (ctx->cinemaReady) {
+static int initRoom(XrCtx* ctx) {
+    if (ctx->roomReady) {
         return 1;
     }
-    if (ctx->cinemaFailed || ctx->session == XR_NULL_HANDLE) {
+    if (ctx->roomFailed || ctx->session == XR_NULL_HANDLE) {
         return 0;
     }
-    ctx->cinemaFailed = 1;
+    ctx->roomFailed = 1;
 
     // Half of what the runtime recommends per eye. Nothing in the room has any
     // detail in it, and a runtime that will not say gets a modest guess.
     int eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth / 2 : 512;
     int eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight / 2 : 512;
-    if (eyeW > CINEMA_MAX_EYE) {
-        eyeW = CINEMA_MAX_EYE;
+    if (eyeW > ROOM_MAX_EYE) {
+        eyeW = ROOM_MAX_EYE;
     }
-    if (eyeH > CINEMA_MAX_EYE) {
-        eyeH = CINEMA_MAX_EYE;
+    if (eyeH > ROOM_MAX_EYE) {
+        eyeH = ROOM_MAX_EYE;
     }
 
     XrSwapchainCreateInfo info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
@@ -6825,108 +6573,106 @@ static int initCinema(XrCtx* ctx) {
     info.format = ctx->swapchainFormat;
     info.sampleCount = 1;
     // Side by side, the same arrangement the video swapchain uses in stereo
-    info.width = eyeW * CINEMA_EYES;
+    info.width = eyeW * ROOM_EYES;
     info.height = eyeH;
     info.faceCount = 1;
     info.arraySize = 1;
     info.mipCount = 1;
-    if (!checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cinemaSwapchain),
-                 "create cinema swapchain")) {
-        ctx->cinemaSwapchain = XR_NULL_HANDLE;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->roomSwapchain),
+                 "create room swapchain")) {
+        ctx->roomSwapchain = XR_NULL_HANDLE;
         return 0;
     }
-    xrEnumerateSwapchainImages(ctx->cinemaSwapchain, 0, &ctx->cinemaImageCount, NULL);
-    ctx->cinemaImages = calloc(ctx->cinemaImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
-    if (ctx->cinemaImages == NULL) {
+    xrEnumerateSwapchainImages(ctx->roomSwapchain, 0, &ctx->roomImageCount, NULL);
+    ctx->roomImages = calloc(ctx->roomImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+    if (ctx->roomImages == NULL) {
         return 0;
     }
-    for (uint32_t i = 0; i < ctx->cinemaImageCount; i++) {
-        ctx->cinemaImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+    for (uint32_t i = 0; i < ctx->roomImageCount; i++) {
+        ctx->roomImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
     }
-    xrEnumerateSwapchainImages(ctx->cinemaSwapchain, ctx->cinemaImageCount, &ctx->cinemaImageCount,
-                               (XrSwapchainImageBaseHeader*)ctx->cinemaImages);
+    xrEnumerateSwapchainImages(ctx->roomSwapchain, ctx->roomImageCount, &ctx->roomImageCount,
+                               (XrSwapchainImageBaseHeader*)ctx->roomImages);
 
     // The one pass in here that needs a depth buffer, since it is the only one
     // drawing geometry that can be in front of other geometry
-    glGenRenderbuffers(1, &ctx->cinemaDepthBuffer);
-    glBindRenderbuffer(GL_RENDERBUFFER, ctx->cinemaDepthBuffer);
+    glGenRenderbuffers(1, &ctx->roomDepthBuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, ctx->roomDepthBuffer);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, (GLsizei)info.width, eyeH);
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
     // Colour comes from whichever swapchain image the frame acquires, so only
     // the depth attachment can be made once
-    glGenFramebuffers(1, &ctx->cinemaFbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, ctx->cinemaFbo);
+    glGenFramebuffers(1, &ctx->roomFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->roomFbo);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
-                              ctx->cinemaDepthBuffer);
+                              ctx->roomDepthBuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    GLuint vs = compileShader(GL_VERTEX_SHADER, CINEMA_VERTEX_SRC);
-    GLuint fs = compileShader(GL_FRAGMENT_SHADER, CINEMA_FRAGMENT_SRC);
+    GLuint vs = compileShader(GL_VERTEX_SHADER, ROOM_VERTEX_SRC);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, ROOM_FRAGMENT_SRC);
     if (vs == 0 || fs == 0) {
         return 0;
     }
-    ctx->cinemaProgram = glCreateProgram();
-    glAttachShader(ctx->cinemaProgram, vs);
-    glAttachShader(ctx->cinemaProgram, fs);
-    glBindAttribLocation(ctx->cinemaProgram, 0, "a_position");
-    glBindAttribLocation(ctx->cinemaProgram, 1, "a_color");
-    glBindAttribLocation(ctx->cinemaProgram, 2, "a_spill");
-    glBindAttribLocation(ctx->cinemaProgram, 3, "a_spilluv");
-    glLinkProgram(ctx->cinemaProgram);
+    ctx->roomProgram = glCreateProgram();
+    glAttachShader(ctx->roomProgram, vs);
+    glAttachShader(ctx->roomProgram, fs);
+    glBindAttribLocation(ctx->roomProgram, 0, "a_position");
+    glBindAttribLocation(ctx->roomProgram, 1, "a_color");
+    glBindAttribLocation(ctx->roomProgram, 2, "a_spill");
+    glLinkProgram(ctx->roomProgram);
     glDeleteShader(vs);
     glDeleteShader(fs);
 
     GLint linked = 0;
-    glGetProgramiv(ctx->cinemaProgram, GL_LINK_STATUS, &linked);
+    glGetProgramiv(ctx->roomProgram, GL_LINK_STATUS, &linked);
     if (!linked) {
         char log[512];
-        glGetProgramInfoLog(ctx->cinemaProgram, sizeof(log), NULL, log);
-        LOGE("cinema program link failed: %s", log);
+        glGetProgramInfoLog(ctx->roomProgram, sizeof(log), NULL, log);
+        LOGE("room program link failed: %s", log);
         return 0;
     }
-    ctx->cinemaViewProjUniform = glGetUniformLocation(ctx->cinemaProgram, "u_viewproj");
-    ctx->cinemaSpillGainUniform = glGetUniformLocation(ctx->cinemaProgram, "u_spillGain");
-    ctx->cinemaZonedUniform = glGetUniformLocation(ctx->cinemaProgram, "u_zoned");
-    glUseProgram(ctx->cinemaProgram);
-    glUniform1i(glGetUniformLocation(ctx->cinemaProgram, "u_ambi"), 0);
+    ctx->roomViewProjUniform = glGetUniformLocation(ctx->roomProgram, "u_viewproj");
+    ctx->roomSpillGainUniform = glGetUniformLocation(ctx->roomProgram, "u_spillGain");
+    glUseProgram(ctx->roomProgram);
+    glUniform1i(glGetUniformLocation(ctx->roomProgram, "u_ambi"), 0);
 
     // Whichever room is being asked for, so the first frame is already the one
-    // the picker is on rather than a tier's worth of rebuild later
-    int tier = cinemaEffective(ctx);
-    if (tier < CINEMA_TIER_LITE) {
-        tier = CINEMA_TIER_LITE;
+    // the picker is on rather than a rebuild later
+    int style = roomEffective(ctx);
+    if (style < ROOM_STYLE_MINIMAL) {
+        style = ROOM_STYLE_MINIMAL;
     }
-    if (!uploadCinemaGeometry(ctx, tier)) {
+    if (!uploadRoomGeometry(ctx, style)) {
         return 0;
     }
-    ctx->cinemaBuiltTier = tier;
+    ctx->roomBuiltStyle = style;
 
-    ctx->cinemaEyeWidth = eyeW;
-    ctx->cinemaEyeHeight = eyeH;
-    ctx->cinemaReady = 1;
-    ctx->cinemaFailed = 0;
-    LOGEV("cinema ready at %dx%d per eye", eyeW, eyeH);
+    ctx->roomEyeWidth = eyeW;
+    ctx->roomEyeHeight = eyeH;
+    ctx->roomReady = 1;
+    ctx->roomFailed = 0;
+    LOGEV("room ready at %dx%d per eye", eyeW, eyeH);
     return 1;
 }
 
-// Where both eyes are this frame. Only the cinema needs this, so it is only
+// Where both eyes are this frame. Only the room needs this, so it is only
 // asked for while a room is on.
-static int locateCinemaViews(XrCtx* ctx) {
+static int locateRoomViews(XrCtx* ctx) {
     XrViewLocateInfo locateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
     locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
     locateInfo.displayTime = ctx->predictedDisplayTime;
     locateInfo.space = ctx->localSpace;
 
     XrViewState state = { XR_TYPE_VIEW_STATE };
-    XrView views[CINEMA_EYES];
-    for (int eye = 0; eye < CINEMA_EYES; eye++) {
+    XrView views[ROOM_EYES];
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
         views[eye].type = XR_TYPE_VIEW;
         views[eye].next = NULL;
     }
     uint32_t count = 0;
-    if (XR_FAILED(xrLocateViews(ctx->session, &locateInfo, &state, CINEMA_EYES, &count, views))
-            || count < CINEMA_EYES) {
+    if (XR_FAILED(xrLocateViews(ctx->session, &locateInfo, &state, ROOM_EYES, &count, views))
+            || count < ROOM_EYES) {
         return 0;
     }
     // Both bits, since a room drawn from an orientation with no position in it
@@ -6937,53 +6683,64 @@ static int locateCinemaViews(XrCtx* ctx) {
         return 0;
     }
 
-    for (int eye = 0; eye < CINEMA_EYES; eye++) {
-        ctx->cinemaViews[eye] = views[eye];
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        ctx->roomViews[eye] = views[eye];
     }
-    ctx->cinemaViewsValid = 1;
+    ctx->roomViewsValid = 1;
     return 1;
 }
 
+// Everything the room has to have built or rebuilt before it can be drawn.
+// Kept out of the frame's timer query on purpose: a swapchain or a buffer
+// created inside that window leaves this driver reporting garbage for every
+// sample after it, so all of it happens before the query opens.
+static void prepareRoom(XrCtx* ctx) {
+    if (!initRoom(ctx)) {
+        return;
+    }
+    // The picker can move between rooms with the session running. A build that
+    // fails leaves whichever room is already in the buffers, and is not tried
+    // again, since nothing about the next frame would be different.
+    int style = roomEffective(ctx);
+    if (style >= ROOM_STYLE_MINIMAL && style != ctx->roomBuiltStyle) {
+        uploadRoomGeometry(ctx, style);
+        ctx->roomBuiltStyle = style;
+    }
+}
+
 // Draws the room into its own image, one half per eye. The layer that shows it
-// is submitted in endFrame, with the very poses drawn from here.
-static void renderCinema(XrCtx* ctx) {
-    if (!initCinema(ctx)) {
+// is submitted in endFrame, with the very poses drawn from here. Nothing is
+// created in here: prepareRoom has already been round.
+static void renderRoom(XrCtx* ctx) {
+    if (!ctx->roomReady) {
         return;
     }
     // A frame the eyes could not be located for keeps the image it already
     // has. The layer still goes up, with the poses that image was drawn from.
-    if (!locateCinemaViews(ctx)) {
+    if (!locateRoomViews(ctx)) {
         return;
-    }
-    // The picker can move between the two rooms with the session running. A
-    // build that fails leaves whichever room is already in the buffers, and is
-    // not tried again, since nothing about the next frame would be different.
-    int tier = cinemaEffective(ctx);
-    if (tier >= CINEMA_TIER_LITE && tier != ctx->cinemaBuiltTier) {
-        uploadCinemaGeometry(ctx, tier);
-        ctx->cinemaBuiltTier = tier;
     }
 
     uint32_t index = 0;
     XrSwapchainImageAcquireInfo acquire = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
-    if (!checkXr(xrAcquireSwapchainImage(ctx->cinemaSwapchain, &acquire, &index),
-                 "acquire cinema image")) {
+    if (!checkXr(xrAcquireSwapchainImage(ctx->roomSwapchain, &acquire, &index),
+                 "acquire room image")) {
         return;
     }
     XrSwapchainImageWaitInfo wait = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
     wait.timeout = XR_INFINITE_DURATION;
-    xrWaitSwapchainImage(ctx->cinemaSwapchain, &wait);
+    xrWaitSwapchainImage(ctx->roomSwapchain, &wait);
 
-    glBindFramebuffer(GL_FRAMEBUFFER, ctx->cinemaFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->roomFbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                           ctx->cinemaImages[index].image, 0);
+                           ctx->roomImages[index].image, 0);
     // Once, on the first frame drawn. The colour attachment is a swapchain
     // image, so this is the first point the pair of them can be checked, and a
     // room that never appears is otherwise silent.
-    if (!ctx->cinemaRendered) {
+    if (!ctx->roomRendered) {
         GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
         if (status != GL_FRAMEBUFFER_COMPLETE) {
-            LOGE("cinema framebuffer incomplete: 0x%x", status);
+            LOGE("room framebuffer incomplete: 0x%x", status);
         }
     }
     // The colours below are authored the way the video arrives, already gamma
@@ -6992,49 +6749,42 @@ static void renderCinema(XrCtx* ctx) {
         glDisable(GL_FRAMEBUFFER_SRGB_EXT);
     }
 
-    glClearColor(ctx->cinemaClear[0], ctx->cinemaClear[1], ctx->cinemaClear[2], 1.0f);
+    glClearColor(ctx->roomClear[0], ctx->roomClear[1], ctx->roomClear[2], 1.0f);
     glClearDepthf(1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glEnable(GL_DEPTH_TEST);
 
-    glUseProgram(ctx->cinemaProgram);
+    glUseProgram(ctx->roomProgram);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
     // Nothing has been sampled off the video yet on the first frames, so the
     // room is just its baked self until there is
-    glUniform1f(ctx->cinemaSpillGainUniform, ctx->ambiSeeded ? ctx->cinemaSpillGain : 0.0f);
-    // The fancy room lights each part of itself from the part of the picture
-    // that faces it. The lite one takes the whole frame's average, as it has
-    // from the start.
-    glUniform1f(ctx->cinemaZonedUniform,
-                ctx->cinemaBuiltTier >= CINEMA_TIER_FANCY ? 1.0f : 0.0f);
+    glUniform1f(ctx->roomSpillGainUniform, ctx->ambiSeeded ? ctx->roomSpillGain : 0.0f);
 
-    glBindBuffer(GL_ARRAY_BUFFER, ctx->cinemaVertexBuffer);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->cinemaIndexBuffer);
-    GLsizei stride = CINEMA_VERTEX_FLOATS * sizeof(float);
+    glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->roomIndexBuffer);
+    GLsizei stride = ROOM_VERTEX_FLOATS * sizeof(float);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (const void*)0);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (const void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, stride, (const void*)(6 * sizeof(float)));
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, (const void*)(7 * sizeof(float)));
-    glEnableVertexAttribArray(3);
 
-    for (int eye = 0; eye < CINEMA_EYES; eye++) {
-        glViewport(eye * ctx->cinemaEyeWidth, 0, ctx->cinemaEyeWidth, ctx->cinemaEyeHeight);
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        glViewport(eye * ctx->roomEyeWidth, 0, ctx->roomEyeWidth, ctx->roomEyeHeight);
 
         float proj[16];
         float view[16];
         float viewProj[16];
         // Near enough to walk into a wall without it clipping, far enough to
         // hold a room a few metres across
-        projectionFromFov(proj, ctx->cinemaViews[eye].fov, 0.05f, 60.0f);
-        viewFromPose(view, ctx->cinemaViews[eye].pose);
+        projectionFromFov(proj, ctx->roomViews[eye].fov, 0.05f, 60.0f);
+        viewFromPose(view, ctx->roomViews[eye].pose);
         matMul(viewProj, proj, view);
-        glUniformMatrix4fv(ctx->cinemaViewProjUniform, 1, GL_FALSE, viewProj);
+        glUniformMatrix4fv(ctx->roomViewProjUniform, 1, GL_FALSE, viewProj);
 
-        glDrawElements(GL_TRIANGLES, ctx->cinemaIndexCount, GL_UNSIGNED_SHORT, (const void*)0);
+        glDrawElements(GL_TRIANGLES, ctx->roomIndexCount, GL_UNSIGNED_SHORT, (const void*)0);
     }
 
     glDisable(GL_DEPTH_TEST);
@@ -7042,14 +6792,13 @@ static void renderCinema(XrCtx* ctx) {
     // bound, since they all draw from client arrays, and only the two attribute
     // arrays they use left on
     glDisableVertexAttribArray(2);
-    glDisableVertexAttribArray(3);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
-    xrReleaseSwapchainImage(ctx->cinemaSwapchain, &release);
-    ctx->cinemaRendered = 1;
+    xrReleaseSwapchainImage(ctx->roomSwapchain, &release);
+    ctx->roomRendered = 1;
 }
 
 static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
@@ -7060,6 +6809,13 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     // query window, which both ruins the number and, on this driver, leaves a
     // query that never becomes available. Skip timing them.
     int timing = ctx->timerSupported && !ctx->captureRequested;
+
+    // Before the query opens, since creating the room's swapchain and buffers
+    // inside the window wedges every sample after it
+    int roomOn = roomEffective(ctx) > 0;
+    if (roomOn) {
+        prepareRoom(ctx);
+    }
 
     if (timing && !ctx->timerPending[ctx->timerSlot]) {
         pfnBeginQuery(GL_TIME_ELAPSED_EXT, ctx->timerQueries[ctx->timerSlot]);
@@ -7077,17 +6833,16 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     int glowOn;
     float glowLevel;
     ambiEffective(ctx, &glowOn, &glowLevel);
-    int cinemaOn = cinemaEffective(ctx) > 0;
     // The room is lit from the same colours the glow is made of, so the sample
     // is taken for either of them
-    if (glowOn || cinemaOn) {
+    if (glowOn || roomOn) {
         runFrameColorSample(ctx, texMatrix);
     }
     if (glowOn) {
         runGlowRender(ctx);
     }
-    if (cinemaOn) {
-        renderCinema(ctx);
+    if (roomOn) {
+        renderRoom(ctx);
     }
 
     uint32_t imageIndex = 0;
@@ -7265,12 +7020,20 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
                 pfnGetQueryObjectui64v(ctx->timerQueries[other], GL_QUERY_RESULT_EXT, &elapsed);
                 ctx->timerPending[other] = 0;
                 ctx->timerPendingFrames[other] = 0;
-                ctx->gpuTotalNs += (long)elapsed;
-                ctx->gpuSamples++;
-                ctx->overlayGpuTotalNs += (long)elapsed;
-                ctx->overlayGpuSamples++;
-                if ((long)elapsed > ctx->gpuMaxNs) {
-                    ctx->gpuMaxNs = (long)elapsed;
+                // A disjoint says the clock this was counted against stopped
+                // being trustworthy part way through, and anything past 50 ms
+                // is the driver rather than a frame. Reading the flag clears
+                // it, so each one is only ever charged to one sample.
+                GLint disjoint = 0;
+                glGetIntegerv(GL_GPU_DISJOINT_EXT, &disjoint);
+                if (!disjoint && elapsed < 50000000ull) {
+                    ctx->gpuTotalNs += (long)elapsed;
+                    ctx->gpuSamples++;
+                    ctx->overlayGpuTotalNs += (long)elapsed;
+                    ctx->overlayGpuSamples++;
+                    if ((long)elapsed > ctx->gpuMaxNs) {
+                        ctx->gpuMaxNs = (long)elapsed;
+                    }
                 }
             }
             else if (++ctx->timerPendingFrames[other] > 90) {
@@ -7462,11 +7225,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jo
     }
     ctx->pickerChoice = choice;
     ctx->backgroundEnabled = backgroundOn;
-    ctx->cinemaTier = choice == ENV_CELL_CINEMA_FANCY ? 2
-            : (choice == ENV_CELL_CINEMA_LITE ? 1 : 0);
+    ctx->roomStyle = choice == ENV_CELL_MINIMAL_ROOM ? ROOM_STYLE_MINIMAL : 0;
     if (choice != ctx->loggedChoice) {
         ctx->loggedChoice = choice;
-        LOGEV("environment %d, cinema tier %d", choice, cinemaEffective(ctx));
+        LOGEV("environment %d, room %d", choice, roomEffective(ctx));
     }
 }
 
@@ -7692,8 +7454,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     }
 
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
-    XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
     int stereo = ctx->stereoMode != DEPTH_MODE_OFF;
+    int roomOn = roomEffective(ctx) > 0;
+    // A room hangs the picture on a wall, and a wall does not follow the head
+    // about however the preference is set
+    XrSpace space = (headLocked && !roomOn) ? ctx->viewSpace : ctx->localSpace;
 
     if (!ctx->pointerArtReady && ctx->pointerSwapchain != XR_NULL_HANDLE && ctx->shouldRender) {
         uploadPointerArt(ctx);
@@ -7702,7 +7467,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // The panel's curve, if it has one, so a reseed keeps the curve in force
     // rather than snapping back to the preference
     float curve = effectiveCurvature(ctx);
-    updatePlacement(ctx, distance, quadWidth, curve);
+    int reseeded = updatePlacement(ctx, distance, quadWidth, curve);
+    // Then the wall has the last word on where the picture is, and a picture
+    // flat on a wall is flat
+    applyRoomPlacement(ctx, roomOn, aspect, reseeded);
+    if (roomOn) {
+        curve = 0.0f;
+    }
     XrPosef screenPose = ctx->screenPose;
     float screenWidth = ctx->screenWidth;
     float screenHeight = screenWidth * aspect;
@@ -7726,8 +7497,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     }
 
     XrCompositionLayerEquirect2KHR backgroundLayer;
-    XrCompositionLayerProjection cinemaLayer;
-    XrCompositionLayerProjectionView cinemaProjViews[CINEMA_EYES];
+    XrCompositionLayerProjection roomLayer;
+    XrCompositionLayerProjectionView roomProjViews[ROOM_EYES];
     XrCompositionLayerQuad glowLayer;
     XrCompositionLayerQuad quadLayers[2];
     XrCompositionLayerCylinderKHR cylLayers[2];
@@ -7750,7 +7521,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerSettingsFB sharpenSettings;
     // Worst case reachable is the screen tab open: background, the glow, both
     // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
-    // is 15. The cinema room replaces the environment layer one for one, so it
+    // is 15. The 3d room replaces the environment layer one for one, so it
     // adds nothing to that. The panel is modal, and since the frame a modal
     // opens now sheds the bar furniture too, the two can no longer land in one
     // frame together.
@@ -7773,39 +7544,38 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         sharpenChain = &sharpenSettings;
     }
 
-    // The environment, whichever of the two it is. The cinema room takes the
+    // The environment, whichever of the two it is. The 3d room takes the
     // photo's place rather than sitting in front of it, and passthrough wants
     // the real room instead, so no two of the three ever go up together.
-    int cinemaOn = cinemaEffective(ctx) > 0;
-    if (cinemaOn && ctx->cinemaRendered && ctx->cinemaViewsValid && !ctx->passthrough) {
-        memset(&cinemaLayer, 0, sizeof(cinemaLayer));
-        memset(cinemaProjViews, 0, sizeof(cinemaProjViews));
-        cinemaLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
-        cinemaLayer.layerFlags = 0;
+    if (roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough) {
+        memset(&roomLayer, 0, sizeof(roomLayer));
+        memset(roomProjViews, 0, sizeof(roomProjViews));
+        roomLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+        roomLayer.layerFlags = 0;
         // World locked like the photo it stands in for, even when the screen
         // is head locked
-        cinemaLayer.space = ctx->localSpace;
-        cinemaLayer.viewCount = CINEMA_EYES;
-        cinemaLayer.views = cinemaProjViews;
-        for (int eye = 0; eye < CINEMA_EYES; eye++) {
-            cinemaProjViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        roomLayer.space = ctx->localSpace;
+        roomLayer.viewCount = ROOM_EYES;
+        roomLayer.views = roomProjViews;
+        for (int eye = 0; eye < ROOM_EYES; eye++) {
+            roomProjViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
             // The poses the image was actually drawn from, so the compositor
             // reprojects it rather than being told a pose it does not match
-            cinemaProjViews[eye].pose = ctx->cinemaViews[eye].pose;
-            cinemaProjViews[eye].fov = ctx->cinemaViews[eye].fov;
-            cinemaProjViews[eye].subImage.swapchain = ctx->cinemaSwapchain;
-            cinemaProjViews[eye].subImage.imageRect.offset.x = eye * ctx->cinemaEyeWidth;
-            cinemaProjViews[eye].subImage.imageRect.offset.y = 0;
-            cinemaProjViews[eye].subImage.imageRect.extent.width = ctx->cinemaEyeWidth;
-            cinemaProjViews[eye].subImage.imageRect.extent.height = ctx->cinemaEyeHeight;
-            cinemaProjViews[eye].subImage.imageArrayIndex = 0;
+            roomProjViews[eye].pose = ctx->roomViews[eye].pose;
+            roomProjViews[eye].fov = ctx->roomViews[eye].fov;
+            roomProjViews[eye].subImage.swapchain = ctx->roomSwapchain;
+            roomProjViews[eye].subImage.imageRect.offset.x = eye * ctx->roomEyeWidth;
+            roomProjViews[eye].subImage.imageRect.offset.y = 0;
+            roomProjViews[eye].subImage.imageRect.extent.width = ctx->roomEyeWidth;
+            roomProjViews[eye].subImage.imageRect.extent.height = ctx->roomEyeHeight;
+            roomProjViews[eye].subImage.imageArrayIndex = 0;
         }
-        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&cinemaLayer;
+        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&roomLayer;
     }
 
     // The photo, in that same slot: submitted before everything else so all of
-    // it sits in front, and skipped when the cinema or passthrough has the slot.
-    if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough && !cinemaOn) {
+    // it sits in front, and skipped when the room or passthrough has the slot.
+    if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough && !roomOn) {
         memset(&backgroundLayer, 0, sizeof(backgroundLayer));
         backgroundLayer.type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
         backgroundLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;

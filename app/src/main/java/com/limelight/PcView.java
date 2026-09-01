@@ -142,18 +142,6 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                     getString(R.string.gen1_warning_title), getString(R.string.gen1_warning_text));
         }
 
-        // The deluxe cinema is far too much for a Gen 1 headset. The picker
-        // wrote this pref during the last session, and here is the only place
-        // it can be said: 2d windows are invisible once the session starts.
-        if (PreferenceConfiguration.isXr2Gen1Headset() &&
-                PreferenceManager.getDefaultSharedPreferences(this)
-                        .getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1)
-                        == PreferenceConfiguration.VR_ENV_CINEMA_FANCY) {
-            WarningDialog.showIfNeeded(this, "cinema_fancy_gen1",
-                    getString(R.string.cinema_fancy_warning_title),
-                    getString(R.string.cinema_fancy_warning_text));
-        }
-
         // Set the correct layout for the PC grid
         pcGridAdapter.updateLayoutWithPreferences(this, PreferenceConfiguration.readPreferences(this));
 
