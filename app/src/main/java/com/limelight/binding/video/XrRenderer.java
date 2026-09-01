@@ -141,6 +141,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int SETTING_AMBILIGHT = 5;
     private static final int SETTING_AMBI_LEVEL = 6;
     private static final int SETTING_ROOM_LIGHT = 7;
+    private static final int SETTING_HEAD_LOCK = 8;
     // Position, orientation, width, cylinder radius, then the curvature the
     // settings panel asked for
     private static final int POSE_VALUES = 10;
@@ -242,19 +243,22 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             "Screen size cannot be changed in a 3D environment. "
                     + "Please choose a different environment to customise the screen size.";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Screen light is the wash the picture
-    // throws over a 3d room, which only shows in one, but it stays live here
-    // like the rest: the picker can put a room up at any moment.
+    // the glow level track under them. Head locked sits with the picture rows
+    // so the two light rows and the level track they belong with stay together
+    // at the bottom. Screen light is the wash the picture throws over a 3d
+    // room, which only shows in one, and head lock is ignored in one, but both
+    // stay live here like the rest: the picker can put a room up at any moment.
     private static final String[] COG_OPTION_ROWS =
-            { "Sharpen", "Stats", "Glow", "Screen light" };
+            { "Sharpen", "Stats", "Head locked", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" }
     };
     // Must match COG_DISPLAY_SLIDER_ROW in xr_renderer.c
-    private static final int COG_DISPLAY_SLIDER_ROW = 4;
+    private static final int COG_DISPLAY_SLIDER_ROW = 5;
     // 3D tab: two sliders, drawn the same way the screen tab's are. Only
     // values that take effect the moment they move belong on the panel, which
     // is why the depth source itself stays in the 2d settings.
@@ -676,7 +680,6 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         float distance = prefs.vrDistance / 10.0f;
         float quadWidth = prefs.vrScreenSize / 10.0f;
         float curvature = prefs.vrCurvature / 100.0f;
-        boolean headLocked = prefs.vrHeadLocked;
         // Stored as tenths of a percent of frame width
         float separation = prefs.vrStereoSeparation / 1000.0f;
         boolean eyeSwap = prefs.vrEyeSwap;
@@ -695,6 +698,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // Native side slept already while the session is not running
                 continue;
             }
+
+            // Read fresh each frame rather than once on the way in: the panel's
+            // row writes it back to this same object, and the space is picked
+            // from it on both sides of the frame, so a press takes effect on
+            // the next one with no native state to keep in step.
+            boolean headLocked = prefs.vrHeadLocked;
 
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
                     pointer, gaze, inputState);
@@ -2153,6 +2162,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.VR_ROOM_LIGHT_PREF_STRING, on)
+                    .apply();
+        }
+        else if (setting == SETTING_HEAD_LOCK) {
+            boolean on = value != 0;
+            // The frame loop reads this off the same configuration object every
+            // frame and passes it down, so the screen follows the head, or
+            // stops following it, on the next one. A room ignores it either
+            // way, which is why the row stays live in one rather than greying.
+            if (prefConfig != null) {
+                prefConfig.vrHeadLocked = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_HEAD_LOCKED_PREF_STRING, on)
                     .apply();
         }
         else if (setting == SETTING_AMBI_LEVEL) {

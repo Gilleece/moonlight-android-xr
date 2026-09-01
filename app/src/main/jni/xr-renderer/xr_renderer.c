@@ -257,6 +257,7 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define SETTING_AMBILIGHT 5
 #define SETTING_AMBI_LEVEL 6
 #define SETTING_ROOM_LIGHT 7
+#define SETTING_HEAD_LOCK 8
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
@@ -399,16 +400,19 @@ static void xrLog(int prio, const char* fmt, ...) {
 // dragging a value.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_STATS   1
-#define COG_OPTION_AMBILIGHT 2
-#define COG_OPTION_ROOM_LIGHT 3
-#define COG_OPTION_COUNT   4
+#define COG_OPTION_HEAD_LOCK 2
+#define COG_OPTION_AMBILIGHT 3
+#define COG_OPTION_ROOM_LIGHT 4
+#define COG_OPTION_COUNT   5
 #define COG_SHARPEN_CELLS 3
 #define COG_STATS_CELLS   2
+#define COG_HEAD_LOCK_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
-// rows, so the glow can be turned down without leaving the tab it lives on
-#define COG_DISPLAY_SLIDER_ROW 4
+// rows, so the glow can be turned down without leaving the tab it lives on.
+// Six rows on this tab now, the same grid the screen tab already fills.
+#define COG_DISPLAY_SLIDER_ROW 5
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
 #define COG_DIST_MIN 0.2f
@@ -4785,6 +4789,9 @@ static int cogOptionCells(int option) {
     if (option == COG_OPTION_SHARPEN) {
         return COG_SHARPEN_CELLS;
     }
+    if (option == COG_OPTION_HEAD_LOCK) {
+        return COG_HEAD_LOCK_CELLS;
+    }
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
@@ -4794,10 +4801,15 @@ static int cogOptionCells(int option) {
     return COG_STATS_CELLS;
 }
 
-// Which cell of a row is the one in force
-static int cogOptionValue(XrCtx* ctx, int option) {
+// Which cell of a row is the one in force. Head lock is the one value this side
+// does not keep: it arrives with the frame, and reading it back means the ring
+// still tells the truth if something outside the panel changes it.
+static int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     if (option == COG_OPTION_SHARPEN) {
         return ctx->sharpenMode;
+    }
+    if (option == COG_OPTION_HEAD_LOCK) {
+        return headLocked ? 1 : 0;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         return ctx->ambilightOn ? 1 : 0;
@@ -4819,6 +4831,15 @@ static int cogApplyOption(XrCtx* ctx, int option, int cell) {
     if (option == COG_OPTION_STATS) {
         ctx->overlayVisible = cell != 0;
         return SETTING_STATS;
+    }
+    if (option == COG_OPTION_HEAD_LOCK) {
+        // Nothing to set here: Java writes the preference it already hands down
+        // every frame, and the space is picked from that value on the next one.
+        // Left live inside a room like the screen light row, since the picker
+        // can drop the room at any moment. In one the wall wins and the screen
+        // stays put whatever this says.
+        LOGEV("head lock %s from the panel", cell != 0 ? "on" : "off");
+        return SETTING_HEAD_LOCK;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         ctx->ambilightOn = cell != 0;
@@ -8611,13 +8632,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMarkLayers[COG_OPTION_COUNT + 1];
     XrCompositionLayerSettingsFB sharpenSettings;
-    // Worst case reachable is the screen tab open: background, the glow, both
-    // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
-    // is 15, or 16 with a stereo background's second layer, exactly this
-    // runtime's limit. The 3d room replaces the environment layer and sheds
-    // the move pill and the screen tab's thumbs, so it only ever comes to
-    // less. The panel is modal, and since the frame a modal opens now sheds
-    // the bar furniture too, the two can no longer land in one frame together.
+    // Worst case reachable is a tab with six rows open: background, the glow,
+    // both eyes, stats, the cog button, the panel, six thumbs, ray and cursor,
+    // which is 15, or 16 with a stereo background's second layer, exactly this
+    // runtime's limit. The display tab comes to one more, its six rings plus
+    // the glow level thumb where the screen tab has six thumbs and no rings.
+    // The 3d room replaces the environment layer and sheds the move pill and
+    // the screen tab's thumbs, so it only ever comes to less. The panel is
+    // modal, and since the frame a modal opens now sheds the bar furniture
+    // too, the two can no longer land in one frame together.
     // The keyboard sheds the same furniture and adds only its panel and one
     // ring, so it comes to 9. The exit prompt sheds it too and adds its own
     // sheet and the button that opened it, so it comes to less again. Sized
@@ -9209,7 +9232,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 for (int m = 0; m <= COG_OPTION_COUNT; m++) {
                     int hoverMark = m == COG_OPTION_COUNT;
                     int option = hoverMark ? ctx->cogHoverSlider : m;
-                    int cell = hoverMark ? ctx->cogHoverCell : cogOptionValue(ctx, m);
+                    int cell = hoverMark ? ctx->cogHoverCell
+                            : cogOptionValue(ctx, m, headLocked);
                     if (option < 0 || option >= COG_OPTION_COUNT || cell < 0) {
                         continue;
                     }

@@ -52,7 +52,7 @@ public class PreferenceConfiguration {
     public static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String ENABLE_GL_RENDER_PATH_PREF_STRING = "checkbox_enable_gl_render_path";
     private static final String ENABLE_VR_MODE_PREF_STRING = "checkbox_enable_vr_mode";
-    private static final String VR_HEAD_LOCKED_PREF_STRING = "checkbox_vr_head_locked";
+    public static final String VR_HEAD_LOCKED_PREF_STRING = "checkbox_vr_head_locked";
     private static final String VR_DISTANCE_PREF_STRING = "seekbar_vr_distance";
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
