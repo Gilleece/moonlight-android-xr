@@ -1006,6 +1006,21 @@ typedef struct {
     // without this the press that picks something goes on to click whatever the
     // modal was covering as soon as it closes.
     int triggerSwallowed[SRC_COUNT];
+    // Diagnostics for the click path, written but never acted on. The analog
+    // value is kept as the action reported it, and the low water mark and the
+    // dip count run for the length of one press, which is what says whether a
+    // fast pair of taps merged into a single one at the hysteresis.
+    float triggerValue[HAND_COUNT];
+    float triggerHoldMin[HAND_COUNT];
+    int triggerDipFrames[HAND_COUNT];
+    // Dips that climbed back over the press threshold without ever reaching
+    // the release one. Frames alone cannot tell those from the ramp of an
+    // ordinary slow release, and these are the taps that went missing.
+    int triggerRetaps[HAND_COUNT];
+    int triggerDipping[HAND_COUNT];
+    int trigLogDown[HAND_COUNT];
+    int trigLogRaw;
+    int trigLogLeft;
     // Indexed by the chosen source, and gaze has no grip, so it needs the
     // extra slot even though nothing ever writes to it
     int gripEdge[SRC_COUNT];
@@ -5685,6 +5700,29 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             ctx->triggerDown[h] = value > (wasDown ? PRESS_OFF : PRESS_ON)
                     || jointPinching(ctx, h, space, &headLoc.pose, headValid);
             ctx->triggerEdge[h] = ctx->triggerDown[h] && !wasDown;
+
+            // Diagnostics only. A press held from a pinch reads zero here, so
+            // a hand click shows as a hold that never leaves 0.00.
+            ctx->triggerValue[h] = value;
+            if (ctx->triggerEdge[h]) {
+                ctx->triggerHoldMin[h] = value;
+                ctx->triggerDipFrames[h] = 0;
+                ctx->triggerRetaps[h] = 0;
+                ctx->triggerDipping[h] = 0;
+            }
+            else if (ctx->triggerDown[h]) {
+                if (value < ctx->triggerHoldMin[h]) {
+                    ctx->triggerHoldMin[h] = value;
+                }
+                if (value < PRESS_ON) {
+                    ctx->triggerDipFrames[h]++;
+                    ctx->triggerDipping[h] = 1;
+                }
+                else if (ctx->triggerDipping[h]) {
+                    ctx->triggerRetaps[h]++;
+                    ctx->triggerDipping[h] = 0;
+                }
+            }
         }
         else if (!ctx->eyeGaze || !ctx->gazeEnabled
                  || ctx->aimSpaces[SRC_GAZE] == XR_NULL_HANDLE) {
@@ -6525,6 +6563,38 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // does, so walking the pointer off the edge mid drag still lets go
     ctx->buttonsDown = (ctx->buttonsDown & mask) | (hit ? mask : 0);
     out[IN_BUTTONS] = (float)ctx->buttonsDown;
+
+    // Diagnostics for the click path, one line per transition, so an ordinary
+    // click costs two. A release carries the low water mark of the analog
+    // value and how many frames it spent under the press threshold, which is
+    // what tells a genuine pair of taps from two that merged into one press.
+    int rawNow = ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT];
+    int leftNow = (ctx->buttonsDown & VR_BUTTON_LEFT) ? 1 : 0;
+    if (rawNow != ctx->trigLogRaw || leftNow != ctx->trigLogLeft
+            || ctx->triggerDown[HAND_LEFT] != ctx->trigLogDown[HAND_LEFT]
+            || ctx->triggerDown[HAND_RIGHT] != ctx->trigLogDown[HAND_RIGHT]) {
+        char rel[80];
+        rel[0] = '\0';
+        for (int h = 0; h < HAND_COUNT; h++) {
+            if (ctx->trigLogDown[h] && !ctx->triggerDown[h]) {
+                snprintf(rel, sizeof(rel),
+                         " up hand=%d holdMin=%.2f dipFrames=%d retaps=%d",
+                         h, ctx->triggerHoldMin[h], ctx->triggerDipFrames[h],
+                         ctx->triggerRetaps[h]);
+            }
+        }
+        LOGI("trig: raw=%d%d val=%.2f,%.2f swal=%d%d edge=%d%d hit=%d awake=%d left=%d%s",
+             ctx->triggerDown[HAND_LEFT], ctx->triggerDown[HAND_RIGHT],
+             ctx->triggerValue[HAND_LEFT], ctx->triggerValue[HAND_RIGHT],
+             ctx->triggerSwallowed[HAND_LEFT], ctx->triggerSwallowed[HAND_RIGHT],
+             ctx->triggerEdge[HAND_LEFT], ctx->triggerEdge[HAND_RIGHT],
+             hit ? 1 : 0, ctx->pointerAwake, leftNow, rel);
+
+        ctx->trigLogRaw = rawNow;
+        ctx->trigLogLeft = leftNow;
+        ctx->trigLogDown[HAND_LEFT] = ctx->triggerDown[HAND_LEFT];
+        ctx->trigLogDown[HAND_RIGHT] = ctx->triggerDown[HAND_RIGHT];
+    }
 
     XrVector2f stick = actionVec2(ctx, ctx->scrollAction, -1);
     if (hit && fabsf(stick.y) > SCROLL_DEADZONE) {

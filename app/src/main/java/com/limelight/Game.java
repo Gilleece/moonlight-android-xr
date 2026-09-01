@@ -167,16 +167,26 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private int lastVrPointerX = -1;
     private int lastVrPointerY = -1;
 
-    // Hosts only count a second click as a double click if it lands within a
-    // few pixels of the first, Windows within four, and a hand held pointer
-    // always drifts between the two trigger pulls. A second left click soon
-    // enough and close enough to the first is snapped back onto its pixel
-    // before it goes out, which leaves ordinary moves and drags alone.
-    private static final long VR_DOUBLE_CLICK_MS = 600;
+    // A host tests position as well as timing before it calls two clicks a
+    // double, and a hand held pointer drifts a few pixels between the taps.
+    // The moves carrying that drift are what break the test. Correcting it
+    // with a position packet on the second tap does not work either, since
+    // the host batches mouse moves but not button events, so the correction
+    // can land after the click it was meant to lead. Nothing is sent instead:
+    // the first tap anchors the cursor and drift near that anchor is dropped,
+    // which leaves the host on the pixel it already has.
+    private static final long VR_CLICK_HOLD_MS = 500;
+    // Tight while the button is held, so a drag or a text selection still
+    // moves the cursor, and wider once it is up, to cover the 5 to 27 px of
+    // drift measured between the taps of a natural pair
+    private static final int VR_HOLD_DIV_DOWN = 200;
+    private static final int VR_HOLD_DIV_UP = 72;
     private long vrLastLeftDownTime;
     private long vrLastLeftUpTime;
-    private int vrLastLeftDownX = -1;
-    private int vrLastLeftDownY = -1;
+    private int vrHoldX;
+    private int vrHoldY;
+    private boolean vrHoldActive;
+    private boolean vrLeftDown;
 
     // Click timings go out under the renderer's tag, so one logcat filter
     // catches these and the native side together
@@ -2729,6 +2739,24 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         int y = (int)(v * prefConfig.height);
         x = Math.max(0, Math.min(prefConfig.width - 1, x));
         y = Math.max(0, Math.min(prefConfig.height - 1, y));
+
+        // Just clicked, so small drift is dropped rather than sent on. The
+        // host stays on the pixel the click landed at, which is what a second
+        // tap needs to find. lastVrPointer is left alone with it.
+        if (vrHoldActive) {
+            long since = SystemClock.uptimeMillis() - vrLastLeftDownTime;
+            int radius = vrHoldRadius();
+            int dx = x - vrHoldX;
+            int dy = y - vrHoldY;
+            if (since < VR_CLICK_HOLD_MS && dx * dx + dy * dy <= radius * radius) {
+                return;
+            }
+
+            vrHoldActive = false;
+            Log.i(VR_CLICK_TAG, "click: hold ended by " + (since >= VR_CLICK_HOLD_MS
+                    ? "timeout" : "escape " + (int)Math.sqrt(dx * dx + dy * dy) + "px"));
+        }
+
         if (x == lastVrPointerX && y == lastVrPointerY) {
             return;
         }
@@ -2759,44 +2787,38 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         if (down) {
+            conn.sendMouseButtonDown(code);
+
             if (code == MouseButtonPacket.BUTTON_LEFT) {
                 long now = SystemClock.uptimeMillis();
                 int atX = lastVrPointerX;
                 int atY = lastVrPointerY;
-                String snap;
+                String hold;
 
-                if (vrLastLeftDownTime == 0 || vrLastLeftDownX < 0 || atX < 0) {
-                    snap = "no snap (first)";
+                if (vrHoldActive) {
+                    // Nothing has gone out since the first tap, so the host is
+                    // still on the anchor and a chain needs no position work
+                    hold = "held on anchor " + vrHoldX + "," + vrHoldY;
                 }
-                else if (now - vrLastLeftDownTime > VR_DOUBLE_CLICK_MS) {
-                    snap = "no snap (too slow)";
-                }
-                else if (!isNearVrLastDown(atX, atY)) {
-                    snap = "no snap (too far " + vrDistanceToLastDown(atX, atY) + "px)";
+                else if (atX < 0) {
+                    hold = "no hold (no pointer yet)";
                 }
                 else {
-                    // Put the cursor back on the first click's pixel first, so
-                    // the host sees both downs at one spot instead of a drift
-                    snap = "snap to " + vrLastLeftDownX + "," + vrLastLeftDownY
-                            + " (dist " + vrDistanceToLastDown(atX, atY) + "px)";
-                    conn.sendMousePosition((short)vrLastLeftDownX, (short)vrLastLeftDownY,
-                            (short)prefConfig.width, (short)prefConfig.height);
-                    lastVrPointerX = vrLastLeftDownX;
-                    lastVrPointerY = vrLastLeftDownY;
+                    vrHoldX = atX;
+                    vrHoldY = atY;
+                    vrHoldActive = true;
+                    hold = "hold from " + atX + "," + atY;
                 }
 
                 Log.i(VR_CLICK_TAG, "click: down " + sinceVrClick(now, vrLastLeftDownTime)
                         + "ms since down, " + sinceVrClick(now, vrLastLeftUpTime)
-                        + "ms since up, at " + atX + "," + atY + ", " + snap);
+                        + "ms since up, at " + atX + "," + atY + ", " + hold);
 
-                // Where the third click of a run is measured from is where this
-                // one actually went, snapped or not
+                // The window runs from the most recent tap, so a chain of them
+                // keeps the cursor on the first one's pixel
                 vrLastLeftDownTime = now;
-                vrLastLeftDownX = lastVrPointerX;
-                vrLastLeftDownY = lastVrPointerY;
+                vrLeftDown = true;
             }
-
-            conn.sendMouseButtonDown(code);
         }
         else {
             conn.sendMouseButtonUp(code);
@@ -2806,6 +2828,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 Log.i(VR_CLICK_TAG, "click: up after "
                         + sinceVrClick(now, vrLastLeftDownTime) + "ms held");
                 vrLastLeftUpTime = now;
+
+                // The hold itself carries on, only its radius opens up
+                vrLeftDown = false;
             }
         }
     }
@@ -2816,21 +2841,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         return then == 0 ? -1 : now - then;
     }
 
-    // Within one percent of the frame width of where the last click landed,
-    // about 25 px at 2560 wide. Wider than the host's own double click box,
-    // since the point is to pull a near miss back into it.
-    private boolean isNearVrLastDown(int x, int y) {
-        int radius = Math.max(1, prefConfig.width / 100);
-        int dx = x - vrLastLeftDownX;
-        int dy = y - vrLastLeftDownY;
-        return dx * dx + dy * dy <= radius * radius;
-    }
-
-    // For the log line only
-    private int vrDistanceToLastDown(int x, int y) {
-        int dx = x - vrLastLeftDownX;
-        int dy = y - vrLastLeftDownY;
-        return (int)Math.sqrt(dx * dx + dy * dy);
+    // Half a percent of the frame width with the button down, about 13 px at
+    // 2560 wide, and one part in 72 with it up, about 35 px
+    private int vrHoldRadius() {
+        int div = vrLeftDown ? VR_HOLD_DIV_DOWN : VR_HOLD_DIV_UP;
+        return Math.max(1, prefConfig.width / div);
     }
 
     @Override
