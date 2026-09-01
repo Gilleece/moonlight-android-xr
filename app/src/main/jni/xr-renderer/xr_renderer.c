@@ -505,13 +505,22 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define ROOM_STYLE_MINIMAL 1
 #define ROOM_STYLE_PSX 2
 #define ROOM_EYES 2
-// The whole of what the runtime recommends per eye, capped here. Half of it
-// was soft enough against the video layer beside it to see, and this is what
-// the room costs to keep its edges as sharp. A Gen 1 headset stays on half,
-// capped at the smaller number, since it has neither the memory nor the fill
-// rate for the rest.
-#define ROOM_MAX_EYE_FULL 2560
-#define ROOM_MAX_EYE 1280
+// How big the room renders per eye, picked by the Environment Res setting.
+// Half of what the runtime recommends was soft enough against the video layer
+// beside it to see, so low is only for headsets that cannot hold more, and the
+// three tiers above it all take the recommendation and cap it. Ultra is the
+// exception and the reason it is marked experimental: it ignores the
+// recommendation for a fixed size, so a runtime that asks for much less than
+// this ends up drawing a room several times the area it sized itself for.
+// EnvResTier, matching PreferenceConfiguration
+#define ENV_RES_LOW 0
+#define ENV_RES_STANDARD 1
+#define ENV_RES_HIGH 2
+#define ENV_RES_ULTRA 3
+#define ROOM_MAX_EYE_FULL 2560     // high
+#define ROOM_MAX_EYE_STANDARD 1760 // standard
+#define ROOM_MAX_EYE 1280          // low, on half the recommendation
+#define ROOM_ULTRA_EYE 2800        // ultra, taken rather than capped
 // Ten floats a vertex: position, colour, spill weight, texture coordinate and
 // one spare
 #define ROOM_VERTEX_FLOATS 10
@@ -853,13 +862,14 @@ typedef struct {
     XrPosef savedScreenPose;
     float savedScreenWidth;
     float savedScreenRadius;
-    // What the runtime asks for per eye, read once at startup. Only the room
-    // has any use for it.
+    // What the runtime asks for per eye, and the most it will accept, read once
+    // at startup. Only the room has any use for either.
     int recommendedEyeWidth;
     int recommendedEyeHeight;
-    // Whether this is one of the XR2 Gen 1 headsets, decided on the Java side.
-    // Only the room reads it, to draw itself smaller there.
-    int gen1Headset;
+    int maxEyeWidth;
+    int maxEyeHeight;
+    // Which Environment Res tier the room draws at, chosen on the Java side
+    int envResTier;
 
     GLuint oesTexture;
     GLuint program;
@@ -1894,8 +1904,11 @@ static int initXrInstance(XrCtx* ctx) {
                 configViewCount, &configViewCount, configViews))) {
             ctx->recommendedEyeWidth = (int)configViews[0].recommendedImageRectWidth;
             ctx->recommendedEyeHeight = (int)configViews[0].recommendedImageRectHeight;
-            LOGI("recommended render size %dx%d per eye, %u views",
-                 ctx->recommendedEyeWidth, ctx->recommendedEyeHeight, configViewCount);
+            ctx->maxEyeWidth = (int)configViews[0].maxImageRectWidth;
+            ctx->maxEyeHeight = (int)configViews[0].maxImageRectHeight;
+            LOGI("recommended render size %dx%d per eye (max %dx%d), %u views",
+                 ctx->recommendedEyeWidth, ctx->recommendedEyeHeight,
+                 ctx->maxEyeWidth, ctx->maxEyeHeight, configViewCount);
         }
         free(configViews);
     }
@@ -5110,10 +5123,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jboolean handTracking, jint sharpenMode,
                                                        jboolean perfOverlay, jboolean ambilight,
                                                        jint ambiLevel, jboolean roomLight,
-                                                       jboolean gen1Headset) {
+                                                       jint envResTier) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
-    ctx->gen1Headset = gen1Headset;
+    // EnvResTier: 0 low, 1 standard, 2 high, 3 ultra
+    ctx->envResTier = envResTier;
     ctx->videoWidth = width;
     ctx->videoHeight = height;
     ctx->stereoMode = stereoMode;
@@ -7288,25 +7302,43 @@ static int initRoom(XrCtx* ctx) {
     }
     ctx->roomFailed = 1;
 
-    // The whole of what the runtime recommends per eye, so the room's edges are
-    // as sharp as the video layer sitting in front of them. That is a couple of
-    // hundred megabytes between the side by side colour swapchain and the depth
-    // buffer, which is the reason none of it exists until a room is picked. Gen
-    // 1 headsets keep the half size the room started on, and a runtime that
-    // will not say what it wants gets a modest guess.
-    int half = ctx->gen1Headset;
-    int maxEye = half ? ROOM_MAX_EYE : ROOM_MAX_EYE_FULL;
-    int eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth : 1024;
-    int eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight : 1024;
-    if (half) {
-        eyeW /= 2;
-        eyeH /= 2;
+    // What the runtime recommends per eye, capped by the chosen tier, so the
+    // room's edges are as sharp as the video layer sitting in front of them.
+    // That is a couple of hundred megabytes between the side by side colour
+    // swapchain and the depth buffer, which is the reason none of it exists
+    // until a room is picked. A runtime that will not say what it wants gets a
+    // modest guess. Ultra takes a fixed size instead and only asks the runtime
+    // for its ceiling, since a recommendation is the one number it is trying to
+    // ignore.
+    int tier = ctx->envResTier;
+    int eyeW;
+    int eyeH;
+    if (tier == ENV_RES_ULTRA) {
+        eyeW = ROOM_ULTRA_EYE;
+        eyeH = ROOM_ULTRA_EYE;
+        if (ctx->maxEyeWidth > 0 && eyeW > ctx->maxEyeWidth) {
+            eyeW = ctx->maxEyeWidth;
+        }
+        if (ctx->maxEyeHeight > 0 && eyeH > ctx->maxEyeHeight) {
+            eyeH = ctx->maxEyeHeight;
+        }
     }
-    if (eyeW > maxEye) {
-        eyeW = maxEye;
-    }
-    if (eyeH > maxEye) {
-        eyeH = maxEye;
+    else {
+        int maxEye = tier == ENV_RES_LOW ? ROOM_MAX_EYE
+                   : tier == ENV_RES_HIGH ? ROOM_MAX_EYE_FULL
+                   : ROOM_MAX_EYE_STANDARD;
+        eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth : 1024;
+        eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight : 1024;
+        if (tier == ENV_RES_LOW) {
+            eyeW /= 2;
+            eyeH /= 2;
+        }
+        if (eyeW > maxEye) {
+            eyeW = maxEye;
+        }
+        if (eyeH > maxEye) {
+            eyeH = maxEye;
+        }
     }
 
     XrSwapchainCreateInfo info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
@@ -7410,7 +7442,11 @@ static int initRoom(XrCtx* ctx) {
     ctx->roomEyeHeight = eyeH;
     ctx->roomReady = 1;
     ctx->roomFailed = 0;
-    LOGEV("room ready at %dx%d per eye", eyeW, eyeH);
+    const char* tierName = tier == ENV_RES_LOW ? "low"
+                         : tier == ENV_RES_HIGH ? "high"
+                         : tier == ENV_RES_ULTRA ? "ultra"
+                         : "standard";
+    LOGEV("room ready at %dx%d per eye, env res %s", eyeW, eyeH, tierName);
     return 1;
 }
 

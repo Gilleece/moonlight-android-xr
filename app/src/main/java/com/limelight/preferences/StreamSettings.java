@@ -26,7 +26,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
-import android.widget.Toast;
 
 import com.limelight.BuildConfig;
 import com.limelight.FileLog;
@@ -340,21 +339,6 @@ public class StreamSettings extends Activity {
                     depthPref.setValue("model");
                 }
             }
-
-            // Clears a placement made with the controllers, so the distance and
-            // width sliders take over again next time the stream starts
-            findPreference("reset_vr_screen_pose").setOnPreferenceClickListener(
-                    new Preference.OnPreferenceClickListener() {
-                @Override
-                public boolean onPreferenceClick(Preference preference) {
-                    PreferenceManager.getDefaultSharedPreferences(getActivity()).edit()
-                            .remove(PreferenceConfiguration.VR_SCREEN_POSE_PREF_STRING)
-                            .apply();
-                    Toast.makeText(getActivity(), R.string.toast_vr_reset_pose,
-                            Toast.LENGTH_SHORT).show();
-                    return true;
-                }
-            });
 
             // Where the log actually is, which is the first thing anyone
             // sending one in has to be told

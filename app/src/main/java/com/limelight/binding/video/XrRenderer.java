@@ -416,11 +416,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     private static native void nativeSetFileLog(String path, int level);
+    // envResTier is the EnvResTier the room renders at: 0 low, 1 standard,
+    // 2 high, 3 ultra
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, boolean perfOverlay,
                                    boolean ambilight, int ambiLevel, boolean roomLight,
-                                   boolean gen1Headset);
+                                   int envResTier);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -474,7 +476,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
                         prefs.vrAmbilight, prefs.vrAmbilightLevel, prefs.vrRoomLight,
-                        PreferenceConfiguration.isXr2Gen1Headset());
+                        prefs.vrEnvResTier);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;

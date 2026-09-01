@@ -57,6 +57,7 @@ public class PreferenceConfiguration {
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     public static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
+    public static final String VR_ENV_RES_PREF_STRING = "list_vr_env_res";
     public static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
@@ -122,6 +123,9 @@ public class PreferenceConfiguration {
     private static final String GEN1_RESOLUTION = "2560x1440";
     private static final String GEN1_FPS = "72";
     private static final int GEN1_INFERENCE_CADENCE = 6;
+    // These headsets have neither the memory nor the fill rate for a full size
+    // room, so they start on the smallest tier
+    private static final String GEN1_ENV_RES = "low";
 
     private static final boolean DEFAULT_STRETCH = false;
     private static final boolean DEFAULT_SOPS = true;
@@ -149,6 +153,9 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
     private static final String DEFAULT_VR_DEPTH_SOURCE = "model";
+    // Standard everywhere, which caps the room at a size every headset here can
+    // hold. Gen 1 headsets are seeded onto low instead, see seedGen1PerfProfile.
+    private static final String DEFAULT_VR_ENV_RES = "standard";
     private static final String DEFAULT_VR_SHARPENING = "quality";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
@@ -197,6 +204,12 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_GAMEPAD_MOTION_SENSORS = true;
     private static final boolean DEFAULT_GAMEPAD_MOTION_FALLBACK = false;
 
+    // EnvResTier, matching the values in xr_renderer.c
+    public static final int VR_ENV_RES_LOW = 0;
+    public static final int VR_ENV_RES_STANDARD = 1;
+    public static final int VR_ENV_RES_HIGH = 2;
+    public static final int VR_ENV_RES_ULTRA = 3;
+
     public static final int FRAME_PACING_MIN_LATENCY = 0;
     public static final int FRAME_PACING_BALANCED = 1;
     public static final int FRAME_PACING_CAP_FPS = 2;
@@ -234,6 +247,9 @@ public class PreferenceConfiguration {
     public int vrCurvature;
     // 0 off, 1 flat, 2 ramp, 3 blob, 4 eye test, 5 shift test, 6 depth model
     public int vrDepthMode;
+    // How large the 3d room renders per eye, one of the tiers below. The
+    // renderer takes the same numbers.
+    public int vrEnvResTier;
     // 0 off, 1 normal, 2 quality
     public int vrSharpening;
     public boolean vrEyeSwap;
@@ -405,6 +421,17 @@ public class PreferenceConfiguration {
         }
 
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+
+        // The room size tier is newer than the marker, so it is seeded even on
+        // an install that already carries one, which would otherwise be moved
+        // off the small room it has been drawing all along. The key does not
+        // exist until it has been picked or seeded, so a choice already made
+        // is still left alone.
+        if (!prefs.contains(VR_ENV_RES_PREF_STRING)) {
+            prefs.edit().putString(VR_ENV_RES_PREF_STRING, GEN1_ENV_RES).apply();
+            FileLog.event("perf profile: XR2 Gen 1 headset, environment res " + GEN1_ENV_RES);
+        }
+
         if (prefs.contains(GEN1_PROFILE_PREF_STRING)) {
             return;
         }
@@ -794,6 +821,19 @@ public class PreferenceConfiguration {
         }
         else {
             config.vrDepthMode = 0;
+        }
+        String envRes = prefs.getString(VR_ENV_RES_PREF_STRING, DEFAULT_VR_ENV_RES);
+        if (envRes.equals("low")) {
+            config.vrEnvResTier = VR_ENV_RES_LOW;
+        }
+        else if (envRes.equals("high")) {
+            config.vrEnvResTier = VR_ENV_RES_HIGH;
+        }
+        else if (envRes.equals("ultra")) {
+            config.vrEnvResTier = VR_ENV_RES_ULTRA;
+        }
+        else {
+            config.vrEnvResTier = VR_ENV_RES_STANDARD;
         }
         String sharpening = prefs.getString(VR_SHARPENING_PREF_STRING, DEFAULT_VR_SHARPENING);
         if (sharpening.equals("off")) {
