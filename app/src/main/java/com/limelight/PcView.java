@@ -66,6 +66,12 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
     private ShortcutHelper shortcutHelper;
     private ComputerManagerService.ComputerManagerBinder managerBinder;
     private boolean freezeUpdates, runningPolling, inForeground, completeOnCreateCalled;
+
+    // Message of the pairing dialog while a pairing is still waiting on the
+    // host, so onStart() can put the same PIN back up. Written on the pairing
+    // thread and read on the UI thread.
+    private volatile String pairingDialogMessage;
+
     private final ServiceConnection serviceConnection = new ServiceConnection() {
         public void onServiceConnected(ComponentName className, IBinder binder) {
             final ComputerManagerService.ComputerManagerBinder localBinder =
@@ -328,6 +334,26 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+
+        // onStop() closes every dialog, and in a headset the activity stops a
+        // few seconds after the user looks away or takes it off to type the PIN
+        // on the PC. Put the pairing dialog back with the same PIN.
+        String message = pairingDialogMessage;
+        if (message != null) {
+            Dialog.displayDialog(this, getResources().getString(R.string.pair_pairing_title),
+                    message, false);
+
+            // Pairing can finish while we are showing it, in which case its own
+            // closeDialogs() has already been and gone
+            if (pairingDialogMessage == null) {
+                Dialog.closeDialogs();
+            }
+        }
+    }
+
+    @Override
     protected void onStop() {
         super.onStop();
 
@@ -433,10 +459,14 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                     else {
                         final String pinStr = PairingManager.generatePinString();
 
+                        // Kept for onStart() so the PIN survives the activity
+                        // stopping while the user is at the PC
+                        pairingDialogMessage = getResources().getString(R.string.pair_pairing_msg)+" "+pinStr+"\n\n"+
+                                getResources().getString(R.string.pair_pairing_help);
+
                         // Spin the dialog off in a thread because it blocks
                         Dialog.displayDialog(PcView.this, getResources().getString(R.string.pair_pairing_title),
-                                getResources().getString(R.string.pair_pairing_msg)+" "+pinStr+"\n\n"+
-                                getResources().getString(R.string.pair_pairing_help), false);
+                                pairingDialogMessage, false);
 
                         PairingManager pm = httpConn.getPairingManager();
 
@@ -481,6 +511,9 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                     message = e.getMessage();
                 }
 
+                // Cleared first so onStart() cannot put a dialog back up behind
+                // this close
+                pairingDialogMessage = null;
                 Dialog.closeDialogs();
 
                 final String toastMessage = message;
