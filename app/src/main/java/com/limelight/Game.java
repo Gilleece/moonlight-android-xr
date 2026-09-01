@@ -111,6 +111,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private static final int THREE_FINGER_TAP_THRESHOLD = 300;
 
+    // Held around a capital typed on the in world keyboard
+    private static final short VK_SHIFT = 0x10;
+
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
     private VirtualController virtualController;
@@ -2752,6 +2755,43 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             return;
         }
         conn.sendMouseHighResScroll((short)(clicks * 120));
+    }
+
+    /**
+     * A key pressed on the in world keyboard. The code is Unicode with the
+     * shift already applied, and the digits, the capitals and the four control
+     * codes happen to share their values with the Windows virtual keys, so
+     * those go as key events and everything else goes as text, which is what
+     * this app already does for characters it cannot map.
+     */
+    @Override
+    public void onVrKey(int code) {
+        if (!connected) {
+            return;
+        }
+
+        if (code == 8 || code == 9 || code == 13 || code == 32
+                || (code >= '0' && code <= '9')) {
+            sendVrKeyPress((short)code, (byte)0);
+        }
+        else if (code >= 'a' && code <= 'z') {
+            sendVrKeyPress((short)(code - 32), (byte)0);
+        }
+        else if (code >= 'A' && code <= 'Z') {
+            // Shift is held around the letter and named in the modifier as
+            // well, so hosts that read either one see the capital
+            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_DOWN, (byte)0, (byte)0);
+            sendVrKeyPress((short)code, KeyboardPacket.MODIFIER_SHIFT);
+            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_UP, (byte)0, (byte)0);
+        }
+        else {
+            conn.sendUtf8Text(String.valueOf((char)code));
+        }
+    }
+
+    private void sendVrKeyPress(short keyMap, byte modifier) {
+        conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, modifier, (byte)0);
+        conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, modifier, (byte)0);
     }
 
     @Override

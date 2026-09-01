@@ -239,7 +239,10 @@ static void xrLog(int prio, const char* fmt, ...) {
 // The cell just chosen in the environment grid, or -1
 #define IN_PICKER_PICK 18
 #define IN_SETTING_VALUE 19
-#define IN_SLOTS    20
+// The key the in world keyboard just typed, or -1. Unicode with the shift
+// already applied, plus the four control codes below 32.
+#define IN_KEY      20
+#define IN_SLOTS    21
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -404,6 +407,24 @@ static void xrLog(int prio, const char* fmt, ...) {
 // getting the picture properly level is most of what this row is for.
 #define COG_ROLL_SNAP 0.0873f
 
+// In world keyboard, for the login boxes and chat windows that turn up mid
+// stream. One sheet of art per state, drawn in Java like the other panels, and
+// the layout arrives with it: this side is handed rectangles and codes and
+// knows nothing else about what the keys say.
+#define KB_TEX_W 1120
+#define KB_TEX_H 448
+#define KB_WIDTH_FRAC 0.55f
+#define KB_MAX_KEYS 64
+#define KB_STATE_LOWER   0
+#define KB_STATE_UPPER   1
+#define KB_STATE_SYMBOLS 2
+#define KB_STATE_COUNT   3
+// Codes under zero change the keyboard instead of typing. Everything at or
+// above 8 is sent on as it stands.
+#define KB_CODE_SHIFT   -2
+#define KB_CODE_SYMBOLS -3
+#define KB_CODE_HIDE    -4
+
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
 // Nothing under the ray, but close enough to the screen to keep drawing it
@@ -411,6 +432,8 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define HOVER_LOCK      7
 #define HOVER_COGBUTTON 8
 #define HOVER_COGPANEL  9
+#define HOVER_KBBUTTON  10
+#define HOVER_KBPANEL   11
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 // How far the ray runs when it is aimed at nothing at all, in metres
@@ -464,6 +487,13 @@ typedef struct XrCompositionLayerSettingsFB {
     const void* XR_MAY_ALIAS next;
     XrCompositionLayerSettingsFlagsFB layerFlags;
 } XrCompositionLayerSettingsFB;
+#endif
+
+// Only the name, since this one is probed and reported rather than enabled.
+// A runtime keyboard would be worth having on the headsets that offer it, and
+// the log line is how we find out which those are.
+#ifndef XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME
+#define XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME "XR_META_virtual_keyboard"
 #endif
 
 // setprop this to any new value to dump one frame's worth of warp inputs and
@@ -690,6 +720,9 @@ typedef struct {
     int cylinderSupported;
     int equirectSupported;
     int layerSettingsSupported;
+    // Probed and logged only. Ours is drawn here, but knowing which runtimes
+    // offer one of their own is worth a line.
+    int virtualKeyboardSupported;
     // How many composition layers this runtime will take in one frame, asked
     // for rather than assumed, and whether a frame has already been caught
     // crowding it
@@ -930,6 +963,32 @@ typedef struct {
     // would drag the thumb out from under the ray mid drag.
     XrPosef cogPose;
     float cogW, cogH;
+    // The keyboard. One swapchain per state, all three filled at startup, so
+    // shift is a different handle in the layer rather than an upload.
+    XrSwapchain kbPanelSwapchains[KB_STATE_COUNT];
+    XrSwapchain kbButtonSwapchain;
+    uint32_t kbPanelImageCounts[KB_STATE_COUNT];
+    uint32_t kbButtonImageCount;
+    XrSwapchainImageOpenGLESKHR* kbPanelImages[KB_STATE_COUNT];
+    XrSwapchainImageOpenGLESKHR* kbButtonImages;
+    int kbPanelReady[KB_STATE_COUNT];
+    int kbButtonReady;
+    int kbOpen;
+    int kbButtonHot;
+    int kbState;
+    // The key under the ray, or -1, and whether it is being held down
+    int kbHoverKey;
+    int kbKeyDown;
+    // The layout, as it arrived from Java. Four fractions of the panel per key,
+    // left top right bottom, and a code per key per state.
+    int kbKeyCount;
+    float kbKeyRects[KB_MAX_KEYS * 4];
+    int kbCodes[KB_STATE_COUNT][KB_MAX_KEYS];
+    // Frozen when it opens, for the same reason the settings panel freezes
+    // its own: the screen can be moved while it is up
+    XrPosef kbPose;
+    float kbW, kbH;
+
     // Curvature the panel asked for, or -1 while the preference still owns it,
     // alongside the preference itself so both are readable away from the JNI
     // entry points that carry it
@@ -1412,6 +1471,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) ctx->handTracking = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME)) ctx->eyeGaze = 1;
         if (!strcmp(exts[i].extensionName, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)) ctx->layerSettingsSupported = 1;
+        if (!strcmp(exts[i].extensionName, XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME)) ctx->virtualKeyboardSupported = 1;
     }
     free(exts);
 
@@ -1514,6 +1574,8 @@ static int initXrInstance(XrCtx* ctx) {
     LOGEV("passthrough %s", ctx->alphaBlendSupported ? "available" : "not offered by this runtime");
     LOGEV("compositor sharpening %s", ctx->layerSettingsSupported
           ? "available (XR_FB_composition_layer_settings)" : "not offered by this runtime");
+    LOGEV("virtual keyboard extension %s", ctx->virtualKeyboardSupported
+          ? "available (XR_META_virtual_keyboard)" : "not offered by this runtime");
 
     // How many layers a frame may carry. The furniture, the panel and the glow
     // all come and go on their own, so the ceiling is worth knowing rather than
@@ -2971,8 +3033,46 @@ static int createPointerSwapchain(XrCtx* ctx) {
         ctx->cogThumbSwapchain = XR_NULL_HANDLE;
     }
 
+    info.width = KB_TEX_W;
+    info.height = KB_TEX_H;
+    for (int state = 0; state < KB_STATE_COUNT; state++) {
+        if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->kbPanelSwapchains[state]),
+                    "create keyboard swapchain")) {
+            xrEnumerateSwapchainImages(ctx->kbPanelSwapchains[state], 0,
+                                       &ctx->kbPanelImageCounts[state], NULL);
+            ctx->kbPanelImages[state] = calloc(ctx->kbPanelImageCounts[state],
+                                               sizeof(XrSwapchainImageOpenGLESKHR));
+            for (uint32_t i = 0; i < ctx->kbPanelImageCounts[state]; i++) {
+                ctx->kbPanelImages[state][i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+            }
+            xrEnumerateSwapchainImages(ctx->kbPanelSwapchains[state],
+                                       ctx->kbPanelImageCounts[state],
+                                       &ctx->kbPanelImageCounts[state],
+                                       (XrSwapchainImageBaseHeader*)ctx->kbPanelImages[state]);
+        }
+        else {
+            ctx->kbPanelSwapchains[state] = XR_NULL_HANDLE;
+        }
+    }
+
     info.width = OUTLINE_TEX;
     info.height = OUTLINE_TEX;
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->kbButtonSwapchain),
+                "create keyboard button swapchain")) {
+        xrEnumerateSwapchainImages(ctx->kbButtonSwapchain, 0, &ctx->kbButtonImageCount, NULL);
+        ctx->kbButtonImages = calloc(ctx->kbButtonImageCount,
+                                     sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->kbButtonImageCount; i++) {
+            ctx->kbButtonImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->kbButtonSwapchain, ctx->kbButtonImageCount,
+                                   &ctx->kbButtonImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->kbButtonImages);
+    }
+    else {
+        ctx->kbButtonSwapchain = XR_NULL_HANDLE;
+    }
+
     if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cogButtonSwapchain),
                 "create cog button swapchain")) {
         xrEnumerateSwapchainImages(ctx->cogButtonSwapchain, 0, &ctx->cogButtonImageCount, NULL);
@@ -3672,6 +3772,70 @@ static XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     return pose;
 }
 
+// The keyboard button is the same button again, one place further out along
+// the bar than the cog
+static void kbButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float side = ctx->screenWidth * COG_BUTTON_FRAC;
+    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
+    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
+    float gap = ctx->screenWidth * ENV_GAP_FRAC;
+    outLocal->x = barW * 0.5f + gap + side * 1.5f + gap;
+    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+static int kbButtonHit(XrCtx* ctx, float u, float v, float height) {
+    Vec3 local;
+    float side;
+    kbButtonPlacement(ctx, height, &local, &side);
+
+    float cu = 0.5f + local.x / ctx->screenWidth;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
+// The keyboard hangs under the screen, centred on it, in the band the move bar
+// lives in. Wider than the settings panel and squarer, so it wants the middle
+// rather than a corner. Frozen while it is open, like the settings panel: the
+// screen stays draggable behind it and the keys must not move under the ray.
+static XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = ctx->screenWidth * KB_WIDTH_FRAC;
+    float height = width * (float)KB_TEX_H / (float)KB_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    Vec3 local;
+    local.x = 0.0f;
+    // Top edge the same distance under the picture that the bar sits at
+    local.y = -(screenHeight * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + height * 0.5f);
+    local.z = 0.05f;
+
+    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
+    XrPosef pose = ctx->screenPose;
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// Which key a point on the panel is inside, or -1. The rectangles are the
+// whole of what this side knows about the layout, so a row of them is all
+// there is to search.
+static int kbKeyAt(XrCtx* ctx, float u, float v) {
+    int found = -1;
+    for (int i = 0; i < ctx->kbKeyCount; i++) {
+        const float* r = &ctx->kbKeyRects[i * 4];
+        if (u >= r[0] && u <= r[2] && v >= r[1] && v <= r[3]) {
+            found = i;
+        }
+    }
+    return found;
+}
+
 // How many rows a tab has, whatever kind they are
 static int cogTabRowCount(int tab) {
     if (tab == COG_TAB_SCREEN) {
@@ -3967,6 +4131,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     if (hover == HOVER_COGPANEL) {
         return screenPoint(u, v, ctx->cogPose, ctx->cogW, ctx->cogH, 0.0f, 0);
     }
+    if (hover == HOVER_KBPANEL) {
+        return screenPoint(u, v, ctx->kbPose, ctx->kbW, ctx->kbH, 0.0f, 0);
+    }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
 
@@ -4061,6 +4228,16 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->cogThumbSwapchain);
     }
     free(ctx->cogThumbImages);
+    for (int state = 0; state < KB_STATE_COUNT; state++) {
+        if (ctx->kbPanelSwapchains[state] != XR_NULL_HANDLE) {
+            xrDestroySwapchain(ctx->kbPanelSwapchains[state]);
+        }
+        free(ctx->kbPanelImages[state]);
+    }
+    if (ctx->kbButtonSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->kbButtonSwapchain);
+    }
+    free(ctx->kbButtonImages);
     if (ctx->lockSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->lockSwapchain);
     }
@@ -4149,6 +4326,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->cogDragSlider = -1;
     ctx->cogDragHand = -1;
     ctx->cogHoverSlider = -1;
+    // No key under the ray, and zero is a real key
+    ctx->kbHoverKey = -1;
     ctx->pointerMinCutoff = POINTER_MIN_CUTOFF;
     ctx->pointerBeta = POINTER_BETA;
     ctx->aimMinCutoff = AIM_MIN_CUTOFF;
@@ -4601,6 +4780,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // one, so the early returns carry it out too.
     out[IN_PICKER_PICK] = -1.0f;
     out[IN_SETTING] = -1.0f;
+    // Backspace is 8, so a zeroed slot would type one every frame
+    out[IN_KEY] = -1.0f;
 
     // Anything held has to come back up when pointing stops, or the host is
     // left with a stuck button
@@ -4736,8 +4917,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             aimPoses[h] = loc.pose;
         }
         aimValid[h] = 1;
-        if (screenProject(aimPoses[h], screenPose, ctx->screenWidth, height, radius, curved,
-                          &hitU[h], &hitV[h])) {
+        // The keyboard is not modal, but it does own the ground it covers: it
+        // hangs in front of the bar, so a ray that lands on it must not reach
+        // the picture or the furniture behind.
+        float kbU, kbV;
+        int onKeyboard = ctx->kbOpen
+                && screenProject(aimPoses[h], ctx->kbPose, ctx->kbW, ctx->kbH, 0.0f, 0,
+                                 &kbU, &kbV)
+                && kbU >= 0.0f && kbU <= 1.0f && kbV >= 0.0f && kbV <= 1.0f;
+        if (onKeyboard) {
+            hovers[h] = HOVER_KBPANEL;
+            hitU[h] = kbU;
+            hitV[h] = kbV;
+        }
+        else if (screenProject(aimPoses[h], screenPose, ctx->screenWidth, height, radius, curved,
+                               &hitU[h], &hitV[h])) {
             hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, &corners[h]);
             // The button reaches past the left end of the bar's zone, so it is
             // tested here rather than after a hand has been picked. Otherwise
@@ -4751,6 +4945,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR)
                     && cogButtonHit(ctx, hitU[h], hitV[h], height)) {
                 hovers[h] = HOVER_COGBUTTON;
+            }
+            // And the keyboard is one further out again, far enough out that
+            // it sits past the right end of the bar's zone entirely. That is
+            // halo ground, so like the padlock on the left it has to claim the
+            // halo back or the ray never reaches it.
+            if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR
+                    || hovers[h] == HOVER_HALO)
+                    && kbButtonHit(ctx, hitU[h], hitV[h], height)) {
+                hovers[h] = HOVER_KBBUTTON;
             }
             // Off the left edge, so the halo owns that ground until the
             // padlock claims it back
@@ -4926,6 +5129,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     ctx->cogHoverCell = -1;
     ctx->lockHot = 0;
     ctx->pickerPick = -1;
+    ctx->kbButtonHot = 0;
+    ctx->kbHoverKey = -1;
+    ctx->kbKeyDown = 0;
     if (ctx->pickerOpen) {
         hover = HOVER_PICKER;
         // Anything the hands were pointing at before belongs to the screen,
@@ -5151,6 +5357,50 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
         }
     }
+    else if (hover == HOVER_KBBUTTON) {
+        ctx->kbButtonHot = 1;
+        if (ctx->triggerEdge[hand]) {
+            ctx->kbOpen = !ctx->kbOpen;
+            if (ctx->kbOpen) {
+                // Always comes up in lowercase, so the first key is where the
+                // eye expects it however it was left last time
+                ctx->kbState = KB_STATE_LOWER;
+                ctx->kbPose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
+            }
+            LOGI("keyboard %s", ctx->kbOpen ? "open" : "closed");
+        }
+    }
+    else if (hover == HOVER_KBPANEL) {
+        int key = kbKeyAt(ctx, hitU[hand], hitV[hand]);
+        ctx->kbHoverKey = key;
+        ctx->kbKeyDown = key >= 0 && ctx->triggerDown[hand];
+        if (key >= 0 && ctx->triggerEdge[hand]) {
+            int code = ctx->kbCodes[ctx->kbState][key];
+            if (code == KB_CODE_SHIFT) {
+                // Shift off the symbols page goes to the capitals rather than
+                // back where it came from
+                ctx->kbState = ctx->kbState == KB_STATE_UPPER
+                        ? KB_STATE_LOWER : KB_STATE_UPPER;
+            }
+            else if (code == KB_CODE_SYMBOLS) {
+                ctx->kbState = ctx->kbState == KB_STATE_SYMBOLS
+                        ? KB_STATE_LOWER : KB_STATE_SYMBOLS;
+            }
+            else if (code == KB_CODE_HIDE) {
+                ctx->kbOpen = 0;
+                LOGI("keyboard closed");
+            }
+            else if (code > 0) {
+                // One key a frame, which is as fast as anyone presses them
+                out[IN_KEY] = (float)code;
+                // Shift is one shot over the letters, the way a phone keyboard
+                // behaves, and sticky over the punctuation row above them
+                if (ctx->kbState == KB_STATE_UPPER && code >= 'A' && code <= 'Z') {
+                    ctx->kbState = KB_STATE_LOWER;
+                }
+            }
+        }
+    }
     else if (hover == HOVER_LOCK) {
         ctx->lockHot = 1;
         if (ctx->triggerEdge[hand] && ctx->lockArmed[hand]) {
@@ -5169,6 +5419,27 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                     ctx->grabMode = GRAB_NONE;
                     ctx->poseDirty = 1;
                 }
+            }
+        }
+    }
+
+    // A press that lands on nothing at all puts the keyboard away, the same way
+    // one off the grid or the settings panel closes those. Only empty ground
+    // counts: a press on the picture is a mouse click and stays one, and the
+    // furniture and the keys themselves keep their own meanings. Every source
+    // is checked rather than the one doing the pointing, so a second hand can
+    // dismiss it while the first is still on the screen.
+    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen) {
+        for (int h = 0; h < SRC_COUNT; h++) {
+            if (!aimValid[h] || !ctx->pointerAwake || !ctx->triggerEdge[h]) {
+                continue;
+            }
+            // The halo is the invisible fringe around the picture, so it reads
+            // as empty space too
+            if (hovers[h] == HOVER_NONE || hovers[h] == HOVER_HALO) {
+                ctx->kbOpen = 0;
+                LOGI("keyboard closed");
+                break;
             }
         }
     }
@@ -5272,7 +5543,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     int hit = (hover == HOVER_SCREEN || hover == HOVER_CORNER) && hand != SRC_GAZE;
     if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
             || hover == HOVER_LOCK || hover == HOVER_HALO || hover == HOVER_COGBUTTON
-            || hover == HOVER_COGPANEL) && headValid && hand >= 0) {
+            || hover == HOVER_COGPANEL || hover == HOVER_KBBUTTON
+            || hover == HOVER_KBPANEL) && headValid && hand >= 0) {
         Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
                                   height, radius, curved);
         ctx->beamStart = aimPoses[hand].position;
@@ -5957,6 +6229,71 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject
          ctx->cogButtonReady ? "ready" : "missing");
 }
 
+// The keyboard: a sheet of art per state, the button that opens it, and the
+// layout itself. Drawing and layout both live in Java so they cannot disagree,
+// and this side keeps only the rectangles and the codes behind them.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboard(JNIEnv* env, jobject thiz,
+                                                                  jlong handle, jobject lower,
+                                                                  jobject upper, jobject symbols,
+                                                                  jobject buttonIcon,
+                                                                  jfloatArray keyRects,
+                                                                  jintArray codesLower,
+                                                                  jintArray codesUpper,
+                                                                  jintArray codesSymbols) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+
+    jobject sheets[KB_STATE_COUNT] = { lower, upper, symbols };
+    for (int state = 0; state < KB_STATE_COUNT; state++) {
+        if (sheets[state] == NULL) {
+            continue;
+        }
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, sheets[state]);
+        if (px != NULL) {
+            ctx->kbPanelReady[state] = uploadFlipped(ctx, ctx->kbPanelSwapchains[state],
+                                                     ctx->kbPanelImages[state], px,
+                                                     KB_TEX_W, KB_TEX_H);
+        }
+    }
+    if (buttonIcon != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, buttonIcon);
+        if (px != NULL) {
+            ctx->kbButtonReady = uploadFlipped(ctx, ctx->kbButtonSwapchain,
+                                               ctx->kbButtonImages, px,
+                                               OUTLINE_TEX, OUTLINE_TEX);
+        }
+    }
+
+    jintArray tables[KB_STATE_COUNT] = { codesLower, codesUpper, codesSymbols };
+    if (keyRects != NULL && codesLower != NULL && codesUpper != NULL && codesSymbols != NULL) {
+        int count = (*env)->GetArrayLength(env, keyRects) / 4;
+        for (int state = 0; state < KB_STATE_COUNT; state++) {
+            int codes = (*env)->GetArrayLength(env, tables[state]);
+            if (codes < count) {
+                count = codes;
+            }
+        }
+        if (count > KB_MAX_KEYS) {
+            LOGW("keyboard layout has %d keys, keeping the first %d", count, KB_MAX_KEYS);
+            count = KB_MAX_KEYS;
+        }
+        (*env)->GetFloatArrayRegion(env, keyRects, 0, count * 4, ctx->kbKeyRects);
+        for (int state = 0; state < KB_STATE_COUNT; state++) {
+            (*env)->GetIntArrayRegion(env, tables[state], 0, count, ctx->kbCodes[state]);
+        }
+        ctx->kbKeyCount = count;
+    }
+
+    LOGI("keyboard art %s, %s and %s, button %s, %d keys",
+         ctx->kbPanelReady[KB_STATE_LOWER] ? "ready" : "missing",
+         ctx->kbPanelReady[KB_STATE_UPPER] ? "ready" : "missing",
+         ctx->kbPanelReady[KB_STATE_SYMBOLS] ? "ready" : "missing",
+         ctx->kbButtonReady ? "ready" : "missing", ctx->kbKeyCount);
+}
+
 // Whether curved screens are available at all, which is what says if the panel
 // should draw its curve row live or greyed out
 JNIEXPORT jboolean JNICALL
@@ -6274,6 +6611,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerQuad outlineLayers[2];
     XrCompositionLayerQuad cogButtonLayer;
     XrCompositionLayerQuad cogPanelLayer;
+    XrCompositionLayerQuad kbButtonLayer;
+    XrCompositionLayerQuad kbPanelLayer;
+    XrCompositionLayerQuad kbMarkLayer;
     XrCompositionLayerQuad cogThumbLayers[COG_SLIDER_COUNT];
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMarkLayers[COG_OPTION_COUNT + 1];
@@ -6282,8 +6622,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
     // is 15. The panel is modal, and since the frame a modal opens now sheds
     // the bar furniture too, the two can no longer land in one frame together.
-    // Sized well past that anyway: an overflow here is a smashed stack, and the
-    // margin costs five pointers.
+    // The keyboard sheds the same furniture and adds only its panel and one
+    // ring, so it comes to 9. Sized well past that anyway: an overflow here is
+    // a smashed stack, and the margin costs five pointers.
     const XrCompositionLayerBaseHeader* layers[20];
     uint32_t layerCount = 0;
 
@@ -6465,9 +6806,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         // button that was pressed, so the furniture and the panel would both go
         // up for one frame, and that stack overflowed the runtime's layer limit
         // and cost the whole frame with a -24 on device.
-        int barArea = !ctx->pickerOpen && !ctx->cogOpen
+        int barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
                 && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
-                    || ctx->hoverKind == HOVER_COGBUTTON);
+                    || ctx->hoverKind == HOVER_COGBUTTON
+                    || ctx->hoverKind == HOVER_KBBUTTON);
 
         // Move bar and resize corner, shown only while the ray is over them.
         // Both live in the screen's own frame, so they travel with it.
@@ -6580,6 +6922,36 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             cogButtonLayer.size.width = side * cogScale;
             cogButtonLayer.size.height = side * cogScale;
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&cogButtonLayer;
+        }
+
+        // The keyboard button, one place further out. Unlike the cog it goes
+        // away while its panel is up, since the panel covers the bar anyway and
+        // the hide key is what puts it away.
+        if (ctx->kbButtonReady && barArea) {
+            Vec3 local;
+            float side;
+            kbButtonPlacement(ctx, screenHeight, &local, &side);
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&kbButtonLayer, 0, sizeof(kbButtonLayer));
+            kbButtonLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            kbButtonLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            kbButtonLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            kbButtonLayer.subImage.swapchain = ctx->kbButtonSwapchain;
+            kbButtonLayer.subImage.imageRect.offset.x = 0;
+            kbButtonLayer.subImage.imageRect.offset.y = 0;
+            kbButtonLayer.subImage.imageRect.extent.width = OUTLINE_TEX;
+            kbButtonLayer.subImage.imageRect.extent.height = OUTLINE_TEX;
+            kbButtonLayer.subImage.imageArrayIndex = 0;
+            kbButtonLayer.space = space;
+            kbButtonLayer.pose.orientation = screenPose.orientation;
+            kbButtonLayer.pose.position.x = screenPose.position.x + offset.x;
+            kbButtonLayer.pose.position.y = screenPose.position.y + offset.y;
+            kbButtonLayer.pose.position.z = screenPose.position.z + offset.z;
+            float kbScale = ctx->kbButtonHot ? 1.18f : 1.0f;
+            kbButtonLayer.size.width = side * kbScale;
+            kbButtonLayer.size.height = side * kbScale;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&kbButtonLayer;
         }
 
         // The padlock. Comes and goes like the rest of the furniture rather
@@ -6794,6 +7166,62 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                     thumb->size.height = thumbSize * grow;
                     layers[layerCount++] = (const XrCompositionLayerBaseHeader*)thumb;
                 }
+            }
+        }
+
+        // The keyboard, at the pose it was opened with, with the key under the
+        // ray ringed. Sharpened, since it is all text. It stands down while a
+        // modal is up rather than stacking under one: the two together would
+        // crowd the runtime's layer ceiling, and the modal has the ray anyway.
+        if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen
+                && ctx->kbPanelReady[ctx->kbState]) {
+            memset(&kbPanelLayer, 0, sizeof(kbPanelLayer));
+            kbPanelLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            kbPanelLayer.next = sharpenChain;
+            kbPanelLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            kbPanelLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            kbPanelLayer.subImage.swapchain = ctx->kbPanelSwapchains[ctx->kbState];
+            kbPanelLayer.subImage.imageRect.offset.x = 0;
+            kbPanelLayer.subImage.imageRect.offset.y = 0;
+            kbPanelLayer.subImage.imageRect.extent.width = KB_TEX_W;
+            kbPanelLayer.subImage.imageRect.extent.height = KB_TEX_H;
+            kbPanelLayer.subImage.imageArrayIndex = 0;
+            kbPanelLayer.space = space;
+            kbPanelLayer.pose = ctx->kbPose;
+            kbPanelLayer.size.width = ctx->kbW;
+            kbPanelLayer.size.height = ctx->kbH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&kbPanelLayer;
+
+            if (ctx->outlineReady && ctx->kbHoverKey >= 0
+                    && ctx->kbHoverKey < ctx->kbKeyCount) {
+                const float* r = &ctx->kbKeyRects[ctx->kbHoverKey * 4];
+                Vec3 local;
+                local.x = ((r[0] + r[2]) * 0.5f - 0.5f) * ctx->kbW;
+                local.y = (0.5f - (r[1] + r[3]) * 0.5f) * ctx->kbH;
+                local.z = 0.004f;
+                Vec3 offset = quatRotate(ctx->kbPose.orientation, local);
+
+                memset(&kbMarkLayer, 0, sizeof(kbMarkLayer));
+                kbMarkLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+                kbMarkLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+                kbMarkLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+                kbMarkLayer.subImage.swapchain = ctx->outlineSwapchain;
+                kbMarkLayer.subImage.imageRect.offset.x = 0;
+                kbMarkLayer.subImage.imageRect.offset.y = 0;
+                kbMarkLayer.subImage.imageRect.extent.width = OUTLINE_TEX;
+                kbMarkLayer.subImage.imageRect.extent.height = OUTLINE_TEX;
+                kbMarkLayer.subImage.imageArrayIndex = 0;
+                kbMarkLayer.space = space;
+                kbMarkLayer.pose.orientation = ctx->kbPose.orientation;
+                kbMarkLayer.pose.position.x = ctx->kbPose.position.x + offset.x;
+                kbMarkLayer.pose.position.y = ctx->kbPose.position.y + offset.y;
+                kbMarkLayer.pose.position.z = ctx->kbPose.position.z + offset.z;
+                // Swells while the trigger is held, which is the only press
+                // feedback a quad layer can give
+                float grow = ctx->kbKeyDown ? 1.12f : 1.0f;
+                kbMarkLayer.size.width = (r[2] - r[0]) * ctx->kbW * grow;
+                kbMarkLayer.size.height = (r[3] - r[1]) * ctx->kbH * grow;
+                layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&kbMarkLayer;
             }
         }
 
