@@ -27,6 +27,7 @@ import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.UiHelper;
+import com.limelight.utils.WarningDialog;
 
 import android.app.Activity;
 import android.app.ActivityManager;
@@ -132,6 +133,14 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
 
         // Set default preferences if we've never been run
         PreferenceManager.setDefaultValues(this, R.xml.preferences, false);
+
+        // Say what the Gen 1 profile did, every launch until it is waved off
+        if (PreferenceConfiguration.isXr2Gen1Headset() &&
+                PreferenceManager.getDefaultSharedPreferences(this)
+                        .getBoolean(PreferenceConfiguration.GEN1_PROFILE_PREF_STRING, false)) {
+            WarningDialog.showIfNeeded(this, "gen1_perf_profile",
+                    getString(R.string.gen1_warning_title), getString(R.string.gen1_warning_text));
+        }
 
         // Set the correct layout for the PC grid
         pcGridAdapter.updateLayoutWithPreferences(this, PreferenceConfiguration.readPreferences(this));

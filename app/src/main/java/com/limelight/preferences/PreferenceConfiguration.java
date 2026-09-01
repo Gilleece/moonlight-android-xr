@@ -7,6 +7,7 @@ import android.os.Build;
 import android.preference.PreferenceManager;
 import android.view.Display;
 
+import com.limelight.FileLog;
 import com.limelight.nvstream.jni.MoonBridge;
 
 public class PreferenceConfiguration {
@@ -66,6 +67,8 @@ public class PreferenceConfiguration {
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on
     public static final String VR_ENVIRONMENT_PREF_STRING = "vr_environment";
+    // Nor is this: a marker that the Gen 1 profile decision has been made
+    public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
     public static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
@@ -99,6 +102,14 @@ public class PreferenceConfiguration {
     // wants it.
     static final String DEFAULT_RESOLUTION = "2560x1440";
     static final String DEFAULT_FPS = "90";
+
+    // What a Gen 1 headset starts on. The depth model is most of the cost of a
+    // 3D frame, so the cadence is the big lever here, and 72 is what these
+    // panels run at natively anyway.
+    private static final String GEN1_RESOLUTION = "2560x1440";
+    private static final String GEN1_FPS = "72";
+    private static final int GEN1_INFERENCE_CADENCE = 6;
+
     private static final boolean DEFAULT_STRETCH = false;
     private static final boolean DEFAULT_SOPS = true;
     private static final boolean DEFAULT_DISABLE_TOASTS = false;
@@ -345,6 +356,69 @@ public class PreferenceConfiguration {
             case 2160:
                 return RES_4K;
         }
+    }
+
+    // Quest 2, Quest Pro and Pico 4 are the XR2 Gen 1 headsets and have a lot
+    // less GPU headroom than the Gen 2 devices this was tuned on, so a full
+    // rate 3D stream is too much for them.
+    public static boolean isXr2Gen1Headset() {
+        String model = Build.MODEL != null ? Build.MODEL : "";
+
+        // Meta puts the marketing name in the model, but the board name is the
+        // more stable of the two, so check both.
+        if (model.equalsIgnoreCase("Quest 2") || model.equalsIgnoreCase("Quest Pro") ||
+                "hollywood".equalsIgnoreCase(Build.DEVICE) || "seacliff".equalsIgnoreCase(Build.DEVICE)) {
+            return true;
+        }
+
+        // Pico ships a model number rather than a name. The 4 and the 4
+        // Enterprise are A81xx, the later headsets are not.
+        boolean isPico = "pico".equalsIgnoreCase(Build.MANUFACTURER) || "pico".equalsIgnoreCase(Build.BRAND);
+        return isPico && model.regionMatches(true, 0, "A81", 0, 3);
+    }
+
+    // A Gen 1 headset gets a gentler starting point, written before the xml
+    // defaults are applied so it only lands on a fresh install. Whether the
+    // key exists says the decision was made, its value says the profile was
+    // actually applied rather than an existing install being left alone.
+    public static void seedGen1PerfProfile(Context context) {
+        if (!isXr2Gen1Headset()) {
+            return;
+        }
+
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        if (prefs.contains(GEN1_PROFILE_PREF_STRING)) {
+            return;
+        }
+
+        // The legacy key carries both res and fps, so an install that still
+        // has it counts as having chosen them
+        boolean seedResFps = !prefs.contains(LEGACY_RES_FPS_PREF_STRING);
+        boolean seedResolution = seedResFps && !prefs.contains(RESOLUTION_PREF_STRING);
+        boolean seedFps = seedResFps && !prefs.contains(FPS_PREF_STRING);
+        boolean seedCadence = !prefs.contains(VR_INFERENCE_CADENCE_PREF_STRING);
+        boolean appliedAny = seedResolution || seedFps || seedCadence;
+
+        SharedPreferences.Editor editor = prefs.edit();
+        StringBuilder applied = new StringBuilder();
+        if (seedResolution) {
+            editor.putString(RESOLUTION_PREF_STRING, GEN1_RESOLUTION);
+            applied.append(GEN1_RESOLUTION);
+        }
+        if (seedFps) {
+            editor.putString(FPS_PREF_STRING, GEN1_FPS);
+            applied.append(applied.length() > 0 ? " " : "").append(GEN1_FPS).append(" fps");
+        }
+        if (seedCadence) {
+            editor.putInt(VR_INFERENCE_CADENCE_PREF_STRING, GEN1_INFERENCE_CADENCE);
+            applied.append(applied.length() > 0 ? " " : "").append("cadence ").append(GEN1_INFERENCE_CADENCE);
+        }
+        editor.putBoolean(GEN1_PROFILE_PREF_STRING, appliedAny);
+        editor.apply();
+
+        FileLog.event("perf profile: XR2 Gen 1 headset (" + Build.MANUFACTURER + " " + Build.MODEL
+                + "/" + Build.DEVICE + "), "
+                + (appliedAny ? "applied " + applied : "existing settings left alone"));
     }
 
     public static int getDefaultBitrate(String resString, String fpsString) {

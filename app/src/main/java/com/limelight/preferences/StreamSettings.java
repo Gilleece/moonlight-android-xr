@@ -615,6 +615,16 @@ public class StreamSettings extends Activity {
                         }
                     });
                 }
+                if (maxSupportedFps < 70) {
+                    removeValue(PreferenceConfiguration.FPS_PREF_STRING, "72", new Runnable() {
+                        @Override
+                        public void run() {
+                            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(SettingsFragment.this.getActivity());
+                            setValue(PreferenceConfiguration.FPS_PREF_STRING, "60");
+                            resetBitrateToDefault(prefs, null, null);
+                        }
+                    });
+                }
                 // Never remove 30 FPS or 60 FPS
             }
             addNativeFrameRateEntry(maxSupportedFps);

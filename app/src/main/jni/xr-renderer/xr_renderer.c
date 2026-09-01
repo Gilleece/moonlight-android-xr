@@ -1520,9 +1520,13 @@ static int initXrInstance(XrCtx* ctx) {
     // guessing at. A runtime that will not say gets the spec's minimum.
     ctx->maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
     XrSystemProperties layerProps = { XR_TYPE_SYSTEM_PROPERTIES };
-    if (!XR_FAILED(xrGetSystemProperties(ctx->instance, ctx->systemId, &layerProps))
-            && layerProps.graphicsProperties.maxLayerCount > 0) {
-        ctx->maxLayerCount = (int)layerProps.graphicsProperties.maxLayerCount;
+    if (!XR_FAILED(xrGetSystemProperties(ctx->instance, ctx->systemId, &layerProps))) {
+        if (layerProps.graphicsProperties.maxLayerCount > 0) {
+            ctx->maxLayerCount = (int)layerProps.graphicsProperties.maxLayerCount;
+        }
+        // Worth having in a user's log, it is the one place an unknown headset
+        // names itself
+        LOGEV("system %s (vendor 0x%x)", layerProps.systemName, layerProps.vendorId);
     }
 
     // Offering the extension is not the same as having the hardware, so the
