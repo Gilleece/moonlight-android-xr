@@ -49,6 +49,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int FRAME_IDLE = 0;
     private static final int FRAME_RENDER = 1;
 
+    private static final int DEPTH_MODE_OFF = 0;
     private static final int DEPTH_MODE_MODEL = 6;
 
     // Averaged over this many inferences before hitting logcat
@@ -125,6 +126,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Ids the panel reports, matching the SETTING_ constants in xr_renderer.c
     private static final int SETTING_SHARPEN = 0;
     private static final int SETTING_STATS = 1;
+    private static final int SETTING_SEPARATION = 2;
+    private static final int SETTING_CONVERGENCE = 3;
+    private static final int SETTING_RESET_3D = 4;
     // Position, orientation, width, cylinder radius, then the curvature the
     // settings panel asked for
     private static final int POSE_VALUES = 10;
@@ -168,31 +172,46 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final float COG_TRACK_L = 0.42f;
     private static final float COG_TRACK_R = 0.93f;
     private static final float COG_TAB_BAR_B = 0.16f;
-    private static final float COG_ROW_V0 = 0.27f;
-    private static final float COG_ROW_STEP = 0.125f;
+    // Six rows on the screen tab, so they start a little higher and sit closer
+    // together than they did at five
+    private static final float COG_ROW_V0 = 0.25f;
+    private static final float COG_ROW_STEP = 0.11f;
     private static final float COG_CELL_HALF = 0.045f;
     private static final float COG_RESET_L = 0.35f;
     private static final float COG_RESET_R = 0.65f;
-    private static final float COG_RESET_T = 0.86f;
+    // Clear of the last row, which reaches 0.80 plus the half band
+    private static final float COG_RESET_T = 0.87f;
     private static final float COG_RESET_B = 0.97f;
-    // Two tabs, a texture each, both uploaded once so switching is free
+    // Three tabs, a texture each, all uploaded once so switching is free
     private static final int COG_TAB_SCREEN = 0;
     private static final int COG_TAB_DISPLAY = 1;
-    private static final String[] COG_TABS = { "Screen", "Display" };
+    private static final int COG_TAB_3D = 2;
+    private static final String[] COG_TABS = { "Screen", "Display", "3D" };
     private static final String[] COG_SLIDER_ROWS =
-            { "Distance", "Height", "Tilt", "Curve", "Size" };
-    private static final int COG_ROW_CURVE = 3;
+            { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size" };
+    private static final int COG_ROW_TILT = 2;
+    private static final int COG_ROW_ROTATE = 3;
+    private static final int COG_ROW_CURVE = 4;
     // Display tab: a label and a row of cells, one of which is in force
     private static final String[] COG_OPTION_ROWS = { "Sharpen", "Stats" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
             { "Off", "On" }
     };
+    // 3D tab: two sliders, drawn the same way the screen tab's are. Only
+    // values that take effect the moment they move belong on the panel, which
+    // is why the depth source itself stays in the 2d settings.
+    private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
+    // Where the measured comfort cap, which is also the shipped default, falls
+    // along the separation track. Must match COG_SEP_MAX and COG_SEP_STEPS in
+    // xr_renderer.c.
+    private static final float COG_SEP_CAP_T = 5.0f / 15.0f;
 
     private final AtomicReference<ByteBuffer> pendingPickerArt = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingEnvButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogScreenTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogDisplayTab = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingCog3dTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
@@ -245,7 +264,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
     private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
-                                        ByteBuffer button);
+                                        ByteBuffer tab3d, ByteBuffer button);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeSetEnvironment(long ctx, int choice, boolean backgroundOn);
@@ -539,9 +558,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
             ByteBuffer screenTab = pendingCogScreenTab.getAndSet(null);
             ByteBuffer displayTab = pendingCogDisplayTab.getAndSet(null);
+            ByteBuffer tab3d = pendingCog3dTab.getAndSet(null);
             ByteBuffer cog = pendingCogButton.getAndSet(null);
-            if (screenTab != null || displayTab != null || cog != null) {
-                nativeUploadCog(nativeCtx, screenTab, displayTab, cog);
+            if (screenTab != null || displayTab != null || tab3d != null || cog != null) {
+                nativeUploadCog(nativeCtx, screenTab, displayTab, tab3d, cog);
             }
 
             ByteBuffer shut = pendingLockShut.getAndSet(null);
@@ -856,14 +876,20 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // Curvature needs a layer type the runtime may not offer, and a slider
         // that cannot do anything is better shown greyed than hidden
         boolean curveOk = nativeCtx != 0 && nativeGetCylinderSupported(nativeCtx);
+        // Same for the 3D rows with stereo turned off in settings
+        boolean stereoOk = prefConfig != null && prefConfig.vrDepthMode != DEPTH_MODE_OFF;
 
-        Bitmap screenTab = buildCogTab(COG_TAB_SCREEN, curveOk);
+        Bitmap screenTab = buildCogTab(COG_TAB_SCREEN, curveOk, stereoOk);
         pendingCogScreenTab.set(toBuffer(screenTab));
         screenTab.recycle();
 
-        Bitmap displayTab = buildCogTab(COG_TAB_DISPLAY, curveOk);
+        Bitmap displayTab = buildCogTab(COG_TAB_DISPLAY, curveOk, stereoOk);
         pendingCogDisplayTab.set(toBuffer(displayTab));
         displayTab.recycle();
+
+        Bitmap tab3d = buildCogTab(COG_TAB_3D, curveOk, stereoOk);
+        pendingCog3dTab.set(toBuffer(tab3d));
+        tab3d.recycle();
 
         // Never blank: the drawn gear stands in if the art does not decode
         Bitmap button = loadIcon("settings_icon.png", ENV_BUTTON_TEX);
@@ -874,12 +900,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         button.recycle();
     }
 
-    private Bitmap buildCogTab(int tab, boolean curveOk) {
+    private Bitmap buildCogTab(int tab, boolean curveOk, boolean stereoOk) {
         Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
         drawCogChrome(canvas, tab);
         if (tab == COG_TAB_SCREEN) {
             drawCogSliderRows(canvas, curveOk);
+        }
+        else if (tab == COG_TAB_3D) {
+            drawCog3dRows(canvas, stereoOk);
         }
         else {
             drawCogOptionRows(canvas);
@@ -901,10 +930,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         text.setTextAlign(Paint.Align.CENTER);
 
         final float barB = COG_TAB_BAR_B * COG_TEX_H;
-        final float half = COG_TEX_W * 0.5f;
+        final float slotW = COG_TEX_W / (float)COG_TABS.length;
         for (int i = 0; i < COG_TABS.length; i++) {
             boolean current = i == tab;
-            RectF slot = new RectF(i * half + 12.0f, 12.0f, (i + 1) * half - 12.0f, barB - 8.0f);
+            RectF slot = new RectF(i * slotW + 12.0f, 12.0f, (i + 1) * slotW - 12.0f, barB - 8.0f);
 
             if (current) {
                 paint.setColor(0x28FFFFFF);
@@ -939,6 +968,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         track.setStrokeWidth(6.0f);
         track.setStrokeCap(Paint.Cap.ROUND);
 
+        Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tick.setColor(0xCCFFFFFF);
+
         for (int row = 0; row < COG_SLIDER_ROWS.length; row++) {
             boolean live = row != COG_ROW_CURVE || curveOk;
             float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
@@ -951,6 +983,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
             track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
             canvas.drawLine(COG_TRACK_L * COG_TEX_W, y, COG_TRACK_R * COG_TEX_W, y, track);
+
+            if (row == COG_ROW_TILT || row == COG_ROW_ROTATE) {
+                // Marks level, which is where the middle of these two tracks
+                // snaps to. The rows that do not snap stay unmarked.
+                float midX = (COG_TRACK_L + COG_TRACK_R) * 0.5f * COG_TEX_W;
+                float tickHalf = COG_CELL_HALF * COG_TEX_H;
+                canvas.drawRect(midX - 2.0f, y - tickHalf, midX + 2.0f, y + tickHalf, tick);
+            }
         }
 
         // A way back for a screen dragged somewhere unrecoverable
@@ -966,6 +1006,88 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         text.setTextAlign(Paint.Align.CENTER);
         canvas.drawText("Reset", reset.centerX(),
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    // 3D tab: the two values worth reaching mid stream. Depth runs past the
+    // comfortable range on purpose, with the far end marked, since where that
+    // range ends is a matter of eyes rather than of hardware.
+    private void drawCog3dRows(Canvas canvas, boolean stereoOk) {
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextSize(22.0f);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setColor(stereoOk ? Color.WHITE : 0x30FFFFFF);
+
+        Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
+        track.setStyle(Paint.Style.STROKE);
+        track.setStrokeWidth(6.0f);
+        track.setStrokeCap(Paint.Cap.ROUND);
+
+        Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tick.setColor(stereoOk ? 0xCCFFFFFF : 0x30FFFFFF);
+
+        final float trackL = COG_TRACK_L * COG_TEX_W;
+        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float tickHalf = COG_CELL_HALF * COG_TEX_H;
+
+        for (int row = 0; row < COG_SLIDER3D_ROWS.length; row++) {
+            float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
+            canvas.drawText(COG_SLIDER3D_ROWS[row], 0.06f * COG_TEX_W,
+                    y - (text.ascent() + text.descent()) * 0.5f, text);
+
+            // The default sits a third along the depth track and halfway along
+            // convergence, and a tick says so on both
+            float markT = row == 0 ? COG_SEP_CAP_T : 0.5f;
+            float markX = trackL + markT * (trackR - trackL);
+
+            if (row == 0) {
+                // Measured on device: past 0.5 percent the depth stops growing
+                // and only the strain does, so the rest of the track is drawn
+                // as a place you can go rather than one you should
+                track.setColor(stereoOk ? 0x66FFFFFF : 0x30FFFFFF);
+                canvas.drawLine(trackL, y, markX, y, track);
+                track.setColor(stereoOk ? 0x66FFB74D : 0x30FFB74D);
+                canvas.drawLine(markX, y, trackR, y, track);
+
+                Paint caption = new Paint(Paint.ANTI_ALIAS_FLAG);
+                caption.setTextSize(15.0f);
+                caption.setTextAlign(Paint.Align.CENTER);
+                caption.setColor(stereoOk ? 0xA0FFB74D : 0x30FFB74D);
+                // Just above the next row's hit band, which starts 0.055 down
+                // now the rows sit closer together
+                canvas.drawText("harder on the eyes", (markX + trackR) * 0.5f,
+                        y + 0.04f * COG_TEX_H, caption);
+            }
+            else {
+                track.setColor(stereoOk ? 0x66FFFFFF : 0x30FFFFFF);
+                canvas.drawLine(trackL, y, trackR, y, track);
+            }
+
+            canvas.drawRect(markX - 2.0f, y - tickHalf, markX + 2.0f, y + tickHalf, tick);
+        }
+
+        // A way back from a pair of values that turned out to be unwatchable
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4.0f);
+        RectF reset = new RectF(COG_RESET_L * COG_TEX_W, COG_RESET_T * COG_TEX_H,
+                COG_RESET_R * COG_TEX_W, COG_RESET_B * COG_TEX_H);
+        canvas.drawRoundRect(reset, 14.0f, 14.0f, paint);
+
+        text.setColor(Color.WHITE);
+        text.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("Reset", reset.centerX(),
+                reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+
+        if (!stereoOk) {
+            // Otherwise two dead sliders with no explanation
+            Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            hint.setTextSize(17.0f);
+            hint.setTextAlign(Paint.Align.CENTER);
+            hint.setColor(0x50FFFFFF);
+            canvas.drawText("3D is off in settings", COG_TEX_W * 0.5f,
+                    0.62f * COG_TEX_H, hint);
+        }
     }
 
     // Display tab: a label and a row of cells, one press wide each. Which cell
@@ -1152,7 +1274,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
-     * A row on the panel's display tab was pressed. The native side has
+     * A row on the panel's display or 3D tab was pressed. The native side has
      * already applied it to the running session, this end only has to make it
      * stick and tell whatever else in the app cares.
      */
@@ -1177,6 +1299,38 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.ENABLE_PERF_OVERLAY_STRING, on)
+                    .apply();
+        }
+        else if (setting == SETTING_SEPARATION) {
+            // The frame loop read its copy once and keeps passing that stale
+            // one down, but the native panel value overrides it for the rest of
+            // the session, so this write is only for next time
+            if (prefConfig != null) {
+                prefConfig.vrStereoSeparation = value;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING, value)
+                    .apply();
+        }
+        else if (setting == SETTING_CONVERGENCE) {
+            if (prefConfig != null) {
+                prefConfig.vrConvergence = value;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putInt(PreferenceConfiguration.VR_CONVERGENCE_PREF_STRING, value)
+                    .apply();
+        }
+        else if (setting == SETTING_RESET_3D) {
+            // Both at once, since the reset button moved both
+            if (prefConfig != null) {
+                prefConfig.vrStereoSeparation = PreferenceConfiguration.DEFAULT_VR_SEPARATION;
+                prefConfig.vrConvergence = PreferenceConfiguration.DEFAULT_VR_CONVERGENCE;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING,
+                            PreferenceConfiguration.DEFAULT_VR_SEPARATION)
+                    .putInt(PreferenceConfiguration.VR_CONVERGENCE_PREF_STRING,
+                            PreferenceConfiguration.DEFAULT_VR_CONVERGENCE)
                     .apply();
         }
     }
