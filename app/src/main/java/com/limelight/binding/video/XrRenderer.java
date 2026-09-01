@@ -916,8 +916,23 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         InputStream in = null;
         try {
+            // A very large panorama is downsampled on decode: past 4096 across
+            // the swapchain gains nothing and the raw bitmap can reach the
+            // gigabyte that kills the process
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
             in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + environmentFiles[photo]);
-            Bitmap bitmap = BitmapFactory.decodeStream(in);
+            BitmapFactory.decodeStream(in, null, bounds);
+            closeQuietly(in);
+
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / opts.inSampleSize > 4096) {
+                opts.inSampleSize *= 2;
+            }
+
+            in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + environmentFiles[photo]);
+            Bitmap bitmap = BitmapFactory.decodeStream(in, null, opts);
             if (bitmap == null || photoRequest.get() != ticket) {
                 return;
             }
@@ -1845,7 +1860,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
 
             in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + fileName);
-            return BitmapFactory.decodeStream(in, null, opts);
+            Bitmap thumb = BitmapFactory.decodeStream(in, null, opts);
+            // A square panorama is top/bottom stereo: thumb from the top half,
+            // or the crop lands on the seam between the two eyes
+            if (thumb != null && thumb.getWidth() == thumb.getHeight()) {
+                Bitmap top = Bitmap.createBitmap(thumb, 0, 0,
+                        thumb.getWidth(), thumb.getHeight() / 2);
+                thumb.recycle();
+                return top;
+            }
+            return thumb;
         } catch (IOException | OutOfMemoryError e) {
             LimeLog.warning("Thumbnail " + fileName + " failed: " + e);
             return null;

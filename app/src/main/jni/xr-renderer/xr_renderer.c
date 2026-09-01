@@ -599,6 +599,7 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_ROOM "debug.moonlight.room"
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
+#define PROP_TB_SWAP "debug.moonlight.tbswap"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
@@ -887,6 +888,9 @@ typedef struct {
     int backgroundHeight;
     int backgroundReady;
     int backgroundEnabled;
+    // Which half of a top/bottom stereo photo goes to which eye, tradeable
+    // over debug.moonlight.tbswap for a photo that packs them the other way
+    int tbSwap;
     float envRadius;
     int srgbWriteControl;
     // Passthrough is just an environment blend mode: with alpha blend the
@@ -8047,6 +8051,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     ctx->prefCurvature = curvature;
     pollCaptureRequest(ctx);
     propFlag(PROP_PASSTHROUGH, &ctx->passthrough);
+    propFlag(PROP_TB_SWAP, &ctx->tbSwap);
     // The panel first, then the debug property over the top of it, so a blind
     // A/B still wins whatever the panel was left on
     if (ctx->panelSeparation >= 0.0f) {
@@ -8164,7 +8169,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         }
     }
 
-    XrCompositionLayerEquirect2KHR backgroundLayer;
+    XrCompositionLayerEquirect2KHR backgroundLayers[2];
     XrCompositionLayerProjection roomLayer;
     XrCompositionLayerProjectionView roomProjViews[ROOM_EYES];
     XrCompositionLayerQuad glowLayer;
@@ -8189,7 +8194,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerSettingsFB sharpenSettings;
     // Worst case reachable is the screen tab open: background, the glow, both
     // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
-    // is 15. The 3d room replaces the environment layer one for one, and sheds
+    // is 15, or 16 with a stereo background's second layer, exactly this
+    // runtime's limit. The 3d room replaces the environment layer and sheds
     // the move pill and the screen tab's thumbs, so it only ever comes to
     // less. The panel is modal, and since the frame a modal opens now sheds
     // the bar furniture too, the two can no longer land in one frame together.
@@ -8243,35 +8249,57 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     // The photo, in that same slot: submitted before everything else so all of
     // it sits in front, and skipped when the room or passthrough has the slot.
+    // A square image is top/bottom stereo and goes up as one layer per eye,
+    // each showing its half of the same swapchain.
     if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough && !roomOn) {
-        memset(&backgroundLayer, 0, sizeof(backgroundLayer));
-        backgroundLayer.type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
-        backgroundLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-        backgroundLayer.subImage.swapchain = ctx->backgroundSwapchain;
-        backgroundLayer.subImage.imageRect.offset.x = 0;
-        backgroundLayer.subImage.imageRect.offset.y = 0;
-        backgroundLayer.subImage.imageRect.extent.width = ctx->backgroundWidth;
-        backgroundLayer.subImage.imageRect.extent.height = ctx->backgroundHeight;
-        backgroundLayer.subImage.imageArrayIndex = 0;
-        // World locked, even when the screen is head locked, or the environment
-        // would swing about with the viewer
-        backgroundLayer.space = ctx->localSpace;
-        backgroundLayer.pose.orientation.w = 1.0f;
-        // A finite sphere is what gives the room a size. At zero the layer is
-        // infinitely far, so leaning about moves nothing and the eye reads it
-        // as vast. Bring it in and the parallax says how big it really is.
-        backgroundLayer.radius = ctx->envRadius;
-        backgroundLayer.centralHorizontalAngle = 6.2831853f;
-        // Width covers the full turn, so the vertical reach follows the aspect
-        // ratio. A 2:1 image fills the sphere, anything wider leaves the zenith
-        // and nadir empty rather than stretching to cover them.
-        float halfV = (float)ctx->backgroundHeight / (float)ctx->backgroundWidth * 3.1415927f;
-        if (halfV > 1.5707963f) {
-            halfV = 1.5707963f;
+        int stereo = ctx->backgroundWidth == ctx->backgroundHeight;
+        int eyeH = stereo ? ctx->backgroundHeight / 2 : ctx->backgroundHeight;
+        int eyes = stereo ? 2 : 1;
+
+        for (int eye = 0; eye < eyes; eye++) {
+            XrCompositionLayerEquirect2KHR* bg = &backgroundLayers[eye];
+            memset(bg, 0, sizeof(*bg));
+            bg->type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
+            bg->eyeVisibility = !stereo ? XR_EYE_VISIBILITY_BOTH
+                    : ((eye == 0) != (ctx->tbSwap != 0) ? XR_EYE_VISIBILITY_RIGHT
+                                                        : XR_EYE_VISIBILITY_LEFT);
+            bg->subImage.swapchain = ctx->backgroundSwapchain;
+            bg->subImage.imageRect.offset.x = 0;
+            // The top half goes to the right eye: measured off the shipped
+            // photo (the bottom half's content sits shifted right, which is
+            // what a left eye sees) and confirmed by eye in the headset.
+            // debug.moonlight.tbswap trades them for a photo packed the
+            // other way up.
+            bg->subImage.imageRect.offset.y = eye * eyeH;
+            bg->subImage.imageRect.extent.width = ctx->backgroundWidth;
+            bg->subImage.imageRect.extent.height = eyeH;
+            bg->subImage.imageArrayIndex = 0;
+            // World locked, even when the screen is head locked, or the
+            // environment would swing about with the viewer
+            bg->space = ctx->localSpace;
+            bg->pose.orientation.w = 1.0f;
+            // A finite sphere is what gives the room a size. At zero the layer
+            // is infinitely far, so leaning about moves nothing and the eye
+            // reads it as vast. Bring it in and the parallax says how big it
+            // really is.
+            // A mono photo sits on a finite sphere so leaning gives it some
+            // parallax. A stereo photo already carries its depth baked into
+            // the two halves, and a finite sphere would add the compositor's
+            // geometric disparity on top, over converging whatever is close.
+            // Infinite radius leaves the baked depth as the only depth.
+            bg->radius = stereo ? 0.0f : ctx->envRadius;
+            bg->centralHorizontalAngle = 6.2831853f;
+            // Width covers the full turn, so the vertical reach follows the
+            // per eye aspect ratio. A 2:1 image fills the sphere, anything
+            // wider leaves the zenith and nadir empty rather than stretching.
+            float halfV = (float)eyeH / (float)ctx->backgroundWidth * 3.1415927f;
+            if (halfV > 1.5707963f) {
+                halfV = 1.5707963f;
+            }
+            bg->upperVerticalAngle = halfV;
+            bg->lowerVerticalAngle = -halfV;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)bg;
         }
-        backgroundLayer.upperVerticalAngle = halfV;
-        backgroundLayer.lowerVerticalAngle = -halfV;
-        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&backgroundLayer;
     }
 
     // The glow, over the environment and under the picture. Deliberately not
