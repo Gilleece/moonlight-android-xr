@@ -254,7 +254,7 @@
     <string name="summary_settings_back">Return to the computer list</string>
     <string name="category_vr_settings">VR Settings</string>
     <string name="category_vr_debug">VR Debugging</string>
-    <string name="title_enable_vr_mode">Stream in VR (Experimental)</string>
+    <string name="title_enable_vr_mode">Stream in VR</string>
     <string name="summary_enable_vr_mode">Show the stream on a virtual screen in an immersive VR session. Headsets only, and the only mode with a 3D effect.</string>
     <string name="title_vr_head_locked">Head locked screen</string>
     <string name="summary_vr_head_locked">Keep the virtual screen fixed in front of your view instead of anchored in the world</string>
