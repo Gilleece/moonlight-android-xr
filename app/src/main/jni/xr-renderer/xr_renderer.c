@@ -253,6 +253,7 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define SETTING_RESET_3D 4
 #define SETTING_AMBILIGHT 5
 #define SETTING_AMBI_LEVEL 6
+#define SETTING_ROOM_LIGHT 7
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
@@ -292,20 +293,25 @@ static void xrLog(int prio, const char* fmt, ...) {
 
 // Environment picker. A grid of thumbnails drawn in Java and shown as one
 // quad, with the hover and selection marks as separate outline quads so
-// pointing around the grid never costs an upload.
+// pointing around the grid never costs an upload. One band per category: a
+// header strip carrying its name, then a row of cells under it. Must match the
+// PICKER_ constants in XrRenderer.java.
 #define PICKER_COLS 4
 #define PICKER_ROWS 2
 #define PICKER_CELLS (PICKER_COLS * PICKER_ROWS)
 #define PICKER_TEX_W 1024
-#define PICKER_TEX_H 512
+#define PICKER_HEADER_PX 40
+#define PICKER_CELL_PX 256
+#define PICKER_BAND_PX (PICKER_HEADER_PX + PICKER_CELL_PX)
+#define PICKER_TEX_H (PICKER_BAND_PX * PICKER_ROWS)
 // Widened along with the grid so a cell stays about the size it was at three
 // columns
 #define PICKER_WIDTH_FRAC 0.73f
 #define OUTLINE_TEX 128
 // The room cells in the grid. Must match CELL_MINIMAL_ROOM and CELL_PSX_CINEMA
 // in XrRenderer.java.
-#define ENV_CELL_MINIMAL_ROOM 6
-#define ENV_CELL_PSX_CINEMA 7
+#define ENV_CELL_MINIMAL_ROOM 2
+#define ENV_CELL_PSX_CINEMA 3
 // The button that opens it, sitting to the left of the move bar
 #define ENV_BUTTON_FRAC 0.048f
 #define ENV_GAP_FRAC 0.02f
@@ -391,13 +397,15 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_STATS   1
 #define COG_OPTION_AMBILIGHT 2
-#define COG_OPTION_COUNT   3
+#define COG_OPTION_ROOM_LIGHT 3
+#define COG_OPTION_COUNT   4
 #define COG_SHARPEN_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_AMBI_CELLS    2
+#define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on
-#define COG_DISPLAY_SLIDER_ROW 3
+#define COG_DISPLAY_SLIDER_ROW 4
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
 #define COG_DIST_MIN 0.2f
@@ -752,6 +760,9 @@ typedef struct {
     // params the style ships with own them
     float roomScaleOverride;
     float roomDimOverride;
+    // Whether the picture washes its light over the room. Its own option, since
+    // the wash runs whether the glow is on or not.
+    int roomLightOn;
     // Everything the room is drawn with, built the first frame a style asks
     // for it rather than at startup, the way the background photo arrives.
     // One side by side image, a half of it per eye.
@@ -959,6 +970,11 @@ typedef struct {
     // does not grab it. Dragging a window on the host desktop past the edge of
     // the picture would otherwise turn into a resize.
     int triggerEdge[SRC_COUNT];
+    // A press the grid, the panel or the keyboard took for itself, held until
+    // the trigger is released. The host's left button is level based, so
+    // without this the press that picks something goes on to click whatever the
+    // modal was covering as soon as it closes.
+    int triggerSwallowed[SRC_COUNT];
     // Indexed by the chosen source, and gaze has no grip, so it needs the
     // extra slot even though nothing ever writes to it
     int gripEdge[SRC_COUNT];
@@ -2675,6 +2691,10 @@ static void viewFromPose(float* m, XrPosef pose) {
 typedef struct {
     float halfWidth;
     float floorY;
+    // The floor under the picture, which is the one it must not hang through.
+    // The same as floorY in a room with one level, lower in a raked one, where
+    // floorY is the tier the viewer stands on.
+    float screenFloorY;
     float ceilingY;
     // The wall the picture hangs on, and the one behind the viewer
     float screenZ;
@@ -4561,6 +4581,9 @@ static int cogOptionCells(int option) {
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
+    if (option == COG_OPTION_ROOM_LIGHT) {
+        return COG_ROOM_LIGHT_CELLS;
+    }
     return COG_STATS_CELLS;
 }
 
@@ -4571,6 +4594,9 @@ static int cogOptionValue(XrCtx* ctx, int option) {
     }
     if (option == COG_OPTION_AMBILIGHT) {
         return ctx->ambilightOn ? 1 : 0;
+    }
+    if (option == COG_OPTION_ROOM_LIGHT) {
+        return ctx->roomLightOn ? 1 : 0;
     }
     return ctx->overlayVisible ? 1 : 0;
 }
@@ -4591,6 +4617,11 @@ static int cogApplyOption(XrCtx* ctx, int option, int cell) {
         ctx->ambilightOn = cell != 0;
         LOGEV("ambilight %s from the panel", ctx->ambilightOn ? "on" : "off");
         return SETTING_AMBILIGHT;
+    }
+    if (option == COG_OPTION_ROOM_LIGHT) {
+        ctx->roomLightOn = cell != 0;
+        LOGEV("room light %s from the panel", ctx->roomLightOn ? "on" : "off");
+        return SETTING_ROOM_LIGHT;
     }
     return -1;
 }
@@ -4659,6 +4690,23 @@ static int lockButtonHit(XrCtx* ctx, float u, float v, float height) {
     float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
     float halfV = side * HOVER_MARGIN * 0.5f / height;
     return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
+// The press was meant for the thing that is open, not for the host behind it.
+// Gaze has no button of its own, so swallowing a gaze press means swallowing
+// the pinch that stood in for it.
+static void swallowTrigger(XrCtx* ctx, int src) {
+    if (src < 0 || src >= SRC_COUNT) {
+        return;
+    }
+    ctx->triggerSwallowed[src] = 1;
+    if (src == SRC_GAZE) {
+        for (int h = 0; h < HAND_COUNT; h++) {
+            if (ctx->triggerDown[h]) {
+                ctx->triggerSwallowed[h] = 1;
+            }
+        }
+    }
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid has a
@@ -4851,7 +4899,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jint convergence, jint depthScale,
                                                        jboolean handTracking, jint sharpenMode,
                                                        jboolean perfOverlay, jboolean ambilight,
-                                                       jint ambiLevel, jboolean gen1Headset) {
+                                                       jint ambiLevel, jboolean roomLight,
+                                                       jboolean gen1Headset) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
     ctx->gen1Headset = gen1Headset;
@@ -4912,6 +4961,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->ambilightOn = ambilight;
     ctx->ambiIntensity = (ambiLevel < 0 ? 0 : (ambiLevel > 100 ? 100 : ambiLevel)) / 100.0f;
     ctx->ambiOverride = -1;
+    // The room's own light off the picture, which the panel owns from here on
+    ctx->roomLightOn = roomLight;
     // Same for the room, which the picker sets and a property can force, and
     // for the size and brightness it is drawn at, which its params own until
     // a property says otherwise
@@ -5634,6 +5685,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         }
     }
 
+    // A press taken by the grid, the panel or the keyboard stays taken for as
+    // long as it is held, and letting go is what hands the trigger back
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (!ctx->triggerDown[h]) {
+            ctx->triggerSwallowed[h] = 0;
+        }
+    }
+
     // Deliberate movement wakes the pointer, a controller put down retires it
     if (pinching) {
         // Only the pinch clock matters while hands are in charge
@@ -5724,11 +5783,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
                 continue;
             }
+            // Each band is a header strip over a row of cells. The strip is a
+            // label and nothing else, so pointing at one is pointing at
+            // nothing and a press there closes the grid like a press outside.
+            int band = (int)(pv * PICKER_ROWS);
+            if (band >= PICKER_ROWS) band = PICKER_ROWS - 1;
+            float inBand = pv * PICKER_TEX_H - band * PICKER_BAND_PX;
+            if (inBand < PICKER_HEADER_PX) {
+                continue;
+            }
             int col = (int)(pu * PICKER_COLS);
-            int row = (int)(pv * PICKER_ROWS);
             if (col >= PICKER_COLS) col = PICKER_COLS - 1;
-            if (row >= PICKER_ROWS) row = PICKER_ROWS - 1;
-            ctx->pickerHover = row * PICKER_COLS + col;
+            ctx->pickerHover = band * PICKER_COLS + col;
             hand = h;
             hitU[h] = pu;
             hitV[h] = pv;
@@ -5737,15 +5803,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 ctx->pickerPick = ctx->pickerHover;
                 ctx->pickerChoice = ctx->pickerHover;
                 ctx->pickerOpen = 0;
+                swallowTrigger(ctx, h);
             }
             break;
         }
 
-        // A press that lands nowhere near the grid closes it
+        // A press that lands on no cell, whether on a header strip or nowhere
+        // near the grid at all, closes it
         if (ctx->pickerOpen && ctx->pickerHover < 0) {
             for (int h = 0; h < SRC_COUNT; h++) {
                 if (ctx->triggerEdge[h]) {
                     ctx->pickerOpen = 0;
+                    swallowTrigger(ctx, h);
                 }
             }
         }
@@ -5922,6 +5991,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             for (int h = 0; h < SRC_COUNT; h++) {
                 if (ctx->triggerEdge[h]) {
                     ctx->cogOpen = 0;
+                    swallowTrigger(ctx, h);
                 }
             }
         }
@@ -6025,6 +6095,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             // as empty space too
             if (hovers[h] == HOVER_NONE || hovers[h] == HOVER_HALO) {
                 ctx->kbOpen = 0;
+                swallowTrigger(ctx, h);
                 LOGI("keyboard closed");
                 break;
             }
@@ -6167,8 +6238,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     }
 
     int mask = 0;
-    if (ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]) {
-        mask |= VR_BUTTON_LEFT;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        // Per hand rather than either hand, so a trigger spent on the grid or a
+        // panel is out of the count while the other one still clicks
+        if (ctx->triggerDown[h] && !ctx->triggerSwallowed[h]) {
+            mask |= VR_BUTTON_LEFT;
+        }
     }
     if (actionBool(ctx, ctx->rightClickAction, -1)) {
         mask |= VR_BUTTON_RIGHT;
@@ -6537,6 +6612,9 @@ static RoomParams minimalRoomParams(void) {
     memset(&p, 0, sizeof(p));
     p.halfWidth = 4.5f;
     p.floorY = -1.4f;
+    // One level throughout, so the picture stands on the same floor as the
+    // viewer
+    p.screenFloorY = p.floorY;
     p.ceilingY = 3.0f;
     p.screenZ = -5.5f;
     p.backZ = 4.0f;
@@ -6583,21 +6661,31 @@ static RoomParams psxCinemaParams(float scale) {
     // The seating tier the viewer stands on, which the anchor holds at eye
     // height, and the ceiling over the stalls
     p.floorY = -ROOM_EYE_HEIGHT_M;
+    // The stage floor at the far wall, model y -4.25, which is a good way below
+    // the tier and is what the picture has to clear
+    p.screenFloorY = (-4.25f - anchorY) * scale;
     p.ceilingY = (8.57f - anchorY) * scale;
-    p.screenZ = -14.9f * scale;
+    // The screen wall is at model z -27.53, and the picture hangs 0.18 proud of
+    // it, so model -27.35 through the anchor at -12
+    p.screenZ = -15.35f * scale;
     p.backZ = 14.33f * scale;
-    // The centre of the proscenium opening
-    p.screenMountY = (2.85f - anchorY) * scale;
+    // The centre of the proscenium opening is model y 2.85, and the picture
+    // hangs 15 percent of its own height under that: the opening is 18 model
+    // units across, so 10.125 high at 16:9, and 2.85 - 0.15 * 10.125 is 1.33
+    p.screenMountY = (1.33f - anchorY) * scale;
     p.screenProud = 0.0f;
     // The opening is 20 m across at full size, so this fills it with a margin
     // either side
     p.screenWidth = 18.0f * scale;
     Vec3 screenAt = { 0.0f, p.screenMountY, p.screenZ };
     p.screenAt = screenAt;
-    // A room this size takes the light much further than the small one, and
-    // takes less of it, since the surfaces are already painted by the atlas
-    p.spillRadius = 6.0f * scale;
-    p.spillGain = 0.20f;
+    // A room this size takes the light much further than the small one. It
+    // takes less of it per surface than a painted wall would, since the atlas
+    // is already carrying the colour, but not as little as it first shipped
+    // with: over a textured surface a fifth of the frame's colour never read
+    // as light at all.
+    p.spillRadius = 7.0f * scale;
+    p.spillGain = 0.55f;
     p.texMix = 1.0f;
     // The atlas is already painted as an interior with the lights down, so it
     // goes on as it was baked
@@ -6697,9 +6785,11 @@ static void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded
     }
     float height = width * aspect;
     // And hung where the whole of it is on the wall rather than through the
-    // floor or the ceiling
+    // floor or the ceiling. The floor here is the one under the picture, not
+    // the tier the viewer is on, which in a raked room is metres higher and
+    // would push the picture back up the wall.
     float mount = p.screenMountY;
-    float lowest = p.floorY + height * 0.5f + 0.1f;
+    float lowest = p.screenFloorY + height * 0.5f + 0.1f;
     float highest = p.ceilingY - height * 0.5f - 0.1f;
     if (mount < lowest) {
         mount = lowest;
@@ -7114,8 +7204,13 @@ static void renderRoom(XrCtx* ctx) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
     // Nothing has been sampled off the video yet on the first frames, so the
-    // room is just its baked self until there is
-    glUniform1f(ctx->roomSpillGainUniform, ctx->ambiSeeded ? ctx->roomSpillGain : 0.0f);
+    // room is just its baked self until there is, and the same for the option
+    // turned off: the baked colours and the atlas stay, only the light the
+    // picture throws goes. Deliberately not tied to the ambilight: the wash
+    // inside a room and the glow around a floating screen are different
+    // effects, and the colour sample they share is taken for either one.
+    int lit = ctx->ambiSeeded && ctx->roomLightOn;
+    glUniform1f(ctx->roomSpillGainUniform, lit ? ctx->roomSpillGain : 0.0f);
     glUniform1f(ctx->roomTexMixUniform, ctx->roomTexMix);
     glUniform1f(ctx->roomDimUniform, roomDim(ctx));
 
@@ -7179,22 +7274,11 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     int timing = ctx->timerSupported && !ctx->captureRequested;
 
     // Before the query opens, since creating the room's swapchain and buffers
-    // inside the window wedges every sample after it
+    // inside the window wedges every sample after it. Only the CPU and buffer
+    // work: the room's own draw is at the end of this function.
     int roomOn = roomEffective(ctx) > 0;
     if (roomOn) {
         prepareRoom(ctx);
-    }
-
-    // The draw stays out of that window too, on its own pair. Only one
-    // GL_TIME_ELAPSED_EXT query can be live at a time, so this one has to be
-    // opened and closed before the main one begins. The order is deliberate:
-    // the room lights itself from the previous frame's colour sample, which is
-    // temporally smoothed anyway.
-    // The room carries its own query, opened inside renderRoom only once the
-    // swapchain image is in hand: a query that spans the compositor wait comes
-    // back wrapped on this driver, which starved the room number entirely
-    if (roomOn) {
-        renderRoom(ctx);
     }
 
     if (timing && !ctx->timerPending[ctx->timerSlot]) {
@@ -7214,7 +7298,9 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     float glowLevel;
     ambiEffective(ctx, &glowOn, &glowLevel);
     // The room is lit from the same colours the glow is made of, so the sample
-    // is taken for either of them
+    // is taken for either of them. It happens here rather than with the room's
+    // draw, which now follows the video, so the room is lit from this frame's
+    // colour rather than the last one's.
     if (glowOn || roomOn) {
         runFrameColorSample(ctx, texMatrix);
     }
@@ -7225,6 +7311,14 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     uint32_t imageIndex = 0;
     XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     if (!checkXr(xrAcquireSwapchainImage(ctx->swapchain, &acquireInfo, &imageIndex), "acquire image")) {
+        // The query opened above must not be left standing on this early out,
+        // or the next frame's begin would nest inside it
+        if (timing && !ctx->timerPending[ctx->timerSlot]) {
+            pfnEndQuery(GL_TIME_ELAPSED_EXT);
+            ctx->timerPending[ctx->timerSlot] = 1;
+            ctx->timerPendingFrames[ctx->timerSlot] = 0;
+            ctx->timerSlot = 1 - ctx->timerSlot;
+        }
         return;
     }
     XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
@@ -7429,9 +7523,21 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
         }
     }
 
-    // The room's pair is opened at the top of the frame, but collected down
-    // here, on every frame rather than only the ones it drew: a query from the
-    // last frame it rendered still has to be picked up after it goes away.
+    // Last of all, after the video has been queued and the main query closed.
+    // GL runs one queue in order, and under head motion the compositor preempts
+    // this full resolution pass often enough to stretch it past 20 ms: anything
+    // queued behind it waits, which is what the video was doing while this ran
+    // first. Behind the warp a preempted room only holds up its own layer, and
+    // the compositor covers that by reprojecting the image it already has.
+    // The two timer pairs stay disjoint: the main one is ended just above, and
+    // renderRoom opens its own once it has its swapchain image.
+    if (roomOn) {
+        renderRoom(ctx);
+    }
+
+    // The room's pair is opened just above, but collected down here, on every
+    // frame rather than only the ones it drew: a query from the last frame it
+    // rendered still has to be picked up after it goes away.
     if (timing) {
         int roomOther = ctx->roomTimerSlot;
         if (ctx->roomTimerPending[roomOther]) {
@@ -8509,7 +8615,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
             if (ctx->outlineReady) {
                 float cellW = pickW / (float)PICKER_COLS;
-                float cellH = pickH / (float)PICKER_ROWS;
+                float cellH = pickH * (float)PICKER_CELL_PX / (float)PICKER_TEX_H;
                 // Hover rings the cell, the choice sits inside it, so both
                 // read at once when the ray is over what is already selected
                 int marks[2] = { ctx->pickerHover, ctx->pickerChoice };
@@ -8522,9 +8628,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                     }
                     int col = cell % PICKER_COLS;
                     int row = cell / PICKER_COLS;
+                    // Down the texture past this band's header to the middle
+                    // of its row of cells
+                    float centreV = (row * PICKER_BAND_PX + PICKER_HEADER_PX
+                                     + PICKER_CELL_PX * 0.5f) / (float)PICKER_TEX_H;
                     Vec3 local;
                     local.x = ((col + 0.5f) / PICKER_COLS - 0.5f) * pickW;
-                    local.y = (0.5f - (row + 0.5f) / PICKER_ROWS) * pickH;
+                    local.y = (0.5f - centreV) * pickH;
                     local.z = 0.004f;
                     Vec3 offset = quatRotate(pickPose.orientation, local);
 

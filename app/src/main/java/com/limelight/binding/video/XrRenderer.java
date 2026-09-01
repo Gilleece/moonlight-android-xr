@@ -2,6 +2,7 @@ package com.limelight.binding.video;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapShader;
@@ -136,6 +137,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int SETTING_RESET_3D = 4;
     private static final int SETTING_AMBILIGHT = 5;
     private static final int SETTING_AMBI_LEVEL = 6;
+    private static final int SETTING_ROOM_LIGHT = 7;
     // Position, orientation, width, cylinder radius, then the curvature the
     // settings panel asked for
     private static final int POSE_VALUES = 10;
@@ -153,11 +155,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile int backgroundHeight;
 
     // Environment picker, a grid of thumbnails reachable from inside the
-    // session. The first two cells are passthrough and an empty black room,
-    // then the photos in the assets folder in name order, and after them the
-    // 3d rooms. The rooms sit at the end so a saved cell from an older install
-    // still means what it used to. Must match the PICKER_ constants in
-    // xr_renderer.c.
+    // session. One band per category: a header strip carrying its name, then a
+    // row of cells under it. The rooms are the first band, the photos from the
+    // assets folder in name order are the second. A cell is a place in the
+    // grid and nothing more, what gets saved is the stable id it maps to. Must
+    // match the PICKER_ constants in xr_renderer.c.
     private static final String ENVIRONMENT_DIR = "environments";
     private static final String IMAGE_DIR = "images";
     // The baked room that ships with the app, mesh and texture atlas
@@ -168,20 +170,38 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int PICKER_ROWS = 2;
     private static final int PICKER_CELLS = PICKER_COLS * PICKER_ROWS;
     private static final int PICKER_TEX_W = 1024;
-    private static final int PICKER_TEX_H = 512;
+    private static final int PICKER_HEADER_PX = 40;
+    private static final int PICKER_CELL_PX = 256;
+    private static final int PICKER_BAND_PX = PICKER_HEADER_PX + PICKER_CELL_PX;
+    private static final int PICKER_TEX_H = PICKER_BAND_PX * PICKER_ROWS;
+    private static final int PICKER_CELL_W = PICKER_TEX_W / PICKER_COLS;
+    // One per band, drawn in the strip above its cells
+    private static final String[] PICKER_HEADERS = { "Rooms", "360 Images" };
     private static final int ENV_BUTTON_TEX = 128;
     // The padlock that locks the hands out. Must match LOCK_TEX in xr_renderer.c.
     private static final int LOCK_TEX = 384;
     private static final int CELL_PASSTHROUGH = 0;
     private static final int CELL_VOID = 1;
-    private static final int CELL_FIRST_PHOTO = 2;
-    // Shared with the 2d side, so it can recognise the cells without reaching
-    // in here
-    private static final int CELL_MINIMAL_ROOM = PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
-    private static final int CELL_PSX_CINEMA = PreferenceConfiguration.VR_ENV_PSX_CINEMA;
-    // The photos end where the rooms start, so another room after them costs no
-    // photo a place in the grid
-    private static final int MAX_PHOTOS = CELL_MINIMAL_ROOM - CELL_FIRST_PHOTO;
+    // Shared with the native side, which needs them to pick a room style. Must
+    // match ENV_CELL_MINIMAL_ROOM and ENV_CELL_PSX_CINEMA in xr_renderer.c.
+    private static final int CELL_MINIMAL_ROOM = 2;
+    private static final int CELL_PSX_CINEMA = 3;
+    private static final int CELL_FIRST_PHOTO = 4;
+    // The photos take whatever the rooms leave, so how many fit is a question
+    // for the layout rather than a count kept here
+    private static final int MAX_PHOTOS = PICKER_CELLS - CELL_FIRST_PHOTO;
+    // The layout as it shipped before the bands, kept only to read an old saved
+    // cell as the environment it meant at the time
+    private static final int[] LEGACY_CELL_IDS = {
+            PreferenceConfiguration.VR_ENV_PASSTHROUGH,
+            PreferenceConfiguration.VR_ENV_VOID,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 1,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 2,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 3,
+            PreferenceConfiguration.VR_ENV_MINIMAL_ROOM,
+            PreferenceConfiguration.VR_ENV_PSX_CINEMA,
+    };
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout has to be agreed between the two: these must
@@ -219,15 +239,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             "Screen size cannot be changed in a 3D environment. "
                     + "Please choose a different environment to customise the screen size.";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them
-    private static final String[] COG_OPTION_ROWS = { "Sharpen", "Stats", "Glow" };
+    // the glow level track under them. Screen light is the wash the picture
+    // throws over a 3d room, which only shows in one, but it stays live here
+    // like the rest: the picker can put a room up at any moment.
+    private static final String[] COG_OPTION_ROWS =
+            { "Sharpen", "Stats", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" }
     };
     // Must match COG_DISPLAY_SLIDER_ROW in xr_renderer.c
-    private static final int COG_DISPLAY_SLIDER_ROW = 3;
+    private static final int COG_DISPLAY_SLIDER_ROW = 4;
     // 3D tab: two sliders, drawn the same way the screen tab's are. Only
     // values that take effect the moment they move belong on the panel, which
     // is why the depth source itself stays in the 2d settings.
@@ -368,7 +392,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, boolean perfOverlay,
-                                   boolean ambilight, int ambiLevel, boolean gen1Headset);
+                                   boolean ambilight, int ambiLevel, boolean roomLight,
+                                   boolean gen1Headset);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -419,7 +444,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
-                        prefs.vrAmbilight, prefs.vrAmbilightLevel,
+                        prefs.vrAmbilight, prefs.vrAmbilightLevel, prefs.vrRoomLight,
                         PreferenceConfiguration.isXr2Gen1Headset());
                 if (nativeCtx == 0) {
                     initLatch.countDown();
@@ -756,8 +781,23 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             LimeLog.warning("No environments: " + e);
         }
 
-        int cell = PreferenceManager.getDefaultSharedPreferences(prefsContext)
-                .getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1);
+        SharedPreferences saved = PreferenceManager.getDefaultSharedPreferences(prefsContext);
+        int id = saved.getInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, -1);
+        if (id < 0) {
+            // An install from before the ids has a cell instead, which only
+            // means anything read against the layout it was written under. The
+            // old key is left where it is, since nothing costs less than a
+            // stale int and an older build can still start on it.
+            int legacy = saved.getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1);
+            if (legacy >= 0 && legacy < LEGACY_CELL_IDS.length) {
+                id = LEGACY_CELL_IDS[legacy];
+                saved.edit()
+                        .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, id)
+                        .apply();
+            }
+        }
+
+        int cell = cellForId(id);
         if (!cellExists(cell)) {
             // Never picked one, so the passthrough checkbox decides: on gives
             // the room, off gives black. A photo only shows once it is chosen.
@@ -790,10 +830,39 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     // A cell is worth switching to if it is one of the fixed ones or a photo
-    // that actually shipped in the assets
+    // that actually shipped in the assets. The fixed cells come first, so one
+    // bound covers both.
     private boolean cellExists(int cell) {
-        return cell >= 0
-                && (cell < CELL_FIRST_PHOTO + environmentFiles.length || isRoomCell(cell));
+        return cell >= 0 && cell < CELL_FIRST_PHOTO + environmentFiles.length;
+    }
+
+    // The two places where cells and saved ids meet. Everything else in here
+    // works in cells, and only the preference speaks ids.
+    private static int idForCell(int cell) {
+        if (cell >= CELL_FIRST_PHOTO && cell < CELL_FIRST_PHOTO + MAX_PHOTOS) {
+            return PreferenceConfiguration.VR_ENV_FIRST_PHOTO + (cell - CELL_FIRST_PHOTO);
+        }
+        switch (cell) {
+            case CELL_PASSTHROUGH: return PreferenceConfiguration.VR_ENV_PASSTHROUGH;
+            case CELL_VOID: return PreferenceConfiguration.VR_ENV_VOID;
+            case CELL_MINIMAL_ROOM: return PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
+            case CELL_PSX_CINEMA: return PreferenceConfiguration.VR_ENV_PSX_CINEMA;
+            default: return -1;
+        }
+    }
+
+    private static int cellForId(int id) {
+        if (id >= PreferenceConfiguration.VR_ENV_FIRST_PHOTO
+                && id < PreferenceConfiguration.VR_ENV_FIRST_PHOTO + MAX_PHOTOS) {
+            return CELL_FIRST_PHOTO + (id - PreferenceConfiguration.VR_ENV_FIRST_PHOTO);
+        }
+        switch (id) {
+            case PreferenceConfiguration.VR_ENV_PASSTHROUGH: return CELL_PASSTHROUGH;
+            case PreferenceConfiguration.VR_ENV_VOID: return CELL_VOID;
+            case PreferenceConfiguration.VR_ENV_MINIMAL_ROOM: return CELL_MINIMAL_ROOM;
+            case PreferenceConfiguration.VR_ENV_PSX_CINEMA: return CELL_PSX_CINEMA;
+            default: return -1;
+        }
     }
 
     private boolean backgroundVisible() {
@@ -832,7 +901,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // The grid is a second way to reach the passthrough switch, so the
         // setting follows it rather than disagreeing with what is on screen
         PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, cell)
+                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, idForCell(cell))
                 .putBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING, passthroughOn)
                 .apply();
     }
@@ -930,18 +999,26 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
     }
 
+    // Where a cell sits in the picker texture: along to its column, then down
+    // past the headers of its own band and the ones above it. The native side
+    // ends up at the same place from the PICKER_ constants.
+    private static RectF pickerTile(int cell, float pad) {
+        float left = (cell % PICKER_COLS) * PICKER_CELL_W;
+        float top = (cell / PICKER_COLS) * PICKER_BAND_PX + PICKER_HEADER_PX;
+        return new RectF(left + pad, top + pad,
+                left + PICKER_CELL_W - pad, top + PICKER_CELL_PX - pad);
+    }
+
     /**
      * Draws the grid and the button that opens it. Java is the only place
      * Android will lay out text, so the labels have to be baked into the
      * texture here rather than drawn in the shader.
      */
     private void buildPickerArt() {
-        final float cellW = PICKER_TEX_W / (float)PICKER_COLS;
-        final float cellH = PICKER_TEX_H / (float)PICKER_ROWS;
         final float pad = 7.0f;
         // Matches the radius of the hover ring drawn over it, which is a
         // fraction of the cell rather than a pixel count
-        final float radius = cellW * 0.125f;
+        final float radius = PICKER_CELL_W * 0.125f;
 
         Bitmap grid = Bitmap.createBitmap(PICKER_TEX_W, PICKER_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(grid);
@@ -957,12 +1034,22 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         label.setTextSize(21.0f);
         label.setTextAlign(Paint.Align.CENTER);
 
+        // The category names, quieter than the tile labels so they read as
+        // headings rather than as another row of things to press
+        Paint header = new Paint(Paint.ANTI_ALIAS_FLAG);
+        header.setColor(0xB0FFFFFF);
+        header.setTextSize(22.0f);
+        header.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics metrics = header.getFontMetrics();
+        float baseline = (PICKER_HEADER_PX - (metrics.descent - metrics.ascent)) * 0.5f
+                - metrics.ascent;
+        for (int band = 0; band < PICKER_ROWS && band < PICKER_HEADERS.length; band++) {
+            canvas.drawText(PICKER_HEADERS[band], PICKER_TEX_W * 0.5f,
+                    band * PICKER_BAND_PX + baseline, header);
+        }
+
         for (int cell = 0; cell < PICKER_CELLS; cell++) {
-            RectF tile = new RectF(
-                    (cell % PICKER_COLS) * cellW + pad,
-                    (cell / PICKER_COLS) * cellH + pad,
-                    (cell % PICKER_COLS + 1) * cellW - pad,
-                    (cell / PICKER_COLS + 1) * cellH - pad);
+            RectF tile = pickerTile(cell, pad);
 
             String name;
             Bitmap thumb = null;
@@ -1878,6 +1965,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.VR_AMBILIGHT_PREF_STRING, on)
+                    .apply();
+        }
+        else if (setting == SETTING_ROOM_LIGHT) {
+            boolean on = value != 0;
+            if (prefConfig != null) {
+                prefConfig.vrRoomLight = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_ROOM_LIGHT_PREF_STRING, on)
                     .apply();
         }
         else if (setting == SETTING_AMBI_LEVEL) {
