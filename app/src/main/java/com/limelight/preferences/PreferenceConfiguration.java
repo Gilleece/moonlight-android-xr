@@ -67,9 +67,10 @@ public class PreferenceConfiguration {
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on
     public static final String VR_ENVIRONMENT_PREF_STRING = "vr_environment";
-    // The 3d room cell in that grid. Defined here rather than in the renderer
-    // so the 2d side can recognise it without reaching into it.
+    // The 3d room cells in that grid. Defined here rather than in the renderer
+    // so the 2d side can recognise them without reaching into it.
     public static final int VR_ENV_MINIMAL_ROOM = 6;
+    public static final int VR_ENV_PSX_CINEMA = 7;
     // Nor is this: a marker that the Gen 1 profile decision has been made
     public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
     public static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";

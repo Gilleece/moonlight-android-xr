@@ -22,6 +22,7 @@ import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -159,6 +160,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // xr_renderer.c.
     private static final String ENVIRONMENT_DIR = "environments";
     private static final String IMAGE_DIR = "images";
+    // The baked room that ships with the app, mesh and texture atlas
+    private static final String ROOM_DIR = "rooms";
+    private static final String ROOM_MESH_FILE = "psx_cinema.room";
+    private static final String ROOM_TEXTURE_FILE = "psx_cinema.png";
     private static final int PICKER_COLS = 4;
     private static final int PICKER_ROWS = 2;
     private static final int PICKER_CELLS = PICKER_COLS * PICKER_ROWS;
@@ -170,9 +175,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int CELL_PASSTHROUGH = 0;
     private static final int CELL_VOID = 1;
     private static final int CELL_FIRST_PHOTO = 2;
-    // Shared with the 2d side, so it can recognise the cell without reaching
+    // Shared with the 2d side, so it can recognise the cells without reaching
     // in here
     private static final int CELL_MINIMAL_ROOM = PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
+    private static final int CELL_PSX_CINEMA = PreferenceConfiguration.VR_ENV_PSX_CINEMA;
+    // The photos end where the rooms start, so another room after them costs no
+    // photo a place in the grid
     private static final int MAX_PHOTOS = CELL_MINIMAL_ROOM - CELL_FIRST_PHOTO;
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
@@ -322,6 +330,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
+    // The baked room, read on the same thread as the art above. The native side
+    // shows the minimal room in its place until both of these have landed.
+    private final AtomicReference<ByteBuffer> pendingRoomMesh = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingRoomTexture = new AtomicReference<>();
+    private volatile int roomMeshBytes;
+    private volatile int roomTextureWidth;
+    private volatile int roomTextureHeight;
     private String[] environmentFiles = new String[0];
     private volatile int environmentChoice = CELL_VOID;
     private volatile boolean passthroughOn;
@@ -353,7 +368,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, boolean perfOverlay,
-                                   boolean ambilight, int ambiLevel);
+                                   boolean ambilight, int ambiLevel, boolean gen1Headset);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -373,6 +388,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                           float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
+    private native void nativeUploadRoomModel(long ctx, ByteBuffer mesh, int length);
+    private native void nativeUploadRoomTexture(long ctx, ByteBuffer pixels, int width, int height);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
     private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
                                         ByteBuffer tab3d, ByteBuffer roomTab, ByteBuffer button);
@@ -402,7 +419,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
-                        prefs.vrAmbilight, prefs.vrAmbilightLevel);
+                        prefs.vrAmbilight, prefs.vrAmbilightLevel,
+                        PreferenceConfiguration.isXr2Gen1Headset());
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
@@ -697,6 +715,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadLock(nativeCtx, shut, open);
             }
 
+            ByteBuffer roomMesh = pendingRoomMesh.getAndSet(null);
+            if (roomMesh != null) {
+                nativeUploadRoomModel(nativeCtx, roomMesh, roomMeshBytes);
+            }
+            ByteBuffer roomTexture = pendingRoomTexture.getAndSet(null);
+            if (roomTexture != null) {
+                nativeUploadRoomTexture(nativeCtx, roomTexture, roomTextureWidth,
+                        roomTextureHeight);
+            }
+
             ByteBuffer background = pendingBackground.getAndSet(null);
             if (background != null) {
                 nativeUploadBackground(nativeCtx, background, backgroundWidth, backgroundHeight);
@@ -746,6 +774,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 buildPickerArt();
                 buildCogArt();
                 buildKeyboardArt();
+                loadRoomAssets();
                 if (startPhoto >= 0) {
                     decodePhoto(startPhoto);
                 }
@@ -757,7 +786,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     // A cell that is a fully 3d room rather than a photo or a plain background
     private static boolean isRoomCell(int cell) {
-        return cell == CELL_MINIMAL_ROOM;
+        return cell == CELL_MINIMAL_ROOM || cell == CELL_PSX_CINEMA;
     }
 
     // A cell is worth switching to if it is one of the fixed ones or a photo
@@ -842,6 +871,66 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * The baked room and its texture atlas. Both are parked for the frame loop
+     * to hand over, since that thread owns the GL context and is the one that
+     * builds the geometry. Either failing leaves the pair unset, and the cell
+     * shows the minimal room instead of anything broken.
+     */
+    private void loadRoomAssets() {
+        ByteBuffer mesh = readAsset(ROOM_DIR + "/" + ROOM_MESH_FILE);
+        if (mesh == null) {
+            return;
+        }
+
+        InputStream in = null;
+        try {
+            in = prefsContext.getAssets().open(ROOM_DIR + "/" + ROOM_TEXTURE_FILE);
+            Bitmap atlas = BitmapFactory.decodeStream(in);
+            if (atlas == null) {
+                LimeLog.warning("Room texture " + ROOM_TEXTURE_FILE + " did not decode");
+                return;
+            }
+            roomTextureWidth = atlas.getWidth();
+            roomTextureHeight = atlas.getHeight();
+            ByteBuffer pixels = toBuffer(atlas);
+            atlas.recycle();
+
+            roomMeshBytes = mesh.remaining();
+            pendingRoomMesh.set(mesh);
+            pendingRoomTexture.set(pixels);
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Room texture " + ROOM_TEXTURE_FILE + " failed: " + e);
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    // A whole asset in a direct buffer, which is the only kind the native side
+    // can read without a copy
+    private ByteBuffer readAsset(String path) {
+        InputStream in = null;
+        try {
+            in = prefsContext.getAssets().open(path);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] chunk = new byte[16384];
+            int read;
+            while ((read = in.read(chunk)) > 0) {
+                out.write(chunk, 0, read);
+            }
+            byte[] all = out.toByteArray();
+            ByteBuffer buffer = ByteBuffer.allocateDirect(all.length);
+            buffer.put(all);
+            buffer.rewind();
+            return buffer;
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Asset " + path + " failed: " + e);
+            return null;
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    /**
      * Draws the grid and the button that opens it. Java is the only place
      * Android will lay out text, so the labels have to be baked into the
      * texture here rather than drawn in the shader.
@@ -885,11 +974,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 name = "Black void";
                 paint.setColor(0xFF090909);
             }
-            else if (isRoomCell(cell)) {
+            else if (cell == CELL_MINIMAL_ROOM) {
                 // No photo to preview, so the room is sketched on the tile
                 // below once the base colour is down
                 name = "Minimal room";
                 paint.setColor(0xFF0B0B0E);
+            }
+            else if (cell == CELL_PSX_CINEMA) {
+                name = "PSX Cinema";
+                paint.setColor(0xFF120A0C);
             }
             else if (cell - CELL_FIRST_PHOTO < environmentFiles.length) {
                 name = labelFor(environmentFiles[cell - CELL_FIRST_PHOTO]);
@@ -920,8 +1013,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (thumb != null) {
                 thumb.recycle();
             }
-            if (isRoomCell(cell)) {
+            if (cell == CELL_MINIMAL_ROOM) {
                 drawRoomTile(canvas, paint, tile, radius);
+            }
+            else if (cell == CELL_PSX_CINEMA) {
+                drawCinemaTile(canvas, paint, tile, radius);
             }
 
             // Dark band under the label, clipped to the bottom of the tile so
@@ -997,6 +1093,62 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         paint.setColor(0x28FFFFFF);
         float floorY = tile.top + h * 0.78f;
         canvas.drawRect(new RectF(tile.left, floorY, tile.right, floorY + 1.5f), paint);
+
+        canvas.restore();
+    }
+
+    /**
+     * The thumbnail for the cinema cell: a lit screen between the deep red side
+     * curtains, which is about all of that room that reads at this size.
+     */
+    private void drawCinemaTile(Canvas canvas, Paint paint, RectF tile, float radius) {
+        canvas.save();
+        Path clip = new Path();
+        clip.addRoundRect(tile, radius, radius, Path.Direction.CW);
+        canvas.clipPath(clip);
+
+        final float w = tile.width();
+        final float h = tile.height();
+
+        // The picture, narrower than the bare room's since the curtains take
+        // the sides of the tile
+        float screenW = w * 0.50f;
+        float screenH = screenW * 9.0f / 16.0f;
+        float screenTop = tile.top + h * 0.27f;
+        RectF screen = new RectF(tile.centerX() - screenW * 0.5f, screenTop,
+                tile.centerX() + screenW * 0.5f, screenTop + screenH);
+
+        RectF halo = new RectF(screen);
+        halo.inset(-w * 0.07f, -h * 0.07f);
+        paint.setColor(0x34C4D6F0);
+        canvas.drawRoundRect(halo, radius * 0.7f, radius * 0.7f, paint);
+        paint.setColor(0xFFE2E9F6);
+        canvas.drawRect(screen, paint);
+
+        // Curtains over the ends of that halo, so the light reads as coming
+        // from behind them
+        final float curtainW = w * 0.21f;
+        paint.setColor(0xFF7C1319);
+        canvas.drawRect(new RectF(tile.left, tile.top, tile.left + curtainW, tile.bottom), paint);
+        canvas.drawRect(new RectF(tile.right - curtainW, tile.top, tile.right, tile.bottom), paint);
+
+        // Three pleats apiece, which is what says curtain rather than red panel
+        final float pleatW = w * 0.013f;
+        paint.setColor(0xFF4A0B10);
+        for (int i = 1; i < 4; i++) {
+            float along = curtainW * (i / 4.0f);
+            float left = tile.left + along;
+            canvas.drawRect(new RectF(left, tile.top, left + pleatW, tile.bottom), paint);
+            float right = tile.right - curtainW + along;
+            canvas.drawRect(new RectF(right, tile.top, right + pleatW, tile.bottom), paint);
+        }
+
+        // The front of the stage, faint enough to read as the dark of the room
+        // rather than as a line across the tile
+        paint.setColor(0x20FFFFFF);
+        float stageY = tile.top + h * 0.76f;
+        canvas.drawRect(new RectF(tile.left + curtainW, stageY,
+                tile.right - curtainW, stageY + 1.5f), paint);
 
         canvas.restore();
     }
