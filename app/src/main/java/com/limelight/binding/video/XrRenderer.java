@@ -129,6 +129,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int SETTING_SEPARATION = 2;
     private static final int SETTING_CONVERGENCE = 3;
     private static final int SETTING_RESET_3D = 4;
+    private static final int SETTING_AMBILIGHT = 5;
+    private static final int SETTING_AMBI_LEVEL = 6;
     // Position, orientation, width, cylinder radius, then the curvature the
     // settings panel asked for
     private static final int POSE_VALUES = 10;
@@ -192,12 +194,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int COG_ROW_TILT = 2;
     private static final int COG_ROW_ROTATE = 3;
     private static final int COG_ROW_CURVE = 4;
-    // Display tab: a label and a row of cells, one of which is in force
-    private static final String[] COG_OPTION_ROWS = { "Sharpen", "Stats" };
+    // Display tab: a label and a row of cells, one of which is in force, and
+    // the glow level track under them
+    private static final String[] COG_OPTION_ROWS = { "Sharpen", "Stats", "Glow" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" }
     };
+    // Must match COG_DISPLAY_SLIDER_ROW in xr_renderer.c
+    private static final int COG_DISPLAY_SLIDER_ROW = 3;
     // 3D tab: two sliders, drawn the same way the screen tab's are. Only
     // values that take effect the moment they move belong on the panel, which
     // is why the depth source itself stays in the 2d settings.
@@ -242,7 +248,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static native void nativeSetFileLog(String path, int level);
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
-                                   boolean handTracking, int sharpenMode, boolean perfOverlay);
+                                   boolean handTracking, int sharpenMode, boolean perfOverlay,
+                                   boolean ambilight, int ambiLevel);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -286,7 +293,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
-                        prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay);
+                        prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
+                        prefs.vrAmbilight, prefs.vrAmbilightLevel);
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
@@ -1136,6 +1144,25 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         cellText);
             }
         }
+
+        // How strong the glow is, a track under the cells and the only row on
+        // this tab that is dragged rather than pressed
+        float y = (COG_ROW_V0 + COG_DISPLAY_SLIDER_ROW * COG_ROW_STEP) * COG_TEX_H;
+        canvas.drawText("Glow level", 0.06f * COG_TEX_W,
+                y - (label.ascent() + label.descent()) * 0.5f, label);
+
+        Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
+        track.setStyle(Paint.Style.STROKE);
+        track.setStrokeWidth(6.0f);
+        track.setStrokeCap(Paint.Cap.ROUND);
+        track.setColor(0x66FFFFFF);
+        canvas.drawLine(trackL, y, trackR, y, track);
+
+        // Marks the default, halfway, the same way the 3D tab marks its two
+        Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tick.setColor(0xCCFFFFFF);
+        float midX = (trackL + trackR) * 0.5f;
+        canvas.drawRect(midX - 2.0f, y - cellHalf, midX + 2.0f, y + cellHalf, tick);
     }
 
     // The fallback cog, drawn only when the icon asset is missing. About as
@@ -1299,6 +1326,23 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.ENABLE_PERF_OVERLAY_STRING, on)
+                    .apply();
+        }
+        else if (setting == SETTING_AMBILIGHT) {
+            boolean on = value != 0;
+            if (prefConfig != null) {
+                prefConfig.vrAmbilight = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_AMBILIGHT_PREF_STRING, on)
+                    .apply();
+        }
+        else if (setting == SETTING_AMBI_LEVEL) {
+            if (prefConfig != null) {
+                prefConfig.vrAmbilightLevel = value;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putInt(PreferenceConfiguration.VR_AMBILIGHT_LEVEL_PREF_STRING, value)
                     .apply();
         }
         else if (setting == SETTING_SEPARATION) {

@@ -71,6 +71,8 @@ public class PreferenceConfiguration {
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
     public static final String VR_CONVERGENCE_PREF_STRING = "seekbar_vr_convergence";
     private static final String VR_DEPTH_SCALE_PREF_STRING = "seekbar_vr_depth_scale";
+    public static final String VR_AMBILIGHT_PREF_STRING = "checkbox_vr_ambilight";
+    public static final String VR_AMBILIGHT_LEVEL_PREF_STRING = "seekbar_vr_ambilight_level";
     public static final String FILE_LOG_PREF_STRING = "list_vr_file_log";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
@@ -140,6 +142,10 @@ public class PreferenceConfiguration {
     // beside the depth slider that gives it something to do.
     public static final int DEFAULT_VR_CONVERGENCE = 50;
     private static final int DEFAULT_VR_DEPTH_SCALE = 100;
+    // Off until it is asked for, and half strength when it is, which is where
+    // the panel's tick sits
+    public static final boolean DEFAULT_VR_AMBILIGHT = false;
+    public static final int DEFAULT_VR_AMBILIGHT_LEVEL = 50;
     // Warnings and errors by default. The file is small, and a report that
     // arrives without one is a round trip nobody wants.
     public static final String DEFAULT_FILE_LOG = "basic";
@@ -215,6 +221,10 @@ public class PreferenceConfiguration {
     public int vrInferenceCadence;
     public int vrConvergence;
     public int vrDepthScale;
+    // Colours from the frame bleeding into the space around the screen, and
+    // how strong that is as a percentage
+    public boolean vrAmbilight;
+    public int vrAmbilightLevel;
     // off, basic or verbose
     public String fileLogLevel;
     public boolean enableLatencyToast;
@@ -713,6 +723,9 @@ public class PreferenceConfiguration {
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);
         config.vrConvergence = prefs.getInt(VR_CONVERGENCE_PREF_STRING, DEFAULT_VR_CONVERGENCE);
         config.vrDepthScale = prefs.getInt(VR_DEPTH_SCALE_PREF_STRING, DEFAULT_VR_DEPTH_SCALE);
+        config.vrAmbilight = prefs.getBoolean(VR_AMBILIGHT_PREF_STRING, DEFAULT_VR_AMBILIGHT);
+        config.vrAmbilightLevel = prefs.getInt(VR_AMBILIGHT_LEVEL_PREF_STRING,
+                DEFAULT_VR_AMBILIGHT_LEVEL);
         config.fileLogLevel = prefs.getString(FILE_LOG_PREF_STRING, DEFAULT_FILE_LOG);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
