@@ -1,0 +1,6 @@
+"VR Cinema Environment" (https://skfb.ly/6VuIX) by fangzhangmnm is licensed
+under Creative Commons Attribution (http://creativecommons.org/licenses/by/4.0/).
+
+Shipped in the app as the "PSX Cinema" environment. Modifications: the mesh is
+converted to the renderer's flat format with tools/bake_room.py, and the
+embedded texture is extracted and shipped alongside it.

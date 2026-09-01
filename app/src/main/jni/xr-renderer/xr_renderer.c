@@ -1,8 +1,9 @@
 // OpenXR presentation for the decoded video stream. The decoder feeds a
 // SurfaceTexture whose OES texture lives in the EGL context created here.
 // Each new video frame is drawn into a single swapchain that the compositor
-// shows on a quad (or cylinder) visible to both eyes. No projection layers,
-// the compositor does all the reprojection work.
+// shows on a quad (or cylinder) visible to both eyes, so the compositor does
+// all the reprojection work. The 3d room is the one exception: it is real
+// geometry drawn per eye into a projection layer, in place of the environment.
 
 #include <jni.h>
 #include <stdlib.h>
@@ -252,6 +253,7 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define SETTING_RESET_3D 4
 #define SETTING_AMBILIGHT 5
 #define SETTING_AMBI_LEVEL 6
+#define SETTING_ROOM_LIGHT 7
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
@@ -291,14 +293,25 @@ static void xrLog(int prio, const char* fmt, ...) {
 
 // Environment picker. A grid of thumbnails drawn in Java and shown as one
 // quad, with the hover and selection marks as separate outline quads so
-// pointing around the grid never costs an upload.
-#define PICKER_COLS 3
+// pointing around the grid never costs an upload. One band per category: a
+// header strip carrying its name, then a row of cells under it. Must match the
+// PICKER_ constants in XrRenderer.java.
+#define PICKER_COLS 4
 #define PICKER_ROWS 2
 #define PICKER_CELLS (PICKER_COLS * PICKER_ROWS)
-#define PICKER_TEX_W 768
-#define PICKER_TEX_H 512
-#define PICKER_WIDTH_FRAC 0.55f
+#define PICKER_TEX_W 1024
+#define PICKER_HEADER_PX 40
+#define PICKER_CELL_PX 256
+#define PICKER_BAND_PX (PICKER_HEADER_PX + PICKER_CELL_PX)
+#define PICKER_TEX_H (PICKER_BAND_PX * PICKER_ROWS)
+// Widened along with the grid so a cell stays about the size it was at three
+// columns
+#define PICKER_WIDTH_FRAC 0.73f
 #define OUTLINE_TEX 128
+// The room cells in the grid. Must match CELL_MINIMAL_ROOM and CELL_PSX_CINEMA
+// in XrRenderer.java.
+#define ENV_CELL_MINIMAL_ROOM 2
+#define ENV_CELL_PSX_CINEMA 3
 // The button that opens it, sitting to the left of the move bar
 #define ENV_BUTTON_FRAC 0.048f
 #define ENV_GAP_FRAC 0.02f
@@ -350,6 +363,10 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define COG_TAB_DISPLAY 1
 #define COG_TAB_3D      2
 #define COG_TAB_COUNT   3
+// And one more sheet than there are tabs: the screen tab has a second face for
+// when a room hangs the picture and none of its rows can do anything
+#define COG_ART_ROOM_SCREEN 3
+#define COG_ART_COUNT       4
 
 // Screen tab rows, in the order they are drawn
 #define COG_SLIDER_DISTANCE 0
@@ -380,13 +397,15 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_STATS   1
 #define COG_OPTION_AMBILIGHT 2
-#define COG_OPTION_COUNT   3
+#define COG_OPTION_ROOM_LIGHT 3
+#define COG_OPTION_COUNT   4
 #define COG_SHARPEN_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_AMBI_CELLS    2
+#define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on
-#define COG_DISPLAY_SLIDER_ROW 3
+#define COG_DISPLAY_SLIDER_ROW 4
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
 #define COG_DIST_MIN 0.2f
@@ -452,6 +471,51 @@ static void xrLog(int prio, const char* fmt, ...) {
 // sits in metres
 #define GLOW_SCALE 1.7f
 #define GLOW_BEHIND_M 0.05f
+
+// The 3d room. A dark interior, drawn per eye into the one projection layer
+// this renderer has, instead of the environment sphere. Which room, 0 for none:
+// 1 is generated here, 2 is the baked model that ships in the assets.
+#define ROOM_STYLE_MINIMAL 1
+#define ROOM_STYLE_PSX 2
+#define ROOM_EYES 2
+// The whole of what the runtime recommends per eye, capped here. Half of it
+// was soft enough against the video layer beside it to see, and this is what
+// the room costs to keep its edges as sharp. A Gen 1 headset stays on half,
+// capped at the smaller number, since it has neither the memory nor the fill
+// rate for the rest.
+#define ROOM_MAX_EYE_FULL 2560
+#define ROOM_MAX_EYE 1280
+// Ten floats a vertex: position, colour, spill weight, texture coordinate and
+// one spare
+#define ROOM_VERTEX_FLOATS 10
+#define ROOM_FACES 6
+// Which of the six faces a vertex came off, since each is coloured its own way
+#define ROOM_SURF_WALL    0
+#define ROOM_SURF_FLOOR   1
+#define ROOM_SURF_CEILING 2
+// Sixteen bit indices, so this is as many vertices as one room can hold
+#define ROOM_MAX_VERTS 65535
+// Floats a vertex in the baked model file: position, normal, texture coordinate
+#define ROOM_MODEL_FLOATS 8
+// Where the viewer stands in the model's own space. The geometry is built as
+// (model - anchor) * scale, so the room arrives around the origin the way the
+// generated one is built around it. Only x and z are fixed: the height of the
+// anchor follows the scale, so the tier below stays underfoot.
+#define ROOM_MODEL_ANCHOR_X 0.0f
+#define ROOM_MODEL_ANCHOR_Z (-12.0f)
+// The seating tier the viewer stands on, in the model's own space, and how far
+// above it the eye sits whatever the room is scaled to
+#define ROOM_MODEL_TIER_Y (-2.55f)
+#define ROOM_EYE_HEIGHT_M 1.25f
+// How large the baked room is drawn. Full size measured about a fifth too big
+// in the headset, and the property below moves it between these two.
+#define ROOM_PSX_SCALE 0.8f
+#define ROOM_SCALE_MIN 0.25f
+#define ROOM_SCALE_MAX 4.0f
+// What the brightness property can ask for, either side of the atlas going on
+// exactly as it was baked
+#define ROOM_DIM_MIN 0.10f
+#define ROOM_DIM_MAX 2.0f
 
 // Return codes for waitBeginFrame
 #define FRAME_EXIT   -1
@@ -532,6 +596,10 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_SHARPEN "debug.moonlight.sharpen"
 #define PROP_AMBILIGHT "debug.moonlight.ambilight"
 #define PROP_AMBI_SMOOTH "debug.moonlight.ambismooth"
+#define PROP_ROOM "debug.moonlight.room"
+#define PROP_ROOM_SCALE "debug.moonlight.roomscale"
+#define PROP_ROOM_DIM "debug.moonlight.roomdim"
+#define PROP_TB_SWAP "debug.moonlight.tbswap"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
@@ -685,6 +753,87 @@ typedef struct {
     // What the debug property asked for, or -1 while the panel still owns it
     int ambiOverride;
 
+    // Which room the picker is on: 0 none, 1 the minimal room, 2 the cinema.
+    // Same arrangement as the glow, with a debug property that can force it.
+    int roomStyle;
+    int roomOverride;
+    // What the scale and brightness properties asked for, or -1 while the
+    // params the style ships with own them
+    float roomScaleOverride;
+    float roomDimOverride;
+    // Whether the picture washes its light over the room. Its own option, since
+    // the wash runs whether the glow is on or not.
+    int roomLightOn;
+    // Everything the room is drawn with, built the first frame a style asks
+    // for it rather than at startup, the way the background photo arrives.
+    // One side by side image, a half of it per eye.
+    XrSwapchain roomSwapchain;
+    uint32_t roomImageCount;
+    XrSwapchainImageOpenGLESKHR* roomImages;
+    GLuint roomFbo;
+    GLuint roomDepthBuffer;
+    GLuint roomProgram;
+    GLint roomViewProjUniform;
+    GLint roomSpillGainUniform;
+    GLint roomTexMixUniform;
+    GLint roomDimUniform;
+    GLuint roomVertexBuffer;
+    GLuint roomIndexBuffer;
+    int roomVertexCount;
+    int roomIndexCount;
+    // The baked model a textured style is built from, kept in its own copy so a
+    // rebuild does not need the assets read again. Held exactly as the file has
+    // it: the anchor and the scale go on as the geometry is built, so a scale
+    // change is a rebuild rather than another read.
+    float* roomModelVerts;
+    unsigned short* roomModelIndices;
+    int roomModelVertexCount;
+    int roomModelIndexCount;
+    int roomModelReady;
+    // Its atlas, and a 1x1 white stand in so the sampler always has something
+    // complete bound while the generated room is up
+    GLuint roomTexture;
+    int roomTextureReady;
+    GLuint roomWhiteTexture;
+    float roomTexMix;
+    float roomDim;
+    // Which style the buffers hold, so the picker moving between rooms
+    // rebuilds them. 0 until the first build.
+    int roomBuiltStyle;
+    // What the picker last asked for, whether the assets had landed then, and
+    // the scale it was asking at, so neither a style still waiting for them nor
+    // a build that failed is retried every frame
+    int roomWantedStyle;
+    int roomAssetsSeen;
+    float roomWantedScale;
+    int roomEyeWidth;
+    int roomEyeHeight;
+    int roomReady;
+    // One failed attempt is enough: nothing about it will be different next
+    // frame, and retrying every frame would only fill the log
+    int roomFailed;
+    int roomRendered;
+    float roomSpillGain;
+    float roomClear[3];
+    // Both eyes as the room was last drawn from them, which is what the
+    // projection layer has to be submitted with. Nothing else in here locates
+    // a view, since every other layer is placed by the compositor.
+    XrView roomViews[ROOM_EYES];
+    int roomViewsValid;
+    // The room hangs the picture on its far wall, so where the user had it is
+    // put aside for as long as one is on and handed back on the way out
+    int roomHoldingScreen;
+    XrPosef savedScreenPose;
+    float savedScreenWidth;
+    float savedScreenRadius;
+    // What the runtime asks for per eye, read once at startup. Only the room
+    // has any use for it.
+    int recommendedEyeWidth;
+    int recommendedEyeHeight;
+    // Whether this is one of the XR2 Gen 1 headsets, decided on the Java side.
+    // Only the room reads it, to draw itself smaller there.
+    int gen1Headset;
+
     GLuint oesTexture;
     GLuint program;
     GLint texMatrixUniform;
@@ -739,6 +888,9 @@ typedef struct {
     int backgroundHeight;
     int backgroundReady;
     int backgroundEnabled;
+    // Which half of a top/bottom stereo photo goes to which eye, tradeable
+    // over debug.moonlight.tbswap for a photo that packs them the other way
+    int tbSwap;
     float envRadius;
     int srgbWriteControl;
     // Passthrough is just an environment blend mode: with alpha blend the
@@ -822,6 +974,11 @@ typedef struct {
     // does not grab it. Dragging a window on the host desktop past the edge of
     // the picture would otherwise turn into a resize.
     int triggerEdge[SRC_COUNT];
+    // A press the grid, the panel or the keyboard took for itself, held until
+    // the trigger is released. The host's left button is level based, so
+    // without this the press that picks something goes on to click whatever the
+    // modal was covering as soon as it closes.
+    int triggerSwallowed[SRC_COUNT];
     // Indexed by the chosen source, and gaze has no grip, so it needs the
     // extra slot even though nothing ever writes to it
     int gripEdge[SRC_COUNT];
@@ -934,18 +1091,18 @@ typedef struct {
     // same one after a photo decode does not repeat it
     int loggedChoice;
 
-    // One swapchain per tab, both filled at startup, so changing tab is a
+    // One swapchain per sheet, all filled at startup, so changing tab is a
     // different handle in the layer rather than an upload
-    XrSwapchain cogPanelSwapchains[COG_TAB_COUNT];
+    XrSwapchain cogPanelSwapchains[COG_ART_COUNT];
     XrSwapchain cogButtonSwapchain;
     XrSwapchain cogThumbSwapchain;
-    uint32_t cogPanelImageCounts[COG_TAB_COUNT];
+    uint32_t cogPanelImageCounts[COG_ART_COUNT];
     uint32_t cogButtonImageCount;
     uint32_t cogThumbImageCount;
-    XrSwapchainImageOpenGLESKHR* cogPanelImages[COG_TAB_COUNT];
+    XrSwapchainImageOpenGLESKHR* cogPanelImages[COG_ART_COUNT];
     XrSwapchainImageOpenGLESKHR* cogButtonImages;
     XrSwapchainImageOpenGLESKHR* cogThumbImages;
-    int cogPanelReady[COG_TAB_COUNT];
+    int cogPanelReady[COG_ART_COUNT];
     int cogButtonReady;
     int cogThumbReady;
     int cogOpen;
@@ -1017,6 +1174,21 @@ typedef struct {
     long gpuTotalNs;
     long gpuMaxNs;
     long gpuSamples;
+    // Samples the plausibility filter refused, and the last raw value it saw,
+    // so a starved window can say what the driver was returning
+    long gpuDropped;
+    GLuint64 gpuLastDroppedNs;
+
+    // The room is a projection sized pass, and with it inside the window above
+    // this driver wraps nearly every query it hands back. It gets a pair of its
+    // own instead, opened and closed before the main one begins.
+    GLuint roomTimerQueries[2];
+    int roomTimerSlot;
+    int roomTimerPending[2];
+    int roomTimerPendingFrames[2];
+    long roomGpuTotalNs;
+    long roomGpuSamples;
+    long roomGpuDropped;
 
     // Separate accumulator so reading the number for the overlay does not
     // disturb the logcat cadence
@@ -1350,6 +1522,57 @@ static const char* GLOW_FRAGMENT_SRC =
     "    fragColor = vec4(color * a, a);\n"
     "}\n";
 
+// The 3d room. Both the colouring of the generated room and the light the
+// picture throws are worked out per vertex: the geometry is a few hundred
+// vertices, and the only thing that changes frame to frame is how much of the
+// screen's light lands on each of them. All the fragment side does is pick
+// between that vertex colour and the atlas a baked room is textured with, which
+// is what keeps a full screen projection layer affordable.
+static const char* ROOM_VERTEX_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "in vec3 a_position;\n"
+    "in vec3 a_color;\n"
+    "in float a_spill;\n"
+    "in vec2 a_uv;\n"
+    "uniform mat4 u_viewproj;\n"
+    "uniform sampler2D u_ambi;\n"
+    "uniform float u_spillGain;\n"
+    "out vec3 v_color;\n"
+    "out vec3 v_wash;\n"
+    "out vec2 v_uv;\n"
+    "void main() {\n"
+    // Five taps over the frame's colour texture, centre and the middle of each
+    // edge. A wash of light on a wall carries no more detail than that.
+    "    vec3 lit = texture(u_ambi, vec2(0.5, 0.5)).rgb;\n"
+    "    lit += texture(u_ambi, vec2(0.15, 0.5)).rgb;\n"
+    "    lit += texture(u_ambi, vec2(0.85, 0.5)).rgb;\n"
+    "    lit += texture(u_ambi, vec2(0.5, 0.15)).rgb;\n"
+    "    lit += texture(u_ambi, vec2(0.5, 0.85)).rgb;\n"
+    "    vec3 wash = lit * 0.2;\n"
+    "    v_color = a_color;\n"
+    "    v_wash = wash * (a_spill * u_spillGain);\n"
+    "    v_uv = a_uv;\n"
+    "    gl_Position = u_viewproj * vec4(a_position, 1.0);\n"
+    "}\n";
+
+static const char* ROOM_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "precision mediump float;\n"
+    "in vec3 v_color;\n"
+    "in vec3 v_wash;\n"
+    "in vec2 v_uv;\n"
+    "uniform sampler2D u_room;\n"
+    "uniform float u_texMix;\n"
+    "uniform float u_dim;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    // A generated room is at mix 0 and a textured one at 1. The sample happens
+    // either way, so a white 1x1 stands in while nothing else is loaded.
+    "    vec3 base = mix(v_color, texture(u_room, v_uv).rgb * u_dim, u_texMix);\n"
+    "    fragColor = vec4(base + v_wash, 1.0);\n"
+    "}\n";
+
 // Same fullscreen strip as the 2d GL path, x y u v
 static const float VERTEX_DATA[] = {
     -1.0f, -1.0f, 0.0f, 0.0f,
@@ -1589,6 +1812,31 @@ static int initXrInstance(XrCtx* ctx) {
         // Worth having in a user's log, it is the one place an unknown headset
         // names itself
         LOGEV("system %s (vendor 0x%x)", layerProps.systemName, layerProps.vendorId);
+    }
+
+    // What the runtime would like a rendered view to be. Asked once, and the
+    // 3d room is the only thing that renders one, so nothing else looks at
+    // it. Worth a line either way: it says what a headset's own idea of full
+    // resolution is.
+    uint32_t configViewCount = 0;
+    xrEnumerateViewConfigurationViews(ctx->instance, ctx->systemId,
+                                      XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                                      0, &configViewCount, NULL);
+    if (configViewCount > 0) {
+        XrViewConfigurationView* configViews =
+                calloc(configViewCount, sizeof(XrViewConfigurationView));
+        for (uint32_t i = 0; i < configViewCount; i++) {
+            configViews[i].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
+        }
+        if (XR_SUCCEEDED(xrEnumerateViewConfigurationViews(
+                ctx->instance, ctx->systemId, XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
+                configViewCount, &configViewCount, configViews))) {
+            ctx->recommendedEyeWidth = (int)configViews[0].recommendedImageRectWidth;
+            ctx->recommendedEyeHeight = (int)configViews[0].recommendedImageRectHeight;
+            LOGI("recommended render size %dx%d per eye, %u views",
+                 ctx->recommendedEyeWidth, ctx->recommendedEyeHeight, configViewCount);
+        }
+        free(configViews);
     }
 
     // Offering the extension is not the same as having the hardware, so the
@@ -2064,6 +2312,7 @@ static int initGl(XrCtx* ctx) {
         if (pfnGenQueries != NULL && pfnBeginQuery != NULL && pfnEndQuery != NULL &&
                 pfnGetQueryObjectuiv != NULL && pfnGetQueryObjectui64v != NULL) {
             pfnGenQueries(2, ctx->timerQueries);
+            pfnGenQueries(2, ctx->roomTimerQueries);
             ctx->timerSupported = 1;
         }
     }
@@ -2384,6 +2633,296 @@ static Vec3 vecNorm(Vec3 v) {
 static Vec3 vecCross(Vec3 a, Vec3 b) {
     Vec3 r = { a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x };
     return r;
+}
+
+static float vecDot(Vec3 a, Vec3 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z;
+}
+
+// Matrices are column major, the order GL takes them in, and out = a * b
+static void matMul(float* out, const float* a, const float* b) {
+    for (int col = 0; col < 4; col++) {
+        for (int row = 0; row < 4; row++) {
+            out[col * 4 + row] = a[row] * b[col * 4]
+                    + a[4 + row] * b[col * 4 + 1]
+                    + a[8 + row] * b[col * 4 + 2]
+                    + a[12 + row] * b[col * 4 + 3];
+        }
+    }
+}
+
+// The runtime hands out four half angles rather than one field of view, since
+// the two halves of an eye's frustum are not the same size on these headsets
+static void projectionFromFov(float* m, XrFovf fov, float nearZ, float farZ) {
+    float left = tanf(fov.angleLeft);
+    float right = tanf(fov.angleRight);
+    float down = tanf(fov.angleDown);
+    float up = tanf(fov.angleUp);
+    float width = right - left;
+    float height = up - down;
+
+    memset(m, 0, 16 * sizeof(float));
+    m[0] = 2.0f / width;
+    m[5] = 2.0f / height;
+    m[8] = (right + left) / width;
+    m[9] = (up + down) / height;
+    m[10] = -(farZ + nearZ) / (farZ - nearZ);
+    m[11] = -1.0f;
+    m[14] = -(2.0f * farZ * nearZ) / (farZ - nearZ);
+}
+
+// The inverse of a pose that is only a rotation and a translation, which is
+// what turns where an eye is into where the world is relative to it
+static void viewFromPose(float* m, XrPosef pose) {
+    XrQuaternionf inv = quatConj(pose.orientation);
+    Vec3 ex = { 1.0f, 0.0f, 0.0f };
+    Vec3 ey = { 0.0f, 1.0f, 0.0f };
+    Vec3 ez = { 0.0f, 0.0f, 1.0f };
+    Vec3 rx = quatRotate(inv, ex);
+    Vec3 ry = quatRotate(inv, ey);
+    Vec3 rz = quatRotate(inv, ez);
+    Vec3 eye = { pose.position.x, pose.position.y, pose.position.z };
+    Vec3 t = quatRotate(inv, eye);
+
+    m[0] = rx.x;  m[1] = rx.y;  m[2] = rx.z;  m[3] = 0.0f;
+    m[4] = ry.x;  m[5] = ry.y;  m[6] = ry.z;  m[7] = 0.0f;
+    m[8] = rz.x;  m[9] = rz.y;  m[10] = rz.z; m[11] = 0.0f;
+    m[12] = -t.x; m[13] = -t.y; m[14] = -t.z; m[15] = 1.0f;
+}
+
+// Everything the room's shape and colouring is made of, gathered in one place
+// so the look can be changed without reading the generator
+typedef struct {
+    float halfWidth;
+    float floorY;
+    // The floor under the picture, which is the one it must not hang through.
+    // The same as floorY in a room with one level, lower in a raked one, where
+    // floorY is the tier the viewer stands on.
+    float screenFloorY;
+    float ceilingY;
+    // The wall the picture hangs on, and the one behind the viewer
+    float screenZ;
+    float backZ;
+    // Quads per side on each face, so a face carries this squared of them
+    int subdiv;
+    // What each kind of surface is painted before the gradients go on
+    float wallLevel;
+    float floorLevel;
+    float ceilingLevel;
+    // Where the picture hangs, which is what the light is baked from
+    Vec3 screenAt;
+    // How high on the wall the picture is mounted, and how far off the wall it
+    // stands so the two never fight for the same pixels
+    float screenMountY;
+    float screenProud;
+    // How wide it is hung. The room sizes its own picture rather than taking
+    // the size slider's, since the wall it goes on is a known size.
+    float screenWidth;
+    // Distance at which the screen's light is down to half
+    float spillRadius;
+    // How much of that light a fully lit vertex takes
+    float spillGain;
+    // 0 for a room painted by the generator, 1 for one taking its colour off a
+    // texture atlas, and how far down that atlas is turned on the way in
+    float texMix;
+    float dim;
+    unsigned seed;
+} RoomParams;
+
+// A dither of about one 255th, from the seed and the vertex number. Without it
+// the wall gradients are shallow enough over enough pixels to band.
+static float roomDither(unsigned seed, unsigned index) {
+    unsigned h = seed + index * 2654435761u;
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    h *= 3266489917u;
+    h ^= h >> 16;
+    return ((float)(h & 0xffffu) / 65535.0f - 0.5f) * (2.0f / 255.0f);
+}
+
+// What a point on the room is painted, before any of the screen's light lands
+// on it. Near black throughout: everything here is a gradient between shades
+// of almost nothing, and the picture is what the eye should be adapting to.
+static void roomVertexColor(const RoomParams* p, int surface, Vec3 pos, float* rgb) {
+    // 0 at the screen wall, 1 at the back of the room
+    float back = (pos.z - p->screenZ) / (p->backZ - p->screenZ);
+    // 0 on the floor, 1 at the ceiling
+    float up = (pos.y - p->floorY) / (p->ceilingY - p->floorY);
+    // 0 down the middle, 1 at either side wall
+    float side = fabsf(pos.x) / p->halfWidth;
+
+    if (surface == ROOM_SURF_FLOOR) {
+        float level = p->floorLevel * (1.0f - 0.35f * back * back);
+        // A shade warmer and a shade lighter than the walls
+        rgb[0] = level * 1.00f;
+        rgb[1] = level * 0.93f;
+        rgb[2] = level * 0.84f;
+        return;
+    }
+
+    float level;
+    if (surface == ROOM_SURF_CEILING) {
+        level = p->ceilingLevel * (1.0f - 0.30f * back);
+    }
+    else {
+        // Darker toward the ceiling and darker again into the rear corners,
+        // where a real room has nothing lighting it at all
+        level = p->wallLevel * (1.0f - 0.45f * up)
+                * (1.0f - 0.30f * back * back * (0.4f + 0.6f * side));
+    }
+    rgb[0] = level;
+    rgb[1] = level;
+    rgb[2] = level;
+}
+
+// How much of the picture's light reaches a point on the room. Baked from a
+// single point where the screen sits by default: a distance and a facing term
+// is as much of a light that size as a dark wall ever shows.
+static float roomSpillWeight(const RoomParams* p, Vec3 pos, Vec3 normal) {
+    Vec3 toScreen = vecSub(p->screenAt, pos);
+    float dist = sqrtf(vecDot(toScreen, toScreen));
+    if (dist < 1e-4f) {
+        return 1.0f;
+    }
+    Vec3 dir = { toScreen.x / dist, toScreen.y / dist, toScreen.z / dist };
+    float facing = vecDot(normal, dir);
+    if (facing <= 0.0f) {
+        return 0.0f;
+    }
+
+    float ratio = dist / p->spillRadius;
+    float weight = facing / (1.0f + ratio * ratio);
+
+    // Nothing behind the viewer catches any of it, faded in over the back half
+    // of the room so the falloff has no edge in it
+    if (pos.z > 0.0f && p->backZ > 0.0f) {
+        float behind = 1.0f - pos.z / p->backZ;
+        weight *= behind > 0.0f ? behind : 0.0f;
+    }
+    return weight;
+}
+
+// Writes one vertex in the layout the room's buffer is in. A generated room has
+// no atlas behind it, so it passes 0,0 for the texture coordinate and the
+// shader mixes it out.
+static void roomWriteVertex(const RoomParams* p, float* verts, int index, Vec3 pos,
+                            const float* rgb, float spill, float u, float v) {
+    float dither = roomDither(p->seed, (unsigned)index);
+    float* out = verts + (size_t)index * ROOM_VERTEX_FLOATS;
+    out[0] = pos.x;
+    out[1] = pos.y;
+    out[2] = pos.z;
+    out[3] = rgb[0] + dither;
+    out[4] = rgb[1] + dither;
+    out[5] = rgb[2] + dither;
+    out[6] = spill;
+    out[7] = u;
+    out[8] = v;
+    out[9] = 0.0f;
+}
+
+// The most a room can ask for, so a caller can size its buffers without
+// knowing how the room is put together
+static void roomMaxCounts(const RoomParams* p, int* maxVerts, int* maxIndices) {
+    *maxVerts = ROOM_FACES * (p->subdiv + 1) * (p->subdiv + 1);
+    *maxIndices = ROOM_FACES * p->subdiv * p->subdiv * 6;
+}
+
+// Builds the whole room, vertices and indices, into buffers the caller owns.
+// The generated styles only, which is the bare shell: a baked room comes out of
+// its own model file instead.
+//
+// Triangles are wound counter clockwise seen from inside the box, so the side
+// the viewer is on faces front. Culling is left off all the same, since nothing
+// in here is ever seen from behind and there is nothing for a cull to save.
+static int buildRoomGeometry(const RoomParams* p, int style, float* verts, int maxVerts,
+                             unsigned short* indices, int maxIndices,
+                             int* vertexCount, int* indexCount) {
+    int n = p->subdiv;
+    if (n < 1 || style < ROOM_STYLE_MINIMAL) {
+        return 0;
+    }
+    int needVerts = 0;
+    int needIndices = 0;
+    roomMaxCounts(p, &needVerts, &needIndices);
+    // Past the index type is a badly chosen parameter rather than a room worth
+    // drawing, so it fails here the same way a short buffer does
+    if (needVerts > ROOM_MAX_VERTS || needVerts > maxVerts || needIndices > maxIndices) {
+        return 0;
+    }
+
+    float width = p->halfWidth * 2.0f;
+    float height = p->ceilingY - p->floorY;
+    float depth = p->backZ - p->screenZ;
+
+    // Origin and the two edges each face is swept along, ordered so that the
+    // cross product of the two points into the room
+    struct {
+        Vec3 origin;
+        Vec3 edgeU;
+        Vec3 edgeV;
+        int surface;
+    } faces[ROOM_FACES] = {
+        // The wall the picture hangs on
+        { { -p->halfWidth, p->floorY, p->screenZ },
+          { width, 0.0f, 0.0f }, { 0.0f, height, 0.0f }, ROOM_SURF_WALL },
+        // Behind the viewer
+        { { p->halfWidth, p->floorY, p->backZ },
+          { -width, 0.0f, 0.0f }, { 0.0f, height, 0.0f }, ROOM_SURF_WALL },
+        { { -p->halfWidth, p->floorY, p->screenZ },
+          { 0.0f, height, 0.0f }, { 0.0f, 0.0f, depth }, ROOM_SURF_WALL },
+        { { p->halfWidth, p->floorY, p->screenZ },
+          { 0.0f, 0.0f, depth }, { 0.0f, height, 0.0f }, ROOM_SURF_WALL },
+        { { -p->halfWidth, p->floorY, p->screenZ },
+          { 0.0f, 0.0f, depth }, { width, 0.0f, 0.0f }, ROOM_SURF_FLOOR },
+        { { -p->halfWidth, p->ceilingY, p->screenZ },
+          { width, 0.0f, 0.0f }, { 0.0f, 0.0f, depth }, ROOM_SURF_CEILING },
+    };
+
+    int written = 0;
+    int used = 0;
+    for (int f = 0; f < ROOM_FACES; f++) {
+        Vec3 normal = vecNorm(vecCross(faces[f].edgeU, faces[f].edgeV));
+        int base = written;
+
+        for (int j = 0; j <= n; j++) {
+            for (int i = 0; i <= n; i++) {
+                float u = (float)i / (float)n;
+                float v = (float)j / (float)n;
+                Vec3 pos = {
+                    faces[f].origin.x + faces[f].edgeU.x * u + faces[f].edgeV.x * v,
+                    faces[f].origin.y + faces[f].edgeU.y * u + faces[f].edgeV.y * v,
+                    faces[f].origin.z + faces[f].edgeU.z * u + faces[f].edgeV.z * v,
+                };
+
+                float rgb[3];
+                roomVertexColor(p, faces[f].surface, pos, rgb);
+                roomWriteVertex(p, verts, written, pos, rgb,
+                                roomSpillWeight(p, pos, normal), 0.0f, 0.0f);
+                written++;
+            }
+        }
+
+        for (int j = 0; j < n; j++) {
+            for (int i = 0; i < n; i++) {
+                unsigned short a = (unsigned short)(base + j * (n + 1) + i);
+                unsigned short b = (unsigned short)(a + 1);
+                unsigned short c = (unsigned short)(a + n + 1);
+                unsigned short d = (unsigned short)(c + 1);
+                indices[used++] = a;
+                indices[used++] = b;
+                indices[used++] = d;
+                indices[used++] = a;
+                indices[used++] = d;
+                indices[used++] = c;
+            }
+        }
+    }
+
+    *vertexCount = written;
+    *indexCount = used;
+    return 1;
 }
 
 static XrPath toPath(XrCtx* ctx, const char* str) {
@@ -2873,21 +3412,25 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
 
 
 // Which affordance the ray is over. Corners are numbered 0 top left, 1 top
-// right, 2 bottom left, 3 bottom right.
-static int hoverTest(float u, float v, float width, float height, int* corner) {
-    // Centred on the corner, reaching as far outside the picture as inside,
-    // because that is where the bracket is drawn
-    float reachM = CORNER_FRAC * width * CORNER_HOVER * 0.5f;
-    float cu = reachM / width;
-    float cv = reachM / height;
+// right, 2 bottom left, 3 bottom right, and are skipped where they are not
+// drawn so the ray falls through to what is behind them.
+static int hoverTest(float u, float v, float width, float height, int cornersLive,
+                     int* corner) {
+    if (cornersLive) {
+        // Centred on the corner, reaching as far outside the picture as
+        // inside, because that is where the bracket is drawn
+        float reachM = CORNER_FRAC * width * CORNER_HOVER * 0.5f;
+        float cu = reachM / width;
+        float cv = reachM / height;
 
-    int left = fabsf(u) < cu;
-    int right = fabsf(u - 1.0f) < cu;
-    int top = fabsf(v) < cv;
-    int bottom = fabsf(v - 1.0f) < cv;
-    if ((left || right) && (top || bottom)) {
-        *corner = (top ? 0 : 2) + (right ? 1 : 0);
-        return HOVER_CORNER;
+        int left = fabsf(u) < cu;
+        int right = fabsf(u - 1.0f) < cu;
+        int top = fabsf(v) < cv;
+        int bottom = fabsf(v - 1.0f) < cv;
+        if ((left || right) && (top || bottom)) {
+            *corner = (top ? 0 : 2) + (right ? 1 : 0);
+            return HOVER_CORNER;
+        }
     }
 
     if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f) {
@@ -2995,7 +3538,7 @@ static int createPointerSwapchain(XrCtx* ctx) {
 
     info.width = COG_TEX_W;
     info.height = COG_TEX_H;
-    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
         if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->cogPanelSwapchains[tab]),
                     "create cog panel swapchain")) {
             xrEnumerateSwapchainImages(ctx->cogPanelSwapchains[tab], 0,
@@ -3444,14 +3987,30 @@ static float effectiveCurvature(XrCtx* ctx) {
     return ctx->panelCurve >= 0.0f ? ctx->panelCurve : ctx->prefCurvature;
 }
 
+// Which room is in force, the picker's unless the debug property has taken it
+// over. 0 is no room at all, which is every other environment.
+static int roomEffective(XrCtx* ctx) {
+    return ctx->roomOverride >= 0 ? ctx->roomOverride : ctx->roomStyle;
+}
+
+// A room places and sizes its own picture, so every row on the screen tab is
+// dead while one is on. The panel shows a note in their place, and the input
+// side has to agree with what is drawn.
+static int cogScreenLocked(XrCtx* ctx) {
+    return ctx->cogTab == COG_TAB_SCREEN && roomEffective(ctx) > 0;
+}
+
 // The sliders place the screen, the grab moves it from there. Moving either
-// slider is taken as the user asking for the placement back.
-static void updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature) {
+// slider is taken as the user asking for the placement back. Says whether it
+// reseeded, since a room holding the screen has to know the placement waiting
+// behind it has changed.
+static int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature) {
     int sliderMoved = ctx->sliderSeen
             && (fabsf(distance - ctx->lastDistance) > 1e-4f
                 || fabsf(quadWidth - ctx->lastQuadWidth) > 1e-4f);
+    int reseeded = !ctx->placementValid || sliderMoved;
 
-    if (!ctx->placementValid || sliderMoved) {
+    if (reseeded) {
         memset(&ctx->screenPose, 0, sizeof(ctx->screenPose));
         ctx->screenPose.orientation.w = 1.0f;
         ctx->screenPose.position.z = -distance;
@@ -3467,6 +4026,7 @@ static void updatePlacement(XrCtx* ctx, float distance, float quadWidth, float c
     ctx->lastDistance = distance;
     ctx->lastQuadWidth = quadWidth;
     ctx->sliderSeen = 1;
+    return reseeded;
 }
 
 // Handed back only when a grab ends, so preferences are written once per move
@@ -3558,6 +4118,12 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
     }
 
     if (ctx->grabMode == GRAB_NONE) {
+        // A 3d room holds the picture on its wall and forces the pose every
+        // frame, so a drag could only fight it. Neither handle is drawn there,
+        // and the corners are not even hovered.
+        if (roomEffective(ctx) > 0) {
+            return;
+        }
         if (hand < 0 || (hover != HOVER_BAR && hover != HOVER_CORNER)) {
             return;
         }
@@ -4019,6 +4585,9 @@ static int cogOptionCells(int option) {
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
+    if (option == COG_OPTION_ROOM_LIGHT) {
+        return COG_ROOM_LIGHT_CELLS;
+    }
     return COG_STATS_CELLS;
 }
 
@@ -4029,6 +4598,9 @@ static int cogOptionValue(XrCtx* ctx, int option) {
     }
     if (option == COG_OPTION_AMBILIGHT) {
         return ctx->ambilightOn ? 1 : 0;
+    }
+    if (option == COG_OPTION_ROOM_LIGHT) {
+        return ctx->roomLightOn ? 1 : 0;
     }
     return ctx->overlayVisible ? 1 : 0;
 }
@@ -4049,6 +4621,11 @@ static int cogApplyOption(XrCtx* ctx, int option, int cell) {
         ctx->ambilightOn = cell != 0;
         LOGEV("ambilight %s from the panel", ctx->ambilightOn ? "on" : "off");
         return SETTING_AMBILIGHT;
+    }
+    if (option == COG_OPTION_ROOM_LIGHT) {
+        ctx->roomLightOn = cell != 0;
+        LOGEV("room light %s from the panel", ctx->roomLightOn ? "on" : "off");
+        return SETTING_ROOM_LIGHT;
     }
     return -1;
 }
@@ -4119,6 +4696,23 @@ static int lockButtonHit(XrCtx* ctx, float u, float v, float height) {
     return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
 }
 
+// The press was meant for the thing that is open, not for the host behind it.
+// Gaze has no button of its own, so swallowing a gaze press means swallowing
+// the pinch that stood in for it.
+static void swallowTrigger(XrCtx* ctx, int src) {
+    if (src < 0 || src >= SRC_COUNT) {
+        return;
+    }
+    ctx->triggerSwallowed[src] = 1;
+    if (src == SRC_GAZE) {
+        for (int h = 0; h < HAND_COUNT; h++) {
+            if (ctx->triggerDown[h]) {
+                ctx->triggerSwallowed[h] = 1;
+            }
+        }
+    }
+}
+
 // Where the ray lands on furniture rather than on the picture. The grid has a
 // plane of its own, everything else sits on the screen.
 static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef screenPose,
@@ -4182,6 +4776,20 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         glDeleteProgram(ctx->glowProgram);
     }
 
+    // Same for the room, whose resources only exist at all if a frame ever ran
+    // with it on
+    glDeleteFramebuffers(1, &ctx->roomFbo);
+    glDeleteRenderbuffers(1, &ctx->roomDepthBuffer);
+    glDeleteBuffers(1, &ctx->roomVertexBuffer);
+    glDeleteBuffers(1, &ctx->roomIndexBuffer);
+    glDeleteTextures(1, &ctx->roomTexture);
+    glDeleteTextures(1, &ctx->roomWhiteTexture);
+    if (ctx->roomProgram != 0) {
+        glDeleteProgram(ctx->roomProgram);
+    }
+    free(ctx->roomModelVerts);
+    free(ctx->roomModelIndices);
+
     if (ctx->swapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->swapchain);
     }
@@ -4214,7 +4822,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->envButtonSwapchain);
     }
     free(ctx->envButtonImages);
-    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
         if (ctx->cogPanelSwapchains[tab] != XR_NULL_HANDLE) {
             xrDestroySwapchain(ctx->cogPanelSwapchains[tab]);
         }
@@ -4254,6 +4862,10 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->glowSwapchain);
     }
     free(ctx->glowImages);
+    if (ctx->roomSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->roomSwapchain);
+    }
+    free(ctx->roomImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -4291,9 +4903,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jint convergence, jint depthScale,
                                                        jboolean handTracking, jint sharpenMode,
                                                        jboolean perfOverlay, jboolean ambilight,
-                                                       jint ambiLevel) {
+                                                       jint ambiLevel, jboolean roomLight,
+                                                       jboolean gen1Headset) {
     XrCtx* ctx = calloc(1, sizeof(XrCtx));
     ctx->handsEnabled = handTracking;
+    ctx->gen1Headset = gen1Headset;
     ctx->videoWidth = width;
     ctx->videoHeight = height;
     ctx->stereoMode = stereoMode;
@@ -4351,6 +4965,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->ambilightOn = ambilight;
     ctx->ambiIntensity = (ambiLevel < 0 ? 0 : (ambiLevel > 100 ? 100 : ambiLevel)) / 100.0f;
     ctx->ambiOverride = -1;
+    // The room's own light off the picture, which the panel owns from here on
+    ctx->roomLightOn = roomLight;
+    // Same for the room, which the picker sets and a property can force, and
+    // for the size and brightness it is drawn at, which its params own until
+    // a property says otherwise
+    ctx->roomOverride = -1;
+    ctx->roomScaleOverride = -1.0f;
+    ctx->roomDimOverride = -1.0f;
     // Roughly ten frames to cross a scene cut, which reads as the glow
     // following the picture rather than flashing with it
     ctx->ambiSmooth = 0.08f;
@@ -4828,9 +5450,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     ctx->togglePrev = toggle;
     out[IN_POINTER] = ctx->pointerOn ? 1.0f : 0.0f;
 
-    XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
+    // Both of these have to agree with what endFrame submits, or the ray lands
+    // somewhere other than where the picture is drawn. A room world locks it
+    // and flattens it whatever the preference and the panel say.
+    int roomOn = roomEffective(ctx) > 0;
+    XrSpace space = (headLocked && !roomOn) ? ctx->viewSpace : ctx->localSpace;
     float height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
-    int curved = effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
+    int curved = !roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
     float radius = ctx->screenRadius;
     XrPosef screenPose = ctx->screenPose;
 
@@ -4932,7 +5558,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         }
         else if (screenProject(aimPoses[h], screenPose, ctx->screenWidth, height, radius, curved,
                                &hitU[h], &hitV[h])) {
-            hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, &corners[h]);
+            // No corner brackets in a room, so nothing there claims the ray
+            hovers[h] = hoverTest(hitU[h], hitV[h], ctx->screenWidth, height, !roomOn,
+                                  &corners[h]);
             // The button reaches past the left end of the bar's zone, so it is
             // tested here rather than after a hand has been picked. Otherwise
             // the part of it outside that zone belongs to no hand at all.
@@ -5061,6 +5689,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         }
     }
 
+    // A press taken by the grid, the panel or the keyboard stays taken for as
+    // long as it is held, and letting go is what hands the trigger back
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (!ctx->triggerDown[h]) {
+            ctx->triggerSwallowed[h] = 0;
+        }
+    }
+
     // Deliberate movement wakes the pointer, a controller put down retires it
     if (pinching) {
         // Only the pinch clock matters while hands are in charge
@@ -5151,11 +5787,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
                 continue;
             }
+            // Each band is a header strip over a row of cells. The strip is a
+            // label and nothing else, so pointing at one is pointing at
+            // nothing and a press there closes the grid like a press outside.
+            int band = (int)(pv * PICKER_ROWS);
+            if (band >= PICKER_ROWS) band = PICKER_ROWS - 1;
+            float inBand = pv * PICKER_TEX_H - band * PICKER_BAND_PX;
+            if (inBand < PICKER_HEADER_PX) {
+                continue;
+            }
             int col = (int)(pu * PICKER_COLS);
-            int row = (int)(pv * PICKER_ROWS);
             if (col >= PICKER_COLS) col = PICKER_COLS - 1;
-            if (row >= PICKER_ROWS) row = PICKER_ROWS - 1;
-            ctx->pickerHover = row * PICKER_COLS + col;
+            ctx->pickerHover = band * PICKER_COLS + col;
             hand = h;
             hitU[h] = pu;
             hitV[h] = pv;
@@ -5164,15 +5807,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 ctx->pickerPick = ctx->pickerHover;
                 ctx->pickerChoice = ctx->pickerHover;
                 ctx->pickerOpen = 0;
+                swallowTrigger(ctx, h);
             }
             break;
         }
 
-        // A press that lands nowhere near the grid closes it
+        // A press that lands on no cell, whether on a header strip or nowhere
+        // near the grid at all, closes it
         if (ctx->pickerOpen && ctx->pickerHover < 0) {
             for (int h = 0; h < SRC_COUNT; h++) {
                 if (ctx->triggerEdge[h]) {
                     ctx->pickerOpen = 0;
+                    swallowTrigger(ctx, h);
                 }
             }
         }
@@ -5186,7 +5832,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         // A drag keeps the hand that started it, and keeps it even once the
         // ray has wandered off the panel, so a slider can be run to either end
         // in one go. The display tab is cells apart from its one level row.
-        if (ctx->cogDragSlider >= 0
+        if (ctx->cogDragSlider >= 0 && cogScreenLocked(ctx)) {
+            // A room took the picture mid drag, which only a debug property
+            // can do, and there is nothing left under the thumb to move
+            cogDragEnded(ctx, out);
+        }
+        else if (ctx->cogDragSlider >= 0
                 && (ctx->cogTab != COG_TAB_DISPLAY
                     || ctx->cogDragSlider == COG_DISPLAY_SLIDER_ROW)) {
             int h = ctx->cogDragHand;
@@ -5231,6 +5882,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                     ctx->cogDragSlider = -1;
                     ctx->cogDragHand = -1;
                 }
+                break;
+            }
+
+            // Below the tabs the screen tab is a note while a room is on, so
+            // rows, tracks and the reset button are all out of reach. The
+            // press is still swallowed, since it landed on the panel.
+            if (cogScreenLocked(ctx)) {
+                ctx->cogHoverSlider = -1;
+                ctx->cogHoverCell = -1;
                 break;
             }
 
@@ -5335,6 +5995,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             for (int h = 0; h < SRC_COUNT; h++) {
                 if (ctx->triggerEdge[h]) {
                     ctx->cogOpen = 0;
+                    swallowTrigger(ctx, h);
                 }
             }
         }
@@ -5438,6 +6099,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             // as empty space too
             if (hovers[h] == HOVER_NONE || hovers[h] == HOVER_HALO) {
                 ctx->kbOpen = 0;
+                swallowTrigger(ctx, h);
                 LOGI("keyboard closed");
                 break;
             }
@@ -5580,8 +6242,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     }
 
     int mask = 0;
-    if (ctx->triggerDown[HAND_LEFT] || ctx->triggerDown[HAND_RIGHT]) {
-        mask |= VR_BUTTON_LEFT;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        // Per hand rather than either hand, so a trigger spent on the grid or a
+        // panel is out of the count while the other one still clicks
+        if (ctx->triggerDown[h] && !ctx->triggerSwallowed[h]) {
+            mask |= VR_BUTTON_LEFT;
+        }
     }
     if (actionBool(ctx, ctx->rightClickAction, -1)) {
         mask |= VR_BUTTON_RIGHT;
@@ -5717,6 +6383,14 @@ static void pollCaptureRequest(XrCtx* ctx) {
     // left set from an earlier session quietly overrides the panel.
     propInt(PROP_AMBILIGHT, &ctx->ambiOverride, 100);
     propPercent(PROP_AMBI_SMOOTH, &ctx->ambiSmooth);
+    // 0 forces the room off, 1 forces the minimal room, 2 the psx cinema, and
+    // unset leaves the picker in charge
+    propInt(PROP_ROOM, &ctx->roomOverride, 2);
+    // Percent, both of them, and 0 hands the value back to the room. The scale
+    // reaches the cinema only, and moving it rebuilds the geometry, so it is
+    // not a knob to sit on a slider.
+    propScaled(PROP_ROOM_SCALE, &ctx->roomScaleOverride, 0.01f, 400);
+    propScaled(PROP_ROOM_DIM, &ctx->roomDimOverride, 0.01f, 200);
 
     if (ctx->captureDir[0] == '\0') {
         return;
@@ -5934,6 +6608,666 @@ static void runGlowRender(XrCtx* ctx) {
     ctx->glowRendered = 1;
 }
 
+// The room as it stands, which the generator and the shipped look both come
+// out of. Metres, and the origin is where the viewer starts. Bare walls with
+// nothing in them: the picture is the only thing here worth looking at.
+static RoomParams minimalRoomParams(void) {
+    RoomParams p;
+    memset(&p, 0, sizeof(p));
+    p.halfWidth = 4.5f;
+    p.floorY = -1.4f;
+    // One level throughout, so the picture stands on the same floor as the
+    // viewer
+    p.screenFloorY = p.floorY;
+    p.ceilingY = 3.0f;
+    p.screenZ = -5.5f;
+    p.backZ = 4.0f;
+    // Eight quads a side keeps the gradients smooth across a nine metre wall
+    // for a few hundred vertices in total
+    p.subdiv = 8;
+    p.wallLevel = 0.055f;
+    p.floorLevel = 0.065f;
+    p.ceilingLevel = 0.038f;
+    // Where the picture is hung, and the point the spill is baked from. The
+    // bake point sits proud of the wall the way the screen does, so the wall
+    // behind the picture catches some of its light too.
+    p.screenMountY = 0.6f;
+    p.screenProud = 0.10f;
+    // Half again the 3 m the sliders start on. A wall nine metres across can
+    // carry it, and at this distance it is what the room is for.
+    p.screenWidth = 4.5f;
+    Vec3 screenAt = { 0.0f, p.screenMountY, p.screenZ + p.screenProud };
+    p.screenAt = screenAt;
+    p.spillRadius = 2.2f;
+    p.spillGain = 0.30f;
+    p.seed = 0x9e3779b9u;
+    return p;
+}
+
+// How high the viewer anchor sits in the model's own space at a given scale.
+// The tier under them lands at eye height whatever the room is scaled to, so
+// the floor stays where it is while the walls come in and out around it.
+static float roomModelAnchorY(float scale) {
+    return ROOM_MODEL_TIER_Y + ROOM_EYE_HEIGHT_M / scale;
+}
+
+// The baked cinema, measured off the model and put through the same
+// (model - anchor) * scale the geometry is, so the screen hangs in the
+// proscenium at every scale. The screen sits in the recess behind the curtains,
+// so it needs nothing standing it off the wall, and the whole of it is
+// textured, so the surface levels and the subdiv the generator works from are
+// unused here.
+static RoomParams psxCinemaParams(float scale) {
+    float anchorY = roomModelAnchorY(scale);
+    RoomParams p;
+    memset(&p, 0, sizeof(p));
+    p.halfWidth = 15.47f * scale;
+    // The seating tier the viewer stands on, which the anchor holds at eye
+    // height, and the ceiling over the stalls
+    p.floorY = -ROOM_EYE_HEIGHT_M;
+    // The stage floor at the far wall, model y -4.25, which is a good way below
+    // the tier and is what the picture has to clear
+    p.screenFloorY = (-4.25f - anchorY) * scale;
+    p.ceilingY = (8.57f - anchorY) * scale;
+    // The screen wall is at model z -27.53, and the picture hangs 0.18 proud of
+    // it, so model -27.35 through the anchor at -12
+    p.screenZ = -15.35f * scale;
+    p.backZ = 14.33f * scale;
+    // The centre of the proscenium opening is model y 2.85, and the picture
+    // hangs 15 percent of its own height under that: the opening is 18 model
+    // units across, so 10.125 high at 16:9, and 2.85 - 0.15 * 10.125 is 1.33
+    p.screenMountY = (1.33f - anchorY) * scale;
+    p.screenProud = 0.0f;
+    // The opening is 20 m across at full size, so this fills it with a margin
+    // either side
+    p.screenWidth = 18.0f * scale;
+    Vec3 screenAt = { 0.0f, p.screenMountY, p.screenZ };
+    p.screenAt = screenAt;
+    // A room this size takes the light much further than the small one. It
+    // takes less of it per surface than a painted wall would, since the atlas
+    // is already carrying the colour, but not as little as it first shipped
+    // with: over a textured surface a fifth of the frame's colour never read
+    // as light at all.
+    p.spillRadius = 7.0f * scale;
+    p.spillGain = 0.55f;
+    p.texMix = 1.0f;
+    // The atlas is already painted as an interior with the lights down, so it
+    // goes on as it was baked
+    p.dim = 1.0f;
+    p.seed = 0x85ebca6bu;
+    return p;
+}
+
+// Which room a style asks for, at the scale that style is drawn. Anything
+// unknown falls back to the generated one rather than leaving the buffers empty.
+static RoomParams roomParams(int style, float scale) {
+    if (style == ROOM_STYLE_PSX) {
+        return psxCinemaParams(scale);
+    }
+    return minimalRoomParams();
+}
+
+// How large a style is drawn. Only the baked room is scaled: the generated one
+// is built at the size its own params give. A property set inside the range
+// wins over the shipped default.
+static float roomScale(XrCtx* ctx, int style) {
+    if (style != ROOM_STYLE_PSX) {
+        return 1.0f;
+    }
+    float scale = ctx->roomScaleOverride > 0.0f ? ctx->roomScaleOverride : ROOM_PSX_SCALE;
+    if (scale < ROOM_SCALE_MIN) {
+        scale = ROOM_SCALE_MIN;
+    }
+    if (scale > ROOM_SCALE_MAX) {
+        scale = ROOM_SCALE_MAX;
+    }
+    return scale;
+}
+
+// How far down the atlas is turned as the room draws. Nothing is baked into the
+// geometry from this, so the property moves it frame to frame with no rebuild
+// behind it, and it wins over whatever the built style left in place.
+static float roomDim(XrCtx* ctx) {
+    if (ctx->roomDimOverride <= 0.0f) {
+        return ctx->roomDim;
+    }
+    float dim = ctx->roomDimOverride;
+    if (dim < ROOM_DIM_MIN) {
+        dim = ROOM_DIM_MIN;
+    }
+    if (dim > ROOM_DIM_MAX) {
+        dim = ROOM_DIM_MAX;
+    }
+    return dim;
+}
+
+// In a 3d room the picture hangs on the far wall, so the placement the sliders
+// and the grab produce is put aside on the way in and handed back on the way
+// out. Nothing is written to preferences either way: what the user set up in a
+// normal environment is still there when they come back to one.
+static void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
+    int roomOn = style > 0;
+    if (roomOn && !ctx->roomHoldingScreen) {
+        ctx->savedScreenPose = ctx->screenPose;
+        ctx->savedScreenWidth = ctx->screenWidth;
+        ctx->savedScreenRadius = ctx->screenRadius;
+        ctx->roomHoldingScreen = 1;
+        // Anything held would spend the rest of the drag fighting the wall
+        ctx->grabMode = GRAB_NONE;
+    }
+    else if (roomOn && reseeded) {
+        // The panel's reset landed while the room had the screen. What it
+        // seeded is the placement that should be waiting when the room ends.
+        ctx->savedScreenPose = ctx->screenPose;
+        ctx->savedScreenWidth = ctx->screenWidth;
+        ctx->savedScreenRadius = ctx->screenRadius;
+    }
+    else if (!roomOn && ctx->roomHoldingScreen) {
+        ctx->screenPose = ctx->savedScreenPose;
+        ctx->screenWidth = ctx->savedScreenWidth;
+        ctx->screenRadius = ctx->savedScreenRadius;
+        ctx->roomHoldingScreen = 0;
+    }
+    if (!roomOn) {
+        return;
+    }
+
+    // The same scale the geometry was built at, so the picture and the walls
+    // around it never disagree
+    RoomParams p = roomParams(style, roomScale(ctx, style));
+    // The room says how big its picture is, not the size slider: the wall is a
+    // known size and the picture is hung to suit it. The clamps below only
+    // catch a room whose width does not fit its own wall.
+    float width = p.screenWidth;
+    float maxWidth = 2.0f * p.halfWidth - 0.4f;
+    float maxHeight = (p.ceilingY - p.floorY) - 0.3f;
+    if (width > maxWidth) {
+        width = maxWidth;
+    }
+    if (width * aspect > maxHeight) {
+        width = maxHeight / aspect;
+    }
+    float height = width * aspect;
+    // And hung where the whole of it is on the wall rather than through the
+    // floor or the ceiling. The floor here is the one under the picture, not
+    // the tier the viewer is on, which in a raked room is metres higher and
+    // would push the picture back up the wall.
+    float mount = p.screenMountY;
+    float lowest = p.screenFloorY + height * 0.5f + 0.1f;
+    float highest = p.ceilingY - height * 0.5f - 0.1f;
+    if (mount < lowest) {
+        mount = lowest;
+    }
+    if (mount > highest) {
+        mount = highest;
+    }
+
+    // Square to the wall and facing the viewer, the same identity orientation
+    // the placement starts out with
+    memset(&ctx->screenPose, 0, sizeof(ctx->screenPose));
+    ctx->screenPose.orientation.w = 1.0f;
+    ctx->screenPose.position.y = mount;
+    ctx->screenPose.position.z = p.screenZ + p.screenProud;
+    ctx->screenWidth = width;
+}
+
+// Whether the assets a baked room is made of have both arrived
+static int roomAssetsReady(XrCtx* ctx) {
+    return ctx->roomModelReady && ctx->roomTextureReady;
+}
+
+// Turns the loaded model into the layout the room's buffer is in. Nothing is
+// generated here beyond the light: the shape and the texture coordinates come
+// off the model, and the colour is mixed out by the atlas. The model arrives in
+// its own space, so this is where the anchor and the scale go on. The normals
+// are left alone, since a uniform scale does not turn them.
+static int buildModelRoomGeometry(XrCtx* ctx, const RoomParams* p, float scale, float* verts,
+                                  unsigned short* indices, int* vertexCount, int* indexCount) {
+    if (!ctx->roomModelReady) {
+        return 0;
+    }
+    float anchorY = roomModelAnchorY(scale);
+    static const float white[3] = { 1.0f, 1.0f, 1.0f };
+    for (int i = 0; i < ctx->roomModelVertexCount; i++) {
+        const float* src = ctx->roomModelVerts + (size_t)i * ROOM_MODEL_FLOATS;
+        Vec3 pos = { (src[0] - ROOM_MODEL_ANCHOR_X) * scale,
+                     (src[1] - anchorY) * scale,
+                     (src[2] - ROOM_MODEL_ANCHOR_Z) * scale };
+        Vec3 normal = { src[3], src[4], src[5] };
+        roomWriteVertex(p, verts, i, pos, white, roomSpillWeight(p, pos, normal),
+                        src[6], src[7]);
+    }
+    memcpy(indices, ctx->roomModelIndices,
+           (size_t)ctx->roomModelIndexCount * sizeof(unsigned short));
+    *vertexCount = ctx->roomModelVertexCount;
+    *indexCount = ctx->roomModelIndexCount;
+    return 1;
+}
+
+// Builds a style's room and hands it to the buffers. Called once for the first
+// room and again whenever the picker moves to another: a one off pass over a
+// few thousand vertices, which is cheaper than keeping every room resident for
+// a switch that may never come.
+static int uploadRoomGeometry(XrCtx* ctx, int style) {
+    float scale = roomScale(ctx, style);
+    RoomParams params = roomParams(style, scale);
+    int baked = style == ROOM_STYLE_PSX;
+    if (baked && !roomAssetsReady(ctx)) {
+        return 0;
+    }
+    int maxVerts = 0;
+    int maxIndices = 0;
+    if (baked) {
+        maxVerts = ctx->roomModelVertexCount;
+        maxIndices = ctx->roomModelIndexCount;
+    }
+    else {
+        roomMaxCounts(&params, &maxVerts, &maxIndices);
+    }
+    float* verts = malloc((size_t)maxVerts * ROOM_VERTEX_FLOATS * sizeof(float));
+    unsigned short* indices = malloc((size_t)maxIndices * sizeof(unsigned short));
+    if (verts == NULL || indices == NULL) {
+        free(verts);
+        free(indices);
+        LOGE("room geometry allocation failed");
+        return 0;
+    }
+
+    int vertexCount = 0;
+    int indexCount = 0;
+    int ok = baked
+            ? buildModelRoomGeometry(ctx, &params, scale, verts, indices, &vertexCount, &indexCount)
+            : buildRoomGeometry(&params, style, verts, maxVerts, indices, maxIndices,
+                                &vertexCount, &indexCount);
+    if (ok) {
+        if (ctx->roomVertexBuffer == 0) {
+            glGenBuffers(1, &ctx->roomVertexBuffer);
+        }
+        glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
+        glBufferData(GL_ARRAY_BUFFER,
+                     (GLsizeiptr)vertexCount * ROOM_VERTEX_FLOATS * sizeof(float),
+                     verts, GL_STATIC_DRAW);
+        if (ctx->roomIndexBuffer == 0) {
+            glGenBuffers(1, &ctx->roomIndexBuffer);
+        }
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->roomIndexBuffer);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)indexCount * sizeof(unsigned short),
+                     indices, GL_STATIC_DRAW);
+        // Everything else in here draws from client arrays with no buffer
+        // bound, so leaving one bound would turn their pointers into offsets
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+        ctx->roomVertexCount = vertexCount;
+        ctx->roomIndexCount = indexCount;
+        ctx->roomSpillGain = params.spillGain;
+        ctx->roomTexMix = params.texMix;
+        ctx->roomDim = params.dim;
+        if (baked) {
+            // A textured room has no wall shade to take this from, and its shell
+            // is closed, so all this covers is the frame before the first draw
+            ctx->roomClear[0] = 0.010f;
+            ctx->roomClear[1] = 0.010f;
+            ctx->roomClear[2] = 0.012f;
+        }
+        else {
+            // Darker than any surface in the room, so anything the geometry
+            // misses reads as the far end of the same room rather than a hole
+            ctx->roomClear[0] = params.wallLevel * 0.5f;
+            ctx->roomClear[1] = params.wallLevel * 0.5f;
+            ctx->roomClear[2] = params.wallLevel * 0.5f;
+        }
+        LOGEV("room ready, style %d, scale %.2f, %d vertices, %d indices",
+              style, scale, vertexCount, indexCount);
+    }
+    free(verts);
+    free(indices);
+    if (!ok) {
+        LOGE("room geometry build failed for style %d", style);
+    }
+    return ok;
+}
+
+// Which style can actually be built at this moment. A baked room cannot come up
+// until its model and atlas have been read off the assets, so until they land
+// the generated room stands in for it and the picker never shows a black world.
+static int buildableRoomStyle(XrCtx* ctx, int style) {
+    if (style < ROOM_STYLE_MINIMAL) {
+        style = ROOM_STYLE_MINIMAL;
+    }
+    if (style == ROOM_STYLE_PSX && !roomAssetsReady(ctx)) {
+        return ROOM_STYLE_MINIMAL;
+    }
+    return style;
+}
+
+// Brings up everything the room draws with, the first frame that asks for it.
+// Mid session swapchain creation is already how the background photo arrives.
+static int initRoom(XrCtx* ctx) {
+    if (ctx->roomReady) {
+        return 1;
+    }
+    if (ctx->roomFailed || ctx->session == XR_NULL_HANDLE) {
+        return 0;
+    }
+    ctx->roomFailed = 1;
+
+    // The whole of what the runtime recommends per eye, so the room's edges are
+    // as sharp as the video layer sitting in front of them. That is a couple of
+    // hundred megabytes between the side by side colour swapchain and the depth
+    // buffer, which is the reason none of it exists until a room is picked. Gen
+    // 1 headsets keep the half size the room started on, and a runtime that
+    // will not say what it wants gets a modest guess.
+    int half = ctx->gen1Headset;
+    int maxEye = half ? ROOM_MAX_EYE : ROOM_MAX_EYE_FULL;
+    int eyeW = ctx->recommendedEyeWidth > 0 ? ctx->recommendedEyeWidth : 1024;
+    int eyeH = ctx->recommendedEyeHeight > 0 ? ctx->recommendedEyeHeight : 1024;
+    if (half) {
+        eyeW /= 2;
+        eyeH /= 2;
+    }
+    if (eyeW > maxEye) {
+        eyeW = maxEye;
+    }
+    if (eyeH > maxEye) {
+        eyeH = maxEye;
+    }
+
+    XrSwapchainCreateInfo info = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
+    info.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+    info.format = ctx->swapchainFormat;
+    info.sampleCount = 1;
+    // Side by side, the same arrangement the video swapchain uses in stereo
+    info.width = eyeW * ROOM_EYES;
+    info.height = eyeH;
+    info.faceCount = 1;
+    info.arraySize = 1;
+    info.mipCount = 1;
+    if (!checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->roomSwapchain),
+                 "create room swapchain")) {
+        ctx->roomSwapchain = XR_NULL_HANDLE;
+        return 0;
+    }
+    xrEnumerateSwapchainImages(ctx->roomSwapchain, 0, &ctx->roomImageCount, NULL);
+    ctx->roomImages = calloc(ctx->roomImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
+    if (ctx->roomImages == NULL) {
+        return 0;
+    }
+    for (uint32_t i = 0; i < ctx->roomImageCount; i++) {
+        ctx->roomImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+    }
+    xrEnumerateSwapchainImages(ctx->roomSwapchain, ctx->roomImageCount, &ctx->roomImageCount,
+                               (XrSwapchainImageBaseHeader*)ctx->roomImages);
+
+    // The one pass in here that needs a depth buffer, since it is the only one
+    // drawing geometry that can be in front of other geometry
+    glGenRenderbuffers(1, &ctx->roomDepthBuffer);
+    glBindRenderbuffer(GL_RENDERBUFFER, ctx->roomDepthBuffer);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, (GLsizei)info.width, eyeH);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+    // Colour comes from whichever swapchain image the frame acquires, so only
+    // the depth attachment can be made once
+    glGenFramebuffers(1, &ctx->roomFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->roomFbo);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER,
+                              ctx->roomDepthBuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    GLuint vs = compileShader(GL_VERTEX_SHADER, ROOM_VERTEX_SRC);
+    GLuint fs = compileShader(GL_FRAGMENT_SHADER, ROOM_FRAGMENT_SRC);
+    if (vs == 0 || fs == 0) {
+        return 0;
+    }
+    ctx->roomProgram = glCreateProgram();
+    glAttachShader(ctx->roomProgram, vs);
+    glAttachShader(ctx->roomProgram, fs);
+    glBindAttribLocation(ctx->roomProgram, 0, "a_position");
+    glBindAttribLocation(ctx->roomProgram, 1, "a_color");
+    glBindAttribLocation(ctx->roomProgram, 2, "a_spill");
+    glBindAttribLocation(ctx->roomProgram, 3, "a_uv");
+    glLinkProgram(ctx->roomProgram);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
+
+    GLint linked = 0;
+    glGetProgramiv(ctx->roomProgram, GL_LINK_STATUS, &linked);
+    if (!linked) {
+        char log[512];
+        glGetProgramInfoLog(ctx->roomProgram, sizeof(log), NULL, log);
+        LOGE("room program link failed: %s", log);
+        return 0;
+    }
+    ctx->roomViewProjUniform = glGetUniformLocation(ctx->roomProgram, "u_viewproj");
+    ctx->roomSpillGainUniform = glGetUniformLocation(ctx->roomProgram, "u_spillGain");
+    ctx->roomTexMixUniform = glGetUniformLocation(ctx->roomProgram, "u_texMix");
+    ctx->roomDimUniform = glGetUniformLocation(ctx->roomProgram, "u_dim");
+    glUseProgram(ctx->roomProgram);
+    glUniform1i(glGetUniformLocation(ctx->roomProgram, "u_ambi"), 0);
+    glUniform1i(glGetUniformLocation(ctx->roomProgram, "u_room"), 1);
+
+    // The atlas sampler is read whatever the mix is set to, so there is always
+    // a complete texture on that unit even before an atlas has been loaded
+    glGenTextures(1, &ctx->roomWhiteTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->roomWhiteTexture);
+    const unsigned char white[4] = { 255, 255, 255, 255 };
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, white);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Whichever room is being asked for, so the first frame is already the one
+    // the picker is on rather than a rebuild later
+    int wanted = roomEffective(ctx);
+    int style = buildableRoomStyle(ctx, wanted);
+    if (!uploadRoomGeometry(ctx, style)) {
+        return 0;
+    }
+    ctx->roomBuiltStyle = style;
+    ctx->roomWantedStyle = wanted;
+    ctx->roomAssetsSeen = roomAssetsReady(ctx);
+    ctx->roomWantedScale = roomScale(ctx, style);
+
+    ctx->roomEyeWidth = eyeW;
+    ctx->roomEyeHeight = eyeH;
+    ctx->roomReady = 1;
+    ctx->roomFailed = 0;
+    LOGEV("room ready at %dx%d per eye", eyeW, eyeH);
+    return 1;
+}
+
+// Where both eyes are this frame. Only the room needs this, so it is only
+// asked for while a room is on.
+static int locateRoomViews(XrCtx* ctx) {
+    XrViewLocateInfo locateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = ctx->predictedDisplayTime;
+    locateInfo.space = ctx->localSpace;
+
+    XrViewState state = { XR_TYPE_VIEW_STATE };
+    XrView views[ROOM_EYES];
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        views[eye].type = XR_TYPE_VIEW;
+        views[eye].next = NULL;
+    }
+    uint32_t count = 0;
+    if (XR_FAILED(xrLocateViews(ctx->session, &locateInfo, &state, ROOM_EYES, &count, views))
+            || count < ROOM_EYES) {
+        return 0;
+    }
+    // Both bits, since a room drawn from an orientation with no position in it
+    // would sit still while the head moves through the walls
+    XrViewStateFlags needed = XR_VIEW_STATE_ORIENTATION_VALID_BIT
+            | XR_VIEW_STATE_POSITION_VALID_BIT;
+    if ((state.viewStateFlags & needed) != needed) {
+        return 0;
+    }
+
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        ctx->roomViews[eye] = views[eye];
+    }
+    ctx->roomViewsValid = 1;
+    return 1;
+}
+
+// Everything the room has to have built or rebuilt before it can be drawn.
+// Kept out of the frame's timer query on purpose: a swapchain or a buffer
+// created inside that window leaves this driver reporting garbage for every
+// sample after it, so all of it happens before the query opens.
+static void prepareRoom(XrCtx* ctx) {
+    if (!initRoom(ctx)) {
+        return;
+    }
+    // The picker can move between rooms with the session running, a baked one
+    // can be picked before its assets have arrived, and the scale property can
+    // move under either. Nothing about any of them changes frame to frame, so
+    // the work only happens when the style asked for, the readiness of those
+    // assets or the scale has moved: a build that fails leaves whichever room
+    // is already in the buffers and is not tried again.
+    int wanted = roomEffective(ctx);
+    int assets = roomAssetsReady(ctx);
+    int style = buildableRoomStyle(ctx, wanted);
+    float scale = roomScale(ctx, style);
+    if (wanted == ctx->roomWantedStyle && assets == ctx->roomAssetsSeen
+            && scale == ctx->roomWantedScale) {
+        return;
+    }
+    // Decided before the ask is recorded, since the scale is part of both
+    int rebuild = style != ctx->roomBuiltStyle || scale != ctx->roomWantedScale;
+    ctx->roomWantedStyle = wanted;
+    ctx->roomAssetsSeen = assets;
+    ctx->roomWantedScale = scale;
+
+    if (rebuild && uploadRoomGeometry(ctx, style)) {
+        ctx->roomBuiltStyle = style;
+    }
+}
+
+// Draws the room into its own image, one half per eye. The layer that shows it
+// is submitted in endFrame, with the very poses drawn from here. Nothing is
+// created in here: prepareRoom has already been round.
+static void renderRoom(XrCtx* ctx) {
+    if (!ctx->roomReady) {
+        return;
+    }
+    // A frame the eyes could not be located for keeps the image it already
+    // has. The layer still goes up, with the poses that image was drawn from.
+    if (!locateRoomViews(ctx)) {
+        return;
+    }
+
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquire = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
+    if (!checkXr(xrAcquireSwapchainImage(ctx->roomSwapchain, &acquire, &index),
+                 "acquire room image")) {
+        return;
+    }
+    XrSwapchainImageWaitInfo wait = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
+    wait.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(ctx->roomSwapchain, &wait);
+
+    // Opened only now, with the image in hand: this driver hands back wrapped
+    // nonsense for a query that spans the compositor wait above
+    int roomTiming = ctx->timerSupported && !ctx->captureRequested
+            && !ctx->roomTimerPending[ctx->roomTimerSlot];
+    if (roomTiming) {
+        pfnBeginQuery(GL_TIME_ELAPSED_EXT, ctx->roomTimerQueries[ctx->roomTimerSlot]);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->roomFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->roomImages[index].image, 0);
+    // Once, on the first frame drawn. The colour attachment is a swapchain
+    // image, so this is the first point the pair of them can be checked, and a
+    // room that never appears is otherwise silent.
+    if (!ctx->roomRendered) {
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            LOGE("room framebuffer incomplete: 0x%x", status);
+        }
+    }
+    // The colours below are authored the way the video arrives, already gamma
+    // encoded, so the write must not encode them a second time
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+
+    glClearColor(ctx->roomClear[0], ctx->roomClear[1], ctx->roomClear[2], 1.0f);
+    glClearDepthf(1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glEnable(GL_DEPTH_TEST);
+
+    glUseProgram(ctx->roomProgram);
+    // The atlas a baked room is painted with, or the white stand in, which the
+    // mix below leaves out of the picture anyway
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, ctx->roomTextureReady ? ctx->roomTexture
+                                                       : ctx->roomWhiteTexture);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
+    // Nothing has been sampled off the video yet on the first frames, so the
+    // room is just its baked self until there is, and the same for the option
+    // turned off: the baked colours and the atlas stay, only the light the
+    // picture throws goes. Deliberately not tied to the ambilight: the wash
+    // inside a room and the glow around a floating screen are different
+    // effects, and the colour sample they share is taken for either one.
+    int lit = ctx->ambiSeeded && ctx->roomLightOn;
+    glUniform1f(ctx->roomSpillGainUniform, lit ? ctx->roomSpillGain : 0.0f);
+    glUniform1f(ctx->roomTexMixUniform, ctx->roomTexMix);
+    glUniform1f(ctx->roomDimUniform, roomDim(ctx));
+
+    glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->roomIndexBuffer);
+    GLsizei stride = ROOM_VERTEX_FLOATS * sizeof(float);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, (const void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, (const void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, stride, (const void*)(6 * sizeof(float)));
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, (const void*)(7 * sizeof(float)));
+    glEnableVertexAttribArray(3);
+
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        glViewport(eye * ctx->roomEyeWidth, 0, ctx->roomEyeWidth, ctx->roomEyeHeight);
+
+        float proj[16];
+        float view[16];
+        float viewProj[16];
+        // Near enough to walk into a wall without it clipping, far enough to
+        // hold a room a few metres across
+        projectionFromFov(proj, ctx->roomViews[eye].fov, 0.05f, 60.0f);
+        viewFromPose(view, ctx->roomViews[eye].pose);
+        matMul(viewProj, proj, view);
+        glUniformMatrix4fv(ctx->roomViewProjUniform, 1, GL_FALSE, viewProj);
+
+        glDrawElements(GL_TRIANGLES, ctx->roomIndexCount, GL_UNSIGNED_SHORT, (const void*)0);
+    }
+
+    if (roomTiming) {
+        pfnEndQuery(GL_TIME_ELAPSED_EXT);
+        ctx->roomTimerPending[ctx->roomTimerSlot] = 1;
+        ctx->roomTimerPendingFrames[ctx->roomTimerSlot] = 0;
+        ctx->roomTimerSlot = 1 - ctx->roomTimerSlot;
+    }
+
+    glDisable(GL_DEPTH_TEST);
+    // Handed back exactly as the other passes expect to find it: no buffers
+    // bound, since they all draw from client arrays, and only the two attribute
+    // arrays they use left on
+    glDisableVertexAttribArray(2);
+    glDisableVertexAttribArray(3);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
+    xrReleaseSwapchainImage(ctx->roomSwapchain, &release);
+    ctx->roomRendered = 1;
+}
+
 static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
@@ -5942,6 +7276,14 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     // query window, which both ruins the number and, on this driver, leaves a
     // query that never becomes available. Skip timing them.
     int timing = ctx->timerSupported && !ctx->captureRequested;
+
+    // Before the query opens, since creating the room's swapchain and buffers
+    // inside the window wedges every sample after it. Only the CPU and buffer
+    // work: the room's own draw is at the end of this function.
+    int roomOn = roomEffective(ctx) > 0;
+    if (roomOn) {
+        prepareRoom(ctx);
+    }
 
     if (timing && !ctx->timerPending[ctx->timerSlot]) {
         pfnBeginQuery(GL_TIME_ELAPSED_EXT, ctx->timerQueries[ctx->timerSlot]);
@@ -5959,14 +7301,28 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     int glowOn;
     float glowLevel;
     ambiEffective(ctx, &glowOn, &glowLevel);
-    if (glowOn) {
+    // The room is lit from the same colours the glow is made of, so the sample
+    // is taken for either of them. It happens here rather than with the room's
+    // draw, which now follows the video, so the room is lit from this frame's
+    // colour rather than the last one's.
+    if (glowOn || roomOn) {
         runFrameColorSample(ctx, texMatrix);
+    }
+    if (glowOn) {
         runGlowRender(ctx);
     }
 
     uint32_t imageIndex = 0;
     XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     if (!checkXr(xrAcquireSwapchainImage(ctx->swapchain, &acquireInfo, &imageIndex), "acquire image")) {
+        // The query opened above must not be left standing on this early out,
+        // or the next frame's begin would nest inside it
+        if (timing && !ctx->timerPending[ctx->timerSlot]) {
+            pfnEndQuery(GL_TIME_ELAPSED_EXT);
+            ctx->timerPending[ctx->timerSlot] = 1;
+            ctx->timerPendingFrames[ctx->timerSlot] = 0;
+            ctx->timerSlot = 1 - ctx->timerSlot;
+        }
         return;
     }
     XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO };
@@ -6139,12 +7495,26 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
                 pfnGetQueryObjectui64v(ctx->timerQueries[other], GL_QUERY_RESULT_EXT, &elapsed);
                 ctx->timerPending[other] = 0;
                 ctx->timerPendingFrames[other] = 0;
-                ctx->gpuTotalNs += (long)elapsed;
-                ctx->gpuSamples++;
-                ctx->overlayGpuTotalNs += (long)elapsed;
-                ctx->overlayGpuSamples++;
-                if ((long)elapsed > ctx->gpuMaxNs) {
-                    ctx->gpuMaxNs = (long)elapsed;
+                // Only a plausible sample is kept: zero and anything past 50 ms
+                // is the driver rather than a frame, and the wrapped negatives
+                // land far past the cap. The disjoint flag is deliberately not
+                // consulted: this driver raises it on every GPU clock change,
+                // which the room render provokes constantly, and gating on it
+                // starved the stats to nothing while the values stayed sane.
+                if (elapsed > 0 && elapsed < 50000000ull) {
+                    ctx->gpuTotalNs += (long)elapsed;
+                    ctx->gpuSamples++;
+                    ctx->overlayGpuTotalNs += (long)elapsed;
+                    ctx->overlayGpuSamples++;
+                    if ((long)elapsed > ctx->gpuMaxNs) {
+                        ctx->gpuMaxNs = (long)elapsed;
+                    }
+                }
+                else {
+                    // Counted and kept so the stats line can say what the
+                    // driver was actually handing back on a starved window
+                    ctx->gpuDropped++;
+                    ctx->gpuLastDroppedNs = elapsed;
                 }
             }
             else if (++ctx->timerPendingFrames[other] > 90) {
@@ -6153,6 +7523,50 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
                 ctx->timerPending[other] = 0;
                 ctx->timerPendingFrames[other] = 0;
                 LOGW("XR warp: gave up on a GPU timer query that never landed");
+            }
+        }
+    }
+
+    // Last of all, after the video has been queued and the main query closed.
+    // GL runs one queue in order, and under head motion the compositor preempts
+    // this full resolution pass often enough to stretch it past 20 ms: anything
+    // queued behind it waits, which is what the video was doing while this ran
+    // first. Behind the warp a preempted room only holds up its own layer, and
+    // the compositor covers that by reprojecting the image it already has.
+    // The two timer pairs stay disjoint: the main one is ended just above, and
+    // renderRoom opens its own once it has its swapchain image.
+    if (roomOn) {
+        renderRoom(ctx);
+    }
+
+    // The room's pair is opened just above, but collected down here, on every
+    // frame rather than only the ones it drew: a query from the last frame it
+    // rendered still has to be picked up after it goes away.
+    if (timing) {
+        int roomOther = ctx->roomTimerSlot;
+        if (ctx->roomTimerPending[roomOther]) {
+            GLuint ready = 0;
+            pfnGetQueryObjectuiv(ctx->roomTimerQueries[roomOther], GL_QUERY_RESULT_AVAILABLE_EXT,
+                                 &ready);
+            if (ready) {
+                GLuint64 elapsed = 0;
+                pfnGetQueryObjectui64v(ctx->roomTimerQueries[roomOther], GL_QUERY_RESULT_EXT,
+                                       &elapsed);
+                ctx->roomTimerPending[roomOther] = 0;
+                ctx->roomTimerPendingFrames[roomOther] = 0;
+                // Same plausibility filter as the warp's, for the same reason
+                if (elapsed > 0 && elapsed < 50000000ull) {
+                    ctx->roomGpuTotalNs += (long)elapsed;
+                    ctx->roomGpuSamples++;
+                }
+                else {
+                    ctx->roomGpuDropped++;
+                }
+            }
+            else if (++ctx->roomTimerPendingFrames[roomOther] > 90) {
+                ctx->roomTimerPending[roomOther] = 0;
+                ctx->roomTimerPendingFrames[roomOther] = 0;
+                LOGW("room: gave up on a GPU timer query that never landed");
             }
         }
     }
@@ -6191,19 +7605,20 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
 }
 
 // The settings panel and the cog that opens it, drawn in Java for the same
-// reason the grid is: the labels are text. Every tab arrives together and is
-// uploaded once, so changing tab later touches nothing.
+// reason the grid is: the labels are text. Every sheet arrives together and is
+// uploaded once, so changing tab later touches nothing. The last one is the
+// screen tab as it reads inside a room.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject thiz,
                                                             jlong handle, jobject screenTab,
                                                             jobject displayTab, jobject tab3d,
-                                                            jobject button) {
+                                                            jobject roomTab, jobject button) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
-    jobject tabs[COG_TAB_COUNT] = { screenTab, displayTab, tab3d };
-    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+    jobject tabs[COG_ART_COUNT] = { screenTab, displayTab, tab3d, roomTab };
+    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
         if (tabs[tab] == NULL) {
             continue;
         }
@@ -6222,10 +7637,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject
                                                 OUTLINE_TEX, OUTLINE_TEX);
         }
     }
-    LOGI("cog tabs %s, %s and %s, button %s",
+    LOGI("cog tabs %s, %s and %s, room screen %s, button %s",
          ctx->cogPanelReady[COG_TAB_SCREEN] ? "ready" : "missing",
          ctx->cogPanelReady[COG_TAB_DISPLAY] ? "ready" : "missing",
          ctx->cogPanelReady[COG_TAB_3D] ? "ready" : "missing",
+         ctx->cogPanelReady[COG_ART_ROOM_SCREEN] ? "ready" : "missing",
          ctx->cogButtonReady ? "ready" : "missing");
 }
 
@@ -6334,12 +7750,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jo
     if (ctx == NULL) {
         return;
     }
-    if (choice != ctx->loggedChoice) {
-        ctx->loggedChoice = choice;
-        LOGEV("environment %d", choice);
-    }
     ctx->pickerChoice = choice;
     ctx->backgroundEnabled = backgroundOn;
+    if (choice == ENV_CELL_MINIMAL_ROOM) {
+        ctx->roomStyle = ROOM_STYLE_MINIMAL;
+    }
+    else if (choice == ENV_CELL_PSX_CINEMA) {
+        ctx->roomStyle = ROOM_STYLE_PSX;
+    }
+    else {
+        ctx->roomStyle = 0;
+    }
+    if (choice != ctx->loggedChoice) {
+        ctx->loggedChoice = choice;
+        LOGEV("environment %d, room %d", choice, roomEffective(ctx));
+    }
 }
 
 // The 360 photo, uploaded once from the frame loop. Same rule as the rest of
@@ -6408,6 +7833,120 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadBackground(JNIEnv* env, 
     ctx->backgroundWidth = width;
     ctx->backgroundHeight = height;
     LOGI("background %dx%d %s", width, height, ctx->backgroundReady ? "ready" : "failed");
+}
+
+// The baked room model. Read off the assets in Java and parsed here, since the
+// renderer has no glTF loader: the bake script has already flattened it to
+// positions, normals and texture coordinates. Handed over from the frame loop,
+// which is the thread that builds the geometry out of it.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomModel(JNIEnv* env, jobject thiz,
+                                                                   jlong handle, jobject buffer,
+                                                                   jint length) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || buffer == NULL || length < 12) {
+        return;
+    }
+    const unsigned char* data = (const unsigned char*)(*env)->GetDirectBufferAddress(env, buffer);
+    if (data == NULL || (*env)->GetDirectBufferCapacity(env, buffer) < (jlong)length) {
+        return;
+    }
+    if (memcmp(data, "MXR1", 4) != 0) {
+        LOGW("room model is not an MXR1 file, ignoring it");
+        return;
+    }
+
+    uint32_t vertexCount = 0;
+    uint32_t indexCount = 0;
+    memcpy(&vertexCount, data + 4, sizeof(vertexCount));
+    memcpy(&indexCount, data + 8, sizeof(indexCount));
+    // Both are held to what the file could possibly hold before any of the byte
+    // counts are worked out, so none of the arithmetic below can wrap
+    size_t payload = (size_t)length - 12;
+    if (vertexCount == 0 || vertexCount > ROOM_MAX_VERTS
+            || indexCount == 0 || indexCount % 3 != 0
+            || indexCount > payload / sizeof(unsigned short)) {
+        LOGW("room model counts make no sense: %u vertices, %u indices",
+             vertexCount, indexCount);
+        return;
+    }
+    size_t vertexBytes = (size_t)vertexCount * ROOM_MODEL_FLOATS * sizeof(float);
+    size_t indexBytes = (size_t)indexCount * sizeof(unsigned short);
+    if (12 + vertexBytes + indexBytes != (size_t)length) {
+        LOGW("room model is %d bytes, its header asks for %zu",
+             length, 12 + vertexBytes + indexBytes);
+        return;
+    }
+
+    float* verts = malloc(vertexBytes);
+    unsigned short* indices = malloc(indexBytes);
+    if (verts == NULL || indices == NULL) {
+        free(verts);
+        free(indices);
+        LOGE("room model allocation failed");
+        return;
+    }
+    memcpy(verts, data + 12, vertexBytes);
+    memcpy(indices, data + 12 + vertexBytes, indexBytes);
+
+    for (uint32_t i = 0; i < indexCount; i++) {
+        if (indices[i] >= vertexCount) {
+            free(verts);
+            free(indices);
+            LOGW("room model index %u is past its %u vertices",
+                 (unsigned)indices[i], vertexCount);
+            return;
+        }
+    }
+    // Kept in the model's own space. The anchor and the scale go on as the
+    // geometry is built, so the scale can move without this being read again.
+    free(ctx->roomModelVerts);
+    free(ctx->roomModelIndices);
+    ctx->roomModelVerts = verts;
+    ctx->roomModelIndices = indices;
+    ctx->roomModelVertexCount = (int)vertexCount;
+    ctx->roomModelIndexCount = (int)indexCount;
+    ctx->roomModelReady = 1;
+    LOGEV("room model ready, %u vertices, %u indices", vertexCount, indexCount);
+}
+
+// The atlas that model is painted with. A plain texture rather than a swapchain,
+// since nothing composites it: the room samples it as it draws. Also from the
+// frame loop, which is where the GL context is current.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomTexture(JNIEnv* env, jobject thiz,
+                                                                     jlong handle, jobject buffer,
+                                                                     jint width, jint height) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || buffer == NULL || width <= 0 || height <= 0) {
+        return;
+    }
+    const unsigned char* px = (const unsigned char*)(*env)->GetDirectBufferAddress(env, buffer);
+    if (px == NULL
+            || (*env)->GetDirectBufferCapacity(env, buffer) < (jlong)width * height * 4) {
+        return;
+    }
+
+    if (ctx->roomTexture == 0) {
+        glGenTextures(1, &ctx->roomTexture);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, ctx->roomTexture);
+    // The rows arrive top down out of the decoder and the model's texture
+    // coordinates start at the top too, so this one is not flipped on the way in
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, px);
+    // A wall seen at a glancing angle across a room this size is minified hard,
+    // so the atlas is worth the mip chain
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    ctx->roomTextureReady = 1;
+    LOGEV("room texture %dx%d ready", width, height);
 }
 
 // Puts back a placement saved from a previous session. Marking the sliders as
@@ -6512,6 +8051,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     ctx->prefCurvature = curvature;
     pollCaptureRequest(ctx);
     propFlag(PROP_PASSTHROUGH, &ctx->passthrough);
+    propFlag(PROP_TB_SWAP, &ctx->tbSwap);
     // The panel first, then the debug property over the top of it, so a blind
     // A/B still wins whatever the panel was left on
     if (ctx->panelSeparation >= 0.0f) {
@@ -6541,18 +8081,36 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         ctx->statTotalNs += elapsed;
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
         if (ctx->statFrames == STATS_LOG_INTERVAL_FRAMES) {
+            // The room is timed separately, so it is reported separately: kept
+            // of harvested, since only a fraction of its queries come back with
+            // anything usable in them. Nothing is said when it is not on.
+            char roomLine[64];
+            roomLine[0] = '\0';
+            if (ctx->roomGpuSamples > 0) {
+                snprintf(roomLine, sizeof(roomLine), ", room avg %.2f ms (%ld of %ld)",
+                         ctx->roomGpuTotalNs / (double)ctx->roomGpuSamples / 1e6,
+                         ctx->roomGpuSamples, ctx->roomGpuSamples + ctx->roomGpuDropped);
+            }
+            else if (ctx->roomGpuDropped > 0) {
+                snprintf(roomLine, sizeof(roomLine), ", room timer starved (%ld dropped)",
+                         ctx->roomGpuDropped);
+            }
             // Submit is the wall clock around the draw calls, which is only
             // how long the driver took to queue them. GPU is the real cost.
             if (ctx->gpuSamples > 0) {
-                LOGI("XR warp: %ld frames, GPU avg %.2f ms, GPU max %.2f ms, submit avg %.2f ms",
+                LOGI("XR warp: %ld frames, GPU avg %.2f ms, GPU max %.2f ms, submit avg %.2f ms, dropped %ld%s",
                      ctx->statFrames, ctx->gpuTotalNs / (double)ctx->gpuSamples / 1e6,
                      ctx->gpuMaxNs / 1e6,
-                     ctx->statTotalNs / (double)ctx->statFrames / 1e6);
+                     ctx->statTotalNs / (double)ctx->statFrames / 1e6,
+                     ctx->gpuDropped, roomLine);
             }
             else {
-                LOGI("XR warp: %ld frames, submit avg %.2f ms, max %.2f ms (no GPU timer)",
+                // The raw value says which way the driver failed: zeros and
+                // wrapped negatives are different diseases
+                LOGI("XR warp: %ld frames, submit avg %.2f ms, max %.2f ms (no GPU timer, dropped %ld, last raw %llu)%s",
                      ctx->statFrames, ctx->statTotalNs / (double)ctx->statFrames / 1e6,
-                     ctx->statMaxNs / 1e6);
+                     ctx->statMaxNs / 1e6, ctx->gpuDropped,
+                     (unsigned long long)ctx->gpuLastDroppedNs, roomLine);
             }
             ctx->statFrames = 0;
             ctx->statTotalNs = 0;
@@ -6560,12 +8118,20 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             ctx->gpuTotalNs = 0;
             ctx->gpuMaxNs = 0;
             ctx->gpuSamples = 0;
+            ctx->gpuDropped = 0;
+            ctx->roomGpuTotalNs = 0;
+            ctx->roomGpuSamples = 0;
+            ctx->roomGpuDropped = 0;
         }
     }
 
     float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
-    XrSpace space = headLocked ? ctx->viewSpace : ctx->localSpace;
     int stereo = ctx->stereoMode != DEPTH_MODE_OFF;
+    int roomStyle = roomEffective(ctx);
+    int roomOn = roomStyle > 0;
+    // A room hangs the picture on a wall, and a wall does not follow the head
+    // about however the preference is set
+    XrSpace space = (headLocked && !roomOn) ? ctx->viewSpace : ctx->localSpace;
 
     if (!ctx->pointerArtReady && ctx->pointerSwapchain != XR_NULL_HANDLE && ctx->shouldRender) {
         uploadPointerArt(ctx);
@@ -6574,7 +8140,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // The panel's curve, if it has one, so a reseed keeps the curve in force
     // rather than snapping back to the preference
     float curve = effectiveCurvature(ctx);
-    updatePlacement(ctx, distance, quadWidth, curve);
+    int reseeded = updatePlacement(ctx, distance, quadWidth, curve);
+    // Then the wall has the last word on where the picture is, and a picture
+    // flat on a wall is flat
+    applyRoomPlacement(ctx, roomStyle, aspect, reseeded);
+    if (roomOn) {
+        curve = 0.0f;
+    }
     XrPosef screenPose = ctx->screenPose;
     float screenWidth = ctx->screenWidth;
     float screenHeight = screenWidth * aspect;
@@ -6597,7 +8169,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         }
     }
 
-    XrCompositionLayerEquirect2KHR backgroundLayer;
+    XrCompositionLayerEquirect2KHR backgroundLayers[2];
+    XrCompositionLayerProjection roomLayer;
+    XrCompositionLayerProjectionView roomProjViews[ROOM_EYES];
     XrCompositionLayerQuad glowLayer;
     XrCompositionLayerQuad quadLayers[2];
     XrCompositionLayerCylinderKHR cylLayers[2];
@@ -6620,7 +8194,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerSettingsFB sharpenSettings;
     // Worst case reachable is the screen tab open: background, the glow, both
     // eyes, stats, the cog button, the panel, six thumbs, ray and cursor, which
-    // is 15. The panel is modal, and since the frame a modal opens now sheds
+    // is 15, or 16 with a stereo background's second layer, exactly this
+    // runtime's limit. The 3d room replaces the environment layer and sheds
+    // the move pill and the screen tab's thumbs, so it only ever comes to
+    // less. The panel is modal, and since the frame a modal opens now sheds
     // the bar furniture too, the two can no longer land in one frame together.
     // The keyboard sheds the same furniture and adds only its panel and one
     // ring, so it comes to 9. Sized well past that anyway: an overflow here is
@@ -6641,37 +8218,88 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         sharpenChain = &sharpenSettings;
     }
 
-    // Submitted first so everything else sits in front of it. Passthrough wants
-    // the room instead, so the two are mutually exclusive.
-    if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough) {
-        memset(&backgroundLayer, 0, sizeof(backgroundLayer));
-        backgroundLayer.type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
-        backgroundLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-        backgroundLayer.subImage.swapchain = ctx->backgroundSwapchain;
-        backgroundLayer.subImage.imageRect.offset.x = 0;
-        backgroundLayer.subImage.imageRect.offset.y = 0;
-        backgroundLayer.subImage.imageRect.extent.width = ctx->backgroundWidth;
-        backgroundLayer.subImage.imageRect.extent.height = ctx->backgroundHeight;
-        backgroundLayer.subImage.imageArrayIndex = 0;
-        // World locked, even when the screen is head locked, or the environment
-        // would swing about with the viewer
-        backgroundLayer.space = ctx->localSpace;
-        backgroundLayer.pose.orientation.w = 1.0f;
-        // A finite sphere is what gives the room a size. At zero the layer is
-        // infinitely far, so leaning about moves nothing and the eye reads it
-        // as vast. Bring it in and the parallax says how big it really is.
-        backgroundLayer.radius = ctx->envRadius;
-        backgroundLayer.centralHorizontalAngle = 6.2831853f;
-        // Width covers the full turn, so the vertical reach follows the aspect
-        // ratio. A 2:1 image fills the sphere, anything wider leaves the zenith
-        // and nadir empty rather than stretching to cover them.
-        float halfV = (float)ctx->backgroundHeight / (float)ctx->backgroundWidth * 3.1415927f;
-        if (halfV > 1.5707963f) {
-            halfV = 1.5707963f;
+    // The environment, whichever of the two it is. The 3d room takes the
+    // photo's place rather than sitting in front of it, and passthrough wants
+    // the real room instead, so no two of the three ever go up together.
+    if (roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough) {
+        memset(&roomLayer, 0, sizeof(roomLayer));
+        memset(roomProjViews, 0, sizeof(roomProjViews));
+        roomLayer.type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+        roomLayer.layerFlags = 0;
+        // World locked like the photo it stands in for, even when the screen
+        // is head locked
+        roomLayer.space = ctx->localSpace;
+        roomLayer.viewCount = ROOM_EYES;
+        roomLayer.views = roomProjViews;
+        for (int eye = 0; eye < ROOM_EYES; eye++) {
+            roomProjViews[eye].type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+            // The poses the image was actually drawn from, so the compositor
+            // reprojects it rather than being told a pose it does not match
+            roomProjViews[eye].pose = ctx->roomViews[eye].pose;
+            roomProjViews[eye].fov = ctx->roomViews[eye].fov;
+            roomProjViews[eye].subImage.swapchain = ctx->roomSwapchain;
+            roomProjViews[eye].subImage.imageRect.offset.x = eye * ctx->roomEyeWidth;
+            roomProjViews[eye].subImage.imageRect.offset.y = 0;
+            roomProjViews[eye].subImage.imageRect.extent.width = ctx->roomEyeWidth;
+            roomProjViews[eye].subImage.imageRect.extent.height = ctx->roomEyeHeight;
+            roomProjViews[eye].subImage.imageArrayIndex = 0;
         }
-        backgroundLayer.upperVerticalAngle = halfV;
-        backgroundLayer.lowerVerticalAngle = -halfV;
-        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&backgroundLayer;
+        layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&roomLayer;
+    }
+
+    // The photo, in that same slot: submitted before everything else so all of
+    // it sits in front, and skipped when the room or passthrough has the slot.
+    // A square image is top/bottom stereo and goes up as one layer per eye,
+    // each showing its half of the same swapchain.
+    if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough && !roomOn) {
+        int stereo = ctx->backgroundWidth == ctx->backgroundHeight;
+        int eyeH = stereo ? ctx->backgroundHeight / 2 : ctx->backgroundHeight;
+        int eyes = stereo ? 2 : 1;
+
+        for (int eye = 0; eye < eyes; eye++) {
+            XrCompositionLayerEquirect2KHR* bg = &backgroundLayers[eye];
+            memset(bg, 0, sizeof(*bg));
+            bg->type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
+            bg->eyeVisibility = !stereo ? XR_EYE_VISIBILITY_BOTH
+                    : ((eye == 0) != (ctx->tbSwap != 0) ? XR_EYE_VISIBILITY_RIGHT
+                                                        : XR_EYE_VISIBILITY_LEFT);
+            bg->subImage.swapchain = ctx->backgroundSwapchain;
+            bg->subImage.imageRect.offset.x = 0;
+            // The top half goes to the right eye: measured off the shipped
+            // photo (the bottom half's content sits shifted right, which is
+            // what a left eye sees) and confirmed by eye in the headset.
+            // debug.moonlight.tbswap trades them for a photo packed the
+            // other way up.
+            bg->subImage.imageRect.offset.y = eye * eyeH;
+            bg->subImage.imageRect.extent.width = ctx->backgroundWidth;
+            bg->subImage.imageRect.extent.height = eyeH;
+            bg->subImage.imageArrayIndex = 0;
+            // World locked, even when the screen is head locked, or the
+            // environment would swing about with the viewer
+            bg->space = ctx->localSpace;
+            bg->pose.orientation.w = 1.0f;
+            // A finite sphere is what gives the room a size. At zero the layer
+            // is infinitely far, so leaning about moves nothing and the eye
+            // reads it as vast. Bring it in and the parallax says how big it
+            // really is.
+            // A mono photo sits on a finite sphere so leaning gives it some
+            // parallax. A stereo photo already carries its depth baked into
+            // the two halves, and a finite sphere would add the compositor's
+            // geometric disparity on top, over converging whatever is close.
+            // Infinite radius leaves the baked depth as the only depth.
+            bg->radius = stereo ? 0.0f : ctx->envRadius;
+            bg->centralHorizontalAngle = 6.2831853f;
+            // Width covers the full turn, so the vertical reach follows the
+            // per eye aspect ratio. A 2:1 image fills the sphere, anything
+            // wider leaves the zenith and nadir empty rather than stretching.
+            float halfV = (float)eyeH / (float)ctx->backgroundWidth * 3.1415927f;
+            if (halfV > 1.5707963f) {
+                halfV = 1.5707963f;
+            }
+            bg->upperVerticalAngle = halfV;
+            bg->lowerVerticalAngle = -halfV;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)bg;
+        }
     }
 
     // The glow, over the environment and under the picture. Deliberately not
@@ -6812,8 +8440,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                     || ctx->hoverKind == HOVER_KBBUTTON);
 
         // Move bar and resize corner, shown only while the ray is over them.
-        // Both live in the screen's own frame, so they travel with it.
-        if (ctx->handleArtReady && (barArea || ctx->hoverKind == HOVER_CORNER)) {
+        // Both live in the screen's own frame, so they travel with it. Neither
+        // goes up in a room, where the wall holds the picture and there is
+        // nothing for either to move. The buttons beside the bar still come up
+        // on the same hover.
+        if (ctx->handleArtReady && !roomOn && (barArea || ctx->hoverKind == HOVER_CORNER)) {
             int isBar = barArea;
             Vec3 local;
             float sizeW, sizeH;
@@ -7012,7 +8643,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
             if (ctx->outlineReady) {
                 float cellW = pickW / (float)PICKER_COLS;
-                float cellH = pickH / (float)PICKER_ROWS;
+                float cellH = pickH * (float)PICKER_CELL_PX / (float)PICKER_TEX_H;
                 // Hover rings the cell, the choice sits inside it, so both
                 // read at once when the ray is over what is already selected
                 int marks[2] = { ctx->pickerHover, ctx->pickerChoice };
@@ -7025,9 +8656,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                     }
                     int col = cell % PICKER_COLS;
                     int row = cell / PICKER_COLS;
+                    // Down the texture past this band's header to the middle
+                    // of its row of cells
+                    float centreV = (row * PICKER_BAND_PX + PICKER_HEADER_PX
+                                     + PICKER_CELL_PX * 0.5f) / (float)PICKER_TEX_H;
                     Vec3 local;
                     local.x = ((col + 0.5f) / PICKER_COLS - 0.5f) * pickW;
-                    local.y = (0.5f - (row + 0.5f) / PICKER_ROWS) * pickH;
+                    local.y = (0.5f - centreV) * pickH;
                     local.z = 0.004f;
                     Vec3 offset = quatRotate(pickPose.orientation, local);
 
@@ -7055,15 +8690,16 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         }
 
         // The settings panel, at the pose it was opened with. The tab is a
-        // choice of swapchain, both were filled at startup. Sharpened: it
-        // carries text.
-        if (ctx->cogOpen && ctx->cogPanelReady[ctx->cogTab]) {
+        // choice of swapchain, all were filled at startup, and in a room the
+        // screen tab picks its own sheet. Sharpened: it carries text.
+        int cogArt = cogScreenLocked(ctx) ? COG_ART_ROOM_SCREEN : ctx->cogTab;
+        if (ctx->cogOpen && ctx->cogPanelReady[cogArt]) {
             memset(&cogPanelLayer, 0, sizeof(cogPanelLayer));
             cogPanelLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
             cogPanelLayer.next = sharpenChain;
             cogPanelLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             cogPanelLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            cogPanelLayer.subImage.swapchain = ctx->cogPanelSwapchains[ctx->cogTab];
+            cogPanelLayer.subImage.swapchain = ctx->cogPanelSwapchains[cogArt];
             cogPanelLayer.subImage.imageRect.offset.x = 0;
             cogPanelLayer.subImage.imageRect.offset.y = 0;
             cogPanelLayer.subImage.imageRect.extent.width = COG_TEX_W;
@@ -7119,7 +8755,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 }
             }
 
-            if (ctx->cogThumbReady) {
+            // Nothing to drag on the sheet the room shows, so no thumbs go
+            // over it either
+            if (ctx->cogThumbReady && !cogScreenLocked(ctx)) {
                 float thumbSize = ctx->cogH * 0.085f;
                 int rowCount = cogTabRowCount(ctx->cogTab);
                 for (int s = 0; s < rowCount; s++) {

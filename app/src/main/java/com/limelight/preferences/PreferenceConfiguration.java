@@ -65,8 +65,20 @@ public class PreferenceConfiguration {
     private static final String VR_HAND_TRACKING_PREF_STRING = "checkbox_vr_hand_tracking";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
-    // Nor is this: the cell the environment grid was last left on
+    // Nor is this: the cell the environment grid was last left on. Legacy, and
+    // only read now to move an old install onto the ids below.
     public static final String VR_ENVIRONMENT_PREF_STRING = "vr_environment";
+    // Where that choice lives now. An id names an environment and is forever, a
+    // cell is only where it currently sits in the grid, so rearranging the grid
+    // cannot scramble what anyone had picked.
+    public static final String VR_ENVIRONMENT_ID_PREF_STRING = "vr_environment_id";
+    public static final int VR_ENV_PASSTHROUGH = 0;
+    public static final int VR_ENV_VOID = 1;
+    public static final int VR_ENV_MINIMAL_ROOM = 2;
+    public static final int VR_ENV_PSX_CINEMA = 3;
+    // The 360 photos start here, numbered by their order in the assets folder,
+    // well clear of the rooms so both lists can grow
+    public static final int VR_ENV_FIRST_PHOTO = 100;
     // Nor is this: a marker that the Gen 1 profile decision has been made
     public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
     public static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
@@ -76,6 +88,7 @@ public class PreferenceConfiguration {
     private static final String VR_DEPTH_SCALE_PREF_STRING = "seekbar_vr_depth_scale";
     public static final String VR_AMBILIGHT_PREF_STRING = "checkbox_vr_ambilight";
     public static final String VR_AMBILIGHT_LEVEL_PREF_STRING = "seekbar_vr_ambilight_level";
+    public static final String VR_ROOM_LIGHT_PREF_STRING = "checkbox_vr_room_light";
     public static final String FILE_LOG_PREF_STRING = "list_vr_file_log";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
@@ -157,6 +170,9 @@ public class PreferenceConfiguration {
     // the panel's tick sits
     public static final boolean DEFAULT_VR_AMBILIGHT = false;
     public static final int DEFAULT_VR_AMBILIGHT_LEVEL = 50;
+    // On, unlike the glow: inside a room the light off the picture is most of
+    // what makes the place look lit at all
+    public static final boolean DEFAULT_VR_ROOM_LIGHT = true;
     // Warnings and errors by default. The file is small, and a report that
     // arrives without one is a round trip nobody wants.
     public static final String DEFAULT_FILE_LOG = "basic";
@@ -236,6 +252,8 @@ public class PreferenceConfiguration {
     // how strong that is as a percentage
     public boolean vrAmbilight;
     public int vrAmbilightLevel;
+    // The same colours washed over the walls of a 3d environment
+    public boolean vrRoomLight;
     // off, basic or verbose
     public String fileLogLevel;
     public boolean enableLatencyToast;
@@ -800,6 +818,7 @@ public class PreferenceConfiguration {
         config.vrAmbilight = prefs.getBoolean(VR_AMBILIGHT_PREF_STRING, DEFAULT_VR_AMBILIGHT);
         config.vrAmbilightLevel = prefs.getInt(VR_AMBILIGHT_LEVEL_PREF_STRING,
                 DEFAULT_VR_AMBILIGHT_LEVEL);
+        config.vrRoomLight = prefs.getBoolean(VR_ROOM_LIGHT_PREF_STRING, DEFAULT_VR_ROOM_LIGHT);
         config.fileLogLevel = prefs.getString(FILE_LOG_PREF_STRING, DEFAULT_FILE_LOG);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);

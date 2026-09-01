@@ -170,6 +170,11 @@ TensorFlow Lite by `tools/convert_midas.py` and committed as an asset.
 The 360 degree environments are from [Poly Haven](https://polyhaven.com), released under CC0 and
 downsized to 4096x2048 for this app. Poly Haven is community funded and worth supporting.
 
+The PSX Cinema environment is ["VR Cinema Environment"](https://skfb.ly/6VuIX) by fangzhangmnm,
+licensed under [Creative Commons Attribution 4.0](http://creativecommons.org/licenses/by/4.0/).
+Modified for this app: the mesh is baked to a flat format by `tools/bake_room.py` and the
+embedded texture is shipped alongside it.
+
 ---
 
 # Moonlight Android

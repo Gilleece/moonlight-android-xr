@@ -2,6 +2,7 @@ package com.limelight.binding.video;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapShader;
@@ -22,11 +23,13 @@ import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.preferences.PreferenceConfiguration;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -134,6 +137,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int SETTING_RESET_3D = 4;
     private static final int SETTING_AMBILIGHT = 5;
     private static final int SETTING_AMBI_LEVEL = 6;
+    private static final int SETTING_ROOM_LIGHT = 7;
     // Position, orientation, width, cylinder radius, then the curvature the
     // settings panel asked for
     private static final int POSE_VALUES = 10;
@@ -151,23 +155,53 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile int backgroundHeight;
 
     // Environment picker, a grid of thumbnails reachable from inside the
-    // session. The first two cells are passthrough and an empty black room,
-    // the rest are the photos in the assets folder, in name order. Must match
-    // the PICKER_ constants in xr_renderer.c.
+    // session. One band per category: a header strip carrying its name, then a
+    // row of cells under it. The rooms are the first band, the photos from the
+    // assets folder in name order are the second. A cell is a place in the
+    // grid and nothing more, what gets saved is the stable id it maps to. Must
+    // match the PICKER_ constants in xr_renderer.c.
     private static final String ENVIRONMENT_DIR = "environments";
     private static final String IMAGE_DIR = "images";
-    private static final int PICKER_COLS = 3;
+    // The baked room that ships with the app, mesh and texture atlas
+    private static final String ROOM_DIR = "rooms";
+    private static final String ROOM_MESH_FILE = "psx_cinema.room";
+    private static final String ROOM_TEXTURE_FILE = "psx_cinema.png";
+    private static final int PICKER_COLS = 4;
     private static final int PICKER_ROWS = 2;
     private static final int PICKER_CELLS = PICKER_COLS * PICKER_ROWS;
-    private static final int PICKER_TEX_W = 768;
-    private static final int PICKER_TEX_H = 512;
+    private static final int PICKER_TEX_W = 1024;
+    private static final int PICKER_HEADER_PX = 40;
+    private static final int PICKER_CELL_PX = 256;
+    private static final int PICKER_BAND_PX = PICKER_HEADER_PX + PICKER_CELL_PX;
+    private static final int PICKER_TEX_H = PICKER_BAND_PX * PICKER_ROWS;
+    private static final int PICKER_CELL_W = PICKER_TEX_W / PICKER_COLS;
+    // One per band, drawn in the strip above its cells
+    private static final String[] PICKER_HEADERS = { "Rooms", "360 Images" };
     private static final int ENV_BUTTON_TEX = 128;
     // The padlock that locks the hands out. Must match LOCK_TEX in xr_renderer.c.
     private static final int LOCK_TEX = 384;
     private static final int CELL_PASSTHROUGH = 0;
     private static final int CELL_VOID = 1;
-    private static final int CELL_FIRST_PHOTO = 2;
+    // Shared with the native side, which needs them to pick a room style. Must
+    // match ENV_CELL_MINIMAL_ROOM and ENV_CELL_PSX_CINEMA in xr_renderer.c.
+    private static final int CELL_MINIMAL_ROOM = 2;
+    private static final int CELL_PSX_CINEMA = 3;
+    private static final int CELL_FIRST_PHOTO = 4;
+    // The photos take whatever the rooms leave, so how many fit is a question
+    // for the layout rather than a count kept here
     private static final int MAX_PHOTOS = PICKER_CELLS - CELL_FIRST_PHOTO;
+    // The layout as it shipped before the bands, kept only to read an old saved
+    // cell as the environment it meant at the time
+    private static final int[] LEGACY_CELL_IDS = {
+            PreferenceConfiguration.VR_ENV_PASSTHROUGH,
+            PreferenceConfiguration.VR_ENV_VOID,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 1,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 2,
+            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 3,
+            PreferenceConfiguration.VR_ENV_MINIMAL_ROOM,
+            PreferenceConfiguration.VR_ENV_PSX_CINEMA,
+    };
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout has to be agreed between the two: these must
@@ -187,7 +221,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Clear of the last row, which reaches 0.80 plus the half band
     private static final float COG_RESET_T = 0.87f;
     private static final float COG_RESET_B = 0.97f;
-    // Three tabs, a texture each, all uploaded once so switching is free
+    // Three tabs, a texture each, all uploaded once so switching is free, and
+    // a fourth sheet handed over after them: the screen tab as it reads while
+    // a 3d room hangs the picture, which the native side picks for itself.
     private static final int COG_TAB_SCREEN = 0;
     private static final int COG_TAB_DISPLAY = 1;
     private static final int COG_TAB_3D = 2;
@@ -197,16 +233,25 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int COG_ROW_TILT = 2;
     private static final int COG_ROW_ROTATE = 3;
     private static final int COG_ROW_CURVE = 4;
+    // What stands in for those rows in a room, where the wall decides both the
+    // placement and the size
+    private static final String COG_ROOM_NOTICE =
+            "Screen size cannot be changed in a 3D environment. "
+                    + "Please choose a different environment to customise the screen size.";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them
-    private static final String[] COG_OPTION_ROWS = { "Sharpen", "Stats", "Glow" };
+    // the glow level track under them. Screen light is the wash the picture
+    // throws over a 3d room, which only shows in one, but it stays live here
+    // like the rest: the picker can put a room up at any moment.
+    private static final String[] COG_OPTION_ROWS =
+            { "Sharpen", "Stats", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" }
     };
     // Must match COG_DISPLAY_SLIDER_ROW in xr_renderer.c
-    private static final int COG_DISPLAY_SLIDER_ROW = 3;
+    private static final int COG_DISPLAY_SLIDER_ROW = 4;
     // 3D tab: two sliders, drawn the same way the screen tab's are. Only
     // values that take effect the moment they move belong on the panel, which
     // is why the depth source itself stays in the 2d settings.
@@ -305,9 +350,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final AtomicReference<ByteBuffer> pendingCogScreenTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogDisplayTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCog3dTab = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingCogRoomTab = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
+    // The baked room, read on the same thread as the art above. The native side
+    // shows the minimal room in its place until both of these have landed.
+    private final AtomicReference<ByteBuffer> pendingRoomMesh = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingRoomTexture = new AtomicReference<>();
+    private volatile int roomMeshBytes;
+    private volatile int roomTextureWidth;
+    private volatile int roomTextureHeight;
     private String[] environmentFiles = new String[0];
     private volatile int environmentChoice = CELL_VOID;
     private volatile boolean passthroughOn;
@@ -339,7 +392,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, boolean perfOverlay,
-                                   boolean ambilight, int ambiLevel);
+                                   boolean ambilight, int ambiLevel, boolean roomLight,
+                                   boolean gen1Headset);
     private native void nativeSetCaptureDir(long ctx, String dir);
     private native int nativeGetTexId(long ctx);
     private native ByteBuffer nativeGetModelInput(long ctx);
@@ -359,9 +413,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                           float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
+    private native void nativeUploadRoomModel(long ctx, ByteBuffer mesh, int length);
+    private native void nativeUploadRoomTexture(long ctx, ByteBuffer pixels, int width, int height);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
     private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
-                                        ByteBuffer tab3d, ByteBuffer button);
+                                        ByteBuffer tab3d, ByteBuffer roomTab, ByteBuffer button);
     private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
                                              ByteBuffer symbols, ByteBuffer buttonIcon,
                                              float[] keyRects, int[] codesLower,
@@ -388,7 +444,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
-                        prefs.vrAmbilight, prefs.vrAmbilightLevel);
+                        prefs.vrAmbilight, prefs.vrAmbilightLevel, prefs.vrRoomLight,
+                        PreferenceConfiguration.isXr2Gen1Headset());
                 if (nativeCtx == 0) {
                     initLatch.countDown();
                     return;
@@ -661,9 +718,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             ByteBuffer screenTab = pendingCogScreenTab.getAndSet(null);
             ByteBuffer displayTab = pendingCogDisplayTab.getAndSet(null);
             ByteBuffer tab3d = pendingCog3dTab.getAndSet(null);
+            ByteBuffer roomTab = pendingCogRoomTab.getAndSet(null);
             ByteBuffer cog = pendingCogButton.getAndSet(null);
-            if (screenTab != null || displayTab != null || tab3d != null || cog != null) {
-                nativeUploadCog(nativeCtx, screenTab, displayTab, tab3d, cog);
+            if (screenTab != null || displayTab != null || tab3d != null
+                    || roomTab != null || cog != null) {
+                nativeUploadCog(nativeCtx, screenTab, displayTab, tab3d, roomTab, cog);
             }
 
             ByteBuffer kbLower = pendingKbLower.getAndSet(null);
@@ -679,6 +738,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             ByteBuffer open = pendingLockOpen.getAndSet(null);
             if (shut != null && open != null) {
                 nativeUploadLock(nativeCtx, shut, open);
+            }
+
+            ByteBuffer roomMesh = pendingRoomMesh.getAndSet(null);
+            if (roomMesh != null) {
+                nativeUploadRoomModel(nativeCtx, roomMesh, roomMeshBytes);
+            }
+            ByteBuffer roomTexture = pendingRoomTexture.getAndSet(null);
+            if (roomTexture != null) {
+                nativeUploadRoomTexture(nativeCtx, roomTexture, roomTextureWidth,
+                        roomTextureHeight);
             }
 
             ByteBuffer background = pendingBackground.getAndSet(null);
@@ -712,9 +781,24 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             LimeLog.warning("No environments: " + e);
         }
 
-        int cell = PreferenceManager.getDefaultSharedPreferences(prefsContext)
-                .getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1);
-        if (cell < 0 || cell >= CELL_FIRST_PHOTO + environmentFiles.length) {
+        SharedPreferences saved = PreferenceManager.getDefaultSharedPreferences(prefsContext);
+        int id = saved.getInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, -1);
+        if (id < 0) {
+            // An install from before the ids has a cell instead, which only
+            // means anything read against the layout it was written under. The
+            // old key is left where it is, since nothing costs less than a
+            // stale int and an older build can still start on it.
+            int legacy = saved.getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1);
+            if (legacy >= 0 && legacy < LEGACY_CELL_IDS.length) {
+                id = LEGACY_CELL_IDS[legacy];
+                saved.edit()
+                        .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, id)
+                        .apply();
+            }
+        }
+
+        int cell = cellForId(id);
+        if (!cellExists(cell)) {
             // Never picked one, so the passthrough checkbox decides: on gives
             // the room, off gives black. A photo only shows once it is chosen.
             cell = prefs.vrPassthrough ? CELL_PASSTHROUGH : CELL_VOID;
@@ -723,13 +807,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         passthroughOn = cell == CELL_PASSTHROUGH;
         nativeSetEnvironment(nativeCtx, cell, false);
 
-        final int startPhoto = cell - CELL_FIRST_PHOTO;
+        final int startPhoto = isRoomCell(cell) ? -1 : cell - CELL_FIRST_PHOTO;
         Thread loader = new Thread() {
             @Override
             public void run() {
                 buildPickerArt();
                 buildCogArt();
                 buildKeyboardArt();
+                loadRoomAssets();
                 if (startPhoto >= 0) {
                     decodePhoto(startPhoto);
                 }
@@ -739,8 +824,53 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         loader.start();
     }
 
+    // A cell that is a fully 3d room rather than a photo or a plain background
+    private static boolean isRoomCell(int cell) {
+        return cell == CELL_MINIMAL_ROOM || cell == CELL_PSX_CINEMA;
+    }
+
+    // A cell is worth switching to if it is one of the fixed ones or a photo
+    // that actually shipped in the assets. The fixed cells come first, so one
+    // bound covers both.
+    private boolean cellExists(int cell) {
+        return cell >= 0 && cell < CELL_FIRST_PHOTO + environmentFiles.length;
+    }
+
+    // The two places where cells and saved ids meet. Everything else in here
+    // works in cells, and only the preference speaks ids.
+    private static int idForCell(int cell) {
+        if (cell >= CELL_FIRST_PHOTO && cell < CELL_FIRST_PHOTO + MAX_PHOTOS) {
+            return PreferenceConfiguration.VR_ENV_FIRST_PHOTO + (cell - CELL_FIRST_PHOTO);
+        }
+        switch (cell) {
+            case CELL_PASSTHROUGH: return PreferenceConfiguration.VR_ENV_PASSTHROUGH;
+            case CELL_VOID: return PreferenceConfiguration.VR_ENV_VOID;
+            case CELL_MINIMAL_ROOM: return PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
+            case CELL_PSX_CINEMA: return PreferenceConfiguration.VR_ENV_PSX_CINEMA;
+            default: return -1;
+        }
+    }
+
+    private static int cellForId(int id) {
+        if (id >= PreferenceConfiguration.VR_ENV_FIRST_PHOTO
+                && id < PreferenceConfiguration.VR_ENV_FIRST_PHOTO + MAX_PHOTOS) {
+            return CELL_FIRST_PHOTO + (id - PreferenceConfiguration.VR_ENV_FIRST_PHOTO);
+        }
+        switch (id) {
+            case PreferenceConfiguration.VR_ENV_PASSTHROUGH: return CELL_PASSTHROUGH;
+            case PreferenceConfiguration.VR_ENV_VOID: return CELL_VOID;
+            case PreferenceConfiguration.VR_ENV_MINIMAL_ROOM: return CELL_MINIMAL_ROOM;
+            case PreferenceConfiguration.VR_ENV_PSX_CINEMA: return CELL_PSX_CINEMA;
+            default: return -1;
+        }
+    }
+
     private boolean backgroundVisible() {
-        return environmentChoice >= CELL_FIRST_PHOTO && backgroundArrived;
+        // Only a photo has anything behind it. Asking for it on a room cell
+        // would leave whichever photo was decoded last showing through.
+        return environmentChoice >= CELL_FIRST_PHOTO
+                && environmentChoice < CELL_FIRST_PHOTO + environmentFiles.length
+                && backgroundArrived;
     }
 
     /**
@@ -749,13 +879,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
      * blink to black on the way.
      */
     private void chooseEnvironment(int cell) {
-        if (cell < 0 || cell >= CELL_FIRST_PHOTO + environmentFiles.length) {
+        if (!cellExists(cell)) {
             return;
         }
         environmentChoice = cell;
         passthroughOn = cell == CELL_PASSTHROUGH;
 
-        final int photo = cell - CELL_FIRST_PHOTO;
+        final int photo = isRoomCell(cell) ? -1 : cell - CELL_FIRST_PHOTO;
         if (photo >= 0 && photo != loadedPhoto) {
             Thread loader = new Thread() {
                 @Override
@@ -771,7 +901,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // The grid is a second way to reach the passthrough switch, so the
         // setting follows it rather than disagreeing with what is on screen
         PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, cell)
+                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, idForCell(cell))
                 .putBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING, passthroughOn)
                 .apply();
     }
@@ -786,8 +916,23 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         InputStream in = null;
         try {
+            // A very large panorama is downsampled on decode: past 4096 across
+            // the swapchain gains nothing and the raw bitmap can reach the
+            // gigabyte that kills the process
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
             in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + environmentFiles[photo]);
-            Bitmap bitmap = BitmapFactory.decodeStream(in);
+            BitmapFactory.decodeStream(in, null, bounds);
+            closeQuietly(in);
+
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / opts.inSampleSize > 4096) {
+                opts.inSampleSize *= 2;
+            }
+
+            in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + environmentFiles[photo]);
+            Bitmap bitmap = BitmapFactory.decodeStream(in, null, opts);
             if (bitmap == null || photoRequest.get() != ticket) {
                 return;
             }
@@ -810,17 +955,85 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * The baked room and its texture atlas. Both are parked for the frame loop
+     * to hand over, since that thread owns the GL context and is the one that
+     * builds the geometry. Either failing leaves the pair unset, and the cell
+     * shows the minimal room instead of anything broken.
+     */
+    private void loadRoomAssets() {
+        ByteBuffer mesh = readAsset(ROOM_DIR + "/" + ROOM_MESH_FILE);
+        if (mesh == null) {
+            return;
+        }
+
+        InputStream in = null;
+        try {
+            in = prefsContext.getAssets().open(ROOM_DIR + "/" + ROOM_TEXTURE_FILE);
+            Bitmap atlas = BitmapFactory.decodeStream(in);
+            if (atlas == null) {
+                LimeLog.warning("Room texture " + ROOM_TEXTURE_FILE + " did not decode");
+                return;
+            }
+            roomTextureWidth = atlas.getWidth();
+            roomTextureHeight = atlas.getHeight();
+            ByteBuffer pixels = toBuffer(atlas);
+            atlas.recycle();
+
+            roomMeshBytes = mesh.remaining();
+            pendingRoomMesh.set(mesh);
+            pendingRoomTexture.set(pixels);
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Room texture " + ROOM_TEXTURE_FILE + " failed: " + e);
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    // A whole asset in a direct buffer, which is the only kind the native side
+    // can read without a copy
+    private ByteBuffer readAsset(String path) {
+        InputStream in = null;
+        try {
+            in = prefsContext.getAssets().open(path);
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] chunk = new byte[16384];
+            int read;
+            while ((read = in.read(chunk)) > 0) {
+                out.write(chunk, 0, read);
+            }
+            byte[] all = out.toByteArray();
+            ByteBuffer buffer = ByteBuffer.allocateDirect(all.length);
+            buffer.put(all);
+            buffer.rewind();
+            return buffer;
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Asset " + path + " failed: " + e);
+            return null;
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    // Where a cell sits in the picker texture: along to its column, then down
+    // past the headers of its own band and the ones above it. The native side
+    // ends up at the same place from the PICKER_ constants.
+    private static RectF pickerTile(int cell, float pad) {
+        float left = (cell % PICKER_COLS) * PICKER_CELL_W;
+        float top = (cell / PICKER_COLS) * PICKER_BAND_PX + PICKER_HEADER_PX;
+        return new RectF(left + pad, top + pad,
+                left + PICKER_CELL_W - pad, top + PICKER_CELL_PX - pad);
+    }
+
+    /**
      * Draws the grid and the button that opens it. Java is the only place
      * Android will lay out text, so the labels have to be baked into the
      * texture here rather than drawn in the shader.
      */
     private void buildPickerArt() {
-        final float cellW = PICKER_TEX_W / (float)PICKER_COLS;
-        final float cellH = PICKER_TEX_H / (float)PICKER_ROWS;
         final float pad = 7.0f;
         // Matches the radius of the hover ring drawn over it, which is a
         // fraction of the cell rather than a pixel count
-        final float radius = cellW * 0.125f;
+        final float radius = PICKER_CELL_W * 0.125f;
 
         Bitmap grid = Bitmap.createBitmap(PICKER_TEX_W, PICKER_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(grid);
@@ -836,12 +1049,22 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         label.setTextSize(21.0f);
         label.setTextAlign(Paint.Align.CENTER);
 
+        // The category names, quieter than the tile labels so they read as
+        // headings rather than as another row of things to press
+        Paint header = new Paint(Paint.ANTI_ALIAS_FLAG);
+        header.setColor(0xB0FFFFFF);
+        header.setTextSize(22.0f);
+        header.setTextAlign(Paint.Align.CENTER);
+        Paint.FontMetrics metrics = header.getFontMetrics();
+        float baseline = (PICKER_HEADER_PX - (metrics.descent - metrics.ascent)) * 0.5f
+                - metrics.ascent;
+        for (int band = 0; band < PICKER_ROWS && band < PICKER_HEADERS.length; band++) {
+            canvas.drawText(PICKER_HEADERS[band], PICKER_TEX_W * 0.5f,
+                    band * PICKER_BAND_PX + baseline, header);
+        }
+
         for (int cell = 0; cell < PICKER_CELLS; cell++) {
-            RectF tile = new RectF(
-                    (cell % PICKER_COLS) * cellW + pad,
-                    (cell / PICKER_COLS) * cellH + pad,
-                    (cell % PICKER_COLS + 1) * cellW - pad,
-                    (cell / PICKER_COLS + 1) * cellH - pad);
+            RectF tile = pickerTile(cell, pad);
 
             String name;
             Bitmap thumb = null;
@@ -852,6 +1075,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             else if (cell == CELL_VOID) {
                 name = "Black void";
                 paint.setColor(0xFF090909);
+            }
+            else if (cell == CELL_MINIMAL_ROOM) {
+                // No photo to preview, so the room is sketched on the tile
+                // below once the base colour is down
+                name = "Minimal room";
+                paint.setColor(0xFF0B0B0E);
+            }
+            else if (cell == CELL_PSX_CINEMA) {
+                name = "PSX Cinema";
+                paint.setColor(0xFF120A0C);
             }
             else if (cell - CELL_FIRST_PHOTO < environmentFiles.length) {
                 name = labelFor(environmentFiles[cell - CELL_FIRST_PHOTO]);
@@ -881,6 +1114,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             paint.setShader(null);
             if (thumb != null) {
                 thumb.recycle();
+            }
+            if (cell == CELL_MINIMAL_ROOM) {
+                drawRoomTile(canvas, paint, tile, radius);
+            }
+            else if (cell == CELL_PSX_CINEMA) {
+                drawCinemaTile(canvas, paint, tile, radius);
             }
 
             // Dark band under the label, clipped to the bottom of the tile so
@@ -919,6 +1158,101 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (open != null) {
             open.recycle();
         }
+    }
+
+    /**
+     * The thumbnail for a room cell, drawn rather than photographed: a lit
+     * screen on the wall of a bare dark room, with a faint line low down where
+     * the floor meets it.
+     */
+    private void drawRoomTile(Canvas canvas, Paint paint, RectF tile, float radius) {
+        canvas.save();
+        // Clipped to the tile so nothing leaks past the rounded corners
+        Path clip = new Path();
+        clip.addRoundRect(tile, radius, radius, Path.Direction.CW);
+        canvas.clipPath(clip);
+
+        final float w = tile.width();
+        final float h = tile.height();
+
+        // A 16:9 screen sitting in the upper middle, with a wider soft rect
+        // behind it standing in for the light it throws on the wall
+        float screenW = w * 0.62f;
+        float screenH = screenW * 9.0f / 16.0f;
+        float screenTop = tile.top + h * 0.24f;
+        RectF screen = new RectF(tile.centerX() - screenW * 0.5f, screenTop,
+                tile.centerX() + screenW * 0.5f, screenTop + screenH);
+
+        RectF halo = new RectF(screen);
+        halo.inset(-w * 0.07f, -h * 0.07f);
+        paint.setColor(0x38A6C4F0);
+        canvas.drawRoundRect(halo, radius * 0.7f, radius * 0.7f, paint);
+        paint.setColor(0xFFDCE6F4);
+        canvas.drawRect(screen, paint);
+
+        // Where the floor meets the wall, faint enough to read as a room
+        // rather than as a line across the tile
+        paint.setColor(0x28FFFFFF);
+        float floorY = tile.top + h * 0.78f;
+        canvas.drawRect(new RectF(tile.left, floorY, tile.right, floorY + 1.5f), paint);
+
+        canvas.restore();
+    }
+
+    /**
+     * The thumbnail for the cinema cell: a lit screen between the deep red side
+     * curtains, which is about all of that room that reads at this size.
+     */
+    private void drawCinemaTile(Canvas canvas, Paint paint, RectF tile, float radius) {
+        canvas.save();
+        Path clip = new Path();
+        clip.addRoundRect(tile, radius, radius, Path.Direction.CW);
+        canvas.clipPath(clip);
+
+        final float w = tile.width();
+        final float h = tile.height();
+
+        // The picture, narrower than the bare room's since the curtains take
+        // the sides of the tile
+        float screenW = w * 0.50f;
+        float screenH = screenW * 9.0f / 16.0f;
+        float screenTop = tile.top + h * 0.27f;
+        RectF screen = new RectF(tile.centerX() - screenW * 0.5f, screenTop,
+                tile.centerX() + screenW * 0.5f, screenTop + screenH);
+
+        RectF halo = new RectF(screen);
+        halo.inset(-w * 0.07f, -h * 0.07f);
+        paint.setColor(0x34C4D6F0);
+        canvas.drawRoundRect(halo, radius * 0.7f, radius * 0.7f, paint);
+        paint.setColor(0xFFE2E9F6);
+        canvas.drawRect(screen, paint);
+
+        // Curtains over the ends of that halo, so the light reads as coming
+        // from behind them
+        final float curtainW = w * 0.21f;
+        paint.setColor(0xFF7C1319);
+        canvas.drawRect(new RectF(tile.left, tile.top, tile.left + curtainW, tile.bottom), paint);
+        canvas.drawRect(new RectF(tile.right - curtainW, tile.top, tile.right, tile.bottom), paint);
+
+        // Three pleats apiece, which is what says curtain rather than red panel
+        final float pleatW = w * 0.013f;
+        paint.setColor(0xFF4A0B10);
+        for (int i = 1; i < 4; i++) {
+            float along = curtainW * (i / 4.0f);
+            float left = tile.left + along;
+            canvas.drawRect(new RectF(left, tile.top, left + pleatW, tile.bottom), paint);
+            float right = tile.right - curtainW + along;
+            canvas.drawRect(new RectF(right, tile.top, right + pleatW, tile.bottom), paint);
+        }
+
+        // The front of the stage, faint enough to read as the dark of the room
+        // rather than as a line across the tile
+        paint.setColor(0x20FFFFFF);
+        float stageY = tile.top + h * 0.76f;
+        canvas.drawRect(new RectF(tile.left + curtainW, stageY,
+                tile.right - curtainW, stageY + 1.5f), paint);
+
+        canvas.restore();
     }
 
     // The padlocks and the cog ship as PNGs. Colour carries the state, so there
@@ -978,11 +1312,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
-     * The settings panel and the cog that opens it. A texture per tab, both
-     * drawn once here, so changing tab in the session picks the other
-     * swapchain rather than redrawing anything. Only the labels, tracks and
-     * cells live in the texture: thumbs and selection rings are quads of their
-     * own, so using the panel costs no upload.
+     * The settings panel and the cog that opens it. A texture per tab and one
+     * more for the screen tab in a room, all drawn once here, so changing tab
+     * in the session picks another swapchain rather than redrawing anything.
+     * Only the labels, tracks and cells live in the texture: thumbs and
+     * selection rings are quads of their own, so using the panel costs no
+     * upload.
      */
     private void buildCogArt() {
         // Curvature needs a layer type the runtime may not offer, and a slider
@@ -1003,6 +1338,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         pendingCog3dTab.set(toBuffer(tab3d));
         tab3d.recycle();
 
+        Bitmap roomTab = buildCogRoomTab();
+        pendingCogRoomTab.set(toBuffer(roomTab));
+        roomTab.recycle();
+
         // Never blank: the drawn gear stands in if the art does not decode
         Bitmap button = loadIcon("settings_icon.png", ENV_BUTTON_TEX);
         if (button == null) {
@@ -1010,6 +1349,18 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
         pendingCogButton.set(toBuffer(button));
         button.recycle();
+    }
+
+    // The screen tab as it reads inside a 3d room: the same chrome, and a note
+    // where the rows would be, since the room hangs and sizes the picture
+    // itself. The native side shows this sheet in place of the screen tab
+    // while a room is on.
+    private Bitmap buildCogRoomTab() {
+        Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        drawCogChrome(canvas, COG_TAB_SCREEN);
+        drawCogRoomNotice(canvas);
+        return bitmap;
     }
 
     private Bitmap buildCogTab(int tab, boolean curveOk, boolean stereoOk) {
@@ -1118,6 +1469,45 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         text.setTextAlign(Paint.Align.CENTER);
         canvas.drawText("Reset", reset.centerX(),
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    // What the screen tab carries in a room instead of its rows: the reason
+    // there are none, centred in the body under the tab bar
+    private void drawCogRoomNotice(Canvas canvas) {
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextSize(22.0f);
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setColor(0xC0FFFFFF);
+
+        String[] lines = wrapText(COG_ROOM_NOTICE, text, 0.80f * COG_TEX_W);
+        float step = (text.descent() - text.ascent()) * 1.4f;
+        float middle = (COG_TAB_BAR_B * COG_TEX_H + COG_TEX_H) * 0.5f;
+        float y = middle - (lines.length - 1) * step * 0.5f
+                - (text.ascent() + text.descent()) * 0.5f;
+        for (String line : lines) {
+            canvas.drawText(line, COG_TEX_W * 0.5f, y, text);
+            y += step;
+        }
+    }
+
+    // Greedy word wrap, which is all one fixed sentence on a fixed panel needs
+    private static String[] wrapText(String message, Paint paint, float width) {
+        ArrayList<String> lines = new ArrayList<>();
+        StringBuilder line = new StringBuilder();
+        for (String word : message.split(" ")) {
+            if (line.length() > 0 && paint.measureText(line + " " + word) > width) {
+                lines.add(line.toString());
+                line.setLength(0);
+            }
+            if (line.length() > 0) {
+                line.append(' ');
+            }
+            line.append(word);
+        }
+        if (line.length() > 0) {
+            lines.add(line.toString());
+        }
+        return lines.toArray(new String[0]);
     }
 
     // 3D tab: the two values worth reaching mid stream. Depth runs past the
@@ -1470,7 +1860,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
 
             in = prefsContext.getAssets().open(ENVIRONMENT_DIR + "/" + fileName);
-            return BitmapFactory.decodeStream(in, null, opts);
+            Bitmap thumb = BitmapFactory.decodeStream(in, null, opts);
+            // A square panorama is top/bottom stereo: thumb from the top half,
+            // or the crop lands on the seam between the two eyes
+            if (thumb != null && thumb.getWidth() == thumb.getHeight()) {
+                Bitmap top = Bitmap.createBitmap(thumb, 0, 0,
+                        thumb.getWidth(), thumb.getHeight() / 2);
+                thumb.recycle();
+                return top;
+            }
+            return thumb;
         } catch (IOException | OutOfMemoryError e) {
             LimeLog.warning("Thumbnail " + fileName + " failed: " + e);
             return null;
@@ -1537,7 +1936,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
         }
 
-        if (inputState[IN_POSE_DIRTY] != 0.0f) {
+        // A 3d room forces the picture onto its wall, so what comes back while
+        // one is on is the wall's placement rather than the user's. Writing it
+        // would lose where they had the screen in every other environment.
+        if (inputState[IN_POSE_DIRTY] != 0.0f && !isRoomCell(environmentChoice)) {
             saveScreenPose();
         }
 
@@ -1587,6 +1989,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.VR_AMBILIGHT_PREF_STRING, on)
+                    .apply();
+        }
+        else if (setting == SETTING_ROOM_LIGHT) {
+            boolean on = value != 0;
+            if (prefConfig != null) {
+                prefConfig.vrRoomLight = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_ROOM_LIGHT_PREF_STRING, on)
                     .apply();
         }
         else if (setting == SETTING_AMBI_LEVEL) {
