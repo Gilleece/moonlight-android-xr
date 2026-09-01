@@ -28,6 +28,7 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.widget.Toast;
 
+import com.limelight.BuildConfig;
 import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
@@ -37,7 +38,9 @@ import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 public class StreamSettings extends Activity {
     private PreferenceConfiguration previousPrefs;
@@ -138,6 +141,26 @@ public class StreamSettings extends Activity {
             ListPreference pref = (ListPreference) findPreference(preferenceKey);
 
             pref.setValue(value);
+        }
+
+        // Drops every entry whose value is not in the list. Matched by value
+        // rather than by label or position, so the array can be reordered or
+        // retitled without this having to follow.
+        private void keepPreferenceEntries(ListPreference pref, String[] keep) {
+            CharSequence[] entries = pref.getEntries();
+            CharSequence[] values = pref.getEntryValues();
+            List<CharSequence> newEntries = new ArrayList<>();
+            List<CharSequence> newValues = new ArrayList<>();
+
+            for (int i = 0; i < values.length; i++) {
+                if (Arrays.asList(keep).contains(values[i].toString())) {
+                    newEntries.add(entries[i]);
+                    newValues.add(values[i]);
+                }
+            }
+
+            pref.setEntries(newEntries.toArray(new CharSequence[0]));
+            pref.setEntryValues(newValues.toArray(new CharSequence[0]));
         }
 
         private void appendPreferenceEntry(ListPreference pref, String newEntryName, String newEntryValue) {
@@ -300,6 +323,22 @@ public class StreamSettings extends Activity {
                 PreferenceCategory category =
                         (PreferenceCategory) findPreference("category_input_settings");
                 category.removePreference(findPreference("checkbox_absolute_mouse_mode"));
+            }
+
+            // The synthetic depth patterns are development tools. They only
+            // confuse in a release build, so the list keeps the two real
+            // choices there.
+            if (!BuildConfig.DEBUG) {
+                ListPreference depthPref = (ListPreference) findPreference(
+                        PreferenceConfiguration.VR_DEPTH_SOURCE_PREF_STRING);
+                String[] keep = { "off", "model" };
+                keepPreferenceEntries(depthPref, keep);
+                // Only reachable by setting it from outside the app, since the
+                // two builds do not share preferences, but a value that is no
+                // longer in the list shows as a blank selection
+                if (!Arrays.asList(keep).contains(depthPref.getValue())) {
+                    depthPref.setValue("model");
+                }
             }
 
             // Clears a placement made with the controllers, so the distance and

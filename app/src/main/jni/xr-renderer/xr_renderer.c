@@ -244,6 +244,9 @@ static void xrLog(int prio, const char* fmt, ...) {
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
 #define SETTING_STATS   1
+#define SETTING_SEPARATION 2
+#define SETTING_CONVERGENCE 3
+#define SETTING_RESET_3D 4
 
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
@@ -319,32 +322,53 @@ static void xrLog(int prio, const char* fmt, ...) {
 // the COG_ constants in XrRenderer.java, which is what draws them.
 #define COG_TRACK_L 0.42f
 #define COG_TRACK_R 0.93f
-// Anything above this is the tab bar, split down the middle
+// Anything above this is the tab bar, split evenly between the tabs
 #define COG_TAB_BAR_B 0.16f
-#define COG_ROW_V0 0.27f
-#define COG_ROW_STEP 0.125f
-// Half height of a row's hit band
-#define COG_ROW_HALF 0.055f
+// Six rows on the screen tab, so they start a little higher and sit closer
+// together than they did at five
+#define COG_ROW_V0 0.25f
+#define COG_ROW_STEP 0.11f
+// Half height of a row's hit band. Under half the pitch, so neighbouring
+// bands stay disjoint.
+#define COG_ROW_HALF 0.05f
 #define COG_RESET_L 0.35f
 #define COG_RESET_R 0.65f
-#define COG_RESET_T 0.86f
+// Clear of the last row, which reaches 0.80 plus the half band
+#define COG_RESET_T 0.87f
 #define COG_RESET_B 0.97f
 // Half height of an option cell, so the ring drawn over one matches the art
 #define COG_CELL_HALF 0.045f
 
-// One texture per tab, both uploaded once, so switching costs a swapchain
+// One texture per tab, all uploaded once, so switching costs a swapchain
 // handle rather than an upload
 #define COG_TAB_SCREEN  0
 #define COG_TAB_DISPLAY 1
-#define COG_TAB_COUNT   2
+#define COG_TAB_3D      2
+#define COG_TAB_COUNT   3
 
 // Screen tab rows, in the order they are drawn
 #define COG_SLIDER_DISTANCE 0
 #define COG_SLIDER_HEIGHT   1
 #define COG_SLIDER_TILT     2
-#define COG_SLIDER_CURVE    3
-#define COG_SLIDER_SIZE     4
-#define COG_SLIDER_COUNT    5
+#define COG_SLIDER_ROTATE   3
+#define COG_SLIDER_CURVE    4
+#define COG_SLIDER_SIZE     5
+#define COG_SLIDER_COUNT    6
+
+// 3D tab rows, sliders like the screen tab's. Only values that take effect the
+// moment they move belong here: the depth source itself is settled when the
+// session starts, so it stays in the 2d settings.
+#define COG_ROW3D_SEPARATION 0
+#define COG_ROW3D_CONVERGENCE 1
+#define COG_ROW3D_COUNT 2
+// Right hand end of the separation track, as a fraction of frame width. Three
+// times the 0.5 percent that phase 6 measured as the useful maximum: past
+// there depth stops growing and only the strain does, so the far end of the
+// track is drawn marked rather than left off.
+#define COG_SEP_MAX 0.015f
+// Steps along that track, so a dragged value lands exactly on one of the
+// tenths of a percent the preference is stored in
+#define COG_SEP_STEPS 15
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
 // dragging a value.
@@ -360,9 +384,18 @@ static void xrLog(int prio, const char* fmt, ...) {
 // Metres either side of the reference space's eye level
 #define COG_HEIGHT_MIN -2.0f
 #define COG_HEIGHT_MAX 2.0f
-// Radians, 40 degrees each way. Pitch only, since rolling the picture is
-// nothing anyone wants and it reads as a bug.
+// Radians, 40 degrees each way
 #define COG_TILT_MAX 0.6981f
+// The same fraction of the track the roll snap covers, TILT_MAX * ROLL_SNAP /
+// ROLL_MAX, so both rows clip to level over the same distance under the ray
+#define COG_TILT_SNAP 0.0388f
+// Radians, 90 degrees each way, so the picture can go fully on its side for
+// watching while lying down
+#define COG_ROLL_MAX 1.5708f
+// Anything inside 5 degrees of level clips to exactly level. Ninety degrees
+// spread over a short track is far too coarse to land on zero by hand, and
+// getting the picture properly level is most of what this row is for.
+#define COG_ROLL_SNAP 0.0873f
 
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
@@ -778,6 +811,11 @@ typedef struct {
     float grabWidth;
     float grabHeight;
     float grabRadius;
+    // The tilt and roll the screen was picked up with. A move holds these for
+    // the whole drag and recomputes only the yaw, so the picture keeps the
+    // attitude it had and just turns to stay square to the viewer.
+    float grabPitch;
+    float grabRoll;
     // Resize works against the corner opposite the one being dragged, which
     // stays put, and along the diagonal it started on
     float grabOppX, grabOppY;
@@ -850,6 +888,11 @@ typedef struct {
     // entry points that carry it
     float panelCurve;
     float prefCurvature;
+    // Separation the panel asked for, or -1 while the preference still owns it,
+    // and whatever is actually in force this frame, which is what the 3D tab's
+    // thumb reads back
+    float panelSeparation;
+    float separationCurrent;
 
     long statFrames;
     long statTotalNs;
@@ -3136,6 +3179,51 @@ static void writeInputPose(XrCtx* ctx, float* out) {
     out[IN_POSE + 9] = ctx->panelCurve;
 }
 
+// How far the screen's face is tipped up or down, in radians. Positive is
+// looking up at it.
+static float screenPitch(XrCtx* ctx) {
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 fwd = quatRotate(ctx->screenPose.orientation, back);
+    return atan2f(fwd.y, sqrtf(fwd.x * fwd.x + fwd.z * fwd.z));
+}
+
+// The three angles the screen is described by, built back into an orientation:
+// yaw about world up, then pitch, then roll about the screen's own forward
+// axis. Roll goes innermost on purpose. A turn about the forward axis leaves
+// that axis where it is, so the pitch and yaw read back untouched however far
+// the picture is rolled, which is what lets a drag hold one while recomputing
+// the other. Pitch is negated for the same reason the tilt slider negates it:
+// turning by +theta about local x takes the face downward.
+static XrQuaternionf screenOrient(float yaw, float pitch, float roll) {
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 right = { 1.0f, 0.0f, 0.0f };
+    Vec3 fwd = { 0.0f, 0.0f, 1.0f };
+    XrQuaternionf q = quatMul(axisAngleQuat(up, yaw), axisAngleQuat(right, -pitch));
+    return quatNorm(quatMul(q, axisAngleQuat(fwd, roll)));
+}
+
+// How far the screen is twisted about the axis it faces along, in radians.
+// Positive raises its right edge. Measured by undoing the yaw and pitch rather
+// than by reading how high the right edge sits, since those two only agree
+// while the screen is level, and this one comes back out of screenOrient
+// exactly at any pitch.
+static float screenRoll(XrCtx* ctx) {
+    XrQuaternionf q = ctx->screenPose.orientation;
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 fwd = quatRotate(q, back);
+    float yaw = atan2f(fwd.x, fwd.z);
+    XrQuaternionf level = screenOrient(yaw, screenPitch(ctx), 0.0f);
+    XrQuaternionf twist = quatMul(quatConj(level), q);
+    // A quaternion and its negation are the same rotation, and with the screen
+    // turned to face behind the viewer the rebuilt yaw lands on the other one.
+    // Without this the answer comes back a full turn out.
+    if (twist.w < 0.0f) {
+        twist.z = -twist.z;
+        twist.w = -twist.w;
+    }
+    return 2.0f * atan2f(twist.z, twist.w);
+}
+
 // Move and resize both work off the handle the ray was over when the grip
 // closed. Gripping the picture itself does nothing, which keeps the panel from
 // being dragged by accident while pointing at something.
@@ -3183,6 +3271,12 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
 
         if (hover == HOVER_BAR) {
             ctx->grabMode = GRAB_MOVE;
+            // Read once here rather than every frame of the drag. grabScreen
+            // is the pose these come off, and it was just set from screenPose.
+            // Re-extracting each frame would let the rounding walk the tilt
+            // away over a long move.
+            ctx->grabPitch = screenPitch(ctx);
+            ctx->grabRoll = screenRoll(ctx);
             return;
         }
 
@@ -3209,18 +3303,31 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
 
     int h = ctx->grabHand;
     if (ctx->grabMode == GRAB_MOVE) {
-        // Rigid attach: the screen keeps its offset and rotation relative to
-        // the hand, so it swings around naturally instead of sliding flat
+        // Where it goes is still the rigid attach: the offset from the hand is
+        // carried round by the full hand turn, so the screen swings with the
+        // same leverage it always did rather than sliding flat.
         XrQuaternionf turn = quatMul(aims[h].orientation, quatConj(ctx->grabAim.orientation));
         Vec3 offset = { ctx->grabScreen.position.x - ctx->grabAim.position.x,
                         ctx->grabScreen.position.y - ctx->grabAim.position.y,
                         ctx->grabScreen.position.z - ctx->grabAim.position.z };
         Vec3 moved = quatRotate(turn, offset);
 
-        ctx->screenPose.orientation = quatNorm(quatMul(turn, ctx->grabScreen.orientation));
         ctx->screenPose.position.x = aims[h].position.x + moved.x;
         ctx->screenPose.position.y = aims[h].position.y + moved.y;
         ctx->screenPose.position.z = aims[h].position.z + moved.z;
+
+        // Which way it faces does not. Inheriting the wrist tumbled the
+        // picture on all three axes, so instead it keeps the tilt and roll it
+        // was picked up with and turns to face the viewer from wherever it has
+        // been dragged to.
+        float hx = ctx->headPos.x - ctx->screenPose.position.x;
+        float hz = ctx->headPos.z - ctx->screenPose.position.z;
+        // Dragged directly over or under the head there is no sensible way to
+        // face, and the yaw would spin on noise. Keep last frame's.
+        if (hx * hx + hz * hz > 0.0025f) {
+            ctx->screenPose.orientation = screenOrient(atan2f(hx, hz), ctx->grabPitch,
+                                                       ctx->grabRoll);
+        }
         return;
     }
 
@@ -3324,14 +3431,6 @@ static int cogButtonHit(XrCtx* ctx, float u, float v, float height) {
     return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
 }
 
-// How far the screen's face is tipped up or down, in radians. Positive is
-// looking up at it.
-static float screenPitch(XrCtx* ctx) {
-    Vec3 back = { 0.0f, 0.0f, 1.0f };
-    Vec3 fwd = quatRotate(ctx->screenPose.orientation, back);
-    return atan2f(fwd.y, sqrtf(fwd.x * fwd.x + fwd.z * fwd.z));
-}
-
 // The settings panel stands on top of the cog button that opens it, so it
 // reads as belonging to that button and leaves the picture clear. The caller
 // freezes what this returns for as long as the panel is open: the distance
@@ -3363,14 +3462,33 @@ static XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     return pose;
 }
 
+// How many rows a tab has, whatever kind they are
+static int cogTabRowCount(int tab) {
+    if (tab == COG_TAB_SCREEN) {
+        return COG_SLIDER_COUNT;
+    }
+    if (tab == COG_TAB_3D) {
+        return COG_ROW3D_COUNT;
+    }
+    return COG_OPTION_COUNT;
+}
+
 // Where a slider's thumb sits along its track, 0 at the left end and 1 at the
 // right. Read back from the thing the slider controls rather than stored, so
 // dragging the screen about cannot leave the panel disagreeing with it.
-static float cogSliderValue(XrCtx* ctx, int slider) {
+static float cogSliderValue(XrCtx* ctx, int tab, int slider) {
     XrVector3f p = ctx->screenPose.position;
     float t = 0.0f;
 
-    if (slider == COG_SLIDER_DISTANCE) {
+    if (tab == COG_TAB_3D) {
+        if (slider == COG_ROW3D_SEPARATION) {
+            t = ctx->separationCurrent / COG_SEP_MAX;
+        }
+        else if (slider == COG_ROW3D_CONVERGENCE) {
+            t = ctx->convergence;
+        }
+    }
+    else if (slider == COG_SLIDER_DISTANCE) {
         float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
         t = (d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN);
     }
@@ -3380,6 +3498,12 @@ static float cogSliderValue(XrCtx* ctx, int slider) {
     else if (slider == COG_SLIDER_TILT) {
         // Level sits at the middle of the track
         t = (screenPitch(ctx) + COG_TILT_MAX) / (2.0f * COG_TILT_MAX);
+    }
+    else if (slider == COG_SLIDER_ROTATE) {
+        // Reversed against the others: the right hand end turns the picture
+        // clockwise, which lowers the right edge that screenRoll counts as
+        // positive. Level sits at the middle either way.
+        t = (COG_ROLL_MAX - screenRoll(ctx)) / (2.0f * COG_ROLL_MAX);
     }
     else if (slider == COG_SLIDER_CURVE) {
         t = effectiveCurvature(ctx);
@@ -3392,10 +3516,26 @@ static float cogSliderValue(XrCtx* ctx, int slider) {
 }
 
 // Applies a point on the track to whatever the row controls
-static void cogApplySlider(XrCtx* ctx, int slider, float pu) {
+static void cogApplySlider(XrCtx* ctx, int tab, int slider, float pu) {
     float t = (pu - COG_TRACK_L) / (COG_TRACK_R - COG_TRACK_L);
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
+
+    if (tab == COG_TAB_3D) {
+        if (slider == COG_ROW3D_SEPARATION) {
+            // Snapped to the units the preference is stored in, so what the
+            // thumb shows is exactly what gets written when the drag ends
+            int units = (int)roundf(t * COG_SEP_STEPS);
+            ctx->panelSeparation = units * 0.001f;
+            ctx->separationCurrent = ctx->panelSeparation;
+        }
+        else if (slider == COG_ROW3D_CONVERGENCE) {
+            // Whole percent, same reason
+            int units = (int)roundf(t * 100.0f);
+            ctx->convergence = units / 100.0f;
+        }
+        return;
+    }
 
     if (slider == COG_SLIDER_DISTANCE) {
         XrVector3f p = ctx->screenPose.position;
@@ -3427,15 +3567,39 @@ static void cogApplySlider(XrCtx* ctx, int slider, float pu) {
     }
     else if (slider == COG_SLIDER_TILT) {
         float target = -COG_TILT_MAX + t * (2.0f * COG_TILT_MAX);
-        float delta = target - screenPitch(ctx);
-        Vec3 right = { 1.0f, 0.0f, 0.0f };
-        Vec3 axis = quatRotate(ctx->screenPose.orientation, right);
-        // Negated on purpose: turning by +theta about the local x axis takes
-        // the face's forward vector downward, and the right hand end of the
-        // track is meant to tip the screen up
-        XrQuaternionf turn = axisAngleQuat(axis, -delta);
+        // Level is worth being able to land on exactly, same as the roll row
+        if (fabsf(target) < COG_TILT_SNAP) {
+            target = 0.0f;
+        }
+        // Rebuilt from the three angles rather than turned about the local x
+        // axis, which stops being horizontal once the picture has been rolled
+        // and would swing it round instead of tipping it. Identical result on
+        // a level screen, and it lands on the target in one step.
+        Vec3 back = { 0.0f, 0.0f, 1.0f };
+        Vec3 fwd = quatRotate(ctx->screenPose.orientation, back);
+        float yaw = atan2f(fwd.x, fwd.z);
+        float roll = screenRoll(ctx);
         // Position untouched, so it tilts about its own centre rather than
         // swinging around the viewer
+        ctx->screenPose.orientation = screenOrient(yaw, target, roll);
+    }
+    else if (slider == COG_SLIDER_ROTATE) {
+        // Dragging right turns the picture clockwise as the viewer sees it,
+        // the way a rotate right button does. The forward axis points out at
+        // the viewer, so a right handed turn about it reads anticlockwise, and
+        // the track runs from +max down to -max to match.
+        float target = COG_ROLL_MAX - t * (2.0f * COG_ROLL_MAX);
+        // Level is the whole point of the row and the track is far too coarse
+        // to land on it by hand, so the middle of it clips to exactly zero
+        if (fabsf(target) < COG_ROLL_SNAP) {
+            target = 0.0f;
+        }
+        float delta = target - screenRoll(ctx);
+        Vec3 fwd = { 0.0f, 0.0f, 1.0f };
+        Vec3 axis = quatRotate(ctx->screenPose.orientation, fwd);
+        XrQuaternionf turn = axisAngleQuat(axis, delta);
+        // Turning about the axis it already faces along leaves the facing
+        // alone, so this only rolls: the tilt and the yaw come back unchanged
         ctx->screenPose.orientation = quatNorm(quatMul(turn, ctx->screenPose.orientation));
     }
     else if (slider == COG_SLIDER_CURVE) {
@@ -3485,6 +3649,35 @@ static int cogApplyOption(XrCtx* ctx, int option, int cell) {
         return SETTING_STATS;
     }
     return -1;
+}
+
+// Letting go of a slider, either on purpose or because focus went away mid
+// drag. Persisting where it ended up rather than every frame on the way there
+// is the same policy a grab uses, so this is where the writing happens.
+static void cogDragEnded(XrCtx* ctx, float* out) {
+    int slider = ctx->cogDragSlider;
+    int tab = ctx->cogTab;
+    ctx->cogDragSlider = -1;
+    ctx->cogDragHand = -1;
+
+    if (slider < 0) {
+        return;
+    }
+    if (tab == COG_TAB_SCREEN) {
+        // The placement is saved from the pose the frame hands back
+        ctx->poseDirty = 1;
+    }
+    else if (tab == COG_TAB_3D) {
+        if (slider == COG_ROW3D_SEPARATION) {
+            out[IN_SETTING] = (float)SETTING_SEPARATION;
+            // Tenths of a percent of frame width, the preference's units
+            out[IN_SETTING_VALUE] = roundf(ctx->separationCurrent * 1000.0f);
+        }
+        else if (slider == COG_ROW3D_CONVERGENCE) {
+            out[IN_SETTING] = (float)SETTING_CONVERGENCE;
+            out[IN_SETTING_VALUE] = roundf(ctx->convergence * 100.0f);
+        }
+    }
 }
 
 // Which cell of a row the ray is on, or -1 off the ends
@@ -3686,9 +3879,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->separationOverride = -1.0f;
     ctx->distanceOverride = -1.0f;
     ctx->screenOverride = -1.0f;
-    // Nothing on the settings panel is being dragged, and the curve preference
-    // still owns the curvature
+    // Nothing on the settings panel is being dragged, and the curve and
+    // separation preferences still own their values
     ctx->panelCurve = -1.0f;
+    ctx->panelSeparation = -1.0f;
+    // Only a placeholder: the first endFrame writes the real one, long before
+    // there is any way to open the panel and read it
+    ctx->separationCurrent = 0.005f;
     ctx->cogDragSlider = -1;
     ctx->cogDragHand = -1;
     ctx->cogHoverSlider = -1;
@@ -4152,10 +4349,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
             if (ctx->cogDragSlider >= 0) {
                 // Same for a slider: a drag must not survive the trigger it
-                // was being held with going unwatched
-                ctx->cogDragSlider = -1;
-                ctx->cogDragHand = -1;
-                ctx->poseDirty = 1;
+                // was being held with going unwatched. Ending it here still
+                // writes the value, since out is flushed on the way out.
+                cogDragEnded(ctx, out);
             }
         }
         (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
@@ -4515,8 +4711,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
         // A drag keeps the hand that started it, and keeps it even once the
         // ray has wandered off the panel, so a slider can be run to either end
-        // in one go. Only the screen tab has anything draggable.
-        if (ctx->cogDragSlider >= 0 && ctx->cogTab == COG_TAB_SCREEN) {
+        // in one go. The display tab has cells rather than anything draggable.
+        if (ctx->cogDragSlider >= 0 && ctx->cogTab != COG_TAB_DISPLAY) {
             int h = ctx->cogDragHand;
             float pu, pv;
             if (h >= 0 && aimValid[h] && ctx->triggerDown[h]
@@ -4526,14 +4722,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 hitU[h] = pu;
                 hitV[h] = pv;
                 ctx->cogHoverSlider = ctx->cogDragSlider;
-                cogApplySlider(ctx, ctx->cogDragSlider, pu);
+                cogApplySlider(ctx, ctx->cogTab, ctx->cogDragSlider, pu);
             }
             else {
-                // Persist where it ended up rather than every frame on the way
-                // there, the same policy a grab uses
-                ctx->cogDragSlider = -1;
-                ctx->cogDragHand = -1;
-                ctx->poseDirty = 1;
+                cogDragEnded(ctx, out);
             }
         }
 
@@ -4553,24 +4745,31 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             hitU[h] = pu;
             hitV[h] = pv;
 
-            // The tab bar runs across the top, split down the middle. A press
+            // The tab bar runs across the top, one even slot per tab. A press
             // up here changes tab and reaches nothing else.
             if (pv < COG_TAB_BAR_B) {
                 if (ctx->triggerEdge[h]) {
-                    ctx->cogTab = pu < 0.5f ? COG_TAB_SCREEN : COG_TAB_DISPLAY;
+                    int t = (int)(pu * COG_TAB_COUNT);
+                    if (t >= COG_TAB_COUNT) t = COG_TAB_COUNT - 1;
+                    ctx->cogTab = t;
                     ctx->cogDragSlider = -1;
                     ctx->cogDragHand = -1;
                 }
                 break;
             }
 
-            int rowCount = ctx->cogTab == COG_TAB_SCREEN ? COG_SLIDER_COUNT : COG_OPTION_COUNT;
+            int rowCount = cogTabRowCount(ctx->cogTab);
             int row = -1;
             for (int s = 0; s < rowCount; s++) {
                 // Curving needs a layer type this runtime may not have, and
                 // the row is drawn greyed to say so
                 if (ctx->cogTab == COG_TAB_SCREEN && s == COG_SLIDER_CURVE
                         && !ctx->cylinderSupported) {
+                    continue;
+                }
+                // With stereo off there is nothing for either 3D row to move,
+                // and both are drawn greyed to match
+                if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
                     continue;
                 }
                 if (fabsf(pv - (COG_ROW_V0 + s * COG_ROW_STEP)) < COG_ROW_HALF) {
@@ -4603,7 +4802,20 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
             int onReset = pu >= COG_RESET_L && pu <= COG_RESET_R
                     && pv >= COG_RESET_T && pv <= COG_RESET_B;
-            if (onReset && ctx->triggerEdge[h]) {
+            if (onReset && ctx->triggerEdge[h] && ctx->cogTab == COG_TAB_3D) {
+                // The shipped defaults, 0.5 percent and half convergence, said
+                // here rather than read back so the button works the same way
+                // whatever the preferences were left on. Still allowed while
+                // stereo is off, where it does no harm and keeps the button
+                // from being a dead rectangle.
+                ctx->panelSeparation = 0.005f;
+                ctx->separationCurrent = 0.005f;
+                ctx->convergence = 0.5f;
+                out[IN_SETTING] = (float)SETTING_RESET_3D;
+                out[IN_SETTING_VALUE] = 0.0f;
+                LOGI("3d settings reset from the panel");
+            }
+            else if (onReset && ctx->triggerEdge[h]) {
                 // Hands the curve back to the preference and drops the
                 // placement, which is all it takes: updatePlacement reseeds
                 // from the preferences on the next frame and marks the pose
@@ -4618,7 +4830,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 ctx->cogDragHand = h;
                 // Jumps to where the press landed rather than waiting for the
                 // first bit of movement
-                cogApplySlider(ctx, row, pu);
+                cogApplySlider(ctx, ctx->cogTab, row, pu);
             }
         }
 
@@ -5308,17 +5520,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
 }
 
 // The settings panel and the cog that opens it, drawn in Java for the same
-// reason the grid is: the labels are text. Both tabs arrive together and are
+// reason the grid is: the labels are text. Every tab arrives together and is
 // uploaded once, so changing tab later touches nothing.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject thiz,
                                                             jlong handle, jobject screenTab,
-                                                            jobject displayTab, jobject button) {
+                                                            jobject displayTab, jobject tab3d,
+                                                            jobject button) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
-    jobject tabs[COG_TAB_COUNT] = { screenTab, displayTab };
+    jobject tabs[COG_TAB_COUNT] = { screenTab, displayTab, tab3d };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         if (tabs[tab] == NULL) {
             continue;
@@ -5338,9 +5551,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject
                                                 OUTLINE_TEX, OUTLINE_TEX);
         }
     }
-    LOGI("cog tabs %s and %s, button %s",
+    LOGI("cog tabs %s, %s and %s, button %s",
          ctx->cogPanelReady[COG_TAB_SCREEN] ? "ready" : "missing",
          ctx->cogPanelReady[COG_TAB_DISPLAY] ? "ready" : "missing",
+         ctx->cogPanelReady[COG_TAB_3D] ? "ready" : "missing",
          ctx->cogButtonReady ? "ready" : "missing");
 }
 
@@ -5562,9 +5776,16 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     ctx->prefCurvature = curvature;
     pollCaptureRequest(ctx);
     propFlag(PROP_PASSTHROUGH, &ctx->passthrough);
+    // The panel first, then the debug property over the top of it, so a blind
+    // A/B still wins whatever the panel was left on
+    if (ctx->panelSeparation >= 0.0f) {
+        separation = ctx->panelSeparation;
+    }
     if (ctx->separationOverride >= 0.0f) {
         separation = ctx->separationOverride;
     }
+    // What is really in force, for the panel's thumb to read back
+    ctx->separationCurrent = separation;
     if (ctx->distanceOverride > 0.0f) {
         distance = ctx->distanceOverride;
     }
@@ -5657,9 +5878,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMarkLayers[COG_OPTION_COUNT + 1];
     XrCompositionLayerSettingsFB sharpenSettings;
-    // Worst case is the screen tab open: background, both eyes, stats, the cog
-    // button, the panel, five thumbs, ray and cursor
-    const XrCompositionLayerBaseHeader* layers[16];
+    // Worst case reachable is the screen tab open: background, both eyes,
+    // stats, the cog button, the panel, six thumbs, ray and cursor, which is
+    // 13. The panel is modal, so the grid and the hover furniture are all off
+    // while it is up. Sized well past that anyway: an overflow here is a
+    // smashed stack, and the margin costs four pointers.
+    const XrCompositionLayerBaseHeader* layers[20];
     uint32_t layerCount = 0;
 
     // Compositor sharpening during its sampling pass, so it costs us nothing.
@@ -6086,14 +6310,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 }
             }
 
-            if (ctx->cogTab == COG_TAB_SCREEN && ctx->cogThumbReady) {
+            if (ctx->cogTab != COG_TAB_DISPLAY && ctx->cogThumbReady) {
                 float thumbSize = ctx->cogH * 0.085f;
-                for (int s = 0; s < COG_SLIDER_COUNT; s++) {
+                int rowCount = cogTabRowCount(ctx->cogTab);
+                for (int s = 0; s < rowCount; s++) {
                     // No thumb on a row that cannot be dragged
-                    if (s == COG_SLIDER_CURVE && !ctx->cylinderSupported) {
+                    if (ctx->cogTab == COG_TAB_SCREEN && s == COG_SLIDER_CURVE
+                            && !ctx->cylinderSupported) {
                         continue;
                     }
-                    float t = cogSliderValue(ctx, s);
+                    if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
+                        continue;
+                    }
+                    float t = cogSliderValue(ctx, ctx->cogTab, s);
                     Vec3 local;
                     local.x = (COG_TRACK_L + t * (COG_TRACK_R - COG_TRACK_L) - 0.5f) * ctx->cogW;
                     local.y = (0.5f - (COG_ROW_V0 + s * COG_ROW_STEP)) * ctx->cogH;

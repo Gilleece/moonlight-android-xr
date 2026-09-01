@@ -55,7 +55,7 @@ public class PreferenceConfiguration {
     private static final String VR_DISTANCE_PREF_STRING = "seekbar_vr_distance";
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
-    private static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
+    public static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
     public static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
@@ -66,10 +66,10 @@ public class PreferenceConfiguration {
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on
     public static final String VR_ENVIRONMENT_PREF_STRING = "vr_environment";
-    private static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
+    public static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
-    private static final String VR_CONVERGENCE_PREF_STRING = "seekbar_vr_convergence";
+    public static final String VR_CONVERGENCE_PREF_STRING = "seekbar_vr_convergence";
     private static final String VR_DEPTH_SCALE_PREF_STRING = "seekbar_vr_depth_scale";
     public static final String FILE_LOG_PREF_STRING = "list_vr_file_log";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
@@ -131,13 +131,14 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_VR_POINTER = true;
     // Tenths of a percent of frame width. 5 measured comfortable on device and
     // 7 already strained, once the depth map started using its full range.
-    private static final int DEFAULT_VR_SEPARATION = 5;
+    public static final int DEFAULT_VR_SEPARATION = 5;
     private static final boolean DEFAULT_VR_DEPTH_DEBUG = false;
     private static final int DEFAULT_VR_INFERENCE_CADENCE = 3;
-    // Neither of these is exposed in settings. Measured on device, neither is
+    // Neither of these is in the 2d settings. Measured on device, neither is
     // perceptible at a comfortable separation, so they would be sliders that
-    // do nothing. The renderer still honours them over its debug properties.
-    private static final int DEFAULT_VR_CONVERGENCE = 50;
+    // do nothing. Convergence is on the in headset panel instead, where it sits
+    // beside the depth slider that gives it something to do.
+    public static final int DEFAULT_VR_CONVERGENCE = 50;
     private static final int DEFAULT_VR_DEPTH_SCALE = 100;
     // Warnings and errors by default. The file is small, and a report that
     // arrives without one is a round trip nobody wants.
