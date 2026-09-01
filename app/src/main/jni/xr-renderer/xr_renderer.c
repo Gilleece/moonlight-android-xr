@@ -243,7 +243,10 @@ static void xrLog(int prio, const char* fmt, ...) {
 // The key the in world keyboard just typed, or -1. Unicode with the shift
 // already applied, plus the four control codes below 32.
 #define IN_KEY      20
-#define IN_SLOTS    21
+// Set to 1 the frame the exit prompt is confirmed. Nothing else is meaningful
+// here, so a zeroed slot says nothing happened.
+#define IN_EXIT     21
+#define IN_SLOTS    22
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -444,6 +447,28 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define KB_CODE_SYMBOLS -3
 #define KB_CODE_HIDE    -4
 
+// The button that ends the stream, furthest out on the left of the bar, and
+// the prompt it opens. Ending a session by accident costs a reconnect, so the
+// button asks first. The sheet is drawn in Java like the other panels, one per
+// lit button, so hovering one is another handle in the layer rather than an
+// upload. Must match the EXIT_ constants in XrRenderer.java.
+#define EXIT_TEX_W 512
+#define EXIT_TEX_H 256
+#define EXIT_WIDTH_FRAC 0.30f
+// Which zone of the sheet the ray is on, and the sheet drawn with that zone
+// lit, so the two share their numbering
+#define EXIT_ZONE_NONE   0
+#define EXIT_ZONE_EXIT   1
+#define EXIT_ZONE_CANCEL 2
+#define EXIT_ART_COUNT   3
+// Where the two buttons sit on the sheet, as fractions of it
+#define EXIT_BTN_T 0.56f
+#define EXIT_BTN_B 0.86f
+#define EXIT_EXIT_L 0.08f
+#define EXIT_EXIT_R 0.46f
+#define EXIT_CANCEL_L 0.54f
+#define EXIT_CANCEL_R 0.92f
+
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
 // Nothing under the ray, but close enough to the screen to keep drawing it
@@ -453,6 +478,8 @@ static void xrLog(int prio, const char* fmt, ...) {
 #define HOVER_COGPANEL  9
 #define HOVER_KBBUTTON  10
 #define HOVER_KBPANEL   11
+#define HOVER_EXITBUTTON 12
+#define HOVER_EXITPROMPT 13
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 // How far the ray runs when it is aimed at nothing at all, in metres
@@ -1145,6 +1172,26 @@ typedef struct {
     // its own: the screen can be moved while it is up
     XrPosef kbPose;
     float kbW, kbH;
+
+    // The exit button and its prompt. One sheet per lit button, all filled at
+    // startup, so hovering one costs a handle rather than an upload.
+    XrSwapchain exitButtonSwapchain;
+    XrSwapchain exitPromptSwapchains[EXIT_ART_COUNT];
+    uint32_t exitButtonImageCount;
+    uint32_t exitPromptImageCounts[EXIT_ART_COUNT];
+    XrSwapchainImageOpenGLESKHR* exitButtonImages;
+    XrSwapchainImageOpenGLESKHR* exitPromptImages[EXIT_ART_COUNT];
+    int exitButtonReady;
+    int exitPromptReady[EXIT_ART_COUNT];
+    int exitConfirmOpen;
+    int exitButtonHot;
+    // Which of the prompt's buttons the ray is on, which is also the sheet
+    // to show
+    int exitHoverZone;
+    // Frozen when the prompt opens, like the settings panel: the screen stays
+    // draggable behind it and the buttons must not move under the ray
+    XrPosef exitPose;
+    float exitW, exitH;
 
     // Curvature the panel asked for, or -1 while the preference still owns it,
     // alongside the preference itself so both are readable away from the JNI
@@ -3624,6 +3671,28 @@ static int createPointerSwapchain(XrCtx* ctx) {
         }
     }
 
+    info.width = EXIT_TEX_W;
+    info.height = EXIT_TEX_H;
+    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
+        if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->exitPromptSwapchains[sheet]),
+                    "create exit prompt swapchain")) {
+            xrEnumerateSwapchainImages(ctx->exitPromptSwapchains[sheet], 0,
+                                       &ctx->exitPromptImageCounts[sheet], NULL);
+            ctx->exitPromptImages[sheet] = calloc(ctx->exitPromptImageCounts[sheet],
+                                                  sizeof(XrSwapchainImageOpenGLESKHR));
+            for (uint32_t i = 0; i < ctx->exitPromptImageCounts[sheet]; i++) {
+                ctx->exitPromptImages[sheet][i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+            }
+            xrEnumerateSwapchainImages(ctx->exitPromptSwapchains[sheet],
+                                       ctx->exitPromptImageCounts[sheet],
+                                       &ctx->exitPromptImageCounts[sheet],
+                                       (XrSwapchainImageBaseHeader*)ctx->exitPromptImages[sheet]);
+        }
+        else {
+            ctx->exitPromptSwapchains[sheet] = XR_NULL_HANDLE;
+        }
+    }
+
     info.width = OUTLINE_TEX;
     info.height = OUTLINE_TEX;
     if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->kbButtonSwapchain),
@@ -3672,6 +3741,22 @@ static int createPointerSwapchain(XrCtx* ctx) {
     }
     else {
         ctx->envButtonSwapchain = XR_NULL_HANDLE;
+    }
+
+    if (checkXr(xrCreateSwapchain(ctx->session, &info, &ctx->exitButtonSwapchain),
+                "create exit button swapchain")) {
+        xrEnumerateSwapchainImages(ctx->exitButtonSwapchain, 0, &ctx->exitButtonImageCount, NULL);
+        ctx->exitButtonImages = calloc(ctx->exitButtonImageCount,
+                                       sizeof(XrSwapchainImageOpenGLESKHR));
+        for (uint32_t i = 0; i < ctx->exitButtonImageCount; i++) {
+            ctx->exitButtonImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
+        }
+        xrEnumerateSwapchainImages(ctx->exitButtonSwapchain, ctx->exitButtonImageCount,
+                                   &ctx->exitButtonImageCount,
+                                   (XrSwapchainImageBaseHeader*)ctx->exitButtonImages);
+    }
+    else {
+        ctx->exitButtonSwapchain = XR_NULL_HANDLE;
     }
 
     // Two padlocks rather than one, since a quad layer has no way to swap
@@ -4428,6 +4513,75 @@ static int kbKeyAt(XrCtx* ctx, float u, float v) {
     return found;
 }
 
+// The exit button is the left hand mirror of the keyboard button: one place
+// further out along the bar than the environment button, and past the left end
+// of the bar's own zone
+static void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float side = ctx->screenWidth * COG_BUTTON_FRAC;
+    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
+    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
+    float gap = ctx->screenWidth * ENV_GAP_FRAC;
+    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap);
+    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+static int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
+    Vec3 local;
+    float side;
+    exitButtonPlacement(ctx, height, &local, &side);
+
+    float cu = 0.5f + local.x / ctx->screenWidth;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
+}
+
+// The prompt stands on the button that opened it, the way the settings panel
+// stands on the cog. Frozen for as long as it is up for the same reason: the
+// screen can still be dragged behind it, and the two buttons must not move out
+// from under the ray on the way to a press.
+static XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = ctx->screenWidth * EXIT_WIDTH_FRAC;
+    float height = width * (float)EXIT_TEX_H / (float)EXIT_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
+    Vec3 button;
+    float side;
+    exitButtonPlacement(ctx, screenHeight, &button, &side);
+
+    Vec3 local;
+    local.x = button.x;
+    local.y = button.y + side * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + height * 0.5f;
+    local.z = 0.05f;
+
+    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
+    XrPosef pose = ctx->screenPose;
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// Which of the prompt's two buttons a point is on, in the sheet's own
+// coordinates. Everything else on it is a question and a background.
+static int exitPromptZone(float u, float v) {
+    if (v < EXIT_BTN_T || v > EXIT_BTN_B) {
+        return EXIT_ZONE_NONE;
+    }
+    if (u >= EXIT_EXIT_L && u <= EXIT_EXIT_R) {
+        return EXIT_ZONE_EXIT;
+    }
+    if (u >= EXIT_CANCEL_L && u <= EXIT_CANCEL_R) {
+        return EXIT_ZONE_CANCEL;
+    }
+    return EXIT_ZONE_NONE;
+}
+
 // How many rows a tab has, whatever kind they are
 static int cogTabRowCount(int tab) {
     if (tab == COG_TAB_SCREEN) {
@@ -4757,6 +4911,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     if (hover == HOVER_KBPANEL) {
         return screenPoint(u, v, ctx->kbPose, ctx->kbW, ctx->kbH, 0.0f, 0);
     }
+    if (hover == HOVER_EXITPROMPT) {
+        return screenPoint(u, v, ctx->exitPose, ctx->exitW, ctx->exitH, 0.0f, 0);
+    }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
 
@@ -4875,6 +5032,16 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroySwapchain(ctx->kbButtonSwapchain);
     }
     free(ctx->kbButtonImages);
+    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
+        if (ctx->exitPromptSwapchains[sheet] != XR_NULL_HANDLE) {
+            xrDestroySwapchain(ctx->exitPromptSwapchains[sheet]);
+        }
+        free(ctx->exitPromptImages[sheet]);
+    }
+    if (ctx->exitButtonSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(ctx->exitButtonSwapchain);
+    }
+    free(ctx->exitButtonImages);
     if (ctx->lockSwapchain != XR_NULL_HANDLE) {
         xrDestroySwapchain(ctx->lockSwapchain);
     }
@@ -5612,6 +5779,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                     && kbButtonHit(ctx, hitU[h], hitV[h], height)) {
                 hovers[h] = HOVER_KBBUTTON;
             }
+            // The exit button is the same distance out on the left, so it sits
+            // past that end of the bar's zone and has to claim the halo back
+            // the same way
+            if ((hovers[h] == HOVER_NONE || hovers[h] == HOVER_BAR
+                    || hovers[h] == HOVER_HALO)
+                    && exitButtonHit(ctx, hitU[h], hitV[h], height)) {
+                hovers[h] = HOVER_EXITBUTTON;
+            }
             // Off the left edge, so the halo owns that ground until the
             // padlock claims it back
             if (ctx->handsEnabled && hovers[h] != HOVER_ENVBUTTON
@@ -5797,6 +5972,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     ctx->kbButtonHot = 0;
     ctx->kbHoverKey = -1;
     ctx->kbKeyDown = 0;
+    ctx->exitButtonHot = 0;
+    ctx->exitHoverZone = EXIT_ZONE_NONE;
     if (ctx->pickerOpen) {
         hover = HOVER_PICKER;
         // Anything the hands were pointing at before belongs to the screen,
@@ -6029,6 +6206,55 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             }
         }
     }
+    else if (ctx->exitConfirmOpen) {
+        // Modal like the grid and the panel, and against the pose frozen when
+        // it opened. Ending the stream is not something to do by accident, so
+        // nothing outside the prompt is reachable while it is up.
+        hover = HOVER_EXITPROMPT;
+        hand = -1;
+
+        for (int h = 0; h < SRC_COUNT; h++) {
+            float pu, pv;
+            if (!aimValid[h] || !ctx->pointerAwake) {
+                continue;
+            }
+            if (!screenProject(aimPoses[h], ctx->exitPose, ctx->exitW, ctx->exitH,
+                               0.0f, 0, &pu, &pv)) {
+                continue;
+            }
+            if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+                continue;
+            }
+            hand = h;
+            hitU[h] = pu;
+            hitV[h] = pv;
+            ctx->exitHoverZone = exitPromptZone(pu, pv);
+
+            if (ctx->triggerEdge[h]) {
+                if (ctx->exitHoverZone == EXIT_ZONE_EXIT) {
+                    // Said once. Java takes the session down from here, and
+                    // the prompt closes either way so a refused exit leaves
+                    // the button usable.
+                    out[IN_EXIT] = 1.0f;
+                    LOGI("exit confirmed from the prompt");
+                }
+                ctx->exitConfirmOpen = 0;
+                swallowTrigger(ctx, h);
+            }
+            break;
+        }
+
+        // A press anywhere off the sheet puts it away, the way one off the
+        // grid closes that
+        if (hand < 0) {
+            for (int h = 0; h < SRC_COUNT; h++) {
+                if (ctx->triggerEdge[h]) {
+                    ctx->exitConfirmOpen = 0;
+                    swallowTrigger(ctx, h);
+                }
+            }
+        }
+    }
     else if (hover == HOVER_ENVBUTTON) {
         ctx->envButtonHot = 1;
         if (ctx->triggerEdge[hand]) {
@@ -6058,6 +6284,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                 ctx->kbPose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
             }
             LOGI("keyboard %s", ctx->kbOpen ? "open" : "closed");
+        }
+    }
+    else if (hover == HOVER_EXITBUTTON) {
+        ctx->exitButtonHot = 1;
+        if (ctx->triggerEdge[hand]) {
+            ctx->exitConfirmOpen = 1;
+            ctx->exitHoverZone = EXIT_ZONE_NONE;
+            ctx->exitPose = exitPromptPose(ctx, &ctx->exitW, &ctx->exitH);
+            // The press belonged to the button, not to the host behind it
+            swallowTrigger(ctx, hand);
+            LOGI("exit prompt open");
         }
     }
     else if (hover == HOVER_KBPANEL) {
@@ -6119,7 +6356,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // furniture and the keys themselves keep their own meanings. Every source
     // is checked rather than the one doing the pointing, so a second hand can
     // dismiss it while the first is still on the screen.
-    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen) {
+    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen) {
         for (int h = 0; h < SRC_COUNT; h++) {
             if (!aimValid[h] || !ctx->pointerAwake || !ctx->triggerEdge[h]) {
                 continue;
@@ -6239,7 +6476,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if ((hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_PICKER
             || hover == HOVER_LOCK || hover == HOVER_HALO || hover == HOVER_COGBUTTON
             || hover == HOVER_COGPANEL || hover == HOVER_KBBUTTON
-            || hover == HOVER_KBPANEL) && headValid && hand >= 0) {
+            || hover == HOVER_KBPANEL || hover == HOVER_EXITBUTTON
+            || hover == HOVER_EXITPROMPT) && headValid && hand >= 0) {
         Vec3 end = furniturePoint(ctx, hover, hitU[hand], hitV[hand], screenPose,
                                   height, radius, curved);
         ctx->beamStart = aimPoses[hand].position;
@@ -7743,6 +7981,48 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboard(JNIEnv* env, jo
          ctx->kbButtonReady ? "ready" : "missing", ctx->kbKeyCount);
 }
 
+// The exit button and the prompt behind it. One sheet per lit button, handed
+// over in zone order, so which one is showing is a swapchain handle rather than
+// an upload.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobject thiz,
+                                                              jlong handle, jobject button,
+                                                              jobject promptPlain,
+                                                              jobject promptExitHot,
+                                                              jobject promptCancelHot) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    if (button != NULL) {
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, button);
+        if (px != NULL) {
+            ctx->exitButtonReady = uploadFlipped(ctx, ctx->exitButtonSwapchain,
+                                                 ctx->exitButtonImages, px,
+                                                 OUTLINE_TEX, OUTLINE_TEX);
+        }
+    }
+
+    jobject sheets[EXIT_ART_COUNT] = { promptPlain, promptExitHot, promptCancelHot };
+    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
+        if (sheets[sheet] == NULL) {
+            continue;
+        }
+        const unsigned char* px = (*env)->GetDirectBufferAddress(env, sheets[sheet]);
+        if (px != NULL) {
+            ctx->exitPromptReady[sheet] = uploadFlipped(ctx, ctx->exitPromptSwapchains[sheet],
+                                                        ctx->exitPromptImages[sheet], px,
+                                                        EXIT_TEX_W, EXIT_TEX_H);
+        }
+    }
+
+    LOGI("exit button %s, prompt %s, %s and %s",
+         ctx->exitButtonReady ? "ready" : "missing",
+         ctx->exitPromptReady[EXIT_ZONE_NONE] ? "ready" : "missing",
+         ctx->exitPromptReady[EXIT_ZONE_EXIT] ? "ready" : "missing",
+         ctx->exitPromptReady[EXIT_ZONE_CANCEL] ? "ready" : "missing");
+}
+
 // Whether curved screens are available at all, which is what says if the panel
 // should draw its curve row live or greyed out
 JNIEXPORT jboolean JNICALL
@@ -8224,6 +8504,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     XrCompositionLayerQuad kbButtonLayer;
     XrCompositionLayerQuad kbPanelLayer;
     XrCompositionLayerQuad kbMarkLayer;
+    XrCompositionLayerQuad exitButtonLayer;
+    XrCompositionLayerQuad exitPromptLayer;
     XrCompositionLayerQuad cogThumbLayers[COG_SLIDER_COUNT];
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMarkLayers[COG_OPTION_COUNT + 1];
@@ -8236,8 +8518,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // less. The panel is modal, and since the frame a modal opens now sheds
     // the bar furniture too, the two can no longer land in one frame together.
     // The keyboard sheds the same furniture and adds only its panel and one
-    // ring, so it comes to 9. Sized well past that anyway: an overflow here is
-    // a smashed stack, and the margin costs five pointers.
+    // ring, so it comes to 9. The exit prompt sheds it too and adds its own
+    // sheet and the button that opened it, so it comes to less again. Sized
+    // well past that anyway: an overflow here is a smashed stack, and the
+    // margin costs five pointers.
     const XrCompositionLayerBaseHeader* layers[20];
     uint32_t layerCount = 0;
 
@@ -8471,9 +8755,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         // up for one frame, and that stack overflowed the runtime's layer limit
         // and cost the whole frame with a -24 on device.
         int barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
+                && !ctx->exitConfirmOpen
                 && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                     || ctx->hoverKind == HOVER_COGBUTTON
-                    || ctx->hoverKind == HOVER_KBBUTTON);
+                    || ctx->hoverKind == HOVER_KBBUTTON
+                    || ctx->hoverKind == HOVER_EXITBUTTON);
 
         // Move bar and resize corner, shown only while the ray is over them.
         // Both live in the screen's own frame, so they travel with it. Neither
@@ -8627,6 +8913,59 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             kbButtonLayer.size.width = side * kbScale;
             kbButtonLayer.size.height = side * kbScale;
             layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&kbButtonLayer;
+        }
+
+        // The button that ends the stream, furthest out on the left. Stays up
+        // while its prompt is open, like the environment button does, so it
+        // reads as the thing that asked the question.
+        if (ctx->exitButtonReady && (barArea || ctx->exitConfirmOpen)) {
+            Vec3 local;
+            float side;
+            exitButtonPlacement(ctx, screenHeight, &local, &side);
+            Vec3 offset = quatRotate(screenPose.orientation, local);
+
+            memset(&exitButtonLayer, 0, sizeof(exitButtonLayer));
+            exitButtonLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            exitButtonLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            exitButtonLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            exitButtonLayer.subImage.swapchain = ctx->exitButtonSwapchain;
+            exitButtonLayer.subImage.imageRect.offset.x = 0;
+            exitButtonLayer.subImage.imageRect.offset.y = 0;
+            exitButtonLayer.subImage.imageRect.extent.width = OUTLINE_TEX;
+            exitButtonLayer.subImage.imageRect.extent.height = OUTLINE_TEX;
+            exitButtonLayer.subImage.imageArrayIndex = 0;
+            exitButtonLayer.space = space;
+            exitButtonLayer.pose.orientation = screenPose.orientation;
+            exitButtonLayer.pose.position.x = screenPose.position.x + offset.x;
+            exitButtonLayer.pose.position.y = screenPose.position.y + offset.y;
+            exitButtonLayer.pose.position.z = screenPose.position.z + offset.z;
+            float exitScale = (ctx->exitButtonHot || ctx->exitConfirmOpen) ? 1.18f : 1.0f;
+            exitButtonLayer.size.width = side * exitScale;
+            exitButtonLayer.size.height = side * exitScale;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&exitButtonLayer;
+        }
+
+        // The prompt itself, on the pose frozen when it opened. Which sheet is
+        // up is which of its buttons the ray is on, so lighting one costs a
+        // handle rather than an upload. Sharpened like the grid, since what it
+        // carries is text.
+        if (ctx->exitConfirmOpen && ctx->exitPromptReady[ctx->exitHoverZone]) {
+            memset(&exitPromptLayer, 0, sizeof(exitPromptLayer));
+            exitPromptLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;
+            exitPromptLayer.next = sharpenChain;
+            exitPromptLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            exitPromptLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            exitPromptLayer.subImage.swapchain = ctx->exitPromptSwapchains[ctx->exitHoverZone];
+            exitPromptLayer.subImage.imageRect.offset.x = 0;
+            exitPromptLayer.subImage.imageRect.offset.y = 0;
+            exitPromptLayer.subImage.imageRect.extent.width = EXIT_TEX_W;
+            exitPromptLayer.subImage.imageRect.extent.height = EXIT_TEX_H;
+            exitPromptLayer.subImage.imageArrayIndex = 0;
+            exitPromptLayer.space = space;
+            exitPromptLayer.pose = ctx->exitPose;
+            exitPromptLayer.size.width = ctx->exitW;
+            exitPromptLayer.size.height = ctx->exitH;
+            layers[layerCount++] = (const XrCompositionLayerBaseHeader*)&exitPromptLayer;
         }
 
         // The padlock. Comes and goes like the rest of the furniture rather
@@ -8861,7 +9200,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         // ray ringed. Sharpened, since it is all text. It stands down while a
         // modal is up rather than stacking under one: the two together would
         // crowd the runtime's layer ceiling, and the modal has the ray anyway.
-        if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen
+        if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
                 && ctx->kbPanelReady[ctx->kbState]) {
             memset(&kbPanelLayer, 0, sizeof(kbPanelLayer));
             kbPanelLayer.type = XR_TYPE_COMPOSITION_LAYER_QUAD;

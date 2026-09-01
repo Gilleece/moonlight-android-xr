@@ -2831,6 +2831,25 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     }
 
+    /**
+     * The exit button in the session was confirmed. Finishing is the same way
+     * out the quit shortcut takes, and it carries the teardown and the trip
+     * back to the PC list with it, so there is nothing to disconnect here.
+     */
+    @Override
+    public void onVrExit() {
+        if (!connected) {
+            return;
+        }
+
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                finish();
+            }
+        });
+    }
+
     private void sendVrKeyPress(short keyMap, byte modifier) {
         conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, modifier, (byte)0);
         conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, modifier, (byte)0);
