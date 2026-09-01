@@ -62,6 +62,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.SystemClock;
+import android.util.Log;
 import android.util.Rational;
 import android.view.Display;
 import android.view.InputDevice;
@@ -167,13 +168,19 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private int lastVrPointerY = -1;
 
     // Hosts only count a second click as a double click if it lands within a
-    // few pixels of the first, and a hand held pointer always drifts between
-    // the two trigger pulls. Hold the cursor on the click point for a moment
-    // after a left button up unless the pointer really moves off it.
-    private static final long VR_CLICK_FREEZE_MS = 600;
-    private long vrClickFreezeUntil;
-    private int vrClickFreezeX;
-    private int vrClickFreezeY;
+    // few pixels of the first, Windows within four, and a hand held pointer
+    // always drifts between the two trigger pulls. A second left click soon
+    // enough and close enough to the first is snapped back onto its pixel
+    // before it goes out, which leaves ordinary moves and drags alone.
+    private static final long VR_DOUBLE_CLICK_MS = 600;
+    private long vrLastLeftDownTime;
+    private long vrLastLeftUpTime;
+    private int vrLastLeftDownX = -1;
+    private int vrLastLeftDownY = -1;
+
+    // Click timings go out under the renderer's tag, so one logcat filter
+    // catches these and the native side together
+    private static final String VR_CLICK_TAG = "moonlight-xr";
 
     private WifiManager.WifiLock highPerfWifiLock;
     private WifiManager.WifiLock lowLatencyWifiLock;
@@ -2722,17 +2729,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         int y = (int)(v * prefConfig.height);
         x = Math.max(0, Math.min(prefConfig.width - 1, x));
         y = Math.max(0, Math.min(prefConfig.height - 1, y));
-
-        if (vrClickFreezeUntil != 0) {
-            if (SystemClock.uptimeMillis() < vrClickFreezeUntil && isNearVrClickAnchor(x, y)) {
-                // Swallow the drift so the next click lands on the same pixel
-                return;
-            }
-
-            // Moved away or waited too long, so the double click is off anyway
-            vrClickFreezeUntil = 0;
-        }
-
         if (x == lastVrPointerX && y == lastVrPointerY) {
             return;
         }
@@ -2763,32 +2759,78 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         if (down) {
-            conn.sendMouseButtonDown(code);
-
-            // Dragging has to track the pointer, so nothing is held back while
-            // the button is down
             if (code == MouseButtonPacket.BUTTON_LEFT) {
-                vrClickFreezeUntil = 0;
+                long now = SystemClock.uptimeMillis();
+                int atX = lastVrPointerX;
+                int atY = lastVrPointerY;
+                String snap;
+
+                if (vrLastLeftDownTime == 0 || vrLastLeftDownX < 0 || atX < 0) {
+                    snap = "no snap (first)";
+                }
+                else if (now - vrLastLeftDownTime > VR_DOUBLE_CLICK_MS) {
+                    snap = "no snap (too slow)";
+                }
+                else if (!isNearVrLastDown(atX, atY)) {
+                    snap = "no snap (too far " + vrDistanceToLastDown(atX, atY) + "px)";
+                }
+                else {
+                    // Put the cursor back on the first click's pixel first, so
+                    // the host sees both downs at one spot instead of a drift
+                    snap = "snap to " + vrLastLeftDownX + "," + vrLastLeftDownY
+                            + " (dist " + vrDistanceToLastDown(atX, atY) + "px)";
+                    conn.sendMousePosition((short)vrLastLeftDownX, (short)vrLastLeftDownY,
+                            (short)prefConfig.width, (short)prefConfig.height);
+                    lastVrPointerX = vrLastLeftDownX;
+                    lastVrPointerY = vrLastLeftDownY;
+                }
+
+                Log.i(VR_CLICK_TAG, "click: down " + sinceVrClick(now, vrLastLeftDownTime)
+                        + "ms since down, " + sinceVrClick(now, vrLastLeftUpTime)
+                        + "ms since up, at " + atX + "," + atY + ", " + snap);
+
+                // Where the third click of a run is measured from is where this
+                // one actually went, snapped or not
+                vrLastLeftDownTime = now;
+                vrLastLeftDownX = lastVrPointerX;
+                vrLastLeftDownY = lastVrPointerY;
             }
+
+            conn.sendMouseButtonDown(code);
         }
         else {
             conn.sendMouseButtonUp(code);
 
-            if (code == MouseButtonPacket.BUTTON_LEFT && lastVrPointerX >= 0) {
-                vrClickFreezeX = lastVrPointerX;
-                vrClickFreezeY = lastVrPointerY;
-                vrClickFreezeUntil = SystemClock.uptimeMillis() + VR_CLICK_FREEZE_MS;
+            if (code == MouseButtonPacket.BUTTON_LEFT) {
+                long now = SystemClock.uptimeMillis();
+                Log.i(VR_CLICK_TAG, "click: up after "
+                        + sinceVrClick(now, vrLastLeftDownTime) + "ms held");
+                vrLastLeftUpTime = now;
             }
         }
     }
 
+    // -1 for the first click of the session, where there is nothing to measure
+    // back to
+    private static long sinceVrClick(long now, long then) {
+        return then == 0 ? -1 : now - then;
+    }
+
     // Within one percent of the frame width of where the last click landed,
-    // about 25 px at 2560 wide
-    private boolean isNearVrClickAnchor(int x, int y) {
+    // about 25 px at 2560 wide. Wider than the host's own double click box,
+    // since the point is to pull a near miss back into it.
+    private boolean isNearVrLastDown(int x, int y) {
         int radius = Math.max(1, prefConfig.width / 100);
-        int dx = x - vrClickFreezeX;
-        int dy = y - vrClickFreezeY;
+        int dx = x - vrLastLeftDownX;
+        int dy = y - vrLastLeftDownY;
         return dx * dx + dy * dy <= radius * radius;
+    }
+
+    // For the log line only
+    private int vrDistanceToLastDown(int x, int y) {
+        int dx = x - vrLastLeftDownX;
+        int dy = y - vrLastLeftDownY;
+        return (int)Math.sqrt(dx * dx + dy * dy);
     }
 
     @Override
