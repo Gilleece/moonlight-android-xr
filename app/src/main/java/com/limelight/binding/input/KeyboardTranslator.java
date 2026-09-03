@@ -1,5 +1,6 @@
 package com.limelight.binding.input;
 
+import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.hardware.input.InputManager;
 import android.os.Build;
@@ -34,6 +35,7 @@ public class KeyboardTranslator implements InputManager.InputDeviceListener {
     public static final int VK_EQUALS = 61;
     public static final int VK_ESCAPE = 27;
     public static final int VK_F1 = 112;
+    public static final int VK_F13 = 0x7C;
     public static final int VK_END = 35;
     public static final int VK_HOME = 36;
     public static final int VK_NUM_LOCK = 144;
@@ -126,6 +128,7 @@ public class KeyboardTranslator implements InputManager.InputDeviceListener {
      * @param deviceId InputDevice.getId() or -1 if unknown
      * @return a GFE keycode for the given keycode
      */
+    @SuppressLint("InlinedApi")
     public short translate(int keycode, int deviceId) {
         int translated;
 
@@ -160,6 +163,10 @@ public class KeyboardTranslator implements InputManager.InputDeviceListener {
         else if (keycode >= KeyEvent.KEYCODE_F1 &&
                  keycode <= KeyEvent.KEYCODE_F12) {
             translated = (keycode - KeyEvent.KEYCODE_F1) + VK_F1;
+        }
+        else if (keycode >= KeyEvent.KEYCODE_F13 &&
+                 keycode <= KeyEvent.KEYCODE_F24) {
+            translated = (keycode - KeyEvent.KEYCODE_F13) + VK_F13;
         }
         else {
             switch (keycode) {
@@ -347,6 +354,14 @@ public class KeyboardTranslator implements InputManager.InputDeviceListener {
 
             case KeyEvent.KEYCODE_NUMPAD_DOT:
                 translated = 0x6E;
+                break;
+
+            case KeyEvent.KEYCODE_PRINT:
+                translated = 0x2A;
+                break;
+
+            case KeyEvent.KEYCODE_SCREENSHOT:
+                translated = 0x2C;
                 break;
 
             default:
