@@ -145,9 +145,9 @@ has `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD` and `KEY_ALIAS` secrets and unsigned 
 
 "Report a problem" under VR Debugging in the settings bundles the user's message, the device,
 the streaming settings and the log into one file and saves it beside the log. With
-`moonlightReportUrl` and `moonlightReportToken` set in `gradle.properties` it also sends that file
-to the collector in `tools/report-worker`, a Cloudflare Worker that files reports in an R2 bucket,
-which is how a report gets off a headset with no email app.
+`moonlightReportUrl` and `moonlightReportToken` set in `gradle.properties` it also sends that file,
+gzipped, to the collector in `tools/report-worker`, a Cloudflare Worker that emails it on as an
+attachment, which is how a report gets off a headset with no email app.
 
 ### Release APK
 

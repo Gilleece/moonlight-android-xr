@@ -32,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.zip.GZIPOutputStream;
 
 /**
  * Puts together everything a bug report needs and sends it, so a user does
@@ -121,7 +122,7 @@ public class BugReportActivity extends Activity {
         // A build that knows where reports go sends them straight there, which
         // is the only way off a headset with no email app
         if (byEmail && !BuildConfig.REPORT_URL.isEmpty()) {
-            upload(report, email, where);
+            upload(report, email, message, where);
             return;
         }
 
@@ -158,7 +159,8 @@ public class BugReportActivity extends Activity {
 
     // Posts the report to the collector off the main thread and says how it
     // went. A failure leaves the saved copy where it is and says where.
-    private void upload(final File report, final String email, final String where) {
+    private void upload(final File report, final String email, final String message,
+                        final String where) {
         final Button send = findViewById(R.id.reportSend);
         send.setEnabled(false);
         Toast.makeText(this, R.string.bug_report_sending, Toast.LENGTH_SHORT).show();
@@ -166,7 +168,7 @@ public class BugReportActivity extends Activity {
         new Thread() {
             @Override
             public void run() {
-                final String failure = postReport(report, email);
+                final String failure = postReport(report, email, message);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -192,25 +194,34 @@ public class BugReportActivity extends Activity {
         }.start();
     }
 
-    // Null when the collector took the report, otherwise what went wrong
-    private static String postReport(File report, String email) {
+    // Null when the collector took the report, otherwise what went wrong. The
+    // report goes up gzipped: a log is mostly repetition and shrinks about ten
+    // to one, which is kinder to a headset's uplink and keeps the attachment
+    // the collector mails on well inside what it can handle.
+    private static String postReport(File report, String email, String message) {
+        File packed = new File(report.getParentFile(), report.getName() + ".gz");
         HttpURLConnection conn = null;
         try {
+            gzip(report, packed);
+
             conn = (HttpURLConnection) new URL(BuildConfig.REPORT_URL).openConnection();
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(30000);
             conn.setRequestMethod("POST");
             conn.setDoOutput(true);
-            conn.setFixedLengthStreamingMode(report.length());
-            conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
+            conn.setFixedLengthStreamingMode(packed.length());
+            conn.setRequestProperty("Content-Type", "application/gzip");
             if (!BuildConfig.REPORT_TOKEN.isEmpty()) {
                 conn.setRequestProperty("X-Report-Token", BuildConfig.REPORT_TOKEN);
             }
             conn.setRequestProperty("X-Report-Device", headerSafe(Build.MANUFACTURER + " " + Build.MODEL));
             conn.setRequestProperty("X-Report-Version", headerSafe(BuildConfig.VERSION_NAME));
             conn.setRequestProperty("X-Report-Email", headerSafe(email));
+            // The message again in clear, so the mail can carry it without
+            // anyone unpacking the attachment to see what the report is about
+            conn.setRequestProperty("X-Report-Summary", headerSafe(message, 2000));
 
-            FileInputStream in = new FileInputStream(report);
+            FileInputStream in = new FileInputStream(packed);
             try {
                 byte[] chunk = new byte[16384];
                 int read;
@@ -232,13 +243,33 @@ public class BugReportActivity extends Activity {
             if (conn != null) {
                 conn.disconnect();
             }
+            packed.delete();
         }
     }
 
-    // Headers carry printable ASCII and nothing else
+    private static void gzip(File from, File to) throws IOException {
+        FileInputStream in = new FileInputStream(from);
+        GZIPOutputStream out = new GZIPOutputStream(new FileOutputStream(to));
+        try {
+            byte[] chunk = new byte[16384];
+            int read;
+            while ((read = in.read(chunk)) > 0) {
+                out.write(chunk, 0, read);
+            }
+        } finally {
+            in.close();
+            out.close();
+        }
+    }
+
+    // Headers carry printable ASCII on one line and nothing else
     private static String headerSafe(String value) {
-        String ascii = value.replaceAll("[^\\x20-\\x7E]", "?");
-        return ascii.length() > 120 ? ascii.substring(0, 120) : ascii;
+        return headerSafe(value, 120);
+    }
+
+    private static String headerSafe(String value, int max) {
+        String ascii = value.replaceAll("[\\r\\n]+", " / ").replaceAll("[^\\x20-\\x7E]", "?");
+        return ascii.length() > max ? ascii.substring(0, max) : ascii;
     }
 
     // Whether anything on this device can take a mail. Most headsets have
