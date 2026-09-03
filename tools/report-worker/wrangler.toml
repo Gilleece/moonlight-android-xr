@@ -1,0 +1,26 @@
+# Deploys worker.js with `npx wrangler deploy` from this folder. The dashboard
+# route in README.md does the same thing by hand.
+name = "moonlight-xr-reports"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# The bucket the reports go into. Create it first: `npx wrangler r2 bucket
+# create moonlight-xr-reports`, or in the dashboard under R2.
+[[r2_buckets]]
+binding = "REPORTS"
+bucket_name = "moonlight-xr-reports"
+
+# The token the app sends. Set with `npx wrangler secret put REPORT_TOKEN` so it
+# never sits in this file, and put the same value in the app's
+# gradle.properties as moonlightReportToken.
+
+# Optional: a notification mail per report through Email Routing. Only works
+# when the destination's domain is on Cloudflare with Email Routing enabled and
+# the address is verified there. Uncomment and set both addresses to turn it on.
+# [[send_email]]
+# name = "NOTIFY"
+# destination_address = "hello@seangilleece.com"
+#
+# [vars]
+# NOTIFY_FROM = "reports@seangilleece.com"
+# NOTIFY_TO = "hello@seangilleece.com"

@@ -141,6 +141,14 @@ The workflow in `.github/workflows/build.yml` runs both, then lint and a debug a
 on every push. A tag starting with `v` also publishes the release APK, signed when the repository
 has `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD` and `KEY_ALIAS` secrets and unsigned otherwise.
 
+### Bug reports
+
+"Report a problem" under VR Debugging in the settings bundles the user's message, the device,
+the streaming settings and the log into one file and saves it beside the log. With
+`moonlightReportUrl` and `moonlightReportToken` set in `gradle.properties` it also sends that file
+to the collector in `tools/report-worker`, a Cloudflare Worker that files reports in an R2 bucket,
+which is how a report gets off a headset with no email app.
+
 ### Release APK
 
 A headset will not install an unsigned APK, so the release build has to be signed. Create a

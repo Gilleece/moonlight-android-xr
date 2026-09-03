@@ -26,6 +26,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -68,13 +70,19 @@ public class BugReportActivity extends Activity {
         intro.setText(getString(R.string.bug_report_intro, REPORT_ADDRESS,
                 logPath != null ? logPath : getString(R.string.bug_report_log_off)));
 
+        // With a collector to send to the button says so, since that path
+        // needs no email app and works from a headset
+        Button send = findViewById(R.id.reportSend);
+        if (!BuildConfig.REPORT_URL.isEmpty()) {
+            send.setText(R.string.bug_report_send_direct);
+        }
+
         findViewById(R.id.reportBack).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 finish();
             }
         });
-        Button send = findViewById(R.id.reportSend);
         send.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -106,9 +114,16 @@ public class BugReportActivity extends Activity {
         }
 
         // A copy where the headset's file manager can see it, for the case
-        // where there is no email app and the file has to travel by hand
+        // where the report cannot leave the device and has to travel by hand
         File visible = copyBesideLog(report);
         String where = visible != null ? visible.getAbsolutePath() : report.getAbsolutePath();
+
+        // A build that knows where reports go sends them straight there, which
+        // is the only way off a headset with no email app
+        if (byEmail && !BuildConfig.REPORT_URL.isEmpty()) {
+            upload(report, email, where);
+            return;
+        }
 
         if (!byEmail || !haveMailApp()) {
             String text = byEmail
@@ -139,6 +154,91 @@ public class BugReportActivity extends Activity {
                     .setPositiveButton(android.R.string.ok, null)
                     .show();
         }
+    }
+
+    // Posts the report to the collector off the main thread and says how it
+    // went. A failure leaves the saved copy where it is and says where.
+    private void upload(final File report, final String email, final String where) {
+        final Button send = findViewById(R.id.reportSend);
+        send.setEnabled(false);
+        Toast.makeText(this, R.string.bug_report_sending, Toast.LENGTH_SHORT).show();
+
+        new Thread() {
+            @Override
+            public void run() {
+                final String failure = postReport(report, email);
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        send.setEnabled(true);
+                        if (isFinishing()) {
+                            return;
+                        }
+                        if (failure == null) {
+                            Toast.makeText(BugReportActivity.this, R.string.bug_report_sent,
+                                    Toast.LENGTH_LONG).show();
+                            finish();
+                            return;
+                        }
+                        new AlertDialog.Builder(BugReportActivity.this)
+                                .setTitle(R.string.title_bug_report)
+                                .setMessage(getString(R.string.bug_report_upload_failed, failure,
+                                        where, REPORT_ADDRESS))
+                                .setPositiveButton(android.R.string.ok, null)
+                                .show();
+                    }
+                });
+            }
+        }.start();
+    }
+
+    // Null when the collector took the report, otherwise what went wrong
+    private static String postReport(File report, String email) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(BuildConfig.REPORT_URL).openConnection();
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(30000);
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setFixedLengthStreamingMode(report.length());
+            conn.setRequestProperty("Content-Type", "text/plain; charset=utf-8");
+            if (!BuildConfig.REPORT_TOKEN.isEmpty()) {
+                conn.setRequestProperty("X-Report-Token", BuildConfig.REPORT_TOKEN);
+            }
+            conn.setRequestProperty("X-Report-Device", headerSafe(Build.MANUFACTURER + " " + Build.MODEL));
+            conn.setRequestProperty("X-Report-Version", headerSafe(BuildConfig.VERSION_NAME));
+            conn.setRequestProperty("X-Report-Email", headerSafe(email));
+
+            FileInputStream in = new FileInputStream(report);
+            try {
+                byte[] chunk = new byte[16384];
+                int read;
+                while ((read = in.read(chunk)) > 0) {
+                    conn.getOutputStream().write(chunk, 0, read);
+                }
+            } finally {
+                in.close();
+            }
+
+            int code = conn.getResponseCode();
+            if (code / 100 != 2) {
+                return "server answered " + code;
+            }
+            return null;
+        } catch (IOException e) {
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        } finally {
+            if (conn != null) {
+                conn.disconnect();
+            }
+        }
+    }
+
+    // Headers carry printable ASCII and nothing else
+    private static String headerSafe(String value) {
+        String ascii = value.replaceAll("[^\\x20-\\x7E]", "?");
+        return ascii.length() > 120 ? ascii.substring(0, 120) : ascii;
     }
 
     // Whether anything on this device can take a mail. Most headsets have

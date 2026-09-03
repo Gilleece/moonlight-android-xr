@@ -118,6 +118,13 @@ android {
 
         // Generate native debug symbols to allow Google Play to symbolicate our native crashes
         ndk.debugSymbolLevel = 'FULL'
+
+        // Where the report a problem screen sends reports and the token the
+        // collector expects, from gradle.properties. A build with neither keeps
+        // reports on the device and tells the user where, see
+        // tools/report-worker.
+        buildConfigField "String", "REPORT_URL", "\"${project.findProperty('moonlightReportUrl') ?: ''}\""
+        buildConfigField "String", "REPORT_TOKEN", "\"${project.findProperty('moonlightReportToken') ?: ''}\""
     }
 
     flavorDimensions.add("root")

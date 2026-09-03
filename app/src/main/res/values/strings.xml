@@ -294,6 +294,10 @@
     <string name="bug_report_email_hint">Your email address, for a reply</string>
     <string name="bug_report_message_hint">What happened?</string>
     <string name="bug_report_send">Send by email</string>
+    <string name="bug_report_send_direct">Send</string>
+    <string name="bug_report_sending">Sending the report…</string>
+    <string name="bug_report_sent">Report sent, thank you</string>
+    <string name="bug_report_upload_failed">The report could not be sent (%1$s). It has been saved to\n\n%2$s\n\nTry again with a connection, or copy it off the headset and email it to %3$s.</string>
     <string name="bug_report_save">Save the report</string>
     <string name="bug_report_subject">Moonlight XR report: %1$s, %2$s</string>
     <string name="bug_report_from">Reply to: %1$s</string>
