@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <math.h>
+#include <stdatomic.h>
 
 #include <android/log.h>
 #include <sys/system_properties.h>
@@ -605,6 +606,17 @@ static void xrLog(int prio, const char* fmt, ...) {
 
 #define DEPTH_TEX_SIZE 256
 
+// Three rather than two: the depth thread advances through them in a fixed
+// rotation, so a slot it is about to overwrite was last handed to the render
+// thread a full rotation ago rather than one. One inference (>= 13.5 ms
+// measured, MidasDepthSource.java:40) dwarfs anything the render thread
+// could still have in flight from that slot by then.
+#define DEPTH_TEX_COUNT 3
+
+// Generous on purpose: the depth thread has no per frame deadline, and a
+// short timeout here would only trade a hung capture for a corrupt one.
+#define CAPTURE_FENCE_TIMEOUT_NS 500000000ull
+
 // Pinned headers may predate the extension, values from the OpenXR registry
 #ifndef XR_FB_composition_layer_settings
 #define XR_FB_composition_layer_settings 1
@@ -735,10 +747,27 @@ typedef struct {
     // wide and each eye gets its own warped copy of the frame
     int stereoMode;
     int depthDebug;
-    // Double buffered: the frame loop samples one while the depth thread
-    // writes the other, so neither ever waits on the other
-    GLuint depthTextures[2];
+    // Triple buffered: the frame loop samples one slot while the depth
+    // thread rotates through the rest, so neither ever blocks on the other.
+    GLuint depthTextures[DEPTH_TEX_COUNT];
+    // Written only by the render thread, which is the only reader that
+    // matters for ordering here, so a plain volatile store is enough.
     volatile int depthReadIndex;
+    // Written only by the depth thread: the slot its next upload will
+    // target. Read only by that same thread, so it needs no synchronization
+    // at all.
+    int depthWriteIndex;
+    // Published by the depth thread together with the fence for that slot
+    // (nativeUploadDepth), and adopted by the render thread once it notices
+    // a new value (renderVideoFrame). Release/acquire on this single word is
+    // what guarantees the render thread never observes the index before the
+    // depthFences store that has to be visible along with it — two separate
+    // plain stores would not carry that ordering.
+    atomic_int depthStagedIndex;
+    // One fence per slot, non-NULL exactly while nothing has yet waited on
+    // it. Set by the depth thread right after the upload it guards, cleared
+    // by whichever render-thread call site first samples that slot.
+    GLsync depthFences[DEPTH_TEX_COUNT];
 
     // Second context in the same share group for the depth thread. Inference
     // takes longer than a display frame, so it cannot run on the frame loop
@@ -752,7 +781,19 @@ typedef struct {
     GLint downscaleTexMatrixUniform;
     GLuint downscaleTexture;
     GLuint downscaleFbo;
-    unsigned char* readbackBuf;
+    // Pixel pack buffers the downscale draw reads back into asynchronously:
+    // glReadPixels with one of these bound returns as soon as the transfer
+    // is queued rather than blocking the render thread for it. Two, ping
+    // ponged, though the handoff guard in handOffDepthFrame() means only one
+    // is ever in flight — the spare is headroom, not load-bearing.
+    GLuint depthPbos[2];
+    // Which of the two the most recent capture targeted, and the fence that
+    // guards reading it back. Both are written on the render thread and read
+    // on the depth thread with no atomics: the Java monitor around
+    // depthPending (handOffDepthFrame / runDepthLoop) already carries them
+    // across, the same way captureFrameIndex and captureFrameNs do.
+    int captureIndex;
+    GLsync captureFences[2];
     float* modelInput;
     float* modelOutput;
     unsigned char* depthUploadBuf;
@@ -2157,7 +2198,7 @@ static void fillSyntheticDepth(XrCtx* ctx) {
         }
     }
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < DEPTH_TEX_COUNT; i++) {
         glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -2381,7 +2422,21 @@ static int initDepthModel(XrCtx* ctx) {
         return 0;
     }
 
-    ctx->readbackBuf = malloc((size_t)n * n * 4);
+    // Slot 0 is what fillSyntheticDepth and depthReadIndex both start on, so
+    // the first real upload has to land somewhere else
+    ctx->depthWriteIndex = 1;
+    atomic_init(&ctx->depthStagedIndex, 0);
+
+    // Storage only, no data: each capture targets one with glReadPixels and
+    // the depth thread later maps it, so nothing is ever uploaded from the
+    // client side here
+    glGenBuffers(2, ctx->depthPbos);
+    for (int i = 0; i < 2; i++) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[i]);
+        glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)n * n * 4, NULL, GL_STREAM_READ);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
     ctx->modelInput = malloc((size_t)n * n * 3 * sizeof(float));
     ctx->modelOutput = malloc((size_t)n * n * sizeof(float));
     ctx->depthUploadBuf = malloc((size_t)n * n * 4);
@@ -2389,7 +2444,7 @@ static int initDepthModel(XrCtx* ctx) {
     ctx->depthLow = malloc((size_t)n * n * sizeof(float));
     ctx->depthScratch = malloc((size_t)n * n * sizeof(float));
     ctx->depthColSums = malloc((size_t)n * sizeof(float));
-    if (ctx->readbackBuf == NULL || ctx->modelInput == NULL || ctx->modelOutput == NULL ||
+    if (ctx->modelInput == NULL || ctx->modelOutput == NULL ||
             ctx->depthUploadBuf == NULL || ctx->depthEma == NULL ||
             ctx->depthLow == NULL || ctx->depthScratch == NULL ||
             ctx->depthColSums == NULL) {
@@ -2444,7 +2499,7 @@ static int initGl(XrCtx* ctx) {
     glUniform1f(glGetUniformLocation(ctx->program, "u_showDepth"),
                 ctx->depthDebug ? 1.0f : 0.0f);
 
-    glGenTextures(2, ctx->depthTextures);
+    glGenTextures(DEPTH_TEX_COUNT, ctx->depthTextures);
     fillSyntheticDepth(ctx);
 
     glGenTextures(1, &ctx->oesTexture);
@@ -5064,7 +5119,24 @@ static void destroyXrInput(XrCtx* ctx) {
 static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyXrInput(ctx);
 
-    free(ctx->readbackBuf);
+    // The depth thread has already been joined by this point (nativeDestroy
+    // runs after stopDepthThread()), but a slot whose fence was never
+    // sampled again after being published — the stream stopped before the
+    // frame loop got back to it — would otherwise leak a sync object.
+    for (int i = 0; i < DEPTH_TEX_COUNT; i++) {
+        if (ctx->depthFences[i] != NULL) {
+            glDeleteSync(ctx->depthFences[i]);
+            ctx->depthFences[i] = NULL;
+        }
+    }
+    for (int i = 0; i < 2; i++) {
+        if (ctx->captureFences[i] != NULL) {
+            glDeleteSync(ctx->captureFences[i]);
+            ctx->captureFences[i] = NULL;
+        }
+    }
+    glDeleteBuffers(2, ctx->depthPbos);
+
     free(ctx->modelInput);
     free(ctx->modelOutput);
     free(ctx->depthUploadBuf);
@@ -5407,10 +5479,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetModelOutput(JNIEnv* env, jo
                                        (jlong)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * sizeof(float));
 }
 
-// Draws the current frame into the downscale target and reads it back into
-// the model input buffer. Rows are flipped on the way: GL hands back the
-// bottom row first and the model wants the image the right way up, since
-// monocular depth leans heavily on which way is down.
+// Draws the current frame into the downscale target and queues an
+// asynchronous readback of it, rather than reading it back synchronously the
+// way this used to: with a pixel pack buffer bound, glReadPixels only queues
+// the transfer and returns immediately, instead of stalling this thread —
+// the render thread, which has a frame budget to keep — until the GPU
+// produces the pixels. nativeFinishDepthCapture(), on the depth thread, is
+// where that readback is actually waited on and turned into model input.
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env, jobject thiz,
                                                                     jlong handle,
@@ -5439,18 +5514,88 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
     glEnableVertexAttribArray(1);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, ctx->readbackBuf);
+    // The handoff guard in handOffDepthFrame() means the depth thread has
+    // always finished with the other slot by the time a new capture reaches
+    // here, but ping ponging costs nothing and leaves room if that guard
+    // ever loosens.
+    int slot = 1 - ctx->captureIndex;
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[slot]);
+    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, (void*)0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    for (int y = 0; y < n; y++) {
-        const unsigned char* src = ctx->readbackBuf + (size_t)(n - 1 - y) * n * 4;
-        float* dst = ctx->modelInput + (size_t)y * n * 3;
-        for (int x = 0; x < n; x++) {
-            dst[x * 3 + 0] = src[x * 4 + 0] * (1.0f / 255.0f);
-            dst[x * 3 + 1] = src[x * 4 + 1] * (1.0f / 255.0f);
-            dst[x * 3 + 2] = src[x * 4 + 2] * (1.0f / 255.0f);
-        }
+    if (ctx->captureFences[slot] != NULL) {
+        // Only reachable if the handoff guard above was somehow bypassed; a
+        // fence nothing ever waited on would otherwise leak here
+        glDeleteSync(ctx->captureFences[slot]);
     }
+
+    // Fence first, flush second, and the order is the whole point: a flush
+    // only pushes out what is already in this context's queue, so flushing
+    // before the fence exists leaves the fence itself sitting unflushed. The
+    // depth thread waits on it from a different context and cannot flush it
+    // from there — GL_SYNC_FLUSH_COMMANDS_BIT only acts on the calling
+    // context — so it would block until this thread happened to flush for
+    // some unrelated reason, which is exactly the coupling the PBO is here
+    // to remove.
+    ctx->captureFences[slot] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
+    ctx->captureIndex = slot;
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
+    return nowNs() - startNs;
+}
+
+// Companion to nativeCaptureDepthInput(): waits for that capture's readback
+// to actually land, then normalizes it into modelInput exactly as the old
+// synchronous path did, rows flipped for the same reason — GL hands back the
+// bottom row first and the model wants the image the right way up. Runs on
+// the depth thread, right before estimate() reads modelInput, which is what
+// keeps this ordered before it despite living on the same thread rather than
+// needing any synchronization of its own: this thread blocks here rather
+// than moving on, unlike the render thread that queued the transfer.
+JNIEXPORT jlong JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env, jobject thiz,
+                                                                     jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    const int n = DEPTH_TEX_SIZE;
+    long startNs = nowNs();
+    int slot = ctx->captureIndex;
+
+    GLsync fence = ctx->captureFences[slot];
+    if (fence != NULL) {
+        // Checked rather than discarded: on a timeout the map below still
+        // hands back a buffer, so the frame would be normalized from whatever
+        // the transfer had managed so far and the depth map would go subtly
+        // wrong with nothing in the log to say why. Half a second is long
+        // past anything a 256x256 readback can legitimately take, so this
+        // firing means the fence never landed, not that the GPU was busy.
+        GLenum waited = glClientWaitSync(fence, 0, CAPTURE_FENCE_TIMEOUT_NS);
+        if (waited == GL_TIMEOUT_EXPIRED) {
+            LOGW("depth capture: readback fence timed out, frame may be torn");
+        }
+        glDeleteSync(fence);
+        ctx->captureFences[slot] = NULL;
+    }
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[slot]);
+    const unsigned char* src = (const unsigned char*)glMapBufferRange(
+            GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)n * n * 4, GL_MAP_READ_BIT);
+    if (src != NULL) {
+        for (int y = 0; y < n; y++) {
+            const unsigned char* row = src + (size_t)(n - 1 - y) * n * 4;
+            float* dst = ctx->modelInput + (size_t)y * n * 3;
+            for (int x = 0; x < n; x++) {
+                dst[x * 3 + 0] = row[x * 4 + 0] * (1.0f / 255.0f);
+                dst[x * 3 + 1] = row[x * 4 + 1] * (1.0f / 255.0f);
+                dst[x * 3 + 2] = row[x * 4 + 2] * (1.0f / 255.0f);
+            }
+        }
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    }
+    else {
+        LOGW("depth capture: PBO map failed");
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
     return nowNs() - startNs;
 }
@@ -5600,10 +5745,13 @@ static void lowPass(const float* src, float* dst, float* scratch, float* colSums
 // so raw model flicker does not reach the eyes. The guide colour rides along
 // in RGB so the upsampling pass gets the exact frame the depth came from.
 //
-// Runs on the depth thread, writing whichever texture the frame loop is not
-// sampling, then publishing it. The finish is what makes the upload visible
-// to the other context, and costs nothing here since this thread has no
-// deadline.
+// Runs on the depth thread, writing the next slot in the fixed rotation
+// (never the one the frame loop is currently reading), then publishing it
+// behind a fence rather than the glFinish() this used to block on: a finish
+// stalls the calling thread until the GPU is idle, which cost nothing here
+// only because this thread has no deadline, and it is not what the frame
+// loop's context actually needs. What it needs is something it can wait on
+// itself, which is what the fence gives it.
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
@@ -5651,6 +5799,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
                 DEPTH_LOWPASS_RADIUS);
     }
 
+    // modelInput here is the same buffer nativeFinishDepthCapture() filled
+    // just before estimate() ran, on this same thread earlier in this same
+    // depth loop iteration, so no separate synchronization is needed to read
+    // it below — only care not to reorder this ahead of that fill.
     for (int y = 0; y < n; y++) {
         const float* guide = ctx->modelInput + (size_t)(n - 1 - y) * n * 3;
         const float* ema = ctx->depthEma + (size_t)y * n;
@@ -5669,12 +5821,50 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
         }
     }
 
-    int writeIndex = 1 - ctx->depthReadIndex;
+    int writeIndex = ctx->depthWriteIndex;
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[writeIndex]);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, ctx->depthUploadBuf);
-    glFinish();
-    ctx->depthReadIndex = writeIndex;
+
+    if (ctx->depthFences[writeIndex] != NULL) {
+        // The render thread normally consumes a slot's fence the frame after
+        // it is published, so a live one here means it never got that far.
+        // That is not a rare path: renderVideoFrame() only runs when the
+        // runtime asks for a frame, while the capture that drives this thread
+        // runs on every decoded one, so anything that stops rendering without
+        // stopping the stream — the headset off the head, the app losing
+        // visibility — publishes slots nothing adopts, for as long as it
+        // lasts. Deleting is safe even against a wait already queued on the
+        // fence, since GL defers that until the wait is done, and skipping it
+        // would leak one sync object per publish.
+        glDeleteSync(ctx->depthFences[writeIndex]);
+    }
+
+    // A flush alone only promises the commands leave this context's queue; it
+    // does not promise a texture read in the render thread's context, which
+    // is a different context in the same share group, will see the result.
+    // The fence is what that other context can actually wait on, which a
+    // flush by itself is not.
+    //
+    // The fence has to be created before the flush, not after: a fence left
+    // unflushed in this context's queue is one the render thread's glWaitSync
+    // may never see satisfied, and it cannot flush this context on our
+    // behalf.
+    GLsync fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    glFlush();
+    ctx->depthFences[writeIndex] = fence;
+
+    // Index and fence are published together with one release store, so the
+    // render thread can never see the new index before the fence write above
+    // that has to come with it. Two separate plain stores would not carry
+    // that guarantee.
+    atomic_store_explicit(&ctx->depthStagedIndex, writeIndex, memory_order_release);
+
+    // Always the next slot in fixed rotation, never a function of where the
+    // render thread currently is. That fixed rotation through three slots is
+    // what keeps this from ever landing on one the render thread could still
+    // have a draw call in flight against, see the DEPTH_TEX_COUNT comment.
+    ctx->depthWriteIndex = (writeIndex + 1) % DEPTH_TEX_COUNT;
 
     return nowNs() - startNs;
 }
@@ -6889,6 +7079,24 @@ static void writeCapture(XrCtx* ctx, const char* what, const void* data, size_t 
     LOGI("capture: %s %zu bytes", path, written);
 }
 
+// Waits, once, for the fence guarding ctx->depthTextures[ctx->depthReadIndex],
+// then discards it. A slot only carries a live fence between the depth
+// thread publishing it and the first render-thread call site that samples
+// it afterwards: once the wait is inserted into this context's command
+// queue, every later command in this context — including another sampling
+// site later in the same frame, or the same slot again next frame — is
+// already ordered behind the depth thread's upload by the GL queue itself,
+// so waiting on the same slot twice would mean waiting on a sync object
+// that has already been deleted.
+static void waitForDepthSlot(XrCtx* ctx) {
+    GLsync fence = ctx->depthFences[ctx->depthReadIndex];
+    if (fence != NULL) {
+        glWaitSync(fence, 0, GL_TIMEOUT_IGNORED);
+        glDeleteSync(fence);
+        ctx->depthFences[ctx->depthReadIndex] = NULL;
+    }
+}
+
 // Reads back the depth texture the warp actually sampled this frame, so the
 // captured warp can be reproduced exactly rather than approximately. Depth is
 // the alpha channel, the rgb alongside it is the guide.
@@ -6902,6 +7110,7 @@ static void writeCaptureDepthTexture(XrCtx* ctx) {
         return;
     }
 
+    waitForDepthSlot(ctx);
     GLuint fbo = 0;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -6938,6 +7147,7 @@ static void runUpsample(XrCtx* ctx, const float* texMatrix) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
+    waitForDepthSlot(ctx);
     glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[ctx->depthReadIndex]);
     glUniformMatrix4fv(ctx->upsampleTexMatrixUniform, 1, GL_FALSE, texMatrix);
     glUniform1f(ctx->upsampleSigmaUniform, ctx->upsampleSigmaR);
@@ -7926,6 +8136,16 @@ static void renderRoom(XrCtx* ctx) {
 }
 
 static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
+    // Picks up whatever the depth thread most recently finished, once per
+    // frame and before anything below samples a depth slot. The fence that
+    // guards it is not waited on here — only a site that actually samples
+    // the texture needs to insert that wait — but by the time one does, the
+    // acquire below has already made the depth thread's fence store visible.
+    int stagedDepth = atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire);
+    if (stagedDepth != ctx->depthReadIndex) {
+        ctx->depthReadIndex = stagedDepth;
+    }
+
     int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
 
@@ -8001,7 +8221,10 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
     // Either the raw 256x256 map or the edge aware upsample of it. Both carry
-    // depth in alpha, so the warp shader does not care which it got.
+    // depth in alpha, so the warp shader does not care which it got. When
+    // upsampling is on, runUpsample() already waited on this slot's fence
+    // above; the call here is then a no-op, since the wait only happens once.
+    waitForDepthSlot(ctx);
     glBindTexture(GL_TEXTURE_2D, upsampling ? ctx->upsampleTexture
                                             : ctx->depthTextures[ctx->depthReadIndex]);
     glActiveTexture(GL_TEXTURE2);

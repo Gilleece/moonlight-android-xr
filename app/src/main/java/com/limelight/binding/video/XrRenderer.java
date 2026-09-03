@@ -433,6 +433,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native ByteBuffer nativeGetModelInput(long ctx);
     private native ByteBuffer nativeGetModelOutput(long ctx);
     private native long nativeCaptureDepthInput(long ctx, float[] texMatrix);
+    private native long nativeFinishDepthCapture(long ctx);
     private native long nativeUploadDepth(long ctx);
     private native boolean nativeBindDepthContext(long ctx);
     private native void nativeUnbindDepthContext(long ctx);
@@ -631,6 +632,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
             long start = System.nanoTime();
             long upload = 0;
+            // The render thread only queued the readback; this is where it is
+            // waited on and turned into modelInput, which estimate() reads
+            long finish = nativeFinishDepthCapture(nativeCtx);
             boolean ok = source.estimate();
             if (ok) {
                 upload = nativeUploadDepth(nativeCtx);
@@ -648,7 +652,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 continue;
             }
 
-            captureNs += lastCaptureNs;
+            captureNs += lastCaptureNs + finish;
             inferenceNs += (long)(source.getLastInferenceMs() * 1000000.0f);
             lastInferenceMs = source.getLastInferenceMs();
             uploadNs += upload;
