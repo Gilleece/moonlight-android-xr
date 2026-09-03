@@ -32,9 +32,10 @@ import java.util.logging.Logger;
  * most people will ever reach it. Logcat still gets everything it always did:
  * this only ever adds a destination.
  *
- * There is only ever the one file. When it fills it is wiped and started
- * again from the device header, so a log left on for months costs a user the
- * same as one left on for a day.
+ * There are only ever two files. When the log fills it becomes the previous
+ * log, replacing the one before it, and a fresh one starts from the device
+ * header, so a log left on for months costs a user the same as one left on for
+ * a day while the start of a long session is not thrown away mid stream.
  *
  * Nothing here touches the LimeLog call sites. A handler on the same logger
  * picks those up, and the few lines worth having at the quiet level are
@@ -49,9 +50,10 @@ public class FileLog {
     private static final String PUBLIC_DIR = "MoonlightXR";
     private static final String LOG_DIR = "logs";
     private static final String LOG_NAME = "moonlight.log";
+    private static final String PREVIOUS_LOG_NAME = "moonlight.previous.log";
 
-    // Wiped at this size rather than rotated, so nothing accumulates on a
-    // user's device. Big enough to hold a long session, small enough to
+    // Rotated once at this size and never further, so nothing accumulates on
+    // a user's device. Big enough to hold a long session, small enough to
     // attach to a report.
     private static final long MAX_BYTES = 5 * 1024 * 1024;
     // Deep enough that a burst of stats lines rides through, shallow enough
@@ -177,6 +179,14 @@ public class FileLog {
     /** The file to point a bug reporter at, or null when logging is off. */
     public static String getLogPath() {
         return logPath;
+    }
+
+    /** The log before this one, which may not exist, or null when logging is off. */
+    public static File getPreviousLogFile() {
+        if (logPath == null) {
+            return null;
+        }
+        return new File(new File(logPath).getParentFile(), PREVIOUS_LOG_NAME);
     }
 
     public static int getLevel() {
@@ -356,19 +366,22 @@ public class FileLog {
     }
 
     /**
-     * The log filled, so it starts again. Deleting rather than keeping a
-     * previous copy is deliberate: a log left switched on should never cost a
-     * user more than one file.
+     * The log filled, so it becomes the previous log and a fresh one starts.
+     * One previous copy and no more is deliberate: a log left switched on
+     * should never cost a user more than two files, and the second is what
+     * keeps the first half of a long session readable after the turn.
      *
      * Caller holds fileLock, on the writer thread.
      */
     private static void wipe() {
         closeFile();
 
-        // The delete can fail. Reopen what is there and let it run over the
+        // The rename can fail. Reopen what is there and let it run over the
         // cap, since carrying on with an oversize log beats going quiet for
-        // the rest of the session, and the next write tries the wipe again.
-        if (!logFile.delete()) {
+        // the rest of the session, and the next write tries again.
+        File previous = new File(logFile.getParentFile(), PREVIOUS_LOG_NAME);
+        previous.delete();
+        if (!logFile.renameTo(previous)) {
             openFile();
             return;
         }
@@ -378,10 +391,10 @@ public class FileLog {
 
         // Fresh file, so it has to say what it came from again. openFile has
         // just put fileBytes back to zero and these few lines cannot reach the
-        // cap, so writing them here cannot wipe it straight back.
+        // cap, so writing them here cannot roll it straight over again.
         long now = System.currentTimeMillis();
         writeLine(now, 'I', "log reached " + (MAX_BYTES / (1024 * 1024))
-                + " MB and started over");
+                + " MB, the earlier part is in " + PREVIOUS_LOG_NAME);
         for (String line : headerLines) {
             writeLine(now, 'I', line);
         }

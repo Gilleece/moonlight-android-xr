@@ -14,6 +14,7 @@ import org.jcodec.codecs.h264.io.model.SeqParameterSet;
 import org.jcodec.codecs.h264.io.model.VUIParameters;
 
 import com.limelight.BuildConfig;
+import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.nvstream.av.video.VideoDecoderRenderer;
@@ -590,6 +591,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
         }
 
         LimeLog.info("Configuring with format: "+format);
+        // Which decoder and what it was asked for is the first thing a report
+        // about a black or stuttering picture needs, so it goes in the file
+        // at the quiet level too
+        FileLog.event("decoder: " + videoDecoder.getName() + ", " + format);
 
         videoDecoder.configure(format, getRenderSurface(), null, 0);
 

@@ -694,7 +694,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
         LOGW("pointer swapchain unavailable, the ray will not be drawn");
     }
 
-    LOGI("OpenXR init complete (cylinder=%d equirect=%d srgbWriteControl=%d maxLayers=%d)",
+    LOGEV("OpenXR init complete (cylinder=%d equirect=%d srgbWriteControl=%d maxLayers=%d)",
          ctx->cylinderSupported, ctx->equirectSupported, ctx->srgbWriteControl,
          ctx->maxLayerCount);
     return (jlong)(intptr_t)ctx;

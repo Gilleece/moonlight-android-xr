@@ -288,7 +288,7 @@
     <string name="summary_vr_eye_swap">Swap the left and right eye images in stereo mode</string>
     <string name="vr_unavailable_flat">The headset\'s OpenXR runtime could not be reached, so the stream is showing on a flat panel. Update the headset software, or turn off Stream in VR.</string>
     <string name="title_vr_file_log">Save a log file</string>
-    <string name="summary_vr_file_log">Keep a plain text log in Download/MoonlightXR, where the file manager on the headset can find it and you can attach it to a bug report. Restart the app for a change to take effect.</string>
+    <string name="summary_vr_file_log">Keep a plain text log in Download/MoonlightXR, where the file manager on the headset can find it and you can attach it to a bug report. At 5 MB it rolls over into moonlight.previous.log, so the two together never take more than 10 MB. Restart the app for a change to take effect.</string>
     <string name="title_seekbar_vr_inference_cadence">Depth model cadence</string>
     <string name="summary_seekbar_vr_inference_cadence">Run the depth model on every Nth video frame. Higher is cheaper but depth lags further behind.</string>
     <string name="suffix_seekbar_vr_inference_cadence">frames</string>
