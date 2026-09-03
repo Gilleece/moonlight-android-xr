@@ -337,7 +337,9 @@ typedef struct XrCompositionLayerSettingsFB {
 #define CAPTURE_POLL_FRAMES 30
 
 // Tuning knobs, all live over setprop so a headset session can A/B them
-// without a rebuild. Each is an integer percent of the real value.
+// without a rebuild. Each is an integer percent of the real value. Read by
+// debug builds only: a release build never polls the property store, so a
+// knob left set from a test session cannot override the panel in one.
 #define PROP_DEPTH_ALPHA "debug.moonlight.depthalpha"
 #define PROP_RANGE_ALPHA "debug.moonlight.rangealpha"
 #define PROP_UPSAMPLE "debug.moonlight.upsample"
@@ -432,7 +434,9 @@ typedef struct {
     GLint downscaleTexMatrixUniform;
     GLuint downscaleTexture;
     GLuint downscaleFbo;
-    unsigned char* readbackBuf;
+    // The readback goes through a pixel buffer and is collected the frame
+    // after it was asked for, so the frame loop never waits on the GPU for it
+    GLuint depthReadPbo;
     float* modelInput;
     float* modelOutput;
     unsigned char* depthUploadBuf;
@@ -497,6 +501,9 @@ typedef struct {
     // the glow is looking at.
     GLuint ambiDetectTexture;
     GLuint ambiDetectFbo;
+    // Its readback, also through a pixel buffer collected a frame later
+    GLuint ambiDetectPbo;
+    int ambiDetectPending;
     // 1 detects and crops, 0 leaves the whole frame alone
     int ambiBarDetect;
     // Frames of the sample pass since the last readback
@@ -1042,6 +1049,7 @@ int initDepthModel(XrCtx* ctx);
 int initAmbilight(XrCtx* ctx);
 void ambiEffective(XrCtx* ctx, int* on, float* level);
 void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix);
+void finishAmbiBarDetect(XrCtx* ctx);
 void runFrameColorSample(XrCtx* ctx, const float* texMatrix);
 void runGlowRender(XrCtx* ctx);
 

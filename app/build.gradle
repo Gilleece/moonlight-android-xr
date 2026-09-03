@@ -208,6 +208,14 @@ android {
             resValue "string", "app_label", "Moonlight XR (Debug)"
             resValue "string", "app_label_root", "Moonlight XR (Root Debug)"
 
+            // The renderer's setprop tuning knobs and frame capture live in
+            // debug builds only
+            externalNativeBuild {
+                ndkBuild {
+                    arguments "XR_DEBUG_KNOBS=1"
+                }
+            }
+
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

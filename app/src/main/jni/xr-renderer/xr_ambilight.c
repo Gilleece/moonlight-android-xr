@@ -60,6 +60,14 @@ int initAmbilight(XrCtx* ctx) {
         return 0;
     }
 
+    // Where its readback lands, to be looked at a frame later rather than
+    // waited for
+    glGenBuffers(1, &ctx->ambiDetectPbo);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->ambiDetectPbo);
+    glBufferData(GL_PIXEL_PACK_BUFFER, AMBI_SAMPLE_TEX * AMBI_SAMPLE_TEX * 4, NULL,
+                 GL_STREAM_READ);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
     if (!linkProgram(&ctx->glowProgram, GLOW_FRAGMENT_SRC, "glow")) {
         return 0;
     }
@@ -219,13 +227,16 @@ static void detectAmbiBars(XrCtx* ctx, const unsigned char* rgba) {
     LOGI("ambilight bars: top %d bottom %d left %d right %d", top, bottom, left, right);
 }
 
-// Draws the frame uncropped into the detector's target and reads it straight
-// back. Sets up all of its own state: it runs well after the sample pass, from
-// a point where the video draw has left the program, viewport and texture units
-// on something else entirely.
+// Draws the frame uncropped into the detector's target and asks for it back
+// into the pixel buffer, where finishAmbiBarDetect reads it a frame later
+// rather than draining the GPU queue for it here. Sets up all of its own
+// state: it runs well after the sample pass, from a point where the video draw
+// has left the program, viewport and texture units on something else entirely.
 void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix) {
     const int n = AMBI_SAMPLE_TEX;
-    unsigned char rgba[AMBI_SAMPLE_TEX * AMBI_SAMPLE_TEX * 4];
+    if (ctx->ambiDetectPbo == 0) {
+        return;
+    }
 
     glBindFramebuffer(GL_FRAMEBUFFER, ctx->ambiDetectFbo);
     glViewport(0, 0, n, n);
@@ -249,10 +260,30 @@ void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix) {
     glEnableVertexAttribArray(1);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->ambiDetectPbo);
+    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    ctx->ambiDetectPending = 1;
+}
 
-    detectAmbiBars(ctx, rgba);
+// Counts the bars in the readback asked for last time. By now the draw behind
+// it has long finished, so the map costs a copy and nothing more.
+void finishAmbiBarDetect(XrCtx* ctx) {
+    const int n = AMBI_SAMPLE_TEX;
+    if (!ctx->ambiDetectPending) {
+        return;
+    }
+    ctx->ambiDetectPending = 0;
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->ambiDetectPbo);
+    const unsigned char* rgba = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, n * n * 4,
+                                                 GL_MAP_READ_BIT);
+    if (rgba != NULL) {
+        detectAmbiBars(ctx, rgba);
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 }
 
 // Boils the frame down to the tiny colour texture. Kept self contained and

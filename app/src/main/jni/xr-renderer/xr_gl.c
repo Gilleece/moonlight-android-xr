@@ -610,6 +610,8 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     // by not timing itself at all. The room's query has not opened yet either,
     // so the read sits between the two.
     if (sampled && ctx->ambiBarDetect) {
+        // Last time's readback first, then this frame's request if it is due
+        finishAmbiBarDetect(ctx);
         ctx->ambiBarCounter++;
         if (ctx->ambiBarCounter >= AMBI_BAR_PERIOD) {
             ctx->ambiBarCounter = 0;

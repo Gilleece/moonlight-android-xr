@@ -50,7 +50,13 @@ int initDepthModel(XrCtx* ctx) {
         return 0;
     }
 
-    ctx->readbackBuf = malloc((size_t)n * n * 4);
+    // The readback lands here and is mapped a frame later, so the copy out of
+    // it is the only part the frame loop waits for
+    glGenBuffers(1, &ctx->depthReadPbo);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthReadPbo);
+    glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)n * n * 4, NULL, GL_STREAM_READ);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+
     ctx->modelInput = malloc((size_t)n * n * 3 * sizeof(float));
     ctx->modelOutput = malloc((size_t)n * n * sizeof(float));
     ctx->depthUploadBuf = malloc((size_t)n * n * 4);
@@ -58,7 +64,7 @@ int initDepthModel(XrCtx* ctx) {
     ctx->depthLow = malloc((size_t)n * n * sizeof(float));
     ctx->depthScratch = malloc((size_t)n * n * sizeof(float));
     ctx->depthColSums = malloc((size_t)n * sizeof(float));
-    if (ctx->readbackBuf == NULL || ctx->modelInput == NULL || ctx->modelOutput == NULL ||
+    if (ctx->modelInput == NULL || ctx->modelOutput == NULL ||
             ctx->depthUploadBuf == NULL || ctx->depthEma == NULL ||
             ctx->depthLow == NULL || ctx->depthScratch == NULL ||
             ctx->depthColSums == NULL) {
@@ -90,16 +96,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetModelOutput(JNIEnv* env, jo
                                        (jlong)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * sizeof(float));
 }
 
-// Draws the current frame into the downscale target and reads it back into
-// the model input buffer. Rows are flipped on the way: GL hands back the
-// bottom row first and the model wants the image the right way up, since
-// monocular depth leans heavily on which way is down.
+// Draws the current frame into the downscale target and asks for it back into
+// the pixel buffer. Nothing waits here: a readback straight into memory drains
+// the whole GPU queue, which at 90 Hz is most of a frame gone, so the copy out
+// is left to nativeFinishDepthCapture a frame later, by which time the draw is
+// long done. Depth is already fifty milliseconds behind the picture, so one
+// more frame of age is nothing against a stall every capture.
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env, jobject thiz,
                                                                     jlong handle,
                                                                     jfloatArray texMatrixArr) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || ctx->readbackBuf == NULL) {
+    if (ctx == NULL || ctx->depthReadPbo == 0) {
         return 0;
     }
     const int n = DEPTH_TEX_SIZE;
@@ -125,11 +133,40 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
     glEnableVertexAttribArray(1);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, ctx->readbackBuf);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthReadPbo);
+    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+    return nowNs() - startNs;
+}
+
+// Copies the frame asked for last time out of the pixel buffer into the model
+// input. Rows are flipped on the way: GL hands back the bottom row first and
+// the model wants the image the right way up, since monocular depth leans
+// heavily on which way is down. Returns the time it took, or -1 when the
+// buffer could not be mapped and there is nothing to run the model on.
+JNIEXPORT jlong JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env, jobject thiz,
+                                                                     jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || ctx->depthReadPbo == 0) {
+        return -1;
+    }
+    const int n = DEPTH_TEX_SIZE;
+    long startNs = nowNs();
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthReadPbo);
+    const unsigned char* pixels = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
+                                                   (GLsizeiptr)n * n * 4, GL_MAP_READ_BIT);
+    if (pixels == NULL) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+        LOGW("depth readback could not be mapped: 0x%x", glGetError());
+        return -1;
+    }
+
     for (int y = 0; y < n; y++) {
-        const unsigned char* src = ctx->readbackBuf + (size_t)(n - 1 - y) * n * 4;
+        const unsigned char* src = pixels + (size_t)(n - 1 - y) * n * 4;
         float* dst = ctx->modelInput + (size_t)y * n * 3;
         for (int x = 0; x < n; x++) {
             dst[x * 3 + 0] = src[x * 4 + 0] * (1.0f / 255.0f);
@@ -138,6 +175,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
         }
     }
 
+    glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
     return nowNs() - startNs;
 }
 

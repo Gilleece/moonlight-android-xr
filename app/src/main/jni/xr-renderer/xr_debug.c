@@ -1,7 +1,12 @@
 // Tuning knobs read over setprop and the frame capture they can request,
 // so a headset session can be A/B tested and its warp inputs taken off
-// the device for work on a desktop.
+// the device for work on a desktop. Debug builds only: polling the property
+// store costs syscalls on the frame loop, and a knob left set from one
+// session would quietly override the panel in the next, so a release build
+// compiles the polling out and only keeps the capture writers.
 #include "xr_renderer.h"
+
+#ifdef XR_DEBUG_KNOBS
 
 // Integer valued tuning property, left alone if unset or unparseable
 static void propScaled(const char* name, float* target, float scale, long maxRaw) {
@@ -116,6 +121,22 @@ void pollCaptureRequest(XrCtx* ctx) {
     ctx->captureRequested = 1;
     LOGI("capture: request %s", ctx->captureTag);
 }
+
+#else
+
+// A release build reads no properties at all. Every knob keeps the value the
+// panel or the preferences gave it, and a capture can only be taken from a
+// debug build.
+void propFlag(const char* name, int* target) {
+    (void)name;
+    (void)target;
+}
+
+void pollCaptureRequest(XrCtx* ctx) {
+    (void)ctx;
+}
+
+#endif
 
 void writeCapture(XrCtx* ctx, const char* what, const void* data, size_t bytes) {
     if (data == NULL) {

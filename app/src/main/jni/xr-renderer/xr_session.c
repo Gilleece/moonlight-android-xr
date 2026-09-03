@@ -444,7 +444,8 @@ static void pollEvents(XrCtx* ctx) {
 static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyXrInput(ctx);
 
-    free(ctx->readbackBuf);
+    glDeleteBuffers(1, &ctx->depthReadPbo);
+    glDeleteBuffers(1, &ctx->ambiDetectPbo);
     free(ctx->modelInput);
     free(ctx->modelOutput);
     free(ctx->depthUploadBuf);

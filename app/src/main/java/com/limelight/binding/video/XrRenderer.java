@@ -86,6 +86,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private int skippedFrames;
     private volatile boolean depthReady;
     private volatile long lastCaptureNs;
+    // A frame asked for from the GPU and not yet collected. The request and
+    // the copy out are a frame apart, so the frame loop never waits on the
+    // GPU for it.
+    private boolean captureInFlight;
+    private long captureSubmitNs;
 
     // How far behind the picture the depth map is. The map warping a frame was
     // computed from an earlier one, and then reused until the next inference
@@ -220,6 +225,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native ByteBuffer nativeGetModelInput(long ctx);
     private native ByteBuffer nativeGetModelOutput(long ctx);
     private native long nativeCaptureDepthInput(long ctx, float[] texMatrix);
+    private native long nativeFinishDepthCapture(long ctx);
     private native long nativeUploadDepth(long ctx);
     private native boolean nativeBindDepthContext(long ctx);
     private native void nativeUnbindDepthContext(long ctx);
@@ -522,6 +528,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     pointer, gaze, inputState);
             dispatchInput();
 
+            // Whatever was asked of the GPU last frame is ready by now, so it is
+            // collected before this frame asks for anything new
+            if (captureInFlight) {
+                finishDepthCapture();
+            }
+
             boolean newFrame = pendingFrames.getAndSet(0) > 0;
             if (newFrame) {
                 surfaceTexture.updateTexImage();
@@ -529,7 +541,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 if (depthReady) {
                     if ((videoFrameIndex % cadence) == 0) {
-                        handOffDepthFrame();
+                        startDepthCapture();
                     }
                     if (publishedFrameNs != 0) {
                         long age = System.nanoTime() - publishedFrameNs;
@@ -1128,11 +1140,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
-     * Downscales the frame just latched and wakes the depth thread. Only the
-     * capture stays on the frame loop, since it has to sample the video
-     * texture this context owns, and it is short.
+     * Asks the GPU for a downscaled copy of the frame just latched. Only this
+     * stays on the frame loop, since it has to sample the video texture this
+     * context owns, and it only queues work: the copy out and the handoff to
+     * the depth thread happen a frame later in finishDepthCapture, once the
+     * GPU has had a whole frame to get to it.
      */
-    private void handOffDepthFrame() {
+    private void startDepthCapture() {
         synchronized (depthLock) {
             if (depthPending || depthBusy) {
                 skippedFrames++;
@@ -1140,9 +1154,23 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
         }
 
-        lastCaptureNs = nativeCaptureDepthInput(nativeCtx, texMatrix);
+        captureSubmitNs = nativeCaptureDepthInput(nativeCtx, texMatrix);
         captureFrameIndex = videoFrameIndex;
         captureFrameNs = System.nanoTime();
+        captureInFlight = true;
+    }
+
+    // Copies the frame asked for last time into the model input and wakes the
+    // depth thread on it
+    private void finishDepthCapture() {
+        captureInFlight = false;
+        long copyNs = nativeFinishDepthCapture(nativeCtx);
+        if (copyNs < 0) {
+            // Nothing landed, so there is nothing to run the model on and the
+            // next capture is the one that counts
+            return;
+        }
+        lastCaptureNs = captureSubmitNs + copyNs;
 
         synchronized (depthLock) {
             depthPending = true;

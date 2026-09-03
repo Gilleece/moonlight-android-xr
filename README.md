@@ -157,6 +157,10 @@ the `.unofficial` application ID suffix that upstream asks forks to keep, so it 
 a debug build and pairs with your host separately. Worth knowing while developing: the two are
 separate apps with separate settings, so a change tested on one is not on the other.
 
+Debug builds also read the `debug.moonlight.*` system properties, so the warp, pointer and glow
+tuning can be changed over `adb shell setprop` mid session, and `setprop debug.moonlight.capture 1`
+dumps a frame's warp inputs for `tools/warp_lab.py`. Release builds leave all of that out.
+
 The APK is about 55 MB, most of which is the depth model and the LiteRT native libraries for four
 ABIs. Only `arm64-v8a` is ever loaded on a headset; the other three are kept so the same build
 still runs on phones.
