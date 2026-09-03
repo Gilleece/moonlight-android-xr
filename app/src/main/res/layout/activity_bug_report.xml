@@ -1,0 +1,88 @@
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="fill_parent"
+    android:layout_height="fill_parent"
+    tools:context=".BugReportActivity" >
+
+    <RelativeLayout
+        android:layout_width="fill_parent"
+        android:layout_height="wrap_content"
+        android:paddingBottom="@dimen/activity_vertical_margin"
+        android:paddingLeft="@dimen/activity_horizontal_margin"
+        android:paddingRight="@dimen/activity_horizontal_margin"
+        android:paddingTop="@dimen/activity_vertical_margin" >
+
+        <ImageButton
+            android:id="@+id/reportBack"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_alignParentTop="true"
+            android:layout_alignParentStart="true"
+            android:layout_alignParentLeft="true"
+            android:src="@drawable/ic_settings_back"
+            android:background="?android:attr/selectableItemBackground"
+            android:scaleType="fitCenter"
+            android:padding="10dp"
+            android:contentDescription="@string/title_settings_back" />
+
+        <TextView
+            android:id="@+id/reportTitle"
+            android:text="@string/title_bug_report"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:textAppearance="?android:attr/textAppearanceLarge"
+            android:layout_alignParentTop="true" />
+
+        <TextView
+            android:id="@+id/reportIntro"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@+id/reportTitle"
+            android:layout_marginTop="20dp"
+            android:textAppearance="?android:attr/textAppearanceSmall" />
+
+        <EditText
+            android:id="@+id/reportEmail"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@+id/reportIntro"
+            android:layout_marginTop="20dp"
+            android:singleLine="true"
+            android:inputType="textEmailAddress"
+            android:hint="@string/bug_report_email_hint" />
+
+        <EditText
+            android:id="@+id/reportMessage"
+            android:layout_width="fill_parent"
+            android:layout_height="wrap_content"
+            android:layout_below="@+id/reportEmail"
+            android:layout_marginTop="12dp"
+            android:minLines="5"
+            android:gravity="top|start"
+            android:inputType="textMultiLine|textCapSentences"
+            android:hint="@string/bug_report_message_hint" />
+
+        <Button
+            android:id="@+id/reportSend"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@+id/reportMessage"
+            android:layout_marginTop="16dp"
+            android:layout_alignParentEnd="true"
+            android:layout_alignParentRight="true"
+            android:text="@string/bug_report_send" />
+
+        <Button
+            android:id="@+id/reportSave"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_below="@+id/reportMessage"
+            android:layout_marginTop="16dp"
+            android:layout_toStartOf="@+id/reportSend"
+            android:layout_toLeftOf="@+id/reportSend"
+            android:layout_marginEnd="12dp"
+            android:layout_marginRight="12dp"
+            android:text="@string/bug_report_save" />
+    </RelativeLayout>
+</ScrollView>

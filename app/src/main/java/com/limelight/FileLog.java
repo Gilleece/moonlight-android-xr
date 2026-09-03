@@ -181,6 +181,29 @@ public class FileLog {
         return logPath;
     }
 
+    /**
+     * Puts everything queued so far on disk, for a report about to read the
+     * file. The writer thread does this on its own whenever it runs dry, so
+     * this only matters for the seconds before a read.
+     */
+    public static void flush() {
+        if (queue == null) {
+            return;
+        }
+        // Give the writer thread a moment to drain what it already has, then
+        // push whatever the stream is holding
+        long waitUntil = System.currentTimeMillis() + 200;
+        while (!queue.isEmpty() && System.currentTimeMillis() < waitUntil) {
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        flushFile();
+    }
+
     /** The log before this one, which may not exist, or null when logging is off. */
     public static File getPreviousLogFile() {
         if (logPath == null) {

@@ -46,6 +46,10 @@
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_vr_debug"
         android:key="category_vr_debug">
+        <Preference
+            android:key="pref_bug_report"
+            android:title="@string/title_bug_report"
+            android:summary="@string/summary_bug_report" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_inference_cadence"
             android:defaultValue="3"

@@ -7,6 +7,15 @@
          headsets, so the app wide minSdk 21 remains safe -->
     <uses-sdk tools:overrideLibrary="org.khronos.openxr.openxr_loader_for_android" />
 
+    <!-- So the bug report screen can tell whether this device has an email
+         app at all before offering to send by one -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="mailto" />
+        </intent>
+    </queries>
+
     <!-- Horizon OS refuses to route immersive frames for apps that do not
          declare an HzOS SDK version since around the v77 update. Other
          platforms ignore this namespace entirely -->
@@ -264,6 +273,25 @@
             android:name=".binding.input.driver.UsbDriverService"
             android:label="Usb Driver Service" />
 
+        <activity
+            android:name=".BugReportActivity"
+            android:resizeableActivity="true"
+            android:enableOnBackInvokedCallback="true"
+            android:label="@string/title_bug_report"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="mcc|mnc|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection">
+            <meta-data android:name="WindowManagerPreference:FreeformWindowSize" android:value="system-default" />
+            <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
+            <meta-data android:name="pvr.app.type" android:value="2d" />
+        </activity>
+        <!-- Hands a saved report to the email app the user picks. Not exported:
+             the read grant on the send intent is the only way in -->
+        <provider
+            android:name=".ReportContentProvider"
+            android:authorities="report.${applicationId}"
+            android:exported="false"
+            android:grantUriPermissions="true">
+        </provider>
         <activity
             android:name=".HelpActivity"
             android:resizeableActivity="true"
