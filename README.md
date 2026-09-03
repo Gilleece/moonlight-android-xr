@@ -161,6 +161,31 @@ The APK is about 55 MB, most of which is the depth model and the LiteRT native l
 ABIs. Only `arm64-v8a` is ever loaded on a headset; the other three are kept so the same build
 still runs on phones.
 
+## Code layout
+
+The XR side lives in two places. On the Java side `XrRenderer.java` owns the threads, the
+SurfaceTexture the decoder renders into, the frame loop and what gets saved between sessions;
+`XrPanels.java` draws the picker, the settings sheets, the keyboard and the exit prompt, since
+Java is the only place Android will lay out text; `MidasDepthSource.java` runs the depth model
+on LiteRT. Everything OpenXR and GL is native, under `app/src/main/jni/xr-renderer/`, one
+module per concern:
+
+| File | What it holds |
+| --- | --- |
+| `xr_renderer.h` | The constants, the context struct and what each module exports |
+| `xr_session.c` | Instance, session, the video swapchain, session state and the JNI lifecycle |
+| `xr_gl.c` | GL setup, the depth upsample, offset search and warp passes, the GPU timer |
+| `xr_depth.c`, `xr_depthmap.c` | The depth model staging and the CPU filtering of its output |
+| `xr_input.c` | Actions and bindings, hands and gaze, and the per frame input pass |
+| `xr_ui.c` | Where the furniture and the panels sit and what the ray is over |
+| `xr_layers.c` | The composition layers of a frame, in draw order |
+| `xr_assets.c` | The art swapchains and the uploads from Java that fill them |
+| `xr_ambilight.c` | The frame colour sample, letterbox detection and the glow |
+| `xr_room.c` | The 3d rooms |
+| `xr_math.c` | Vectors, quaternions, the one euro filter and projection |
+| `xr_shaders.c` | The GLSL |
+| `xr_log.c`, `xr_debug.c` | The file log, the setprop tuning knobs and frame capture |
+
 ## Licences
 
 GPLv3, as upstream. Added dependencies are all compatible: the Khronos OpenXR loader (Apache 2.0),

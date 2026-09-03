@@ -204,7 +204,7 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_GAMEPAD_MOTION_SENSORS = true;
     private static final boolean DEFAULT_GAMEPAD_MOTION_FALLBACK = false;
 
-    // EnvResTier, matching the values in xr_renderer.c
+    // EnvResTier, matching the values in xr_renderer.h
     public static final int VR_ENV_RES_LOW = 0;
     public static final int VR_ENV_RES_STANDARD = 1;
     public static final int VR_ENV_RES_HIGH = 2;
