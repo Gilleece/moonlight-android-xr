@@ -30,6 +30,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.limelight.binding.video.XrShared.*;
+
 /**
  * Presents the decoded stream in an OpenXR session. Same input contract as
  * GlPassthroughRenderer: the decoder renders into our SurfaceTexture, and we
@@ -42,20 +44,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         System.loadLibrary("xr-renderer");
     }
 
-    private static final int FRAME_EXIT = -1;
-    private static final int FRAME_IDLE = 0;
-    private static final int FRAME_RENDER = 1;
-
-    private static final int DEPTH_MODE_OFF = 0;
-    private static final int DEPTH_MODE_MODEL = 6;
-
     // Averaged over this many inferences before hitting logcat
     private static final int DEPTH_STATS_INTERVAL = 30;
     private static final int DEPTH_AGE_INTERVAL = 300;
 
-    // Matches OVERLAY_WIDTH and OVERLAY_HEIGHT in xr_renderer.h
-    private static final int OVERLAY_WIDTH = 768;
-    private static final int OVERLAY_HEIGHT = 512;
     private static final float OVERLAY_TEXT_SIZE = 22.0f;
     private static final float OVERLAY_LINE_HEIGHT = 28.0f;
 
@@ -119,39 +111,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile int lastDepthSkips;
 
     // Controller pointer. The native side does the ray maths and hands back a
-    // hit point and a button mask, this side turns that into host events.
-    private static final int IN_HIT = 0;
-    private static final int IN_U = 1;
-    private static final int IN_V = 2;
-    private static final int IN_BUTTONS = 3;
-    private static final int IN_SCROLL = 4;
-    private static final int IN_POSE_DIRTY = 6;
-    // Which setting the panel just changed, or -1. Zero is a real id, so this
-    // is a sentinel rather than a zeroed slot.
-    private static final int IN_SETTING = 7;
-    private static final int IN_POSE = 8;
-    private static final int IN_PICKER_PICK = 18;
-    private static final int IN_SETTING_VALUE = 19;
-    // What the in world keyboard just typed, or -1. Backspace is 8, so the
-    // sentinel has to sit below every real code.
-    private static final int IN_KEY = 20;
-    // Set the frame the exit prompt is confirmed, and nothing else, so a zeroed
-    // slot says the stream carries on
-    private static final int IN_EXIT = 21;
-    private static final int IN_SLOTS = 22;
-    // Ids the panel reports, matching the SETTING_ constants in xr_renderer.h
-    private static final int SETTING_SHARPEN = 0;
-    private static final int SETTING_STATS = 1;
-    private static final int SETTING_SEPARATION = 2;
-    private static final int SETTING_CONVERGENCE = 3;
-    private static final int SETTING_RESET_3D = 4;
-    private static final int SETTING_AMBILIGHT = 5;
-    private static final int SETTING_AMBI_LEVEL = 6;
-    private static final int SETTING_ROOM_LIGHT = 7;
-    private static final int SETTING_HEAD_LOCK = 8;
-    // Position, orientation, width, cylinder radius, then the curvature the
-    // settings panel asked for
-    private static final int POSE_VALUES = 10;
+    // hit point and a button mask, this side turns that into host events. The
+    // slots in that array and the ids the panel reports are the IN_ and
+    // SETTING_ values in XrShared, so both sides read them off the same file.
     private final float[] inputState = new float[IN_SLOTS];
     private int heldButtons;
     private InputListener inputListener;
@@ -217,7 +179,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile int roomTextureHeight;
     private String[] environmentFiles = new String[0];
     private XrPanels panels;
-    private volatile int environmentChoice = XrPanels.CELL_VOID;
+    private volatile int environmentChoice = ENV_CELL_VOID;
     private volatile boolean passthroughOn;
     // Which photo is in the background swapchain, so switching back to one
     // already loaded costs nothing and the old one stays up during a decode
@@ -702,13 +664,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (!cellExists(cell)) {
             // Never picked one, so the passthrough checkbox decides: on gives
             // the room, off gives black. A photo only shows once it is chosen.
-            cell = prefs.vrPassthrough ? XrPanels.CELL_PASSTHROUGH : XrPanels.CELL_VOID;
+            cell = prefs.vrPassthrough ? ENV_CELL_PASSTHROUGH : ENV_CELL_VOID;
         }
         environmentChoice = cell;
-        passthroughOn = cell == XrPanels.CELL_PASSTHROUGH;
+        passthroughOn = cell == ENV_CELL_PASSTHROUGH;
         nativeSetEnvironment(nativeCtx, cell, false);
 
-        final int startPhoto = isRoomCell(cell) ? -1 : cell - XrPanels.CELL_FIRST_PHOTO;
+        final int startPhoto = isRoomCell(cell) ? -1 : cell - ENV_CELL_FIRST_PHOTO;
         Thread loader = new Thread() {
             @Override
             public void run() {
@@ -767,28 +729,28 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     // A cell that is a fully 3d room rather than a photo or a plain background
     private static boolean isRoomCell(int cell) {
-        return cell == XrPanels.CELL_MINIMAL_ROOM || cell == XrPanels.CELL_PSX_CINEMA;
+        return cell == ENV_CELL_MINIMAL_ROOM || cell == ENV_CELL_PSX_CINEMA;
     }
 
     // A cell is worth switching to if it is one of the fixed ones or a photo
     // that actually shipped in the assets. The fixed cells come first, so one
     // bound covers both.
     private boolean cellExists(int cell) {
-        return cell >= 0 && cell < XrPanels.CELL_FIRST_PHOTO + environmentFiles.length;
+        return cell >= 0 && cell < ENV_CELL_FIRST_PHOTO + environmentFiles.length;
     }
 
     // The two places where cells and saved ids meet. Everything else in here
     // works in cells, and only the preference speaks ids.
     private static int idForCell(int cell) {
-        if (cell >= XrPanels.CELL_FIRST_PHOTO
-                && cell < XrPanels.CELL_FIRST_PHOTO + XrPanels.MAX_PHOTOS) {
-            return PreferenceConfiguration.VR_ENV_FIRST_PHOTO + (cell - XrPanels.CELL_FIRST_PHOTO);
+        if (cell >= ENV_CELL_FIRST_PHOTO
+                && cell < ENV_CELL_FIRST_PHOTO + XrPanels.MAX_PHOTOS) {
+            return PreferenceConfiguration.VR_ENV_FIRST_PHOTO + (cell - ENV_CELL_FIRST_PHOTO);
         }
         switch (cell) {
-            case XrPanels.CELL_PASSTHROUGH: return PreferenceConfiguration.VR_ENV_PASSTHROUGH;
-            case XrPanels.CELL_VOID: return PreferenceConfiguration.VR_ENV_VOID;
-            case XrPanels.CELL_MINIMAL_ROOM: return PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
-            case XrPanels.CELL_PSX_CINEMA: return PreferenceConfiguration.VR_ENV_PSX_CINEMA;
+            case ENV_CELL_PASSTHROUGH: return PreferenceConfiguration.VR_ENV_PASSTHROUGH;
+            case ENV_CELL_VOID: return PreferenceConfiguration.VR_ENV_VOID;
+            case ENV_CELL_MINIMAL_ROOM: return PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
+            case ENV_CELL_PSX_CINEMA: return PreferenceConfiguration.VR_ENV_PSX_CINEMA;
             default: return -1;
         }
     }
@@ -796,13 +758,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static int cellForId(int id) {
         if (id >= PreferenceConfiguration.VR_ENV_FIRST_PHOTO
                 && id < PreferenceConfiguration.VR_ENV_FIRST_PHOTO + XrPanels.MAX_PHOTOS) {
-            return XrPanels.CELL_FIRST_PHOTO + (id - PreferenceConfiguration.VR_ENV_FIRST_PHOTO);
+            return ENV_CELL_FIRST_PHOTO + (id - PreferenceConfiguration.VR_ENV_FIRST_PHOTO);
         }
         switch (id) {
-            case PreferenceConfiguration.VR_ENV_PASSTHROUGH: return XrPanels.CELL_PASSTHROUGH;
-            case PreferenceConfiguration.VR_ENV_VOID: return XrPanels.CELL_VOID;
-            case PreferenceConfiguration.VR_ENV_MINIMAL_ROOM: return XrPanels.CELL_MINIMAL_ROOM;
-            case PreferenceConfiguration.VR_ENV_PSX_CINEMA: return XrPanels.CELL_PSX_CINEMA;
+            case PreferenceConfiguration.VR_ENV_PASSTHROUGH: return ENV_CELL_PASSTHROUGH;
+            case PreferenceConfiguration.VR_ENV_VOID: return ENV_CELL_VOID;
+            case PreferenceConfiguration.VR_ENV_MINIMAL_ROOM: return ENV_CELL_MINIMAL_ROOM;
+            case PreferenceConfiguration.VR_ENV_PSX_CINEMA: return ENV_CELL_PSX_CINEMA;
             default: return -1;
         }
     }
@@ -810,8 +772,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private boolean backgroundVisible() {
         // Only a photo has anything behind it. Asking for it on a room cell
         // would leave whichever photo was decoded last showing through.
-        return environmentChoice >= XrPanels.CELL_FIRST_PHOTO
-                && environmentChoice < XrPanels.CELL_FIRST_PHOTO + environmentFiles.length
+        return environmentChoice >= ENV_CELL_FIRST_PHOTO
+                && environmentChoice < ENV_CELL_FIRST_PHOTO + environmentFiles.length
                 && backgroundArrived;
     }
 
@@ -825,9 +787,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             return;
         }
         environmentChoice = cell;
-        passthroughOn = cell == XrPanels.CELL_PASSTHROUGH;
+        passthroughOn = cell == ENV_CELL_PASSTHROUGH;
 
-        final int photo = isRoomCell(cell) ? -1 : cell - XrPanels.CELL_FIRST_PHOTO;
+        final int photo = isRoomCell(cell) ? -1 : cell - ENV_CELL_FIRST_PHOTO;
         if (photo >= 0 && photo != loadedPhoto) {
             Thread loader = new Thread() {
                 @Override

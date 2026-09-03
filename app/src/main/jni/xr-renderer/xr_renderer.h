@@ -34,13 +34,9 @@
 #include <openxr/openxr_platform.h>
 
 #include "xr_math.h"
+#include "xr_shared.h"
 
 #define TAG "moonlight-xr"
-
-// Matches the levels in FileLog on the Java side
-#define FILE_LOG_OFF 0
-#define FILE_LOG_BASIC 1
-#define FILE_LOG_VERBOSE 2
 
 // Not an Android priority, only ever seen inside xrLog: a key event, which
 // logcat gets as info while the file keeps it at the quiet level
@@ -124,42 +120,6 @@ static inline long nowNs(void) {
 #define VR_BUTTON_RIGHT  0x2
 #define VR_BUTTON_MIDDLE 0x4
 
-// Slots in the float array handed back to Java each frame
-#define IN_HIT      0
-#define IN_U        1
-#define IN_V        2
-#define IN_BUTTONS  3
-#define IN_SCROLL   4
-#define IN_POINTER  5
-#define IN_POSE_DIRTY 6
-// Which setting the panel just changed, or -1. Zero is a real id, so this one
-// has to be said explicitly rather than left at the memset.
-#define IN_SETTING  7
-// x y z, then the orientation quaternion, then width, cylinder radius and the
-// curvature the panel asked for, ten in all
-#define IN_POSE     8
-// The cell just chosen in the environment grid, or -1
-#define IN_PICKER_PICK 18
-#define IN_SETTING_VALUE 19
-// The key the in world keyboard just typed, or -1. Unicode with the shift
-// already applied, plus the four control codes below 32.
-#define IN_KEY      20
-// Set to 1 the frame the exit prompt is confirmed. Nothing else is meaningful
-// here, so a zeroed slot says nothing happened.
-#define IN_EXIT     21
-#define IN_SLOTS    22
-
-// Settings the panel can hand back to Java to be applied and stored
-#define SETTING_SHARPEN 0
-#define SETTING_STATS   1
-#define SETTING_SEPARATION 2
-#define SETTING_CONVERGENCE 3
-#define SETTING_RESET_3D 4
-#define SETTING_AMBILIGHT 5
-#define SETTING_AMBI_LEVEL 6
-#define SETTING_ROOM_LIGHT 7
-#define SETTING_HEAD_LOCK 8
-
 // Grab thresholds for the grip, and the range a resize is allowed to reach
 #define SCREEN_MIN_WIDTH 0.8f
 #define SCREEN_MAX_WIDTH 8.0f
@@ -196,27 +156,10 @@ static inline long nowNs(void) {
 #define CORNER_TEX_W 64
 #define CORNER_TEX_H 64
 
-// Environment picker. A grid of thumbnails drawn in Java and shown as one
-// quad, with the hover and selection marks as separate outline quads so
-// pointing around the grid never costs an upload. One band per category: a
-// header strip carrying its name, then a row of cells under it. Must match the
-// PICKER_ constants in XrRenderer.java.
-#define PICKER_COLS 4
-#define PICKER_ROWS 2
-#define PICKER_CELLS (PICKER_COLS * PICKER_ROWS)
-#define PICKER_TEX_W 1024
-#define PICKER_HEADER_PX 40
-#define PICKER_CELL_PX 256
-#define PICKER_BAND_PX (PICKER_HEADER_PX + PICKER_CELL_PX)
-#define PICKER_TEX_H (PICKER_BAND_PX * PICKER_ROWS)
 // Widened along with the grid so a cell stays about the size it was at three
 // columns
 #define PICKER_WIDTH_FRAC 0.73f
 #define OUTLINE_TEX 128
-// The room cells in the grid. Must match CELL_MINIMAL_ROOM and CELL_PSX_CINEMA
-// in XrRenderer.java.
-#define ENV_CELL_MINIMAL_ROOM 2
-#define ENV_CELL_PSX_CINEMA 3
 // The button that opens it, sitting to the left of the move bar
 #define ENV_BUTTON_FRAC 0.048f
 #define ENV_GAP_FRAC 0.02f
@@ -228,92 +171,13 @@ static inline long nowNs(void) {
 // thing left to aim at, so it has to be findable without a ray to guide you.
 #define LOCK_BUTTON_FRAC 0.09f
 #define LOCK_GAP_FRAC 0.025f
-#define LOCK_TEX 384
 
-// Settings panel. Same shape as the picker: the art is drawn in Java and shown
-// on one quad, the thumbs are separate little quads so dragging one never costs
-// an upload.
-#define COG_TEX_W 768
-#define COG_TEX_H 640
 #define COG_WIDTH_FRAC 0.36f
 // The button that opens it, sitting to the right of the move bar, the same
 // size as the environment button on the left
 #define COG_BUTTON_FRAC 0.048f
 #define COG_THUMB_TEX 64
 
-// Where the tabs, rows and tracks sit in the panel texture. These must match
-// the COG_ constants in XrRenderer.java, which is what draws them.
-#define COG_TRACK_L 0.42f
-#define COG_TRACK_R 0.93f
-// Anything above this is the tab bar, split evenly between the tabs
-#define COG_TAB_BAR_B 0.16f
-// Six rows on the screen tab, so they start a little higher and sit closer
-// together than they did at five
-#define COG_ROW_V0 0.25f
-#define COG_ROW_STEP 0.11f
-// Half height of a row's hit band. Under half the pitch, so neighbouring
-// bands stay disjoint.
-#define COG_ROW_HALF 0.05f
-#define COG_RESET_L 0.35f
-#define COG_RESET_R 0.65f
-// Clear of the last row, which reaches 0.80 plus the half band
-#define COG_RESET_T 0.87f
-#define COG_RESET_B 0.97f
-// Half height of an option cell, so the ring drawn over one matches the art
-#define COG_CELL_HALF 0.045f
-
-// One texture per tab, all uploaded once, so switching costs a swapchain
-// handle rather than an upload
-#define COG_TAB_SCREEN  0
-#define COG_TAB_DISPLAY 1
-#define COG_TAB_3D      2
-#define COG_TAB_COUNT   3
-// And one more sheet than there are tabs: the screen tab has a second face for
-// when a room hangs the picture and none of its rows can do anything
-#define COG_ART_ROOM_SCREEN 3
-#define COG_ART_COUNT       4
-
-// Screen tab rows, in the order they are drawn
-#define COG_SLIDER_DISTANCE 0
-#define COG_SLIDER_HEIGHT   1
-#define COG_SLIDER_TILT     2
-#define COG_SLIDER_ROTATE   3
-#define COG_SLIDER_CURVE    4
-#define COG_SLIDER_SIZE     5
-#define COG_SLIDER_COUNT    6
-
-// 3D tab rows, sliders like the screen tab's. Only values that take effect the
-// moment they move belong here: the depth source itself is settled when the
-// session starts, so it stays in the 2d settings.
-#define COG_ROW3D_SEPARATION 0
-#define COG_ROW3D_CONVERGENCE 1
-#define COG_ROW3D_COUNT 2
-// Right hand end of the separation track, as a fraction of frame width. Three
-// times the 0.5 percent that phase 6 measured as the useful maximum: past
-// there depth stops growing and only the strain does, so the far end of the
-// track is drawn marked rather than left off.
-#define COG_SEP_MAX 0.015f
-// Steps along that track, so a dragged value lands exactly on one of the
-// tenths of a percent the preference is stored in
-#define COG_SEP_STEPS 15
-
-// Display tab rows. Cells rather than a track, so a press picks one instead of
-// dragging a value.
-#define COG_OPTION_SHARPEN 0
-#define COG_OPTION_STATS   1
-#define COG_OPTION_HEAD_LOCK 2
-#define COG_OPTION_AMBILIGHT 3
-#define COG_OPTION_ROOM_LIGHT 4
-#define COG_OPTION_COUNT   5
-#define COG_SHARPEN_CELLS 3
-#define COG_STATS_CELLS   2
-#define COG_HEAD_LOCK_CELLS 2
-#define COG_AMBI_CELLS    2
-#define COG_ROOM_LIGHT_CELLS 2
-// The one row on this tab that is a track rather than cells, under the option
-// rows, so the glow can be turned down without leaving the tab it lives on.
-// Six rows on this tab now, the same grid the screen tab already fills.
-#define COG_DISPLAY_SLIDER_ROW 5
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
 #define COG_DIST_MIN 0.2f
@@ -334,45 +198,10 @@ static inline long nowNs(void) {
 // getting the picture properly level is most of what this row is for.
 #define COG_ROLL_SNAP 0.0873f
 
-// In world keyboard, for the login boxes and chat windows that turn up mid
-// stream. One sheet of art per state, drawn in Java like the other panels, and
-// the layout arrives with it: this side is handed rectangles and codes and
-// knows nothing else about what the keys say.
-#define KB_TEX_W 1120
-#define KB_TEX_H 448
 #define KB_WIDTH_FRAC 0.55f
 #define KB_MAX_KEYS 64
-#define KB_STATE_LOWER   0
-#define KB_STATE_UPPER   1
-#define KB_STATE_SYMBOLS 2
-#define KB_STATE_COUNT   3
-// Codes under zero change the keyboard instead of typing. Everything at or
-// above 8 is sent on as it stands.
-#define KB_CODE_SHIFT   -2
-#define KB_CODE_SYMBOLS -3
-#define KB_CODE_HIDE    -4
 
-// The button that ends the stream, furthest out on the left of the bar, and
-// the prompt it opens. Ending a session by accident costs a reconnect, so the
-// button asks first. The sheet is drawn in Java like the other panels, one per
-// lit button, so hovering one is another handle in the layer rather than an
-// upload. Must match the EXIT_ constants in XrRenderer.java.
-#define EXIT_TEX_W 512
-#define EXIT_TEX_H 256
 #define EXIT_WIDTH_FRAC 0.30f
-// Which zone of the sheet the ray is on, and the sheet drawn with that zone
-// lit, so the two share their numbering
-#define EXIT_ZONE_NONE   0
-#define EXIT_ZONE_EXIT   1
-#define EXIT_ZONE_CANCEL 2
-#define EXIT_ART_COUNT   3
-// Where the two buttons sit on the sheet, as fractions of it
-#define EXIT_BTN_T 0.56f
-#define EXIT_BTN_B 0.86f
-#define EXIT_EXIT_L 0.08f
-#define EXIT_EXIT_R 0.46f
-#define EXIT_CANCEL_L 0.54f
-#define EXIT_CANCEL_R 0.92f
 
 #define HOVER_ENVBUTTON 4
 #define HOVER_PICKER    5
@@ -444,11 +273,6 @@ static inline long nowNs(void) {
 // exception and the reason it is marked experimental: it ignores the
 // recommendation for a fixed size, so a runtime that asks for much less than
 // this ends up drawing a room several times the area it sized itself for.
-// EnvResTier, matching PreferenceConfiguration
-#define ENV_RES_LOW 0
-#define ENV_RES_STANDARD 1
-#define ENV_RES_HIGH 2
-#define ENV_RES_ULTRA 3
 #define ROOM_MAX_EYE_FULL 2560     // high
 #define ROOM_MAX_EYE_STANDARD 1760 // standard
 #define ROOM_MAX_EYE 1280          // low, on half the recommendation
@@ -484,27 +308,6 @@ static inline long nowNs(void) {
 // exactly as it was baked
 #define ROOM_DIM_MIN 0.10f
 #define ROOM_DIM_MAX 2.0f
-
-// Return codes for waitBeginFrame
-#define FRAME_EXIT   -1
-#define FRAME_IDLE    0
-#define FRAME_RENDER  1
-
-// Synthetic depth patterns for the stereo test path
-#define DEPTH_MODE_OFF   0
-#define DEPTH_MODE_FLAT  1
-#define DEPTH_MODE_RAMP  2
-#define DEPTH_MODE_BLOB  3
-// Tints each eye instead of warping, so eye routing can be checked by
-// closing one eye rather than by judging depth
-#define DEPTH_MODE_EYETEST 4
-// Draws a synthetic bar through the warp and reads back where it landed in
-// each eye, so the shift direction is measured rather than eyeballed
-#define DEPTH_MODE_SHIFTTEST 5
-// Real depth from the MiDaS model, run in Java on LiteRT
-#define DEPTH_MODE_MODEL 6
-
-#define DEPTH_TEX_SIZE 256
 
 // Pinned headers may predate the extension, values from the OpenXR registry
 #ifndef XR_FB_composition_layer_settings
@@ -543,9 +346,6 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_OVERLAY "debug.moonlight.overlay"
 #define PROP_PASSTHROUGH "debug.moonlight.passthrough"
 
-// Enough for a dozen lines of stats without being big enough to matter
-#define OVERLAY_WIDTH 768
-#define OVERLAY_HEIGHT 512
 #define PROP_OCCLUSION "debug.moonlight.occlusion"
 #define PROP_SEPARATION "debug.moonlight.separation"
 #define PROP_DISTANCE "debug.moonlight.distance"
@@ -569,7 +369,6 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
 #define PROP_TB_SWAP "debug.moonlight.tbswap"
-
 
 // Radius of the low pass that splits the depth map into an overall shape and
 // the local detail on top of it. About a tenth of the frame.

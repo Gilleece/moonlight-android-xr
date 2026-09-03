@@ -5,6 +5,8 @@ import android.os.Build;
 import android.os.Environment;
 import android.util.Log;
 
+import com.limelight.binding.video.XrShared;
+
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -39,9 +41,9 @@ import java.util.logging.Logger;
  * marked with event() by hand.
  */
 public class FileLog {
-    public static final int OFF = 0;
-    public static final int BASIC = 1;
-    public static final int VERBOSE = 2;
+    public static final int OFF = XrShared.FILE_LOG_OFF;
+    public static final int BASIC = XrShared.FILE_LOG_BASIC;
+    public static final int VERBOSE = XrShared.FILE_LOG_VERBOSE;
 
     private static final String TAG = "moonlight";
     private static final String PUBLIC_DIR = "MoonlightXR";

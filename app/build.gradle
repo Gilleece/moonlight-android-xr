@@ -10,6 +10,98 @@ if (signingPropsFile.exists()) {
 }
 def canSign = signingProps.containsKey('storePassword')
 
+// Turns xr_shared.h, the one file holding every constant the native renderer
+// and the Java side agree on, into XrShared.java, so neither side carries a
+// copy that can drift. The header is kept to plain #define lines of integer
+// and float constants and expressions over earlier ones, which is all this
+// reads; anything else fails the build rather than quietly producing Java
+// that means something different.
+abstract class GenerateXrShared extends DefaultTask {
+    @InputFile
+    abstract RegularFileProperty getHeader()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @TaskAction
+    void generate() {
+        def headerFile = header.get().asFile
+        def define = ~/^#define\s+([A-Z][A-Z0-9_]*)\s+(.+?)\s*$/
+        def floats = [] as Set
+        def defined = [] as Set
+        def body = []
+        boolean inGuard = false
+        headerFile.eachLine { line ->
+            def trimmed = line.trim()
+            if (trimmed.startsWith('#ifndef')) {
+                // The file comment above the include guard describes the header
+                // itself, so the class starts with the first constant instead
+                inGuard = true
+                body.clear()
+                return
+            }
+            if (!inGuard || trimmed.startsWith('#endif')) {
+                return
+            }
+            if (trimmed.startsWith('//')) {
+                body << '    ' + trimmed
+                return
+            }
+            def m = define.matcher(line)
+            if (!m.matches()) {
+                if (trimmed.isEmpty() && !body.isEmpty() && body.last() != '') {
+                    body << ''
+                }
+                return
+            }
+            def name = m.group(1)
+            def value = m.group(2).replaceAll(/\s*\/\/.*$/, '').trim()
+            if (!(value ==~ /[A-Za-z0-9_.+\-*\/() ]+/)) {
+                throw new GradleException("${headerFile.name}: ${name} is not a plain constant: ${value}")
+            }
+            def names = value.findAll(/[A-Z][A-Z0-9_]*/)
+            def unknown = names.findAll { !(it in defined) }
+            if (!unknown.isEmpty()) {
+                throw new GradleException("${headerFile.name}: ${name} refers to ${unknown} before it is defined")
+            }
+            boolean isFloat = value ==~ /.*\d[fF]\b.*/ || value.contains('.') || names.any { it in floats }
+            if (isFloat) {
+                floats << name
+            }
+            defined << name
+            body << "    public static final ${isFloat ? 'float' : 'int'} ${name} = ${value};"
+        }
+        while (!body.isEmpty() && body.last() == '') {
+            body.removeLast()
+        }
+        def out = new File(outputDir.get().asFile, 'com/limelight/binding/video/XrShared.java')
+        out.parentFile.mkdirs()
+        out.text = ([
+            'package com.limelight.binding.video;',
+            '',
+            '/**',
+            " * Every value the native renderer and this side agree on, generated from",
+            " * ${headerFile.name} by the build. Change the header, not this file.",
+            ' */',
+            'public final class XrShared {',
+            '    private XrShared() {',
+            '    }',
+            '',
+        ] + body + ['}', '']).join('\n')
+    }
+}
+
+def generateXrShared = tasks.register('generateXrShared', GenerateXrShared) {
+    header = layout.projectDirectory.file('src/main/jni/xr-renderer/xr_shared.h')
+    outputDir = layout.buildDirectory.dir('generated/source/xrshared')
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.java.addGeneratedSourceDirectory(generateXrShared, { it.outputDir })
+    }
+}
+
 android {
     ndkVersion "29.0.14206865"
 

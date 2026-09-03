@@ -8,6 +8,7 @@ import android.preference.PreferenceManager;
 import android.view.Display;
 
 import com.limelight.FileLog;
+import com.limelight.binding.video.XrShared;
 import com.limelight.nvstream.jni.MoonBridge;
 
 public class PreferenceConfiguration {
@@ -204,11 +205,11 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_GAMEPAD_MOTION_SENSORS = true;
     private static final boolean DEFAULT_GAMEPAD_MOTION_FALLBACK = false;
 
-    // EnvResTier, matching the values in xr_renderer.h
-    public static final int VR_ENV_RES_LOW = 0;
-    public static final int VR_ENV_RES_STANDARD = 1;
-    public static final int VR_ENV_RES_HIGH = 2;
-    public static final int VR_ENV_RES_ULTRA = 3;
+    // EnvResTier, as the renderer numbers them
+    public static final int VR_ENV_RES_LOW = XrShared.ENV_RES_LOW;
+    public static final int VR_ENV_RES_STANDARD = XrShared.ENV_RES_STANDARD;
+    public static final int VR_ENV_RES_HIGH = XrShared.ENV_RES_HIGH;
+    public static final int VR_ENV_RES_ULTRA = XrShared.ENV_RES_ULTRA;
 
     public static final int FRAME_PACING_MIN_LATENCY = 0;
     public static final int FRAME_PACING_BALANCED = 1;
@@ -802,25 +803,25 @@ public class PreferenceConfiguration {
         config.vrCurvature = prefs.getInt(VR_CURVATURE_PREF_STRING, DEFAULT_VR_CURVATURE);
         String depthSource = prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, DEFAULT_VR_DEPTH_SOURCE);
         if (depthSource.equals("flat")) {
-            config.vrDepthMode = 1;
+            config.vrDepthMode = XrShared.DEPTH_MODE_FLAT;
         }
         else if (depthSource.equals("ramp")) {
-            config.vrDepthMode = 2;
+            config.vrDepthMode = XrShared.DEPTH_MODE_RAMP;
         }
         else if (depthSource.equals("blob")) {
-            config.vrDepthMode = 3;
+            config.vrDepthMode = XrShared.DEPTH_MODE_BLOB;
         }
         else if (depthSource.equals("eyetest")) {
-            config.vrDepthMode = 4;
+            config.vrDepthMode = XrShared.DEPTH_MODE_EYETEST;
         }
         else if (depthSource.equals("shifttest")) {
-            config.vrDepthMode = 5;
+            config.vrDepthMode = XrShared.DEPTH_MODE_SHIFTTEST;
         }
         else if (depthSource.equals("model")) {
-            config.vrDepthMode = 6;
+            config.vrDepthMode = XrShared.DEPTH_MODE_MODEL;
         }
         else {
-            config.vrDepthMode = 0;
+            config.vrDepthMode = XrShared.DEPTH_MODE_OFF;
         }
         String envRes = prefs.getString(VR_ENV_RES_PREF_STRING, DEFAULT_VR_ENV_RES);
         if (envRes.equals("low")) {

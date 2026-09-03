@@ -1905,11 +1905,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetScreenPose(JNIEnv* env, job
     if (ctx == NULL || poseArr == NULL) {
         return;
     }
-    float p[10];
-    if ((*env)->GetArrayLength(env, poseArr) < 10) {
+    float p[POSE_VALUES];
+    if ((*env)->GetArrayLength(env, poseArr) < POSE_VALUES) {
         return;
     }
-    (*env)->GetFloatArrayRegion(env, poseArr, 0, 10, p);
+    (*env)->GetFloatArrayRegion(env, poseArr, 0, POSE_VALUES, p);
 
     if (p[7] < SCREEN_MIN_WIDTH || p[7] > SCREEN_MAX_WIDTH || p[8] <= 0.0f) {
         LOGW("stored screen placement out of range, ignoring it");

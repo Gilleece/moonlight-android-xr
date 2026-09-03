@@ -105,13 +105,13 @@ int createPointerSwapchain(XrCtx* ctx) {
                            &ctx->exitPromptImageCounts[sheet]);
     }
 
-    createArtSwapchain(ctx, OUTLINE_TEX, OUTLINE_TEX, "create keyboard button swapchain",
+    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create keyboard button swapchain",
                        &ctx->kbButtonSwapchain, &ctx->kbButtonImages, &ctx->kbButtonImageCount);
-    createArtSwapchain(ctx, OUTLINE_TEX, OUTLINE_TEX, "create cog button swapchain",
+    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create cog button swapchain",
                        &ctx->cogButtonSwapchain, &ctx->cogButtonImages, &ctx->cogButtonImageCount);
-    createArtSwapchain(ctx, OUTLINE_TEX, OUTLINE_TEX, "create env button swapchain",
+    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create env button swapchain",
                        &ctx->envButtonSwapchain, &ctx->envButtonImages, &ctx->envButtonImageCount);
-    createArtSwapchain(ctx, OUTLINE_TEX, OUTLINE_TEX, "create exit button swapchain",
+    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create exit button swapchain",
                        &ctx->exitButtonSwapchain, &ctx->exitButtonImages,
                        &ctx->exitButtonImageCount);
 
@@ -410,7 +410,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
     uploadSheet(env, ctx, grid, ctx->pickerSwapchain, ctx->pickerImages,
                 PICKER_TEX_W, PICKER_TEX_H, &ctx->pickerReady);
     uploadSheet(env, ctx, button, ctx->envButtonSwapchain, ctx->envButtonImages,
-                OUTLINE_TEX, OUTLINE_TEX, &ctx->envButtonReady);
+                BUTTON_TEX, BUTTON_TEX, &ctx->envButtonReady);
     LOGI("picker art %s, button %s", ctx->pickerReady ? "ready" : "missing",
          ctx->envButtonReady ? "ready" : "missing");
 }
@@ -434,7 +434,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject
                     COG_TEX_W, COG_TEX_H, &ctx->cogPanelReady[tab]);
     }
     uploadSheet(env, ctx, button, ctx->cogButtonSwapchain, ctx->cogButtonImages,
-                OUTLINE_TEX, OUTLINE_TEX, &ctx->cogButtonReady);
+                BUTTON_TEX, BUTTON_TEX, &ctx->cogButtonReady);
     LOGI("cog tabs %s, %s and %s, room screen %s, button %s",
          ctx->cogPanelReady[COG_TAB_SCREEN] ? "ready" : "missing",
          ctx->cogPanelReady[COG_TAB_DISPLAY] ? "ready" : "missing",
@@ -466,7 +466,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboard(JNIEnv* env, jo
                     ctx->kbPanelImages[state], KB_TEX_W, KB_TEX_H, &ctx->kbPanelReady[state]);
     }
     uploadSheet(env, ctx, buttonIcon, ctx->kbButtonSwapchain, ctx->kbButtonImages,
-                OUTLINE_TEX, OUTLINE_TEX, &ctx->kbButtonReady);
+                BUTTON_TEX, BUTTON_TEX, &ctx->kbButtonReady);
 
     jintArray tables[KB_STATE_COUNT] = { codesLower, codesUpper, codesSymbols };
     if (keyRects != NULL && codesLower != NULL && codesUpper != NULL && codesSymbols != NULL) {
@@ -509,7 +509,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobjec
         return;
     }
     uploadSheet(env, ctx, button, ctx->exitButtonSwapchain, ctx->exitButtonImages,
-                OUTLINE_TEX, OUTLINE_TEX, &ctx->exitButtonReady);
+                BUTTON_TEX, BUTTON_TEX, &ctx->exitButtonReady);
 
     jobject sheets[EXIT_ART_COUNT] = { promptPlain, promptExitHot, promptCancelHot };
     for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {

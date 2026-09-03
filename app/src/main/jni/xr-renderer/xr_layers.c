@@ -438,7 +438,7 @@ static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
     // a quad layer can give without a second texture
     float scale = hot ? 1.18f : 1.0f;
     quadLayer(slot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
-              OUTLINE_TEX, OUTLINE_TEX, view->space, poseOffset(view->screenPose, local),
+              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(view->screenPose, local),
               side * scale, side * scale);
     pushLayer(ctx, layers, slot);
 }

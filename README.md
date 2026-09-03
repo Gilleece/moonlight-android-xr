@@ -172,7 +172,8 @@ module per concern:
 
 | File | What it holds |
 | --- | --- |
-| `xr_renderer.h` | The constants, the context struct and what each module exports |
+| `xr_shared.h` | Every value Java and the native side agree on; the build generates `XrShared.java` from it |
+| `xr_renderer.h` | The native-only constants, the context struct and what each module exports |
 | `xr_session.c` | Instance, session, the video swapchain, session state and the JNI lifecycle |
 | `xr_gl.c` | GL setup, the depth upsample, offset search and warp passes, the GPU timer |
 | `xr_depth.c`, `xr_depthmap.c` | The depth model staging and the CPU filtering of its output |

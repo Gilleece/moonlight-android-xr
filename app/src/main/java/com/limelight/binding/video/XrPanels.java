@@ -14,11 +14,14 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 
 import com.limelight.LimeLog;
+import com.limelight.preferences.PreferenceConfiguration;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+
+import static com.limelight.binding.video.XrShared.*;
 
 /**
  * The flat panels reachable from inside the session: the environment picker,
@@ -34,65 +37,27 @@ final class XrPanels {
     // session. One band per category: a header strip carrying its name, then a
     // row of cells under it. The rooms are the first band, the photos from the
     // assets folder in name order are the second. A cell is a place in the
-    // grid and nothing more, what gets saved is the stable id it maps to. Must
-    // match the PICKER_ constants in xr_renderer.h.
+    // grid and nothing more, what gets saved is the stable id it maps to. The
+    // grid and its cells are the PICKER_ and ENV_CELL_ values in XrShared,
+    // which is what the native side hit tests against.
     static final String ENVIRONMENT_DIR = "environments";
     private static final String IMAGE_DIR = "images";
-    private static final int PICKER_COLS = 4;
-    private static final int PICKER_ROWS = 2;
-    private static final int PICKER_CELLS = PICKER_COLS * PICKER_ROWS;
-    private static final int PICKER_TEX_W = 1024;
-    private static final int PICKER_HEADER_PX = 40;
-    private static final int PICKER_CELL_PX = 256;
-    private static final int PICKER_BAND_PX = PICKER_HEADER_PX + PICKER_CELL_PX;
-    private static final int PICKER_TEX_H = PICKER_BAND_PX * PICKER_ROWS;
     private static final int PICKER_CELL_W = PICKER_TEX_W / PICKER_COLS;
     // One per band, drawn in the strip above its cells
     private static final String[] PICKER_HEADERS = { "Rooms", "360 Images" };
-    private static final int ENV_BUTTON_TEX = 128;
-    // The padlock that locks the hands out. Must match LOCK_TEX in xr_renderer.h.
-    private static final int LOCK_TEX = 384;
-    static final int CELL_PASSTHROUGH = 0;
-    static final int CELL_VOID = 1;
-    // Shared with the native side, which needs them to pick a room style. Must
-    // match ENV_CELL_MINIMAL_ROOM and ENV_CELL_PSX_CINEMA in xr_renderer.h.
-    static final int CELL_MINIMAL_ROOM = 2;
-    static final int CELL_PSX_CINEMA = 3;
-    static final int CELL_FIRST_PHOTO = 4;
     // The photos take whatever the rooms leave, so how many fit is a question
     // for the layout rather than a count kept here
-    static final int MAX_PHOTOS = PICKER_CELLS - CELL_FIRST_PHOTO;
+    static final int MAX_PHOTOS = PICKER_CELLS - ENV_CELL_FIRST_PHOTO;
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
-    // natively, so the layout has to be agreed between the two: these must
-    // match the COG_ constants in xr_renderer.h.
-    private static final int COG_TEX_W = 768;
-    private static final int COG_TEX_H = 640;
-    private static final float COG_TRACK_L = 0.42f;
-    private static final float COG_TRACK_R = 0.93f;
-    private static final float COG_TAB_BAR_B = 0.16f;
-    // Six rows on the screen tab, so they start a little higher and sit closer
-    // together than they did at five
-    private static final float COG_ROW_V0 = 0.25f;
-    private static final float COG_ROW_STEP = 0.11f;
-    private static final float COG_CELL_HALF = 0.045f;
-    private static final float COG_RESET_L = 0.35f;
-    private static final float COG_RESET_R = 0.65f;
-    // Clear of the last row, which reaches 0.80 plus the half band
-    private static final float COG_RESET_T = 0.87f;
-    private static final float COG_RESET_B = 0.97f;
-    // Three tabs, a texture each, all uploaded once so switching is free, and
-    // a fourth sheet handed over after them: the screen tab as it reads while
-    // a 3d room hangs the picture, which the native side picks for itself.
-    private static final int COG_TAB_SCREEN = 0;
-    private static final int COG_TAB_DISPLAY = 1;
-    private static final int COG_TAB_3D = 2;
+    // natively, so the layout is agreed between the two through the COG_
+    // values in XrShared. Three tabs, a texture each, all uploaded once so
+    // switching is free, and a fourth sheet handed over after them: the screen
+    // tab as it reads while a 3d room hangs the picture, which the native side
+    // picks for itself.
     private static final String[] COG_TABS = { "Screen", "Display", "3D" };
     private static final String[] COG_SLIDER_ROWS =
             { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size" };
-    private static final int COG_ROW_TILT = 2;
-    private static final int COG_ROW_ROTATE = 3;
-    private static final int COG_ROW_CURVE = 4;
     // What stands in for those rows in a room, where the wall decides both the
     // placement and the size
     private static final String COG_ROOM_NOTICE =
@@ -113,27 +78,20 @@ final class XrPanels {
             { "Off", "On" },
             { "Off", "On" }
     };
-    // Must match COG_DISPLAY_SLIDER_ROW in xr_renderer.h
-    private static final int COG_DISPLAY_SLIDER_ROW = 5;
     // 3D tab: two sliders, drawn the same way the screen tab's are. Only
     // values that take effect the moment they move belong on the panel, which
     // is why the depth source itself stays in the 2d settings.
     private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
     // Where the measured comfort cap, which is also the shipped default, falls
-    // along the separation track. Must match COG_SEP_MAX and COG_SEP_STEPS in
-    // xr_renderer.h.
-    private static final float COG_SEP_CAP_T = 5.0f / 15.0f;
+    // along the separation track
+    private static final float COG_SEP_CAP_T =
+            PreferenceConfiguration.DEFAULT_VR_SEPARATION / (float)COG_SEP_STEPS;
 
     // The in world keyboard. Three sheets of the same layout, one per state,
     // handed over in state order, along with the geometry that goes with them:
     // the native side is given key rectangles and codes and knows nothing else
-    // about it. KB_TEX_W, KB_TEX_H and the code values must match the KB_
-    // constants in xr_renderer.h.
-    private static final int KB_TEX_W = 1120;
-    private static final int KB_TEX_H = 448;
-    private static final int KB_CODE_SHIFT = -2;
-    private static final int KB_CODE_SYMBOLS = -3;
-    private static final int KB_CODE_HIDE = -4;
+    // about it. The sheet size and the code values are the KB_ values in
+    // XrShared.
     // Key widths per row, in units where a plain key is 1, and where each row
     // starts. One table for all three states, so every state has to lay its
     // keys out the same way.
@@ -200,19 +158,8 @@ final class XrPanels {
 
     // The button that ends the stream and the prompt it opens. One sheet per
     // lit button, in zone order, so which one shows is a swapchain handle on
-    // the native side rather than an upload. These must match the EXIT_
-    // constants in xr_renderer.h.
-    private static final int EXIT_TEX_W = 512;
-    private static final int EXIT_TEX_H = 256;
-    private static final int EXIT_ZONE_NONE = 0;
-    private static final int EXIT_ZONE_EXIT = 1;
-    private static final int EXIT_ZONE_CANCEL = 2;
-    private static final float EXIT_BTN_T = 0.56f;
-    private static final float EXIT_BTN_B = 0.86f;
-    private static final float EXIT_EXIT_L = 0.08f;
-    private static final float EXIT_EXIT_R = 0.46f;
-    private static final float EXIT_CANCEL_L = 0.54f;
-    private static final float EXIT_CANCEL_R = 0.92f;
+    // the native side rather than an upload. The sheet and where its buttons
+    // sit on it are the EXIT_ values in XrShared.
     private static final String EXIT_QUESTION = "Exit the stream?";
 
     private final Context context;
@@ -303,27 +250,27 @@ final class XrPanels {
 
             String name;
             Bitmap thumb = null;
-            if (cell == CELL_PASSTHROUGH) {
+            if (cell == ENV_CELL_PASSTHROUGH) {
                 name = "Passthrough";
                 paint.setColor(0xFF2A3540);
             }
-            else if (cell == CELL_VOID) {
+            else if (cell == ENV_CELL_VOID) {
                 name = "Black void";
                 paint.setColor(0xFF090909);
             }
-            else if (cell == CELL_MINIMAL_ROOM) {
+            else if (cell == ENV_CELL_MINIMAL_ROOM) {
                 // No photo to preview, so the room is sketched on the tile
                 // below once the base colour is down
                 name = "Minimal room";
                 paint.setColor(0xFF0B0B0E);
             }
-            else if (cell == CELL_PSX_CINEMA) {
+            else if (cell == ENV_CELL_PSX_CINEMA) {
                 name = "PSX Cinema";
                 paint.setColor(0xFF120A0C);
             }
-            else if (cell - CELL_FIRST_PHOTO < environmentFiles.length) {
-                name = labelFor(environmentFiles[cell - CELL_FIRST_PHOTO]);
-                thumb = decodeThumb(environmentFiles[cell - CELL_FIRST_PHOTO], (int)tile.height());
+            else if (cell - ENV_CELL_FIRST_PHOTO < environmentFiles.length) {
+                name = labelFor(environmentFiles[cell - ENV_CELL_FIRST_PHOTO]);
+                thumb = decodeThumb(environmentFiles[cell - ENV_CELL_FIRST_PHOTO], (int)tile.height());
                 paint.setColor(0xFF1E1E20);
             }
             else {
@@ -350,10 +297,10 @@ final class XrPanels {
             if (thumb != null) {
                 thumb.recycle();
             }
-            if (cell == CELL_MINIMAL_ROOM) {
+            if (cell == ENV_CELL_MINIMAL_ROOM) {
                 drawRoomTile(canvas, paint, tile, radius);
             }
-            else if (cell == CELL_PSX_CINEMA) {
+            else if (cell == ENV_CELL_PSX_CINEMA) {
                 drawCinemaTile(canvas, paint, tile, radius);
             }
 
@@ -504,7 +451,7 @@ final class XrPanels {
 
     // A framed landscape, which is about as much as reads at this size
     ByteBuffer buildEnvButton() {
-        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
                                             Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(button);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -579,7 +526,7 @@ final class XrPanels {
     // The cog that opens the settings panel
     ByteBuffer buildCogButton() {
         // Never blank: the drawn gear stands in if the art does not decode
-        Bitmap button = loadIcon("settings_icon.png", ENV_BUTTON_TEX);
+        Bitmap button = loadIcon("settings_icon.png", BUTTON_TEX);
         if (button == null) {
             button = buildCogFallback();
         }
@@ -672,7 +619,7 @@ final class XrPanels {
         tick.setColor(0xCCFFFFFF);
 
         for (int row = 0; row < COG_SLIDER_ROWS.length; row++) {
-            boolean live = row != COG_ROW_CURVE || curveOk;
+            boolean live = row != COG_SLIDER_CURVE || curveOk;
             float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
 
             text.setColor(live ? Color.WHITE : 0x30FFFFFF);
@@ -684,7 +631,7 @@ final class XrPanels {
             track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
             canvas.drawLine(COG_TRACK_L * COG_TEX_W, y, COG_TRACK_R * COG_TEX_W, y, track);
 
-            if (row == COG_ROW_TILT || row == COG_ROW_ROTATE) {
+            if (row == COG_SLIDER_TILT || row == COG_SLIDER_ROTATE) {
                 // Marks level, which is where the middle of these two tracks
                 // snaps to. The rows that do not snap stay unmarked.
                 float midX = (COG_TRACK_L + COG_TRACK_R) * 0.5f * COG_TEX_W;
@@ -899,13 +846,13 @@ final class XrPanels {
     // The fallback cog, drawn only when the icon asset is missing. About as
     // much of a gear as reads at this size.
     private Bitmap buildCogFallback() {
-        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
                                             Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(button);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0, PorterDuff.Mode.CLEAR);
 
-        final float mid = ENV_BUTTON_TEX * 0.5f;
+        final float mid = BUTTON_TEX * 0.5f;
         paint.setColor(0xEEFFFFFF);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(10.0f);
@@ -1050,7 +997,7 @@ final class XrPanels {
     // A keyboard outline with a few keys in it, which is about as much as reads
     // at this size
     private Bitmap buildKeyboardButton() {
-        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
                                             Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(button);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1103,13 +1050,13 @@ final class XrPanels {
     // A power symbol, in the same weight and colour as the buttons either side
     // of it: a ring open at the top with a bar standing in the gap
     private Bitmap buildExitButton() {
-        Bitmap button = Bitmap.createBitmap(ENV_BUTTON_TEX, ENV_BUTTON_TEX,
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
                                             Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(button);
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0, PorterDuff.Mode.CLEAR);
 
-        final float mid = ENV_BUTTON_TEX * 0.5f;
+        final float mid = BUTTON_TEX * 0.5f;
         final float radius = 36.0f;
         paint.setColor(0xEEFFFFFF);
         paint.setStyle(Paint.Style.STROKE);

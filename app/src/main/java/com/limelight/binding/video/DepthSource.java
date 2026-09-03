@@ -14,7 +14,7 @@ import java.nio.ByteBuffer;
  */
 public interface DepthSource {
     /** Square edge length of both the model input and the depth map. */
-    int DEPTH_SIZE = 256;
+    int DEPTH_SIZE = XrShared.DEPTH_TEX_SIZE;
 
     /**
      * @param input  RGB, DEPTH_SIZE squared, float in 0..1, row 0 at the top
