@@ -848,6 +848,8 @@ typedef struct {
     // crowding it
     int maxLayerCount;
     int layerLimitWarned;
+    // Whether a frame has already been caught outgrowing the layer array
+    int layerDropWarned;
 
     // 360 photo shown behind everything when passthrough is off. An equirect
     // layer, so the compositor draws the environment and we still have no
@@ -1206,6 +1208,7 @@ typedef void (*PFNBEGINQUERYEXT)(GLenum, GLuint);
 typedef void (*PFNENDQUERYEXT)(GLenum);
 typedef void (*PFNGETQUERYOBJECTUIVEXT)(GLuint, GLenum, GLuint*);
 typedef void (*PFNGETQUERYOBJECTUI64VEXT)(GLuint, GLenum, GLuint64*);
+typedef void (*PFNDELETEQUERIESEXT)(GLsizei, const GLuint*);
 
 #ifndef GL_TIME_ELAPSED_EXT
 #define GL_TIME_ELAPSED_EXT 0x88BF
@@ -1227,6 +1230,7 @@ extern PFNBEGINQUERYEXT pfnBeginQuery;
 extern PFNENDQUERYEXT pfnEndQuery;
 extern PFNGETQUERYOBJECTUIVEXT pfnGetQueryObjectuiv;
 extern PFNGETQUERYOBJECTUI64VEXT pfnGetQueryObjectui64v;
+extern PFNDELETEQUERIESEXT pfnDeleteQueries;
 GLuint compileShader(GLenum type, const char* src);
 int linkProgram(GLuint* out, const char* fragmentSrc, const char* what);
 int initGl(XrCtx* ctx);

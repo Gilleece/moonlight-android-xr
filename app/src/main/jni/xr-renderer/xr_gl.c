@@ -9,6 +9,7 @@ PFNBEGINQUERYEXT pfnBeginQuery;
 PFNENDQUERYEXT pfnEndQuery;
 PFNGETQUERYOBJECTUIVEXT pfnGetQueryObjectuiv;
 PFNGETQUERYOBJECTUI64VEXT pfnGetQueryObjectui64v;
+PFNDELETEQUERIESEXT pfnDeleteQueries;
 
 // Same fullscreen strip as the 2d GL path, x y u v
 const float VERTEX_DATA[16] = {
@@ -36,12 +37,16 @@ GLuint compileShader(GLenum type, const char* src) {
 
 // Builds the hardcoded depth map for the stereo test path. Depth convention:
 // 0 far, 1 near, 0.5 sits exactly on the screen plane (zero disparity)
-static void fillSyntheticDepth(XrCtx* ctx) {
+static int fillSyntheticDepth(XrCtx* ctx) {
     const int n = DEPTH_TEX_SIZE;
     // RGBA throughout: depth in alpha, guide colour in rgb. The synthetic
     // patterns have no guide, so it stays neutral and the upsample falls back
     // to a plain blur on them.
     unsigned char* buf = malloc((size_t)n * n * 4);
+    if (buf == NULL) {
+        LOGE("no memory for the depth texture");
+        return 0;
+    }
 
     for (int y = 0; y < n; y++) {
         for (int x = 0; x < n; x++) {
@@ -85,6 +90,7 @@ static void fillSyntheticDepth(XrCtx* ctx) {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     }
     free(buf);
+    return 1;
 }
 
 int linkProgram(GLuint* out, const char* fragmentSrc, const char* what) {
@@ -227,7 +233,9 @@ int initGl(XrCtx* ctx) {
                 ctx->depthDebug ? 1.0f : 0.0f);
 
     glGenTextures(2, ctx->depthTextures);
-    fillSyntheticDepth(ctx);
+    if (!fillSyntheticDepth(ctx)) {
+        return 0;
+    }
 
     glGenTextures(1, &ctx->oesTexture);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
@@ -248,8 +256,10 @@ int initGl(XrCtx* ctx) {
         pfnGetQueryObjectuiv = (PFNGETQUERYOBJECTUIVEXT)eglGetProcAddress("glGetQueryObjectuivEXT");
         pfnGetQueryObjectui64v =
                 (PFNGETQUERYOBJECTUI64VEXT)eglGetProcAddress("glGetQueryObjectui64vEXT");
+        pfnDeleteQueries = (PFNDELETEQUERIESEXT)eglGetProcAddress("glDeleteQueriesEXT");
         if (pfnGenQueries != NULL && pfnBeginQuery != NULL && pfnEndQuery != NULL &&
-                pfnGetQueryObjectuiv != NULL && pfnGetQueryObjectui64v != NULL) {
+                pfnGetQueryObjectuiv != NULL && pfnGetQueryObjectui64v != NULL &&
+                pfnDeleteQueries != NULL) {
             pfnGenQueries(2, ctx->timerQueries);
             pfnGenQueries(2, ctx->roomTimerQueries);
             ctx->timerSupported = 1;
@@ -478,25 +488,27 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     if (ctx->stereoMode == DEPTH_MODE_SHIFTTEST && ctx->barTestFramesLogged < 3) {
         int rowWidth = ctx->videoWidth * 2;
         unsigned char* row = malloc((size_t)rowWidth * 4);
-        glReadPixels(0, ctx->videoHeight / 2, rowWidth, 1, GL_RGBA, GL_UNSIGNED_BYTE, row);
-        for (int half = 0; half < 2; half++) {
-            long sum = 0, count = 0;
-            for (int x = 0; x < ctx->videoWidth; x++) {
-                if (row[(size_t)((half * ctx->videoWidth) + x) * 4] > 128) {
-                    sum += x;
-                    count++;
+        if (row != NULL) {
+            glReadPixels(0, ctx->videoHeight / 2, rowWidth, 1, GL_RGBA, GL_UNSIGNED_BYTE, row);
+            for (int half = 0; half < 2; half++) {
+                long sum = 0, count = 0;
+                for (int x = 0; x < ctx->videoWidth; x++) {
+                    if (row[(size_t)((half * ctx->videoWidth) + x) * 4] > 128) {
+                        sum += x;
+                        count++;
+                    }
+                }
+                if (count > 0) {
+                    double center = (double)sum / (double)count / (double)ctx->videoWidth;
+                    LOGI("bar test: half %d (%s eye) bar center %.4f, shift %+.4f",
+                         half, half == 0 ? "left" : "right", center, center - 0.5);
+                }
+                else {
+                    LOGI("bar test: half %d no bar found", half);
                 }
             }
-            if (count > 0) {
-                double center = (double)sum / (double)count / (double)ctx->videoWidth;
-                LOGI("bar test: half %d (%s eye) bar center %.4f, shift %+.4f",
-                     half, half == 0 ? "left" : "right", center, center - 0.5);
-            }
-            else {
-                LOGI("bar test: half %d no bar found", half);
-            }
+            free(row);
         }
-        free(row);
         ctx->barTestFramesLogged++;
     }
 

@@ -59,11 +59,24 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final float OVERLAY_TEXT_SIZE = 22.0f;
     private static final float OVERLAY_LINE_HEIGHT = 28.0f;
 
-    private long nativeCtx;
+    // Written by the frame loop thread and read by whichever thread reports the
+    // stats, so the write has to be visible across them
+    private volatile long nativeCtx;
+    // Held around every native call made off the frame loop, and by the frame
+    // loop while it frees the context, so no thread can reach a context that
+    // is halfway through being destroyed
+    private final Object nativeLock = new Object();
     private Thread renderThread;
     private Thread depthThread;
     private SurfaceTexture surfaceTexture;
     private Surface inputSurface;
+    // The frame loop reads the SurfaceTexture every frame, so it cannot be
+    // released out from under it. If cleanup arrives while the loop is still
+    // running it leaves a note instead, and the loop releases both on its way
+    // out.
+    private final Object teardownLock = new Object();
+    private boolean renderThreadDone;
+    private boolean releaseOnExit;
 
     private final AtomicInteger pendingFrames = new AtomicInteger(0);
     private final float[] texMatrix = new float[16];
@@ -285,6 +298,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         renderThread = new Thread() {
             @Override
             public void run() {
+                try {
+                    runSession();
+                } finally {
+                    finishRenderThread();
+                }
+            }
+
+            private void runSession() {
                 // Before init, so everything the session setup finds ends up
                 // in the log too
                 nativeSetFileLog(FileLog.getLogPath(), FileLog.getLevel());
@@ -330,12 +351,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 stopDepthThread();
 
-                // Tear down on the same thread that owns the GL context.
-                // The SurfaceTexture and Surface stay alive for the codec
-                // until cleanup().
-                long ctx = nativeCtx;
-                nativeCtx = 0;
-                nativeDestroy(ctx);
+                // Tear down on the same thread that owns the GL context, and
+                // under the lock so a stats report cannot land on a context
+                // that is halfway through being freed. The SurfaceTexture
+                // and Surface stay alive for the codec until cleanup().
+                synchronized (nativeLock) {
+                    long ctx = nativeCtx;
+                    nativeCtx = 0;
+                    nativeDestroy(ctx);
+                }
             }
         };
         renderThread.setName("Video - XR Renderer");
@@ -478,13 +502,27 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             depthExit = true;
             depthLock.notifyAll();
         }
+        // The context is freed the moment this returns, and the thread uses
+        // it, so a slow inference is waited out however long it takes rather
+        // than left running on memory that is about to go
+        boolean interrupted = false;
         try {
             depthThread.join(2000);
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+            interrupted = true;
         }
         if (depthThread.isAlive()) {
-            LimeLog.warning("XR depth thread did not stop in time");
+            LimeLog.warning("XR depth thread did not stop in time, waiting for it");
+            while (depthThread.isAlive()) {
+                try {
+                    depthThread.join();
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+        }
+        if (interrupted) {
+            Thread.currentThread().interrupt();
         }
         depthThread = null;
     }
@@ -697,7 +735,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         // Curvature needs a layer type the runtime may not offer, and a slider
         // that cannot do anything is better shown greyed than hidden
-        boolean curveOk = nativeCtx != 0 && nativeGetCylinderSupported(nativeCtx);
+        boolean curveOk;
+        synchronized (nativeLock) {
+            curveOk = nativeCtx != 0 && nativeGetCylinderSupported(nativeCtx);
+        }
         // Same for the 3D rows with stereo turned off in settings
         boolean stereoOk = prefConfig != null && prefConfig.vrDepthMode != DEPTH_MODE_OFF;
         ByteBuffer[] tabs = panels.buildCogTabs(curveOk, stereoOk);
@@ -1206,8 +1247,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     private String rendererStats() {
+        float warpMs;
+        synchronized (nativeLock) {
+            if (nativeCtx == 0) {
+                return "";
+            }
+            warpMs = nativeGetWarpGpuMs(nativeCtx);
+        }
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("Warp GPU: %.2f ms", nativeGetWarpGpuMs(nativeCtx)));
+        sb.append(String.format("Warp GPU: %.2f ms", warpMs));
         if (depthReady) {
             sb.append('\n').append(String.format("Depth inference: %.1f ms", lastInferenceMs));
             sb.append('\n').append(String.format("Depth age: %.0f ms", lastDepthAgeMs));
@@ -1252,9 +1300,36 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     /**
      * Releases the surface handed to MediaCodec. Only call after the codec
-     * has been released.
+     * has been released. A frame loop that has not stopped yet is still
+     * reading the SurfaceTexture, so in that case the release is left for it
+     * to do on its way out.
      */
     public void cleanup() {
+        boolean releaseNow;
+        synchronized (teardownLock) {
+            releaseNow = renderThread == null || renderThreadDone;
+            if (!releaseNow) {
+                releaseOnExit = true;
+            }
+        }
+        if (releaseNow) {
+            releaseSurfaces();
+        }
+    }
+
+    // The last thing the frame loop thread does, whichever way it ended
+    private void finishRenderThread() {
+        boolean release;
+        synchronized (teardownLock) {
+            renderThreadDone = true;
+            release = releaseOnExit;
+        }
+        if (release) {
+            releaseSurfaces();
+        }
+    }
+
+    private void releaseSurfaces() {
         if (inputSurface != null) {
             inputSurface.release();
             inputSurface = null;

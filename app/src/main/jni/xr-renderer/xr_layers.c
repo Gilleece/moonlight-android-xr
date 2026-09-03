@@ -74,7 +74,18 @@ typedef struct {
     int barArea;
 } FrameView;
 
-static void pushLayer(FrameLayers* layers, const void* layer) {
+// Adds a layer to the frame. One past the array would be a smashed stack, so a
+// frame that gets there drops the layer and says so once: the layer that went
+// missing points at whatever grew.
+static void pushLayer(XrCtx* ctx, FrameLayers* layers, const void* layer) {
+    if (layers->count >= FRAME_MAX_LAYERS) {
+        if (!ctx->layerDropWarned) {
+            ctx->layerDropWarned = 1;
+            LOGE("frame needs more than %d composition layers, dropping the rest",
+                 FRAME_MAX_LAYERS);
+        }
+        return;
+    }
     layers->order[layers->count++] = (const XrCompositionLayerBaseHeader*)layer;
 }
 
@@ -202,7 +213,7 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             projView->subImage.imageRect.extent.height = ctx->roomEyeHeight;
             projView->subImage.imageArrayIndex = 0;
         }
-        pushLayer(layers, room);
+        pushLayer(ctx, layers, room);
     }
 }
 
@@ -259,7 +270,7 @@ static void addBackgroundLayers(XrCtx* ctx, const FrameView* view, FrameLayers* 
             }
             bg->upperVerticalAngle = halfV;
             bg->lowerVerticalAngle = -halfV;
-            pushLayer(layers, bg);
+            pushLayer(ctx, layers, bg);
         }
     }
 }
@@ -280,7 +291,7 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                   ctx->glowSwapchain, GLOW_TEX, GLOW_TEX, view->space,
                   poseOffset(view->screenPose, behindLocal),
                   view->screenWidth * GLOW_SCALE, view->screenHeight * GLOW_SCALE);
-        pushLayer(layers, &layers->glow);
+        pushLayer(ctx, layers, &layers->glow);
     }
 }
 
@@ -320,7 +331,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
             cyl->radius = radius;
             cyl->centralAngle = view->screenWidth / radius;
             cyl->aspectRatio = 1.0f / view->aspect;
-            pushLayer(layers, cyl);
+            pushLayer(ctx, layers, cyl);
         }
         else {
             XrCompositionLayerQuad* quad = &layers->video[eye];
@@ -329,7 +340,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
                       view->screenHeight);
             quad->eyeVisibility = visibility;
             quad->subImage = subImage;
-            pushLayer(layers, quad);
+            pushLayer(ctx, layers, quad);
         }
     }
 }
@@ -357,7 +368,7 @@ static void addOverlayLayer(XrCtx* ctx, const FrameView* view, FrameLayers* laye
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->overlaySwapchain,
                   OVERLAY_WIDTH, OVERLAY_HEIGHT, view->space,
                   poseOffset(view->screenPose, statsLocal), overlayW, overlayH);
-        pushLayer(layers, &layers->overlay);
+        pushLayer(ctx, layers, &layers->overlay);
     }
 }
 
@@ -412,7 +423,7 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
                   isBar ? BAR_TEX_W : CORNER_TEX_W, isBar ? BAR_TEX_H : CORNER_TEX_H,
                   view->space, poseOffset(view->screenPose, local), sizeW, sizeH);
         layers->handle.pose.orientation = quatNorm(quatMul(view->screenPose.orientation, turnQ));
-        pushLayer(layers, &layers->handle);
+        pushLayer(ctx, layers, &layers->handle);
     }
 }
 
@@ -429,7 +440,7 @@ static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
     quadLayer(slot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
               OUTLINE_TEX, OUTLINE_TEX, view->space, poseOffset(view->screenPose, local),
               side * scale, side * scale);
-    pushLayer(layers, slot);
+    pushLayer(ctx, layers, slot);
 }
 
 // The environment, settings, keyboard and exit buttons beside the move bar
@@ -477,7 +488,7 @@ static void addExitPromptLayer(XrCtx* ctx, const FrameView* view, FrameLayers* l
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->exitPromptSwapchains[ctx->exitHoverZone], EXIT_TEX_W, EXIT_TEX_H,
                   view->space, ctx->exitPose, ctx->exitW, ctx->exitH);
-        pushLayer(layers, &layers->exitPrompt);
+        pushLayer(ctx, layers, &layers->exitPrompt);
     }
 }
 
@@ -505,7 +516,7 @@ static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                   side * lockScale, side * lockScale);
         layers->lock.pose.orientation = quatNorm(quatMul(view->screenPose.orientation,
                                                          axisAngleQuat(yawAxis, lockYaw)));
-        pushLayer(layers, &layers->lock);
+        pushLayer(ctx, layers, &layers->lock);
     }
 }
 
@@ -520,7 +531,7 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
         quadLayer(&layers->picker, layers->sharpenChain,
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->pickerSwapchain,
                   PICKER_TEX_W, PICKER_TEX_H, view->space, pickPose, pickW, pickH);
-        pushLayer(layers, &layers->picker);
+        pushLayer(ctx, layers, &layers->picker);
 
         if (ctx->outlineReady) {
             float cellW = pickW / (float)PICKER_COLS;
@@ -550,7 +561,7 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
                 quadLayer(mark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                           ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
                           poseOffset(pickPose, local), cellW * scales[m], cellH * scales[m]);
-                pushLayer(layers, mark);
+                pushLayer(ctx, layers, mark);
             }
         }
     }
@@ -567,7 +578,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->cogPanelSwapchains[cogArt], COG_TEX_W, COG_TEX_H, view->space,
                   ctx->cogPose, ctx->cogW, ctx->cogH);
-        pushLayer(layers, &layers->cogPanel);
+        pushLayer(ctx, layers, &layers->cogPanel);
 
         // Display tab. The cells are drawn into the texture, so what is
         // chosen and what is under the ray are rings over them, the same
@@ -596,7 +607,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                           ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
                           poseOffset(ctx->cogPose, local), span * ctx->cogW * scale,
                           2.0f * COG_CELL_HALF * ctx->cogH * scale);
-                pushLayer(layers, mark);
+                pushLayer(ctx, layers, mark);
             }
         }
 
@@ -632,7 +643,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                 quadLayer(thumb, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                           ctx->cogThumbSwapchain, COG_THUMB_TEX, COG_THUMB_TEX, view->space,
                           poseOffset(ctx->cogPose, local), thumbSize * grow, thumbSize * grow);
-                pushLayer(layers, thumb);
+                pushLayer(ctx, layers, thumb);
             }
         }
     }
@@ -650,7 +661,7 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->kbPanelSwapchains[ctx->kbState], KB_TEX_W, KB_TEX_H, view->space,
                   ctx->kbPose, ctx->kbW, ctx->kbH);
-        pushLayer(layers, &layers->kbPanel);
+        pushLayer(ctx, layers, &layers->kbPanel);
 
         if (ctx->outlineReady && ctx->kbHoverKey >= 0
                 && ctx->kbHoverKey < ctx->kbKeyCount) {
@@ -667,7 +678,7 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
                       ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
                       poseOffset(ctx->kbPose, local), (r[2] - r[0]) * ctx->kbW * grow,
                       (r[3] - r[1]) * ctx->kbH * grow);
-            pushLayer(layers, &layers->kbMark);
+            pushLayer(ctx, layers, &layers->kbMark);
         }
     }
 }
@@ -715,7 +726,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             quadLayer(&layers->beam, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                       ctx->pointerSwapchain, PTR_TEX_W, PTR_BEAM_H, view->space, beamPose,
                       ctx->beamWidth, length);
-            pushLayer(layers, &layers->beam);
+            pushLayer(ctx, layers, &layers->beam);
         }
 
         // Cursor sits just off the surface facing the viewer, which works
@@ -736,7 +747,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
                       0.022f, 0.022f);
             // The dot is the strip under the beam in the swapchain they share
             layers->dot.subImage.imageRect.offset.y = PTR_BEAM_H;
-            pushLayer(layers, &layers->dot);
+            pushLayer(ctx, layers, &layers->dot);
         }
     }
 }
@@ -749,6 +760,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                                                            jfloat separation, jboolean eyeSwap,
                                                            jboolean passthrough) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
 
     ctx->passthrough = passthrough;
     ctx->prefCurvature = curvature;

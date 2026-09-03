@@ -73,7 +73,7 @@ int initDepthModel(XrCtx* ctx) {
 JNIEXPORT jobject JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeGetModelInput(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx->modelInput == NULL) {
+    if (ctx == NULL || ctx->modelInput == NULL) {
         return NULL;
     }
     return (*env)->NewDirectByteBuffer(env, ctx->modelInput,
@@ -83,7 +83,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetModelInput(JNIEnv* env, job
 JNIEXPORT jobject JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeGetModelOutput(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx->modelOutput == NULL) {
+    if (ctx == NULL || ctx->modelOutput == NULL) {
         return NULL;
     }
     return (*env)->NewDirectByteBuffer(env, ctx->modelOutput,
@@ -99,6 +99,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
                                                                     jlong handle,
                                                                     jfloatArray texMatrixArr) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || ctx->readbackBuf == NULL) {
+        return 0;
+    }
     const int n = DEPTH_TEX_SIZE;
     long startNs = nowNs();
 
@@ -143,6 +146,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
 JNIEXPORT jboolean JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeBindDepthContext(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return JNI_FALSE;
+    }
     if (!eglMakeCurrent(ctx->eglDisplay, ctx->depthPbuffer, ctx->depthPbuffer, ctx->depthContext)) {
         LOGE("depth thread eglMakeCurrent failed: %d", eglGetError());
         return JNI_FALSE;
@@ -153,6 +159,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeBindDepthContext(JNIEnv* env, 
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
     eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     if (ctx->depthPbuffer != EGL_NO_SURFACE) {
         eglDestroySurface(ctx->eglDisplay, ctx->depthPbuffer);
@@ -181,6 +190,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || ctx->modelOutput == NULL) {
+        return 0;
+    }
     const int n = DEPTH_TEX_SIZE;
     long startNs = nowNs();
 

@@ -60,6 +60,20 @@ static int initEgl(XrCtx* ctx) {
     return 1;
 }
 
+// Room for every extension this renderer knows how to ask for, with a little
+// to spare
+#define MAX_ENABLED_EXTS 16
+
+// Adds an extension to the list handed to xrCreateInstance, within the list's
+// own bound rather than past it
+static void enableExt(const char** list, uint32_t* count, const char* name) {
+    if (*count >= MAX_ENABLED_EXTS) {
+        LOGW("no room to enable %s, leaving it out", name);
+        return;
+    }
+    list[(*count)++] = name;
+}
+
 static int initXrInstance(XrCtx* ctx) {
     PFN_xrInitializeLoaderKHR initLoader = NULL;
     xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
@@ -74,6 +88,10 @@ static int initXrInstance(XrCtx* ctx) {
     uint32_t extCount = 0;
     xrEnumerateInstanceExtensionProperties(NULL, 0, &extCount, NULL);
     XrExtensionProperties* exts = calloc(extCount, sizeof(XrExtensionProperties));
+    if (extCount > 0 && exts == NULL) {
+        LOGE("no memory for %u extension properties", extCount);
+        return 0;
+    }
     for (uint32_t i = 0; i < extCount; i++) {
         exts[i].type = XR_TYPE_EXTENSION_PROPERTIES;
     }
@@ -112,35 +130,35 @@ static int initXrInstance(XrCtx* ctx) {
         return 0;
     }
 
-    const char* enabledExts[10];
+    const char* enabledExts[MAX_ENABLED_EXTS];
     uint32_t enabledCount = 0;
-    enabledExts[enabledCount++] = XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME;
-    enabledExts[enabledCount++] = XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME;
+    enableExt(enabledExts, &enabledCount, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME);
+    enableExt(enabledExts, &enabledCount, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME);
     if (ctx->cylinderSupported) {
-        enabledExts[enabledCount++] = XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
     }
     if (ctx->picoInteraction) {
-        enabledExts[enabledCount++] = XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
     }
     if (ctx->equirectSupported) {
-        enabledExts[enabledCount++] = XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME);
     }
     if (ctx->handInteraction) {
-        enabledExts[enabledCount++] = XR_EXT_HAND_INTERACTION_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_EXT_HAND_INTERACTION_EXTENSION_NAME);
     }
     // Some runtimes will not honour the hand interaction profile unless the
     // tracking extension is enabled next to it
     if (ctx->handTracking) {
-        enabledExts[enabledCount++] = XR_EXT_HAND_TRACKING_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_EXT_HAND_TRACKING_EXTENSION_NAME);
     }
     if (ctx->eyeGaze) {
-        enabledExts[enabledCount++] = XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME);
     }
     if (ctx->msftHandInteraction) {
-        enabledExts[enabledCount++] = XR_MSFT_HAND_INTERACTION_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME);
     }
     if (ctx->layerSettingsSupported) {
-        enabledExts[enabledCount++] = XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME;
+        enableExt(enabledExts, &enabledCount, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME);
     }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -180,8 +198,9 @@ static int initXrInstance(XrCtx* ctx) {
     xrEnumerateEnvironmentBlendModes(ctx->instance, ctx->systemId,
                                      XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
                                      0, &blendModeCount, NULL);
-    if (blendModeCount > 0) {
-        XrEnvironmentBlendMode* modes = calloc(blendModeCount, sizeof(XrEnvironmentBlendMode));
+    XrEnvironmentBlendMode* modes = blendModeCount > 0
+            ? calloc(blendModeCount, sizeof(XrEnvironmentBlendMode)) : NULL;
+    if (modes != NULL) {
         xrEnumerateEnvironmentBlendModes(ctx->instance, ctx->systemId,
                                          XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
                                          blendModeCount, &blendModeCount, modes);
@@ -221,9 +240,9 @@ static int initXrInstance(XrCtx* ctx) {
     xrEnumerateViewConfigurationViews(ctx->instance, ctx->systemId,
                                       XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
                                       0, &configViewCount, NULL);
-    if (configViewCount > 0) {
-        XrViewConfigurationView* configViews =
-                calloc(configViewCount, sizeof(XrViewConfigurationView));
+    XrViewConfigurationView* configViews = configViewCount > 0
+            ? calloc(configViewCount, sizeof(XrViewConfigurationView)) : NULL;
+    if (configViews != NULL) {
         for (uint32_t i = 0; i < configViewCount; i++) {
             configViews[i].type = XR_TYPE_VIEW_CONFIGURATION_VIEW;
         }
@@ -316,6 +335,11 @@ static int initSwapchain(XrCtx* ctx) {
     uint32_t formatCount = 0;
     xrEnumerateSwapchainFormats(ctx->session, 0, &formatCount, NULL);
     int64_t* formats = calloc(formatCount, sizeof(int64_t));
+    if (formatCount == 0 || formats == NULL) {
+        LOGE("no swapchain formats to choose from");
+        free(formats);
+        return 0;
+    }
     xrEnumerateSwapchainFormats(ctx->session, formatCount, &formatCount, formats);
 
     ctx->swapchainFormat = 0;
@@ -325,7 +349,7 @@ static int initSwapchain(XrCtx* ctx) {
             break;
         }
     }
-    if (ctx->swapchainFormat == 0 && formatCount > 0) {
+    if (ctx->swapchainFormat == 0) {
         ctx->swapchainFormat = formats[0];
         LOGW("no SRGB8_ALPHA8 swapchain format, using %lld", (long long)ctx->swapchainFormat);
     }
@@ -333,28 +357,8 @@ static int initSwapchain(XrCtx* ctx) {
 
     // Stereo renders left and right eye views side by side in one swapchain
     int chainWidth = ctx->stereoMode != DEPTH_MODE_OFF ? ctx->videoWidth * 2 : ctx->videoWidth;
-
-    XrSwapchainCreateInfo swapInfo = { XR_TYPE_SWAPCHAIN_CREATE_INFO };
-    swapInfo.usageFlags = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-    swapInfo.format = ctx->swapchainFormat;
-    swapInfo.sampleCount = 1;
-    swapInfo.width = chainWidth;
-    swapInfo.height = ctx->videoHeight;
-    swapInfo.faceCount = 1;
-    swapInfo.arraySize = 1;
-    swapInfo.mipCount = 1;
-    if (!checkXr(xrCreateSwapchain(ctx->session, &swapInfo, &ctx->swapchain), "xrCreateSwapchain")) {
-        return 0;
-    }
-
-    xrEnumerateSwapchainImages(ctx->swapchain, 0, &ctx->swapchainImageCount, NULL);
-    ctx->swapchainImages = calloc(ctx->swapchainImageCount, sizeof(XrSwapchainImageOpenGLESKHR));
-    for (uint32_t i = 0; i < ctx->swapchainImageCount; i++) {
-        ctx->swapchainImages[i].type = XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR;
-    }
-    if (!checkXr(xrEnumerateSwapchainImages(ctx->swapchain, ctx->swapchainImageCount,
-            &ctx->swapchainImageCount, (XrSwapchainImageBaseHeader*)ctx->swapchainImages),
-            "enumerate swapchain images")) {
+    if (!createArtSwapchain(ctx, chainWidth, ctx->videoHeight, "xrCreateSwapchain",
+                            &ctx->swapchain, &ctx->swapchainImages, &ctx->swapchainImageCount)) {
         return 0;
     }
 
@@ -516,6 +520,11 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         xrDestroyInstance(ctx->instance);
     }
 
+    if (ctx->timerSupported) {
+        pfnDeleteQueries(2, ctx->timerQueries);
+        pfnDeleteQueries(2, ctx->roomTimerQueries);
+    }
+
     if (ctx->eglDisplay != EGL_NO_DISPLAY) {
         eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
         if (ctx->eglPbuffer != EGL_NO_SURFACE) {
@@ -666,12 +675,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetCaptureDir(JNIEnv* env, job
 JNIEXPORT jint JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeGetTexId(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    return (jint)ctx->oesTexture;
+    return ctx != NULL ? (jint)ctx->oesTexture : 0;
 }
 
 JNIEXPORT jint JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jobject thiz, jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return FRAME_EXIT;
+    }
 
     pollEvents(ctx);
 
