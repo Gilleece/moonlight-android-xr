@@ -128,6 +128,19 @@ Debug build:
 
 The APK lands in `app/build/outputs/apk/nonRoot/debug/`. Install it with `adb install -r`.
 
+### Tests
+
+The parts of the renderer with no GL, OpenXR or Android in them, the maths and the depth map
+filtering, build and run on a desktop with any C compiler, and the Java side has plain unit tests
+for the click handling:
+
+    make -C app/src/test/cpp test
+    ./gradlew testNonRootDebugUnitTest
+
+The workflow in `.github/workflows/build.yml` runs both, then lint and a debug and a release build,
+on every push. A tag starting with `v` also publishes the release APK, signed when the repository
+has `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD` and `KEY_ALIAS` secrets and unsigned otherwise.
+
 ### Release APK
 
 A headset will not install an unsigned APK, so the release build has to be signed. Create a
