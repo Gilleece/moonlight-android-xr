@@ -528,6 +528,12 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 }
                 else {
                     LimeLog.warning("XR renderer unavailable, falling back to flat rendering");
+                    // Once only, since configure can be re-run for codec
+                    // recovery and the answer will not have changed
+                    xrRendererStopped = true;
+                    if (activity instanceof XrRenderer.SessionListener) {
+                        ((XrRenderer.SessionListener) activity).onVrUnavailable();
+                    }
                 }
             }
             if (xrRenderer != null) {

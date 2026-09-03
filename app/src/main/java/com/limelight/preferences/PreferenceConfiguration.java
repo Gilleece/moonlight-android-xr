@@ -393,6 +393,19 @@ public class PreferenceConfiguration {
         }
     }
 
+    // Whether this is a headset at all, as against a phone or a TV that has
+    // VR mode on because it is the default. Meta and Pico both declare the
+    // head tracking feature; the vendor check is there for a firmware that
+    // forgets to.
+    public static boolean isHeadset(Context context) {
+        if (context.getPackageManager().hasSystemFeature("android.hardware.vr.headtracking")) {
+            return true;
+        }
+        String maker = Build.MANUFACTURER != null ? Build.MANUFACTURER : "";
+        return maker.equalsIgnoreCase("pico") || maker.equalsIgnoreCase("oculus")
+                || maker.equalsIgnoreCase("meta");
+    }
+
     // Quest 2, Quest Pro and Pico 4 are the XR2 Gen 1 headsets and have a lot
     // less GPU headroom than the Gen 2 devices this was tuned on, so a full
     // rate 3D stream is too much for them.

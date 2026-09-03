@@ -208,6 +208,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         this.inputListener = listener;
     }
 
+    /**
+     * Told when a VR session could not be started at all, so the activity can
+     * do something visible about it rather than stream into a window the
+     * headset's shell never shows. Called off the main thread.
+     */
+    public interface SessionListener {
+        void onVrUnavailable();
+    }
+
     private static native void nativeSetFileLog(String path, int level);
     // envResTier is the EnvResTier the room renders at: 0 low, 1 standard,
     // 2 high, 3 ultra

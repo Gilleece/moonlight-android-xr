@@ -74,6 +74,25 @@ static void enableExt(const char** list, uint32_t* count, const char* name) {
     list[(*count)++] = name;
 }
 
+// The few results a user's log is likely to carry, named, since the number on
+// its own sends everyone to the header
+static const char* xrResultName(XrResult res) {
+    switch (res) {
+        case XR_ERROR_RUNTIME_UNAVAILABLE:
+            return "no OpenXR runtime answered the loader";
+        case XR_ERROR_RUNTIME_FAILURE:
+            return "the OpenXR runtime failed";
+        case XR_ERROR_INITIALIZATION_FAILED:
+            return "initialization failed";
+        case XR_ERROR_API_VERSION_UNSUPPORTED:
+            return "API version unsupported";
+        case XR_ERROR_FORM_FACTOR_UNAVAILABLE:
+            return "headset not available";
+        default:
+            return "see XrResult in openxr.h";
+    }
+}
+
 static int initXrInstance(XrCtx* ctx) {
     PFN_xrInitializeLoaderKHR initLoader = NULL;
     xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
@@ -82,11 +101,20 @@ static int initXrInstance(XrCtx* ctx) {
         XrLoaderInitInfoAndroidKHR loaderInfo = { XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR };
         loaderInfo.applicationVM = ctx->vm;
         loaderInfo.applicationContext = ctx->activity;
-        initLoader((XrLoaderInitInfoBaseHeaderKHR*)&loaderInfo);
+        checkXr(initLoader((XrLoaderInitInfoBaseHeaderKHR*)&loaderInfo), "xrInitializeLoaderKHR");
     }
 
+    // The failure a user is most likely to meet is here: on Android the loader
+    // finds the runtime through the OS's OpenXR runtime broker, and a headset
+    // without one, or one that refuses this app, answers with no runtime at
+    // all. Nothing further along can work without it, so it is said plainly.
     uint32_t extCount = 0;
-    xrEnumerateInstanceExtensionProperties(NULL, 0, &extCount, NULL);
+    XrResult listed = xrEnumerateInstanceExtensionProperties(NULL, 0, &extCount, NULL);
+    if (XR_FAILED(listed)) {
+        LOGE("xrEnumerateInstanceExtensionProperties failed: %d, %s", listed,
+             xrResultName(listed));
+        return 0;
+    }
     XrExtensionProperties* exts = calloc(extCount, sizeof(XrExtensionProperties));
     if (extCount > 0 && exts == NULL) {
         LOGE("no memory for %u extension properties", extCount);
@@ -174,7 +202,9 @@ static int initXrInstance(XrCtx* ctx) {
     createInfo.enabledExtensionCount = enabledCount;
     createInfo.enabledExtensionNames = enabledExts;
 
-    if (!checkXr(xrCreateInstance(&createInfo, &ctx->instance), "xrCreateInstance")) {
+    XrResult created = xrCreateInstance(&createInfo, &ctx->instance);
+    if (XR_FAILED(created)) {
+        LOGE("xrCreateInstance failed: %d, %s", created, xrResultName(created));
         return 0;
     }
 

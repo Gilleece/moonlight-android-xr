@@ -96,7 +96,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         OnGenericMotionListener, OnTouchListener, NvConnectionListener, EvdevListener,
         OnSystemUiVisibilityChangeListener, GameGestures, StreamView.InputCallbacks,
         PerfOverlayListener, UsbDriverService.UsbDriverStateListener, View.OnKeyListener,
-        XrRenderer.InputListener {
+        XrRenderer.InputListener, XrRenderer.SessionListener {
     private int lastButtonState = 0;
 
     // Only 2 touches are supported
@@ -162,6 +162,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // the way, so there is nothing left to go back to when the stream ends
     private boolean returnToPcView;
     private boolean pcViewStarted;
+    // Set once the immersive activity has handed the stream to the flat one,
+    // so a second failure report cannot start a second copy
+    private boolean relaunchedFlat;
 
     // Last absolute position sent from the VR pointer, so a still controller
     // does not repeat the same position every frame
@@ -210,6 +213,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     public static final String EXTRA_APP_HDR = "HDR";
     public static final String EXTRA_SERVER_CERT = "ServerCert";
     public static final String EXTRA_RETURN_TO_PC_VIEW = "ReturnToPcView";
+    // Carried by the flat activity when the immersive one gave up on VR, so
+    // the user is told why the stream is a panel rather than left guessing
+    public static final String EXTRA_VR_UNAVAILABLE = "VrUnavailable";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -340,6 +346,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         appName = Game.this.getIntent().getStringExtra(EXTRA_APP_NAME);
         pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
         returnToPcView = Game.this.getIntent().getBooleanExtra(EXTRA_RETURN_TO_PC_VIEW, false);
+        if (Game.this.getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false)) {
+            Toast.makeText(this, R.string.vr_unavailable_flat, Toast.LENGTH_LONG).show();
+        }
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
         int port = Game.this.getIntent().getIntExtra(EXTRA_PORT, NvHTTP.DEFAULT_HTTP_PORT);
@@ -2869,6 +2878,40 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         else {
             conn.sendUtf8Text(String.valueOf((char)code));
         }
+    }
+
+    /**
+     * No VR session could be started. On a headset this activity was launched
+     * as an immersive app, so the shell will never show the flat surface the
+     * decoder falls back to and the user would see nothing at all. The stream
+     * is started again in the flat activity instead, which the shell does
+     * show, with a word about why. A phone or a TV shows the flat surface as
+     * it is, so nothing has to move there.
+     */
+    @Override
+    public void onVrUnavailable() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (!(Game.this instanceof GameXR) || relaunchedFlat || isFinishing()
+                        || !PreferenceConfiguration.isHeadset(Game.this)) {
+                    return;
+                }
+                relaunchedFlat = true;
+                FileLog.event("VR session unavailable, restarting the stream on a flat panel");
+
+                Intent flat = new Intent(getIntent());
+                flat.setClass(Game.this, Game.class);
+                flat.removeCategory("com.oculus.intent.category.VR");
+                flat.putExtra(EXTRA_VR_UNAVAILABLE, true);
+                startActivity(flat);
+
+                // The flat activity inherits the trip back to the PC list, so
+                // this one must not make it as well on the way out
+                pcViewStarted = true;
+                finish();
+            }
+        });
     }
 
     /**
