@@ -8,6 +8,7 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.audiofx.AudioEffect;
 import android.os.Build;
+import android.os.Process;
 
 import com.limelight.LimeLog;
 import com.limelight.nvstream.av.audio.AudioRenderer;
@@ -19,6 +20,13 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private final boolean enableAudioFx;
 
     private AudioTrack track;
+    // Which thread the priority bump below has already been applied to, since
+    // setThreadPriority only affects the caller and this is called once per
+    // audio frame. Keyed on the tid rather than a plain flag: if the audio
+    // thread is ever recreated mid stream, a flag would silently leave the
+    // replacement at its default priority, which is exactly the condition the
+    // bump exists to prevent and would be invisible.
+    private int prioritizedAudioTid;
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
         this.context = context;
@@ -187,6 +195,17 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     @Override
     public void playDecodedAudio(short[] audioData) {
+        // This runs on the native pthread that decodes and submits audio
+        // samples, which lives in moonlight-common-c and so cannot be touched
+        // from Java before it starts. The first sample to arrive on it is as
+        // early as this code can reach it, and one raised priority covers
+        // every sample after, so only the tid check is paid per frame.
+        int tid = Process.myTid();
+        if (prioritizedAudioTid != tid) {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
+            prioritizedAudioTid = tid;
+        }
+
         // Only queue up to 40 ms of pending audio data in addition to what AudioTrack is buffering for us.
         if (MoonBridge.getPendingAudioDuration() < 40) {
             // This will block until the write is completed. That can cause a backlog

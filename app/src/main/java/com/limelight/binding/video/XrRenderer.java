@@ -16,6 +16,7 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.SurfaceTexture;
 import android.graphics.Typeface;
+import android.os.Process;
 import android.preference.PreferenceManager;
 import android.view.Surface;
 
@@ -472,6 +473,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         renderThread = new Thread() {
             @Override
             public void run() {
+                // Submission has to land inside the compositor's frame window,
+                // so this thread cannot sit behind the decoder or the depth
+                // worker the way an unprioritized thread would. Thread.setPriority()
+                // only changes the JVM's bookkeeping, not the Linux scheduler,
+                // so the real syscall goes through Process.
+                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY);
+
                 // Before init, so everything the session setup finds ends up
                 // in the log too
                 nativeSetFileLog(FileLog.getLogPath(), FileLog.getLevel());
@@ -557,6 +565,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         depthThread = new Thread() {
             @Override
             public void run() {
+                // Above the default so a busy system does not starve inference
+                // behind everything else, but deliberately not BACKGROUND:
+                // that cpuset is little cores only on this SoC and would make
+                // the wall-clock cost of a model run worse, not better.
+                Process.setThreadPriority(Process.THREAD_PRIORITY_DEFAULT + 5);
+
                 if (!nativeBindDepthContext(nativeCtx)) {
                     return;
                 }
