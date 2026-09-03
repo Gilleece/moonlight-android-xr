@@ -81,7 +81,7 @@ static int fillSyntheticDepth(XrCtx* ctx) {
         }
     }
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < DEPTH_TEX_COUNT; i++) {
         glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[i]);
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -232,7 +232,7 @@ int initGl(XrCtx* ctx) {
     glUniform1f(glGetUniformLocation(ctx->program, "u_showDepth"),
                 ctx->depthDebug ? 1.0f : 0.0f);
 
-    glGenTextures(2, ctx->depthTextures);
+    glGenTextures(DEPTH_TEX_COUNT, ctx->depthTextures);
     if (!fillSyntheticDepth(ctx)) {
         return 0;
     }
@@ -303,6 +303,7 @@ static void runUpsample(XrCtx* ctx, const float* texMatrix) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
+    waitForDepthSlot(ctx);
     glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[ctx->depthReadIndex]);
     glUniformMatrix4fv(ctx->upsampleTexMatrixUniform, 1, GL_FALSE, texMatrix);
     glUniform1f(ctx->upsampleSigmaUniform, ctx->upsampleSigmaR);
@@ -341,6 +342,12 @@ static void runOffsetSearch(XrCtx* ctx, float separation) {
 }
 
 void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
+    // Picks up whatever the depth thread most recently finished, once per
+    // frame and before anything below samples a depth slot. The acquire is
+    // what makes the fence stored alongside the index visible here; the wait
+    // on it belongs to the site that samples the texture.
+    ctx->depthReadIndex = atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire);
+
     int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
 
@@ -416,7 +423,9 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
     // Either the raw 256x256 map or the edge aware upsample of it. Both carry
-    // depth in alpha, so the warp shader does not care which it got.
+    // depth in alpha, so the warp shader does not care which it got. With the
+    // upsample on, runUpsample already waited on this slot and this is a no-op.
+    waitForDepthSlot(ctx);
     glBindTexture(GL_TEXTURE_2D, upsampling ? ctx->upsampleTexture
                                             : ctx->depthTextures[ctx->depthReadIndex]);
     glActiveTexture(GL_TEXTURE2);

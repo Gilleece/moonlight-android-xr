@@ -444,7 +444,19 @@ static void pollEvents(XrCtx* ctx) {
 static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyXrInput(ctx);
 
-    glDeleteBuffers(1, &ctx->depthReadPbo);
+    // The depth thread has been joined by now, but a slot published after the
+    // frame loop last sampled it still carries a fence nothing waited on
+    for (int i = 0; i < DEPTH_TEX_COUNT; i++) {
+        if (ctx->depthFences[i] != NULL) {
+            glDeleteSync(ctx->depthFences[i]);
+        }
+    }
+    for (int i = 0; i < 2; i++) {
+        if (ctx->captureFences[i] != NULL) {
+            glDeleteSync(ctx->captureFences[i]);
+        }
+    }
+    glDeleteBuffers(2, ctx->depthPbos);
     glDeleteBuffers(1, &ctx->ambiDetectPbo);
     free(ctx->modelInput);
     free(ctx->modelOutput);

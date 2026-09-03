@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <math.h>
+#include <stdatomic.h>
 
 #include <android/log.h>
 #include <sys/system_properties.h>
@@ -309,6 +310,16 @@ static inline long nowNs(void) {
 #define ROOM_DIM_MIN 0.10f
 #define ROOM_DIM_MAX 2.0f
 
+// Three depth textures rather than two: the depth thread advances through
+// them in a fixed rotation, so a slot it is about to overwrite was last handed
+// to the frame loop a full rotation ago rather than one. One inference dwarfs
+// anything the frame loop could still have in flight from that slot by then.
+#define DEPTH_TEX_COUNT 3
+
+// Generous on purpose: the depth thread has no per frame deadline, and a
+// short timeout here would only trade a hung capture for a torn one
+#define CAPTURE_FENCE_TIMEOUT_NS 500000000ull
+
 // Pinned headers may predate the extension, values from the OpenXR registry
 #ifndef XR_FB_composition_layer_settings
 #define XR_FB_composition_layer_settings 1
@@ -417,10 +428,22 @@ typedef struct {
     // wide and each eye gets its own warped copy of the frame
     int stereoMode;
     int depthDebug;
-    // Double buffered: the frame loop samples one while the depth thread
-    // writes the other, so neither ever waits on the other
-    GLuint depthTextures[2];
-    volatile int depthReadIndex;
+    // Triple buffered: the frame loop samples one slot while the depth thread
+    // rotates through the rest, so neither ever blocks on the other. Which
+    // slot the frame loop reads is its own to write.
+    GLuint depthTextures[DEPTH_TEX_COUNT];
+    int depthReadIndex;
+    // The slot the depth thread's next upload lands in. Its own to read and
+    // write, so nothing guards it.
+    int depthWriteIndex;
+    // Published by the depth thread together with the fence for that slot,
+    // and adopted by the frame loop once it notices a new value. The release
+    // and acquire on this one word are what keep the frame loop from seeing
+    // the index before the fence that has to come with it.
+    atomic_int depthStagedIndex;
+    // One fence per slot, set right after the upload it guards and cleared by
+    // whichever frame loop site first samples that slot
+    GLsync depthFences[DEPTH_TEX_COUNT];
 
     // Second context in the same share group for the depth thread. Inference
     // takes longer than a display frame, so it cannot run on the frame loop
@@ -434,9 +457,13 @@ typedef struct {
     GLint downscaleTexMatrixUniform;
     GLuint downscaleTexture;
     GLuint downscaleFbo;
-    // The readback goes through a pixel buffer and is collected the frame
-    // after it was asked for, so the frame loop never waits on the GPU for it
-    GLuint depthReadPbo;
+    // The readback goes through a pixel buffer, so the frame loop only queues
+    // the transfer, and the depth thread waits on the fence and maps it right
+    // before the model needs it. Two, ping ponged, though the handoff guard
+    // means only one is ever in flight: the spare is headroom.
+    GLuint depthPbos[2];
+    int captureIndex;
+    GLsync captureFences[2];
     float* modelInput;
     float* modelOutput;
     unsigned char* depthUploadBuf;
@@ -1044,6 +1071,7 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation);
 
 // xr_depth.c: the depth model staging and the depth thread's uploads
 int initDepthModel(XrCtx* ctx);
+void waitForDepthSlot(XrCtx* ctx);
 
 // xr_ambilight.c: the frame colour sample, letterbox detection and the glow
 int initAmbilight(XrCtx* ctx);

@@ -167,6 +167,7 @@ void writeCaptureDepthTexture(XrCtx* ctx) {
         return;
     }
 
+    waitForDepthSlot(ctx);
     GLuint fbo = 0;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
