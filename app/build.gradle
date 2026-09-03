@@ -117,7 +117,8 @@ android {
             resValue "string", "app_label_root", "Moonlight XR (Root Debug)"
 
             minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'),
+                    'proguard-rules.pro', 'proguard-rules-debug.pro'
         }
         release {
             // This fork ships under its own applicationId, so the unofficial
