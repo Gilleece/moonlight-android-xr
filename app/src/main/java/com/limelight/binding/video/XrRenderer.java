@@ -111,6 +111,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile float lastInferenceMs;
     private volatile float lastDepthAgeMs;
     private volatile int lastDepthSkips;
+    // Set from the frame loop, read from setOverlayText() on the reporting
+    // thread, same as the three above: without this the adaptive cadence
+    // controller would be adjusting something nobody could observe.
+    private volatile int lastEffectiveCadence;
 
     // Controller pointer. The native side does the ray maths and hands back a
     // hit point and a button mask, this side turns that into host events.
@@ -441,7 +445,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeEndFrame(long ctx, boolean newFrame, float[] texMatrix,
                                        float distance, float quadWidth, float curvature,
                                        boolean headLocked, float separation, boolean eyeSwap,
-                                       boolean passthrough);
+                                       boolean passthrough, int cadenceLowerBound);
+    private native int nativeGetAdaptiveCadence(long ctx);
     private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
                                           float curvature, boolean headLocked,
                                           boolean pointerEnabled, boolean gazeEnabled,
@@ -703,7 +708,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         boolean eyeSwap = prefs.vrEyeSwap;
         boolean pointer = prefs.vrPointer;
         boolean gaze = prefs.vrGaze;
-        int cadence = Math.max(1, prefs.vrInferenceCadence);
+        // The floor the adaptive controller is allowed to work from: it may
+        // only ever make inference cheaper than this, never dearer, since
+        // this is the quality the user actually asked for.
+        int userCadence = Math.max(1, prefs.vrInferenceCadence);
 
         long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
 
@@ -733,7 +741,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 surfaceTexture.getTransformMatrix(texMatrix);
 
                 if (depthReady) {
-                    if ((videoFrameIndex % cadence) == 0) {
+                    int recommendation = nativeGetAdaptiveCadence(nativeCtx);
+                    int effectiveCadence = Math.max(userCadence,
+                            recommendation > 0 ? recommendation : userCadence);
+                    lastEffectiveCadence = effectiveCadence;
+                    if ((videoFrameIndex % effectiveCadence) == 0) {
                         handOffDepthFrame();
                     }
                     if (publishedFrameNs != 0) {
@@ -827,7 +839,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
 
             nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature,
-                    headLocked, separation, eyeSwap, passthroughOn);
+                    headLocked, separation, eyeSwap, passthroughOn, userCadence);
         }
     }
 
@@ -2371,6 +2383,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             sb.append('\n').append(String.format("Depth inference: %.1f ms", lastInferenceMs));
             sb.append('\n').append(String.format("Depth age: %.0f ms", lastDepthAgeMs));
             sb.append('\n').append("Depth frames skipped: ").append(lastDepthSkips);
+            sb.append('\n').append("Cadence: ").append(lastEffectiveCadence);
         }
         return sb.toString();
     }

@@ -680,9 +680,29 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
 #define PROP_TB_SWAP "debug.moonlight.tbswap"
+// On by default: 0 pins the cadence to whatever the user chose, so the
+// adaptive controller can be A/B'd against a fixed value live
+#define PROP_ADAPTIVE_CADENCE "debug.moonlight.adaptivecadence"
 
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
+
+// Tuning for the adaptive cadence controller. The window is the same order
+// as the existing poll periodicity (CAPTURE_POLL_FRAMES), the raise/lower
+// split is the deadband that keeps it from hunting between two cadences, and
+// the lockout holds a change long enough to see its effect before allowing
+// another.
+//
+// Both counts are in timer samples, not frames: the controller is fed from
+// the GPU timer's result block, which lands a sample every other frame at
+// best because of the two query slots, and drops the ones the driver hands
+// back implausible. Sixty samples is therefore well over a hundred frames,
+// which is deliberate but worth knowing before retuning it.
+#define CADENCE_WINDOW_SAMPLES 30
+#define CADENCE_RAISE_RATIO 0.80f
+#define CADENCE_LOWER_RATIO 0.55f
+#define CADENCE_LOCKOUT_SAMPLES 60
+#define CADENCE_MAX_RECOMMENDATION 8
 
 // Radius of the low pass that splits the depth map into an overall shape and
 // the local detail on top of it. About a tenth of the frame.
@@ -705,6 +725,24 @@ typedef struct {
     XrQuaternionf q;
     float dAngle;
 } EuroQuatState;
+
+// State for the adaptive cadence controller. Kept as its own struct rather
+// than loose fields on XrCtx so the decision logic below can take it by
+// pointer and stay a pure function of its inputs, which is what makes it
+// checkable without a headset: feed it synthetic samples and a budget and
+// see what it recommends.
+typedef struct {
+    // 64 bit regardless of ABI: long is 32 bit on the 32 bit ABIs this still
+    // builds for, where a window of 30 capped samples fits with only about a
+    // third to spare. CADENCE_WINDOW_SAMPLES is presented as a knob, so the
+    // headroom should not be something raising it silently spends.
+    int64_t windowTotalNs;
+    int windowSamples;
+    int samplesSinceChange;
+    // 0 means no recommendation has been formed yet, which the getter takes
+    // as "let the caller's own cadence stand"
+    int recommended;
+} CadenceController;
 
 typedef struct {
     JavaVM* vm;
@@ -991,6 +1029,10 @@ typedef struct {
     int sessionRunning;
     int exitRequested;
     XrTime predictedDisplayTime;
+    // The real per frame budget, from xrWaitFrame rather than a hardcoded
+    // 11.1 ms: this headset runs at 72, 90 or 120 Hz depending on the model
+    // and the refresh rate setting.
+    XrDuration displayPeriodNs;
     int shouldRender;
     int everRendered;
     // Frames submitted while focused. Passthrough waits for the first one, see
@@ -1359,6 +1401,13 @@ typedef struct {
     // disturb the logcat cadence
     long overlayGpuTotalNs;
     long overlayGpuSamples;
+
+    // Own accumulators again, for the same reason overlayGpuTotalNs is
+    // separate from gpuTotalNs: nativeGetWarpGpuMs() resets the overlay's
+    // pair on every read, and this must keep accumulating regardless of
+    // when the overlay happens to poll.
+    CadenceController cadenceCtrl;
+    int adaptiveCadenceEnabled;
 } XrCtx;
 
 typedef void (*PFNGENQUERIESEXT)(GLsizei, GLuint*);
@@ -5317,6 +5366,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->upsampleSigmaR = 0.25f;
     ctx->upsampleEnabled = 1;
     ctx->occlusionEnabled = 1;
+    // On by default, matching the debug property that can turn it off live
+    ctx->adaptiveCadenceEnabled = 1;
     // Off until it earns its place in a blind comparison on device
     ctx->depthSharp = 0.0f;
     // Starts where the preference left it, and the panel can change it live
@@ -5894,6 +5945,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
 
     ctx->predictedDisplayTime = frameState.predictedDisplayTime;
     ctx->shouldRender = frameState.shouldRender;
+    // The refresh rate is a headset and settings choice (72, 90 or 120 Hz,
+    // PreferenceConfiguration.java:118), not a constant, so the adaptive
+    // cadence controller needs the real per frame budget rather than a
+    // number that would only be right on one of them.
+    ctx->displayPeriodNs = frameState.predictedDisplayPeriod;
     return FRAME_RENDER;
 }
 
@@ -7044,6 +7100,7 @@ static void pollCaptureRequest(XrCtx* ctx) {
     // not a knob to sit on a slider.
     propScaled(PROP_ROOM_SCALE, &ctx->roomScaleOverride, 0.01f, 400);
     propScaled(PROP_ROOM_DIM, &ctx->roomDimOverride, 0.01f, 200);
+    propFlag(PROP_ADAPTIVE_CADENCE, &ctx->adaptiveCadenceEnabled);
 
     if (ctx->captureDir[0] == '\0') {
         return;
@@ -8135,7 +8192,68 @@ static void renderRoom(XrCtx* ctx) {
     ctx->roomRendered = 1;
 }
 
-static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
+// The only real decision logic in the adaptive cadence path: everything else
+// around it is plumbing to get a GPU sample in and a cadence recommendation
+// out. Kept as a pure function of its inputs and the controller's own state,
+// with no GL calls and no reach into XrCtx, so it can be exercised with
+// synthetic samples and a synthetic budget without a headset.
+//
+// Hysteresis (raise above CADENCE_RAISE_RATIO of budget, lower only below
+// CADENCE_LOWER_RATIO) plus a lockout between changes is what keeps this
+// from hunting between two cadences and becoming a stutter source itself.
+// lowerBound is the floor the caller's own setting establishes: this only
+// ever recommends something at or above it, on the assumption that cheaper
+// means a higher cadence number (inference less often).
+//
+// Worth knowing before retuning the ratios: the sample is the warp window's
+// GPU time, which does not contain the inference. Contention with it shows up
+// only indirectly, as inflated warp time on the frames that overlap one, and
+// the mean dilutes that by roughly the cadence — at cadence 3 one frame in
+// three carries it. So the deadband is far too wide for this to oscillate
+// (it would take more added time on a contaminated frame than a whole frame
+// budget), but by the same arithmetic it will stay quiet unless the warp
+// itself is already close to the budget. If it never moves on device, that is
+// the reason, and the answer is a signal that sees missed frames directly,
+// not a narrower band here.
+static void adaptiveCadenceUpdate(CadenceController* c, long sampleNs, long budgetNs,
+                                  int lowerBound) {
+    c->windowTotalNs += sampleNs;
+    c->windowSamples++;
+    if (c->samplesSinceChange < CADENCE_LOCKOUT_SAMPLES) {
+        c->samplesSinceChange++;
+    }
+
+    if (c->windowSamples < CADENCE_WINDOW_SAMPLES) {
+        return;
+    }
+    float meanNs = (float)((double)c->windowTotalNs / c->windowSamples);
+    c->windowTotalNs = 0;
+    c->windowSamples = 0;
+
+    int current = c->recommended > 0 ? c->recommended : lowerBound;
+    if (current < lowerBound) {
+        // The user's setting moved since the last recommendation; follow it
+        // up immediately rather than waiting for the next threshold cross
+        current = lowerBound;
+    }
+
+    if (c->samplesSinceChange >= CADENCE_LOCKOUT_SAMPLES) {
+        float ratio = meanNs / (float)budgetNs;
+        if (ratio > CADENCE_RAISE_RATIO && current < CADENCE_MAX_RECOMMENDATION) {
+            current++;
+            c->samplesSinceChange = 0;
+        }
+        else if (ratio < CADENCE_LOWER_RATIO && current > lowerBound) {
+            current--;
+            c->samplesSinceChange = 0;
+        }
+    }
+
+    c->recommended = current;
+}
+
+static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation,
+                             int cadenceLowerBound) {
     // Picks up whatever the depth thread most recently finished, once per
     // frame and before anything below samples a depth slot. The fence that
     // guards it is not waited on here — only a site that actually samples
@@ -8389,6 +8507,13 @@ static void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separatio
                     ctx->overlayGpuSamples++;
                     if ((long)elapsed > ctx->gpuMaxNs) {
                         ctx->gpuMaxNs = (long)elapsed;
+                    }
+                    // Every plausible warp sample feeds the adaptive cadence
+                    // controller as well, using its own accumulators inside
+                    // cadenceCtrl rather than the two just above.
+                    if (ctx->adaptiveCadenceEnabled && ctx->displayPeriodNs > 0) {
+                        adaptiveCadenceUpdate(&ctx->cadenceCtrl, (long)elapsed,
+                                              (long)ctx->displayPeriodNs, cadenceLowerBound);
                     }
                 }
                 else {
@@ -8976,13 +9101,30 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetWarpGpuMs(JNIEnv* env, jobj
     return ms;
 }
 
+// The adaptive cadence controller's current recommendation, or 0 if it has
+// not formed one yet (still filling its first window) or is turned off.
+// Unlike nativeGetWarpGpuMs() above, reading this must not reset anything:
+// it is polled every frame from the loop rather than once a second from the
+// reporting thread, and the recommendation is meant to persist between
+// windows, not be consumed by the read.
+JNIEXPORT jint JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetAdaptiveCadence(JNIEnv* env, jobject thiz,
+                                                                     jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || !ctx->adaptiveCadenceEnabled) {
+        return 0;
+    }
+    return ctx->cadenceCtrl.recommended;
+}
+
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject thiz, jlong handle,
                                                            jboolean newFrame, jfloatArray texMatrixArr,
                                                            jfloat distance, jfloat quadWidth,
                                                            jfloat curvature, jboolean headLocked,
                                                            jfloat separation, jboolean eyeSwap,
-                                                           jboolean passthrough) {
+                                                           jboolean passthrough,
+                                                           jint cadenceLowerBound) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
 
     ctx->passthrough = passthrough;
@@ -9012,7 +9154,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
         float texMatrix[16];
         (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
-        renderVideoFrame(ctx, texMatrix, separation);
+        renderVideoFrame(ctx, texMatrix, separation, cadenceLowerBound);
 
         long elapsed = nowNs() - startNs;
         ctx->statFrames++;
