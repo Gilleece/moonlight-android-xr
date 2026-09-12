@@ -141,13 +141,13 @@
     </string-array>
 
     <string-array name="vr_depth_source_names">
-        <item>Off</item>
-        <item>V1.0 - MiDaS Based 3D</item>
-        <item>Test pattern: flat plane</item>
-        <item>Test pattern: horizontal ramp</item>
-        <item>Test pattern: center blob</item>
-        <item>Test pattern: eye routing</item>
-        <item>Test pattern: shift measurement</item>
+        <item>@string/vr_depth_source_off</item>
+        <item>@string/vr_depth_source_model</item>
+        <item>@string/vr_depth_source_flat</item>
+        <item>@string/vr_depth_source_ramp</item>
+        <item>@string/vr_depth_source_blob</item>
+        <item>@string/vr_depth_source_eyetest</item>
+        <item>@string/vr_depth_source_shifttest</item>
     </string-array>
     <string-array name="vr_depth_source_values" translatable="false">
         <item>off</item>
@@ -159,10 +159,10 @@
         <item>shifttest</item>
     </string-array>
     <string-array name="vr_env_res_names">
-        <item>Low</item>
-        <item>Standard</item>
-        <item>High</item>
-        <item>Ultra (Experimental)</item>
+        <item>@string/vr_env_res_low</item>
+        <item>@string/vr_env_res_standard</item>
+        <item>@string/vr_env_res_high</item>
+        <item>@string/vr_env_res_ultra</item>
     </string-array>
     <string-array name="vr_env_res_values" translatable="false">
         <item>low</item>
@@ -171,9 +171,9 @@
         <item>ultra</item>
     </string-array>
     <string-array name="vr_sharpening_names">
-        <item>Off</item>
-        <item>Normal</item>
-        <item>Quality</item>
+        <item>@string/vr_sharpening_off</item>
+        <item>@string/vr_sharpening_normal</item>
+        <item>@string/vr_sharpening_quality</item>
     </string-array>
     <string-array name="vr_sharpening_values" translatable="false">
         <item>off</item>
@@ -181,9 +181,9 @@
         <item>quality</item>
     </string-array>
     <string-array name="vr_file_log_names">
-        <item>Off</item>
-        <item>Warnings and errors</item>
-        <item>Verbose</item>
+        <item>@string/vr_file_log_off</item>
+        <item>@string/vr_file_log_basic</item>
+        <item>@string/vr_file_log_verbose</item>
     </string-array>
     <string-array name="vr_file_log_values" translatable="false">
         <item>off</item>
