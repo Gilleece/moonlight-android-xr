@@ -372,6 +372,33 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         boolean appSupportsHdr = Game.this.getIntent().getBooleanExtra(EXTRA_APP_HDR, false);
         byte[] derCertData = Game.this.getIntent().getByteArrayExtra(EXTRA_SERVER_CERT);
 
+        // Launched from anywhere other than a shortcut (a shell or an automation, say) the
+        // certificate may not come along. Fall back to the copy stored in the database,
+        // otherwise every HTTPS request (launch, quit and so on) fails the self-signed
+        // certificate check and the connection screen just hangs and then exits.
+        if (derCertData == null) {
+            String savedUuid = Game.this.getIntent().getStringExtra(EXTRA_PC_UUID);
+            if (savedUuid != null) {
+                ComputerDatabaseManager certDb = null;
+                try {
+                    certDb = new ComputerDatabaseManager(this);
+                    ComputerDetails saved = certDb.getComputerByUUID(savedUuid);
+                    if (saved != null && saved.serverCert != null) {
+                        derCertData = saved.serverCert.getEncoded();
+                        LimeLog.info("Recovered server cert for " + saved.name + " from database");
+                    } else {
+                        LimeLog.warning("No stored server cert for " + savedUuid);
+                    }
+                } catch (Exception e) {
+                    LimeLog.warning("Could not recover server cert: " + e);
+                } finally {
+                    if (certDb != null) {
+                        certDb.close();
+                    }
+                }
+            }
+        }
+
         // USB link: hold a second request of our own so usb0 cannot be reclaimed mid-stream.
         // No mDNS discovery happens here (the target address already arrives in the Intent);
         // this only keeps the link alive. It is independent of the request held by
