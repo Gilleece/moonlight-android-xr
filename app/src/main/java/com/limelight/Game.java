@@ -22,6 +22,8 @@ import com.limelight.binding.video.XrRenderer;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
+import com.limelight.LimeLog;
+import com.limelight.computers.ComputerDatabaseManager;
 import com.limelight.nvstream.http.ComputerDetails;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
@@ -30,6 +32,7 @@ import com.limelight.nvstream.input.KeyboardPacket;
 import com.limelight.nvstream.input.MouseButtonPacket;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.preferences.GlPreferences;
+import com.limelight.nvstream.usb.UsbLinkManager;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.StreamView;
@@ -217,6 +220,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // the user is told why the stream is a panel rather than left guessing
     public static final String EXTRA_VR_UNAVAILABLE = "VrUnavailable";
 
+    // USB link: this activity holds a second request of its own for the duration of the
+    // stream. ComputerManagerService is destroyed once PcView unbinds, so relying on it alone
+    // does not cover the whole stream.
+    private UsbLinkManager usbLinkManager;
+
+    // Leaving a stream tears the NCM link down, so a new stream has to wait for it to be
+    // rebuilt (see maybeStartConnection)
+    private static final int USB_LINK_READY_TIMEOUT_MS = 4000;
+    private static final int USB_LINK_POLL_MS = 250;
+    private int usbLinkWaitElapsedMs;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -357,6 +371,47 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         String uniqueId = Game.this.getIntent().getStringExtra(EXTRA_UNIQUEID);
         boolean appSupportsHdr = Game.this.getIntent().getBooleanExtra(EXTRA_APP_HDR, false);
         byte[] derCertData = Game.this.getIntent().getByteArrayExtra(EXTRA_SERVER_CERT);
+
+        // USB link: hold a second request of our own so usb0 cannot be reclaimed mid-stream.
+        // No mDNS discovery happens here (the target address already arrives in the Intent);
+        // this only keeps the link alive. It is independent of the request held by
+        // ComputerManagerService, so either side can release without tearing the link down.
+        if (PreferenceConfiguration.isUsbLinkEnabled(this)) {
+            usbLinkManager = new UsbLinkManager(this);
+            usbLinkManager.start(new UsbLinkManager.Listener() {
+                @Override
+                public void onUsbLinkUp(android.net.Network network, String iface) {
+                    UsbLinkManager mgr = usbLinkManager;
+                    if (mgr == null) {
+                        // The activity is already being destroyed and the link released
+                        return;
+                    }
+
+                    // The important part: bind the process to the USB network.
+                    // The link carries no default route, so UDP sockets created by the native
+                    // side go out over Wi-Fi by default and Sunshine's control and video
+                    // streams arriving on the USB link are rejected (Initial Ping Timeout,
+                    // then a black screen).
+                    long handle = mgr.getNetworkHandle();
+                    LimeLog.info("Binding process to USB network (handle=" + handle + ")");
+                    MoonBridge.setProcessNetwork(handle);
+                }
+
+                @Override
+                public void onUsbLinkDown() {
+                    // Once the link is gone the process network has to go back to the system
+                    // default. Otherwise the process stays bound to a network that no longer
+                    // exists and every later socket fails with "ENONET (Machine is not on the
+                    // network)", which even rules out falling back to Wi-Fi.
+                    LimeLog.info("USB link down, restoring process network");
+                    MoonBridge.setProcessNetwork(0);
+                }
+
+                @Override
+                public void onUsbLinkUnavailable() {
+                }
+            });
+        }
 
         app = new NvApp(appName != null ? appName : "app", appId, appSupportsHdr);
 
@@ -1108,6 +1163,21 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        // Release the extra USB link request this activity holds (see onCreate).
+        // PcView unbinds ComputerManagerService while a stream is running, so if the service
+        // were the only holder, usb0 would be torn down mid-stream and the media flow with it.
+        if (usbLinkManager != null) {
+            usbLinkManager.stop();
+            usbLinkManager = null;
+
+            // stop() unregisters the callback itself, so onLost/onUsbLinkDown never runs and
+            // this reset has to happen explicitly. Once this activity's request is released
+            // and the service is not holding one either, the system tears the NCM link down
+            // while the process is still bound to the vanished handle: every socket then fails
+            // with ENONET, which is what makes a restart necessary before reconnecting.
+            MoonBridge.setProcessNetwork(0);
+        }
 
         FileLog.event("session ended");
 
@@ -2600,15 +2670,59 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         if (!attemptedConnection) {
-            attemptedConnection = true;
-
-            // Update GameManager state to indicate we're "loading" while connecting
-            UiHelper.notifyStreamConnecting(Game.this);
-
-            decoderRenderer.setRenderTarget(holder);
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
-                    decoderRenderer, Game.this);
+            maybeStartConnection(holder);
         }
+    }
+
+    /**
+     * Start the connection, waiting a moment first when the USB link is not ready yet.
+     *
+     * Leaving the previous stream releases the USB request this activity holds, and if the
+     * service is not holding one either the system tears the whole NCM link down and usb0
+     * disappears. Starting another stream right away makes requestNetwork() rebuild the link,
+     * which takes a second or two, and getNetworkHandle() returns 0 for that whole window. If
+     * the connection started anyway, its sockets would land on the default network (Wi-Fi) and
+     * connecting to a link-local address has to fail, which is what makes a stream started
+     * immediately after leaving one come up black.
+     *
+     * So wait for the link here, up to USB_LINK_READY_TIMEOUT_MS, and fall back to the default
+     * network on timeout as before, which is also what should happen with no cable attached.
+     */
+    private void maybeStartConnection(SurfaceHolder holder) {
+        if (attemptedConnection) {
+            return;
+        }
+
+        if (usbLinkManager != null) {
+            long handle = usbLinkManager.getNetworkHandle();
+            if (handle == 0) {
+                if (usbLinkWaitElapsedMs < USB_LINK_READY_TIMEOUT_MS) {
+                    usbLinkWaitElapsedMs += USB_LINK_POLL_MS;
+                    LimeLog.info("Waiting for USB link before connecting (" + usbLinkWaitElapsedMs + "ms)");
+                    streamView.postDelayed(() -> maybeStartConnection(holder), USB_LINK_POLL_MS);
+                    return;
+                }
+
+                LimeLog.warning("USB link not ready after " + USB_LINK_READY_TIMEOUT_MS
+                        + "ms, connecting on the default network");
+            }
+            else {
+                // Only start connecting once the binding has taken effect: setProcessNetwork()
+                // applies to sockets created afterwards, so a connection thread that builds
+                // its sockets a moment earlier puts them on the default network.
+                LimeLog.info("Re-asserting USB process network (handle=" + handle + ")");
+                MoonBridge.setProcessNetwork(handle);
+            }
+        }
+
+        attemptedConnection = true;
+
+        // Update GameManager state to indicate we're "loading" while connecting
+        UiHelper.notifyStreamConnecting(Game.this);
+
+        decoderRenderer.setRenderTarget(holder);
+        conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
+                decoderRenderer, Game.this);
     }
 
     @Override
