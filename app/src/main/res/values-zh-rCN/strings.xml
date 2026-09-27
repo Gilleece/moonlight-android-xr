@@ -169,8 +169,8 @@
     <string name="summary_video_format">如果您的设备支持较新的编解码器，则可以降低视频带宽要求。如果主机软件或显卡不支持编解码器选择，则可能会忽略编解码器选择。</string>
     <string name="title_enable_hdr">启用 HDR (实验性)</string>
     <string name="summary_enable_hdr">当游戏和显卡支持时以HDR模式串流。 HDR需要显卡支持 HEVC Main 10 编码。</string>
-    <string name="title_enable_perf_overlay"> 启用性能信息 </string>
-    <string name="summary_enable_perf_overlay"> 在串流中显示实时性能信息 </string>
+    <string name="title_enable_perf_overlay">在串流中显示性能统计信息</string>
+    <string name="summary_enable_perf_overlay">在串流过程中显示实时性能信息。在 VR 模式下，信息会显示在虚拟屏幕上，并额外展示画面扭曲 (Warp)、深度处理与模型推理的耗时。</string>
     <string name="title_enable_post_stream_toast">串流完毕显示延迟信息</string>
     <string name="summary_enable_post_stream_toast">串流结束后显示延迟信息</string>
     <string name="title_osc_opacity">更改屏幕按钮透明度</string>
@@ -284,4 +284,105 @@
     <string name="summary_analog_scrolling">在鼠标模式下选择用哪个摇杆控制鼠标移动</string>
     <string name="summary_seekbar_vibrate_fallback_strength">增强或减弱设备的震动强度</string>
     <string name="analogscroll_none">默认 (两个摇杆都控制鼠标)</string>
-</resources>
+
+    <!-- VR Settings -->
+    <string name="category_vr_settings">VR 设置</string>
+    <string name="category_vr_debug">VR 调试</string>
+    <string name="title_enable_vr_mode">以 VR 模式串流</string>
+    <string name="summary_enable_vr_mode">在沉浸式 VR 空间中的虚拟屏幕上显示串流画面。仅适用于头显设备，且是唯一支持 3D 效果的模式。</string>
+    <string name="title_vr_head_locked">头动锁定屏幕</string>
+    <string name="summary_vr_head_locked">将虚拟屏幕固定在视野正前方，而不是锚定在真实空间世界中</string>
+    <string name="title_seekbar_vr_distance">屏幕距离</string>
+    <string name="summary_seekbar_vr_distance">虚拟屏幕与视点的距离</string>
+    <string name="title_seekbar_vr_screen_size">屏幕宽度</string>
+    <string name="summary_seekbar_vr_screen_size">虚拟屏幕的显示宽度</string>
+    <string name="title_seekbar_vr_curvature">屏幕曲率</string>
+    <string name="summary_seekbar_vr_curvature">0 为平面，数值越高屏幕环绕弧度越大</string>
+    <string name="suffix_seekbar_vr_meters">米</string>
+    <string name="title_vr_pointer">使用手柄模拟鼠标</string>
+    <string name="summary_vr_pointer">使用手柄指向屏幕以移动主机鼠标。扳机键为左键点击，A 或 X 键为右键点击，摇杆上下滚动。在需要原生鼠标控制的游戏中，可按下摇杆关闭指向功能。</string>
+    <string name="title_vr_gaze">注视点瞄准 (Look to point)</string>
+    <string name="summary_vr_gaze">在支持眼动追踪的头显上，通过注视屏幕进行瞄准并捏合手指点击。当手柄或手势指向屏幕时将自动接管指针。</string>
+    <string name="title_vr_hand_tracking">手势追踪</string>
+    <string name="summary_vr_hand_tracking">放下手柄时可通过手势指向和捏合操作。关闭此项可仅使用手柄。在串流会话中，点击屏幕左侧的锁形图标可锁定手势交互而无需退出游戏。</string>
+    <string name="title_vr_reset_pose">重置屏幕位置</string>
+    <string name="summary_vr_reset_pose">将屏幕恢复至上方设定的距离和宽度，撤销手柄拖拽或缩放操作</string>
+    <string name="toast_vr_reset_pose">屏幕位置已重置</string>
+    <string name="title_vr_passthrough">透视模式 (Passthrough)</string>
+    <string name="summary_vr_passthrough">开启穿透现实环境。请注意此模式会占用更多系统资源，若串流出现卡顿请关闭</string>
+    <string name="title_vr_depth_source">实时 3D 模式</string>
+    <string name="summary_vr_depth_source">选择实时 3D 转换模式，包含多种测试图案。</string>
+    <string name="title_vr_env_res">虚拟环境分辨率</string>
+    <string name="summary_vr_env_res">屏幕周围 3D 虚拟场景的渲染清晰度。画质越高越消耗 GPU 性能。极致画质为实验性功能，可能导致卡顿或掉帧。</string>
+    <string name="title_vr_sharpening">虚拟屏幕锐化</string>
+    <string name="summary_vr_sharpening">在头显合成层中锐化虚拟屏幕。在受支持的头显上几乎不增加开销；若系统不支持该扩展则自动忽略。</string>
+    <string name="title_vr_depth_debug">显示深度图</string>
+    <string name="summary_vr_depth_debug">将视频渲染为灰度深度图而非正常画面，用于检验 3D 景深质量</string>
+    <string name="title_vr_eye_swap">左右眼画面对调</string>
+    <string name="summary_vr_eye_swap">在立体模式下对调左眼与右眼的图像</string>
+    <string name="vr_unavailable_flat">未能连接到头显的 OpenXR 运行时，串流将以平面窗口显示。请更新头显系统软件，或在设置中关闭“以 VR 模式串流”。</string>
+
+    <!-- Bug Report strings -->
+    <string name="title_bug_report">问题反馈与错误报告</string>
+    <string name="summary_bug_report">汇总您的说明、设备信息、串流设置与运行日志，并发送给开发者</string>
+    <string name="bug_report_intro">请描述遇到的问题以及预期表现。报告将打包您的说明、应用版本、头显型号、串流设置与日志文件，并发送至 %1$s。\n\n日志路径：%2$s</string>
+    <string name="bug_report_log_off">已关闭。请先开启“保存日志文件”并复现问题，否则报告中将不包含日志。</string>
+    <string name="bug_report_email_hint">您的电子邮箱（用于接收回复）</string>
+    <string name="bug_report_message_hint">请描述具体发生了什么问题…</string>
+    <string name="bug_report_send">通过邮件发送</string>
+    <string name="bug_report_send_direct">发送报告</string>
+    <string name="bug_report_sending">正在发送报告…</string>
+    <string name="bug_report_sent">报告已发送，感谢您的反馈！</string>
+    <string name="bug_report_upload_failed">报告发送失败 (%1$s)。文件已保存至：\n\n%2$s\n\n请检查网络后重试，或将该文件从头显导出并邮件发送至 %3$s。</string>
+    <string name="bug_report_save">保存报告到本地</string>
+    <string name="bug_report_subject">Moonlight XR 错误报告: %1$s, %2$s</string>
+    <string name="bug_report_from">回复至: %1$s</string>
+    <string name="bug_report_saved">报告已保存至：\n\n%1$s</string>
+    <string name="bug_report_no_mail">当前设备未安装邮件应用，报告已保存至：\n\n%1$s\n\n请将该文件从头显拷贝出来，并作为附件发送邮件至 %2$s。</string>
+    <string name="bug_report_failed">无法写入报告文件: %1$s</string>
+
+    <!-- VR Debug strings -->
+    <string name="title_vr_file_log">保存日志文件</string>
+    <string name="summary_vr_file_log">在头显的 Download/MoonlightXR 目录下保留纯文本日志，方便文件管理器查找并附入错误报告。单文件达到 5 MB 时会自动轮转为 moonlight.previous.log，两者总占用不会超过 10 MB。更改此设置后需重启应用方可生效。</string>
+    <string name="title_seekbar_vr_inference_cadence">深度模型推理频率</string>
+    <string name="summary_seekbar_vr_inference_cadence">每隔 N 帧视频运行一次 3D 深度模型。数值越高越省电和提升性能，但深度变化的延迟会更明显。</string>
+    <string name="suffix_seekbar_vr_inference_cadence">帧</string>
+    <string name="title_seekbar_vr_separation">双目立体视差</string>
+    <string name="summary_seekbar_vr_separation">左右眼视角的视差间距（占画面宽度的百分比）。超过约 0.5% 后 3D 深度不会进一步增强，反而更容易引起视觉疲劳。</string>
+    <string name="suffix_seekbar_vr_percent">％</string>
+    <string name="gen1_warning_title">检测到上一代头显设备</string>
+    <string name="gen1_warning_text">本应用专为 Quest 3 / Pico 4 Ultra 及更新的头显优化。在 Quest 2 / Pico 4 等早期头显上的性能表现尚未充分测试且预计较低。应用已自动应用较低的性能配置方案以尽量保障流畅体验。关闭实时 3D 可大幅提升性能，但这可能正是您下载此应用的原因！特此提示，祝您使用愉快！</string>
+    <string name="warning_dialog_never_again">不再提示</string>
+    <string name="title_enable_gl_render_path">通过 OpenGL 渲染 (实验性)</string>
+    <string name="summary_enable_gl_render_path">在显示前将解码后的视频路由通过 OpenGL 纹理。显示效果与普通渲染一致。开启此项时，HDR 串流将进行色调截断。</string>
+
+    <!-- Other missing UI strings -->
+    <string name="title_show_guide_button">显示导航键 (Guide 键)</string>
+    <string name="summary_show_guide_button">在屏幕虚拟按键中显示导航/主页键</string>
+    <string name="title_settings_back">返回</string>
+    <string name="summary_settings_back">返回电脑列表</string>
+    <string name="local_network_rationale">Moonlight 需要本地网络权限以发现并连接局域网中的主机电脑</string>
+    <string name="fps_72">72 FPS</string>
+
+    <!-- VR Array strings -->
+    <string name="vr_depth_source_off">关闭</string>
+    <string name="vr_depth_source_model">V1.0 - 基于 MiDaS 模型的 3D</string>
+    <string name="vr_depth_source_flat">测试图案：平面</string>
+    <string name="vr_depth_source_ramp">测试图案：水平渐变坡道</string>
+    <string name="vr_depth_source_blob">测试图案：中心斑块</string>
+    <string name="vr_depth_source_eyetest">测试图案：眼别测试</string>
+    <string name="vr_depth_source_shifttest">测试图案：视差位移测量</string>
+
+    <string name="vr_env_res_low">低 (适合旧设备/省电)</string>
+    <string name="vr_env_res_standard">标准 (推荐)</string>
+    <string name="vr_env_res_high">高清晰度</string>
+    <string name="vr_env_res_ultra">极致 (实验性/高功耗)</string>
+
+    <string name="vr_sharpening_off">关闭</string>
+    <string name="vr_sharpening_normal">标准</string>
+    <string name="vr_sharpening_quality">高品质</string>
+
+    <string name="vr_file_log_off">关闭</string>
+    <string name="vr_file_log_basic">仅警告与错误</string>
+    <string name="vr_file_log_verbose">详细日志</string>
+</resources>

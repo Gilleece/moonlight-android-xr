@@ -171,7 +171,7 @@
     <string name="title_enable_hdr">啟用 HDR (實驗性)</string>
     <string name="summary_enable_hdr">在遊戲和 GPU 支援時以 HDR 模式串流，HDR 模式需要支援 HEVC Main 10 編碼的 GPU。</string>
     <string name="title_enable_perf_overlay">串流時顯示效能資訊</string>
-    <string name="summary_enable_perf_overlay">在串流中顯示即時效能資訊</string>
+    <string name="summary_enable_perf_overlay">在串流中顯示即時效能資訊。在 VR 模式下會顯示於虛擬螢幕上，並增加畫面扭曲 (Warp)、深度與推論時間統計。</string>
     <string name="title_enable_post_stream_toast">串流後顯示延時資訊</string>
     <string name="summary_enable_post_stream_toast">串流結束後顯示延時資訊</string>
     <string name="title_osc_opacity">變更螢幕控制按鈕透明度</string>
@@ -276,4 +276,105 @@
     <string name="summary_checkbox_gamepad_motion_fallback">如果您連線的手把或 Android 版本不支援手把感測器，請使用裝置內建的動態感測器。
 \n注意：啟用此選項可能會導致您的手把在主機被辨識為 PlayStation 控制器。</string>
     <string name="title_checkbox_gamepad_motion_fallback">模擬手把動態感測器支援</string>
+
+    <!-- VR Settings -->
+    <string name="category_vr_settings">VR 設定</string>
+    <string name="category_vr_debug">VR 偵錯</string>
+    <string name="title_enable_vr_mode">以 VR 模式串流</string>
+    <string name="summary_enable_vr_mode">在沉浸式 VR 空間中的虛擬螢幕上顯示串流畫面。僅限頭戴式裝置，且是唯一支援 3D 效果的模式。</string>
+    <string name="title_vr_head_locked">頭部鎖定螢幕</string>
+    <string name="summary_vr_head_locked">將虛擬螢幕固定在視野正前方，而非錨定在真實空間世界中</string>
+    <string name="title_seekbar_vr_distance">螢幕距離</string>
+    <string name="summary_seekbar_vr_distance">虛擬螢幕與視點的距離</string>
+    <string name="title_seekbar_vr_screen_size">螢幕寬度</string>
+    <string name="summary_seekbar_vr_screen_size">虛擬螢幕的顯示寬度</string>
+    <string name="title_seekbar_vr_curvature">螢幕曲率</string>
+    <string name="summary_seekbar_vr_curvature">0 為平面，數值越高螢幕環繞弧度越大</string>
+    <string name="suffix_seekbar_vr_meters">公尺</string>
+    <string name="title_vr_pointer">使用控制器模擬滑鼠</string>
+    <string name="summary_vr_pointer">使用控制器指向螢幕以移動主機滑鼠。扳機鍵為左鍵點擊，A 或 X 鍵為右鍵點擊，搖桿上下捲動。在需要原生滑鼠控制的遊戲中，可按下搖桿關閉指向功能。</string>
+    <string name="title_vr_gaze">注視瞄準 (Look to point)</string>
+    <string name="summary_vr_gaze">在支援眼球追蹤的頭戴裝置上，透過注視螢幕進行瞄準並捏合手指點擊。當控制器或手勢指向螢幕時將自動接管游標。</string>
+    <string name="title_vr_hand_tracking">手勢追蹤</string>
+    <string name="summary_vr_hand_tracking">放下控制器時可透過手勢指向與捏合操作。關閉此項可僅使用控制器。在串流階段中，點擊螢幕左側的鎖定圖示可鎖定手勢互動而無需離開遊戲。</string>
+    <string name="title_vr_reset_pose">重設螢幕位置</string>
+    <string name="summary_vr_reset_pose">將螢幕恢復至上方設定的距離和寬度，復原使用控制器進行的移動或縮放操作</string>
+    <string name="toast_vr_reset_pose">螢幕位置已重設</string>
+    <string name="title_vr_passthrough">穿透模式 (Passthrough)</string>
+    <string name="summary_vr_passthrough">開啟環境穿透。請注意此模式會消耗更多系統資源，若串流出現延遲或卡頓請停用</string>
+    <string name="title_vr_depth_source">即時 3D 模式</string>
+    <string name="summary_vr_depth_source">選擇即時 3D 模式，包含多種測試圖樣。</string>
+    <string name="title_vr_env_res">虛擬環境解析度</string>
+    <string name="summary_vr_env_res">螢幕周圍 3D 虛擬房間的渲染清晰度。畫質越高越消耗 GPU 效能。極致為實驗性功能，可能導致延遲或掉影格。</string>
+    <string name="title_vr_sharpening">虛擬螢幕銳化</string>
+    <string name="summary_vr_sharpening">在頭戴裝置合成器中銳化虛擬螢幕。在受支援的頭戴裝置上幾乎不增加額外開銷；若執行階段不支援此擴充功能則自動略過。</string>
+    <string name="title_vr_depth_debug">顯示深度圖</string>
+    <string name="summary_vr_depth_debug">將視訊渲染為灰階深度圖而非正常畫面，用於檢查 3D 深度品質</string>
+    <string name="title_vr_eye_swap">對調左右眼</string>
+    <string name="summary_vr_eye_swap">在立體模式下對調左眼與右眼的影像</string>
+    <string name="vr_unavailable_flat">無法連線至頭戴裝置的 OpenXR 執行階段，因此串流將以平面面板顯示。請更新頭戴裝置系統軟體，或在設定中關閉「以 VR 模式串流」。</string>
+
+    <!-- Bug Report strings -->
+    <string name="title_bug_report">回報問題</string>
+    <string name="summary_bug_report">彙整您的說明、裝置資訊、串流設定與記錄檔，並傳送給開發團隊</string>
+    <string name="bug_report_intro">請描述遇到的問題以及預期行為。報告將打包您的訊息、應用程式版本、頭戴裝置型號、串流設定與記錄檔，並傳送至 %1$s。\n\n記錄檔路徑：%2$s</string>
+    <string name="bug_report_log_off">已關閉。請先開啟「儲存記錄檔」並重現問題，否則報告將不包含記錄。</string>
+    <string name="bug_report_email_hint">您的電子郵件地址 (用於接收回覆)</string>
+    <string name="bug_report_message_hint">發生了什麼狀況？</string>
+    <string name="bug_report_send">透過電子郵件傳送</string>
+    <string name="bug_report_send_direct">傳送</string>
+    <string name="bug_report_sending">正在傳送報告…</string>
+    <string name="bug_report_sent">報告已傳送，感謝您的回饋！</string>
+    <string name="bug_report_upload_failed">無法傳送報告 (%1$s)。已儲存至：\n\n%2$s\n\n請在有連線時重試，或將檔案從頭戴裝置複製出來並傳送電子郵件至 %3$s。</string>
+    <string name="bug_report_save">儲存報告</string>
+    <string name="bug_report_subject">Moonlight XR 問題回報：%1$s，%2$s</string>
+    <string name="bug_report_from">回覆給：%1$s</string>
+    <string name="bug_report_saved">報告已儲存至：\n\n%1$s</string>
+    <string name="bug_report_no_mail">此裝置上沒有電子郵件應用程式，報告已儲存至：\n\n%1$s\n\n請將其從頭戴裝置複製出來，並作為附件傳送電子郵件至 %2$s。</string>
+    <string name="bug_report_failed">無法寫入報告：%1$s</string>
+
+    <!-- VR Debug strings -->
+    <string name="title_vr_file_log">儲存記錄檔</string>
+    <string name="summary_vr_file_log">在 Download/MoonlightXR 保留純文字記錄檔，頭戴裝置上的檔案管理器可以找到它，並可將其附加到錯誤回報中。檔案達 5 MB 時會輪替至 moonlight.previous.log，兩者合計絕不超過 10 MB。變更此設定後請重新啟動應用程式以生效。</string>
+    <string name="title_seekbar_vr_inference_cadence">深度模型推論週期</string>
+    <string name="summary_seekbar_vr_inference_cadence">每隔 N 影格視訊執行一次深度模型。數值越高負載越低，但深度延遲會更明顯。</string>
+    <string name="suffix_seekbar_vr_inference_cadence">影格</string>
+    <string name="title_seekbar_vr_separation">雙眼立體視差</string>
+    <string name="summary_seekbar_vr_separation">兩眼視野相隔多遠 (以影格寬度的百分比表示)。超過約 0.5% 後畫面看起來不會更深，反而更容易造成眼睛疲勞。</string>
+    <string name="suffix_seekbar_vr_percent">％</string>
+    <string name="gen1_warning_title">偵測到上一代頭戴裝置</string>
+    <string name="gen1_warning_text">此應用程式專為 Quest 3 / Pico 4 Ultra 或更新的頭戴裝置設計。在 Quest 2 / Pico 4 等早期世代頭戴裝置上的效能尚未充分測試，預期表現可能不佳。已自動套用較低的效能設定檔以協助維持良好體驗。關閉即時 3D 能大幅提升效能，但這可能正是您下載此應用程式的原因！特此溫馨提醒，祝您使用愉快！</string>
+    <string name="warning_dialog_never_again">不再顯示此提示</string>
+    <string name="title_enable_gl_render_path">透過 OpenGL 渲染 (實驗性)</string>
+    <string name="summary_enable_gl_render_path">在顯示前將解碼後的視訊導向 OpenGL 紋理。視覺效果應與一般渲染完全相同。開啟此項時，HDR 串流將進行色調限制。</string>
+
+    <!-- Other missing UI strings -->
+    <string name="title_show_guide_button">顯示導覽鍵 (Guide 鍵)</string>
+    <string name="summary_show_guide_button">在螢幕虛擬按鍵中顯示導覽/主畫面鍵</string>
+    <string name="title_settings_back">返回</string>
+    <string name="summary_settings_back">返回電腦清單</string>
+    <string name="local_network_rationale">Moonlight 需要區域網路權限以搜尋並連線至附近的電腦</string>
+    <string name="fps_72">72 FPS</string>
+
+    <!-- VR Array strings -->
+    <string name="vr_depth_source_off">關閉</string>
+    <string name="vr_depth_source_model">V1.0 - 基於 MiDaS 模型的 3D</string>
+    <string name="vr_depth_source_flat">測試圖樣：平面</string>
+    <string name="vr_depth_source_ramp">測試圖樣：水平漸變斜坡</string>
+    <string name="vr_depth_source_blob">測試圖樣：中心斑塊</string>
+    <string name="vr_depth_source_eyetest">測試圖樣：眼別路由</string>
+    <string name="vr_depth_source_shifttest">測試圖樣：位移量測</string>
+
+    <string name="vr_env_res_low">低 (省電/早期裝置)</string>
+    <string name="vr_env_res_standard">標準 (建議)</string>
+    <string name="vr_env_res_high">高解析度</string>
+    <string name="vr_env_res_ultra">極致 (實驗性/高耗能)</string>
+
+    <string name="vr_sharpening_off">關閉</string>
+    <string name="vr_sharpening_normal">標準</string>
+    <string name="vr_sharpening_quality">高畫質</string>
+
+    <string name="vr_file_log_off">關閉</string>
+    <string name="vr_file_log_basic">僅警告與錯誤</string>
+    <string name="vr_file_log_verbose">詳細記錄</string>
 </resources>

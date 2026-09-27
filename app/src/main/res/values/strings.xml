@@ -371,4 +371,26 @@
     <string name="analogscroll_none">None (both sticks move the mouse)</string>
     <string name="analogscroll_right">Right analog stick</string>
     <string name="analogscroll_left">Left analog stick</string>
+
+    <!-- VR Array strings -->
+    <string name="vr_depth_source_off">Off</string>
+    <string name="vr_depth_source_model">V1.0 - MiDaS Based 3D</string>
+    <string name="vr_depth_source_flat">Test pattern: flat plane</string>
+    <string name="vr_depth_source_ramp">Test pattern: horizontal ramp</string>
+    <string name="vr_depth_source_blob">Test pattern: center blob</string>
+    <string name="vr_depth_source_eyetest">Test pattern: eye routing</string>
+    <string name="vr_depth_source_shifttest">Test pattern: shift measurement</string>
+
+    <string name="vr_env_res_low">Low</string>
+    <string name="vr_env_res_standard">Standard</string>
+    <string name="vr_env_res_high">High</string>
+    <string name="vr_env_res_ultra">Ultra (Experimental)</string>
+
+    <string name="vr_sharpening_off">Off</string>
+    <string name="vr_sharpening_normal">Normal</string>
+    <string name="vr_sharpening_quality">Quality</string>
+
+    <string name="vr_file_log_off">Off</string>
+    <string name="vr_file_log_basic">Warnings and errors</string>
+    <string name="vr_file_log_verbose">Verbose</string>
 </resources>
