@@ -9,9 +9,13 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.io.StringReader;
 import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.Proxy;
 import java.net.Socket;
+import java.net.SocketException;
+import java.net.UnknownHostException;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
 import java.security.KeyStoreException;
@@ -22,7 +26,10 @@ import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.ListIterator;
 import java.util.Stack;
 import java.util.UUID;
@@ -53,6 +60,7 @@ import com.limelight.nvstream.http.PairingManager.PairState;
 import com.limelight.nvstream.jni.MoonBridge;
 
 import okhttp3.ConnectionPool;
+import okhttp3.Dns;
 import okhttp3.HttpUrl;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -64,8 +72,28 @@ public class NvHTTP {
     private String uniqueId;
     private PairingManager pm;
 
+    // The link-local IPv6 addresses on the USB link need an interface scope (for example
+    // "18" or "usb0") before they can be connected to. Non-null only for addresses of the
+    // form fe80::xxxx%18.
+    private String scopeInterface;
+    // The real address with the scope stripped off, handed back by ScopeAwareDns when it
+    // resolves the placeholder host name
+    private String scopedRealAddress;
+
     private static final int DEFAULT_HTTPS_PORT = 47984;
     public static final int DEFAULT_HTTP_PORT = 47989;
+
+    // Placeholder host name used to get a link-local address through OkHttp.
+    //
+    // There are two hard limits on this path:
+    //   1. HttpUrl rejects any host containing '%', both numeric scopes and interface names.
+    //   2. For an IP-literal host OkHttp never calls a custom Dns; it goes straight to
+    //      InetAddress.getByName(), so the scope stays 0 and connect() must fail, because a
+    //      bare link-local address cannot be routed.
+    //
+    // A plain host name therefore goes into the URL to force OkHttp through Dns, where
+    // ScopeAwareDns supplies the real address together with its scope.
+    private static final String USB_LINK_PLACEHOLDER_HOST = "moonlight-usb-link";
     public static final int SHORT_CONNECTION_TIMEOUT = 3000;
     public static final int LONG_CONNECTION_TIMEOUT = 5000;
     public static final int READ_TIMEOUT = 7000;
@@ -107,6 +135,76 @@ public class NvHTTP {
         }
 
         throw new IllegalStateException("No X509 trust manager found");
+    }
+
+    /**
+     * Handles the link-local addresses that come with the USB link.
+     *
+     * OkHttp never calls a custom Dns for an IP-literal host, so the URL carries a
+     * placeholder host name instead (see USB_LINK_PLACEHOLDER_HOST). This swaps it for the
+     * real link-local address and attaches the scope: fe80::/10 cannot be routed without
+     * one, and connect() fails with EINVAL.
+     */
+    private static class ScopeAwareDns implements Dns {
+        private final String realAddress;
+        private final String scope;
+        private NetworkInterface networkInterface;
+        private int numericScopeId = -1;
+
+        ScopeAwareDns(String realAddress, String scope) {
+            this.realAddress = realAddress;
+            this.scope = scope;
+        }
+
+        @Override
+        public List<InetAddress> lookup(String hostname) throws UnknownHostException {
+            // Only take over the placeholder host name; everything else goes back to the
+            // system so the existing behaviour is preserved
+            if (!USB_LINK_PLACEHOLDER_HOST.equals(hostname)) {
+                return Dns.SYSTEM.lookup(hostname);
+            }
+
+            InetAddress addr = InetAddress.getByName(realAddress);
+            if (!(addr instanceof Inet6Address) || !addr.isLinkLocalAddress()) {
+                return Collections.singletonList(addr);
+            }
+
+            return Collections.singletonList(attachScope((Inet6Address) addr));
+        }
+
+        /** The scope is either numeric (from mDNS) or an interface name (typed by the user); numeric wins. */
+        private InetAddress attachScope(Inet6Address addr) throws UnknownHostException {
+            if (addr.getScopeId() != 0) {
+                return addr;
+            }
+
+            if (numericScopeId < 0 && networkInterface == null) {
+                try {
+                    numericScopeId = Integer.parseInt(scope);
+                    LimeLog.info("USB link: using numeric scope id " + numericScopeId);
+                } catch (NumberFormatException e) {
+                    try {
+                        networkInterface = NetworkInterface.getByName(scope);
+                    } catch (SocketException se) {
+                        throw new UnknownHostException("Interface " + scope + ": " + se);
+                    }
+
+                    if (networkInterface == null) {
+                        LimeLog.severe("USB link: no interface named " + scope);
+                        throw new UnknownHostException("No such interface: " + scope);
+                    }
+
+                    LimeLog.info("USB link: using interface " + scope
+                            + " (index " + networkInterface.getIndex() + ")");
+                }
+            }
+
+            InetAddress scoped = (numericScopeId >= 0)
+                    ? Inet6Address.getByAddress(null, addr.getAddress(), numericScopeId)
+                    : Inet6Address.getByAddress(null, addr.getAddress(), networkInterface);
+            LimeLog.info("USB link: resolved " + realAddress + " -> " + scoped.getHostAddress());
+            return scoped;
+        }
     }
 
     private void initializeHttpState(final LimelightCryptoProvider cryptoProvider) {
@@ -172,14 +270,19 @@ public class NvHTTP {
             }
         };
 
-        httpClientLongConnectTimeout = new OkHttpClient.Builder()
+        OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder()
                 .connectionPool(new ConnectionPool(0, 1, TimeUnit.MILLISECONDS))
                 .hostnameVerifier(hv)
                 .readTimeout(READ_TIMEOUT, TimeUnit.MILLISECONDS)
                 .connectTimeout(LONG_CONNECTION_TIMEOUT, TimeUnit.MILLISECONDS)
                 .proxy(Proxy.NO_PROXY)
-                .fastFallback(false)
-                .build();
+                .fastFallback(false);
+
+        if (scopeInterface != null) {
+            clientBuilder.dns(new ScopeAwareDns(scopedRealAddress, scopeInterface));
+        }
+
+        httpClientLongConnectTimeout = clientBuilder.build();
 
         httpClientShortConnectTimeout = httpClientLongConnectTimeout.newBuilder()
                 .connectTimeout(SHORT_CONNECTION_TIMEOUT, TimeUnit.MILLISECONDS)
@@ -207,6 +310,26 @@ public class NvHTTP {
 
         this.serverCert = serverCert;
 
+        // The USB link hands us IPv6 link-local addresses of the form fe80::xxxx%18
+        String addressString = address.address;
+        int scopeIndex = addressString.indexOf('%');
+        String scope = null;
+        if (scopeIndex >= 0) {
+            scope = addressString.substring(scopeIndex + 1);
+            addressString = addressString.substring(0, scopeIndex);
+        }
+
+        // A link-local address can only be routed with a scope, but OkHttp rejects any host
+        // containing '%' and does not call a custom Dns for IP-literal hosts (see
+        // USB_LINK_PLACEHOLDER_HOST). The URL therefore carries the placeholder host name and
+        // ScopeAwareDns injects the scope while resolving.
+        String urlHost = addressString;
+        if (scope != null && !addressString.isEmpty()) {
+            this.scopeInterface = scope;
+            this.scopedRealAddress = addressString;
+            urlHost = USB_LINK_PLACEHOLDER_HOST;
+        }
+
         initializeHttpState(cryptoProvider);
 
         this.httpsPort = httpsPort;
@@ -216,17 +339,17 @@ public class NvHTTP {
             // in IPv6 form, because InetAddress.getByName() will return an Inet4Address
             // for what OkHTTP thinks is an IPv6 address. Normalize it into IPv4 form
             // to avoid triggering this bug.
-            String addressString = address.address;
             if (addressString.contains(":") && addressString.contains(".")) {
                 InetAddress addr = InetAddress.getByName(addressString);
                 if (addr instanceof Inet4Address) {
                     addressString = ((Inet4Address)addr).getHostAddress();
+                    urlHost = addressString;
                 }
             }
 
             this.baseUrlHttp = new HttpUrl.Builder()
                     .scheme("http")
-                    .host(addressString)
+                    .host(urlHost)
                     .port(address.port)
                     .build();
         } catch (IllegalArgumentException e) {

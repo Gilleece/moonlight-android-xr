@@ -253,6 +253,8 @@
     <string name="title_settings_back">Back</string>
     <string name="summary_settings_back">Return to the computer list</string>
     <string name="category_vr_settings">VR Settings</string>
+    <string name="title_usb_link">USB link</string>
+    <string name="summary_usb_link">Stream over the USB cable using Horizon OS USB networking instead of ADB port forwarding. Needs Horizon OS 2.5+ on the headset, and address_family = both on the host.</string>
     <string name="category_vr_debug">VR Debugging</string>
     <string name="title_enable_vr_mode">Stream in VR</string>
     <string name="summary_enable_vr_mode">Show the stream on a virtual screen in an immersive VR session. Headsets only, and the only mode with a 3D effect.</string>
