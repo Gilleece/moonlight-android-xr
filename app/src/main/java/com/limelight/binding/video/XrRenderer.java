@@ -738,7 +738,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         pendingCogRoomTab.set(tabs[3]);
         pendingCogButton.set(panels.buildCogButton());
 
-        XrPanels.Keyboard keyboard = panels.buildKeyboard();
+        XrPanels.Keyboard keyboard = panels.buildKeyboard(prefConfig != null && prefConfig.vrKeyboardAzerty);
         kbKeyRects = keyboard.keyRects;
         kbCodesLower = keyboard.codesLower;
         kbCodesUpper = keyboard.codesUpper;

@@ -357,4 +357,14 @@
     <string name="bug_report_saved">Le rapport a été enregistré dans\n\n%1$s</string>
     <string name="bug_report_no_mail">Il n\'y a pas d\'application e-mail sur cet appareil, le rapport a donc été enregistré dans\n\n%1$s\n\nCopiez-le hors du casque et joignez-le à un e-mail à %2$s.</string>
     <string name="bug_report_failed">Impossible d\'écrire le rapport : %1$s</string>
+    <string name="title_vr_keyboard_layout">Disposition du clavier dans le casque</string>
+    <string name="summary_vr_keyboard_layout">Touches du clavier virtuel en VR — la disposition doit correspondre à celle du PC hôte.</string>
+    <string name="vr_keyboard_layout_auto">Automatique</string>
+    <string name="vr_keyboard_layout_qwerty">QWERTY</string>
+    <string name="vr_keyboard_layout_azerty">AZERTY</string>
+    <string name="kb_label_shift">Maj</string>
+    <string name="kb_label_del">Suppr</string>
+    <string name="kb_label_enter">Entrée</string>
+    <string name="kb_label_hide">Masquer</string>
+    <string name="kb_label_space">espace</string>
 </resources>

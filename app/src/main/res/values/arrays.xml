@@ -190,4 +190,15 @@
         <item>basic</item>
         <item>verbose</item>
     </string-array>
+
+    <string-array name="vr_keyboard_layout_names">
+        <item>@string/vr_keyboard_layout_auto</item>
+        <item>@string/vr_keyboard_layout_qwerty</item>
+        <item>@string/vr_keyboard_layout_azerty</item>
+    </string-array>
+    <string-array name="vr_keyboard_layout_values" translatable="false">
+        <item>auto</item>
+        <item>qwerty</item>
+        <item>azerty</item>
+    </string-array>
 </resources>

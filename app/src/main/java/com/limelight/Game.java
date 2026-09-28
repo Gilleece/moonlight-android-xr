@@ -2853,6 +2853,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         conn.sendMouseHighResScroll((short)(clicks * 120));
     }
 
+    // Stands in for "digit N with Shift held", for layouts (AZERTY) whose
+    // number row needs Shift for a digit; '0'-'9' already means unshifted.
+    private static final int VR_KEY_SHIFTED_DIGIT_BASE = 1000;
+
     /**
      * A key pressed on the in world keyboard. The code is Unicode with the
      * shift already applied, and the digits, the capitals and the four control
@@ -2878,6 +2882,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // well, so hosts that read either one see the capital
             conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_DOWN, (byte)0, (byte)0);
             sendVrKeyPress((short)code, KeyboardPacket.MODIFIER_SHIFT);
+            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_UP, (byte)0, (byte)0);
+        }
+        else if (code >= VR_KEY_SHIFTED_DIGIT_BASE && code <= VR_KEY_SHIFTED_DIGIT_BASE + 9) {
+            short digit = (short)('0' + (code - VR_KEY_SHIFTED_DIGIT_BASE));
+            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_DOWN, (byte)0, (byte)0);
+            sendVrKeyPress(digit, KeyboardPacket.MODIFIER_SHIFT);
             conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_UP, (byte)0, (byte)0);
         }
         else {

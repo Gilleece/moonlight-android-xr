@@ -14,6 +14,7 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 
 import com.limelight.LimeLog;
+import com.limelight.R;
 import com.limelight.preferences.PreferenceConfiguration;
 
 import java.io.IOException;
@@ -153,6 +154,49 @@ final class XrPanels {
             { '@', '#', '$', '%', '&', '*', '-', '+', '(', ')' },
             { '!', '"', '\'', ':', ';', '/', '?', '_', '=' },
             { 9, '<', '>', '[', ']', '{', '}', '\\', 8 },
+            { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
+    };
+    // Same sheet for AZERTY: only the digit row's codes change, to the
+    // Shift-held codes a French number row needs. Everything else here is
+    // already sent as text, so it works under either layout unchanged.
+    private static final int[][] KB_CODES_SYMBOLS_AZERTY = {
+            { 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1000 },
+            { '@', '#', '$', '%', '&', '*', '-', '+', '(', ')' },
+            { '!', '"', '\'', ':', ';', '/', '?', '_', '=' },
+            { 9, '<', '>', '[', ']', '{', '}', '\\', 8 },
+            { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
+    };
+
+    // AZERTY keyboard: letters keep QWERTY's codes, only relabelled - a VK
+    // code names a US keyboard position, and the host's layout decides the
+    // letter, so the host must be French too. Number-row accents go as text
+    // (works anywhere); digits there use Shift-held codes for real game keys.
+    private static final String[][] KB_LABELS_LOWER_AZERTY = {
+            { "&", "é", "\"", "'", "(", "-", "è", "_", "ç", "à" },
+            { "a", "z", "e", "r", "t", "y", "u", "i", "o", "p" },
+            { "q", "s", "d", "f", "g", "h", "j", "k", "l" },
+            { "Shift", "w", "x", "c", "v", "b", "n", ",", "Del" },
+            { "?123", ",", "space", ".", "Enter", "Hide" }
+    };
+    private static final int[][] KB_CODES_LOWER_AZERTY = {
+            { '&', 'é', '"', '\'', '(', '-', 'è', '_', 'ç', 'à' },
+            { 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p' },
+            { 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l' },
+            { KB_CODE_SHIFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', 8 },
+            { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
+    };
+    private static final String[][] KB_LABELS_UPPER_AZERTY = {
+            { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+            { "A", "Z", "E", "R", "T", "Y", "U", "I", "O", "P" },
+            { "Q", "S", "D", "F", "G", "H", "J", "K", "L" },
+            { "Shift", "W", "X", "C", "V", "B", "N", "?", "Del" },
+            { "?123", ",", "space", ".", "Enter", "Hide" }
+    };
+    private static final int[][] KB_CODES_UPPER_AZERTY = {
+            { 1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1000 },
+            { 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P' },
+            { 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L' },
+            { KB_CODE_SHIFT, 'Z', 'X', 'C', 'V', 'B', 'N', 'M', 8 },
             { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
     };
 
@@ -883,17 +927,17 @@ final class XrPanels {
      * share one set of key rectangles, so the art and the hit test are built
      * from the same numbers and cannot drift apart.
      */
-    Keyboard buildKeyboard() {
+    Keyboard buildKeyboard(boolean azerty) {
         float[] keyRects = buildKeyRects();
-        int[] codesLower = flatten(KB_CODES_LOWER);
-        int[] codesUpper = flatten(KB_CODES_UPPER);
-        int[] codesSymbols = flatten(KB_CODES_SYMBOLS);
+        int[] codesLower = flatten(azerty ? KB_CODES_LOWER_AZERTY : KB_CODES_LOWER);
+        int[] codesUpper = flatten(azerty ? KB_CODES_UPPER_AZERTY : KB_CODES_UPPER);
+        int[] codesSymbols = flatten(azerty ? KB_CODES_SYMBOLS_AZERTY : KB_CODES_SYMBOLS);
 
-        Bitmap lower = buildKeyboardSheet(KB_LABELS_LOWER, keyRects);
+        Bitmap lower = buildKeyboardSheet(azerty ? KB_LABELS_LOWER_AZERTY : KB_LABELS_LOWER, keyRects);
         ByteBuffer lowerPixels = toBuffer(lower);
         lower.recycle();
 
-        Bitmap upper = buildKeyboardSheet(KB_LABELS_UPPER, keyRects);
+        Bitmap upper = buildKeyboardSheet(azerty ? KB_LABELS_UPPER_AZERTY : KB_LABELS_UPPER, keyRects);
         ByteBuffer upperPixels = toBuffer(upper);
         upper.recycle();
 
@@ -952,6 +996,19 @@ final class XrPanels {
         return flat;
     }
 
+    // The named keys ("Shift", "Del", ...) stay plain English in the tables
+    // above; this is where that name picks up the app's language instead.
+    private String localizeControlLabel(String label) {
+        switch (label) {
+            case "Shift": return context.getString(R.string.kb_label_shift);
+            case "Del": return context.getString(R.string.kb_label_del);
+            case "Enter": return context.getString(R.string.kb_label_enter);
+            case "Hide": return context.getString(R.string.kb_label_hide);
+            case "space": return context.getString(R.string.kb_label_space);
+            default: return label;
+        }
+    }
+
     // One state's worth of keys, drawn as caps on the same dark rounded panel
     // the settings use
     private Bitmap buildKeyboardSheet(String[][] labels, float[] rects) {
@@ -985,8 +1042,9 @@ final class XrPanels {
 
                 // A single character is what the key types, so it gets the
                 // room. The named keys are wordier and have to fit.
-                text.setTextSize(label.length() == 1 ? 34.0f : 22.0f);
-                canvas.drawText(label, box.centerX(),
+                String shown = localizeControlLabel(label);
+                text.setTextSize(shown.length() == 1 ? 34.0f : 22.0f);
+                canvas.drawText(shown, box.centerX(),
                         box.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
             }
         }

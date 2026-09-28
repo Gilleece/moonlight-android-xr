@@ -43,6 +43,13 @@
             android:entryValues="@array/vr_env_res_values"
             android:summary="@string/summary_vr_env_res"
             android:defaultValue="standard" />
+        <ListPreference
+            android:key="list_vr_keyboard_layout"
+            android:title="@string/title_vr_keyboard_layout"
+            android:entries="@array/vr_keyboard_layout_names"
+            android:entryValues="@array/vr_keyboard_layout_values"
+            android:summary="@string/summary_vr_keyboard_layout"
+            android:defaultValue="auto" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_vr_debug"
         android:key="category_vr_debug">

@@ -11,6 +11,8 @@ import com.limelight.FileLog;
 import com.limelight.binding.video.XrShared;
 import com.limelight.nvstream.jni.MoonBridge;
 
+import java.util.Locale;
+
 public class PreferenceConfiguration {
     public enum FormatOption {
         AUTO,
@@ -60,6 +62,7 @@ public class PreferenceConfiguration {
     public static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
     public static final String VR_ENV_RES_PREF_STRING = "list_vr_env_res";
     public static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
+    public static final String VR_KEYBOARD_LAYOUT_PREF_STRING = "list_vr_keyboard_layout";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
@@ -158,6 +161,7 @@ public class PreferenceConfiguration {
     // hold. Gen 1 headsets are seeded onto low instead, see seedGen1PerfProfile.
     private static final String DEFAULT_VR_ENV_RES = "standard";
     private static final String DEFAULT_VR_SHARPENING = "quality";
+    private static final String DEFAULT_VR_KEYBOARD_LAYOUT = "auto";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
@@ -253,6 +257,8 @@ public class PreferenceConfiguration {
     public int vrEnvResTier;
     // 0 off, 1 normal, 2 quality
     public int vrSharpening;
+    // Letter arrangement of the in-headset virtual keyboard
+    public boolean vrKeyboardAzerty;
     public boolean vrEyeSwap;
     // Tenths of a percent of frame width
     public int vrStereoSeparation;
@@ -858,6 +864,20 @@ public class PreferenceConfiguration {
         }
         else {
             config.vrSharpening = 2;
+        }
+        String keyboardLayout = prefs.getString(VR_KEYBOARD_LAYOUT_PREF_STRING, DEFAULT_VR_KEYBOARD_LAYOUT);
+        if (keyboardLayout.equals("azerty")) {
+            config.vrKeyboardAzerty = true;
+        }
+        else if (keyboardLayout.equals("qwerty")) {
+            config.vrKeyboardAzerty = false;
+        }
+        else {
+            // "auto": go by the language the user picked for the app, or the
+            // device's own language if they left that on its default
+            String effectiveLanguage = config.language.equals(DEFAULT_LANGUAGE)
+                    ? Locale.getDefault().getLanguage() : config.language;
+            config.vrKeyboardAzerty = effectiveLanguage.startsWith("fr");
         }
         config.vrEyeSwap = prefs.getBoolean(VR_EYE_SWAP_PREF_STRING, DEFAULT_VR_EYE_SWAP);
         config.vrPassthrough = prefs.getBoolean(VR_PASSTHROUGH_PREF_STRING, DEFAULT_VR_PASSTHROUGH);
