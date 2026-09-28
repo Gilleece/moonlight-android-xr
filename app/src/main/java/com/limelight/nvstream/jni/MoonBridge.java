@@ -419,4 +419,17 @@ public class MoonBridge {
     public static native boolean guessControllerHasShareButton(int vendorId, int productId);
 
     public static native void init();
+
+    /**
+     * Bind the whole process to the given network (backed by android_setprocnetwork).
+     *
+     * The USB link is point-to-point link-local and carries no default route, so UDP sockets
+     * created by the native side land on the system default network (Wi-Fi) instead. The
+     * control and video streams Sunshine sends over the USB link are then all rejected, which
+     * shows up as an immediate disconnect right after Initial Ping Timeout. Binding the
+     * process to the USB network before streaming avoids that.
+     *
+     * @param netId handle returned by Network.getNetworkHandle()
+     */
+    public static native void setProcessNetwork(long netId);
 }

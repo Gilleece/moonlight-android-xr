@@ -5,6 +5,11 @@
     <PreferenceCategory android:title="@string/category_vr_settings"
         android:key="category_vr_settings">
         <CheckBoxPreference
+            android:key="checkbox_usb_link"
+            android:title="@string/title_usb_link"
+            android:summary="@string/summary_usb_link"
+            android:defaultValue="false"/>
+        <CheckBoxPreference
             android:key="checkbox_enable_vr_mode"
             android:title="@string/title_enable_vr_mode"
             android:summary="@string/summary_enable_vr_mode"

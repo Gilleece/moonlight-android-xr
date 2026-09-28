@@ -9,6 +9,8 @@ import java.net.UnknownHostException;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -23,6 +25,9 @@ import com.limelight.nvstream.http.NvHTTP;
 import com.limelight.nvstream.http.PairingManager;
 import com.limelight.nvstream.mdns.MdnsComputer;
 import com.limelight.nvstream.mdns.MdnsDiscoveryListener;
+import com.limelight.nvstream.usb.UsbHostDiscovery;
+import com.limelight.nvstream.usb.UsbLinkManager;
+import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.utils.CacheHelper;
 import com.limelight.utils.NetHelper;
 import com.limelight.utils.ServerHelper;
@@ -37,7 +42,9 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.os.Binder;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 
 import org.xmlpull.v1.XmlPullParserException;
@@ -47,6 +54,13 @@ public class ComputerManagerService extends Service {
     private static final int APPLIST_POLLING_PERIOD_MS = 30000;
     private static final int APPLIST_FAILED_POLLING_RETRY_MS = 2000;
     private static final int MDNS_QUERY_PERIOD_MS = 1000;
+    // Interval between periodic USB discovery re-scans.
+    // NsdManager only reports onServiceFound() for services that already exist at the moment
+    // discoverServices() starts, and the session itself never repeats. So after the user
+    // deletes a host from the PC list, an always-online host produces no further
+    // onServiceFound() and that machine never comes back. A periodic re-scan makes a deleted
+    // host reappear on its own within a few seconds.
+    private static final int USB_DISCOVERY_RESTART_MS = 10000;
     private static final int OFFLINE_POLL_TRIES = 3;
     private static final int INITIAL_POLL_TRIES = 2;
     private static final int EMPTY_LIST_THRESHOLD = 3;
@@ -65,6 +79,11 @@ public class ComputerManagerService extends Service {
     private final Lock defaultNetworkLock = new ReentrantLock();
 
     private ConnectivityManager.NetworkCallback networkCallback;
+
+    // USB link (Horizon OS 2.5+ USB networking / NCM)
+    private UsbLinkManager usbLinkManager;
+    private UsbHostDiscovery usbHostDiscovery;
+    private ExecutorService usbDiscoveryExecutor;
 
     private DiscoveryService.DiscoveryBinder discoveryBinder;
     private final ServiceConnection discoveryServiceConnection = new ServiceConnection() {
@@ -204,6 +223,9 @@ public class ComputerManagerService extends Service {
             // Start mDNS autodiscovery too
             discoveryBinder.startDiscovery(MDNS_QUERY_PERIOD_MS);
 
+            // USB link: run an extra mDNS discovery on that link
+            startUsbLinkDiscovery();
+
             synchronized (pollingTuples) {
                 for (PollingTuple tuple : pollingTuples) {
                     // Enforce the poll data TTL
@@ -312,6 +334,10 @@ public class ComputerManagerService extends Service {
             discoveryBinder.stopDiscovery();
         }
 
+        // Note that the USB link is deliberately not released here. PcView calls
+        // stopPolling() before starting a stream, and releasing the USB network at that point
+        // would tear down the freshly established usb0 exactly when the stream begins, leaving
+        // it to fall back to Wi-Fi. The USB link lives as long as the service; see onDestroy().
         // Stop polling
         pollingActive = false;
         synchronized (pollingTuples) {
@@ -329,6 +355,127 @@ public class ComputerManagerService extends Service {
 
         return false;
     }
+
+    /**
+     * Start USB link discovery.
+     *
+     * Horizon OS 2.5+ can present the USB port as a network interface (NCM). That link is a
+     * point-to-point IPv6 link-local segment whose addresses on both ends are unknowable, so
+     * mDNS discovery has to run on it separately. Holding the request preempts USB networking
+     * for other apps, which is why it is only held while polling.
+     */
+    private void startUsbLinkDiscovery() {
+        if (!PreferenceConfiguration.isUsbLinkEnabled(this)) {
+            return;
+        }
+
+        if (usbLinkManager == null) {
+            usbLinkManager = new UsbLinkManager(this);
+        }
+
+        if (!usbLinkManager.isSupported()) {
+            LimeLog.info("USB link requested but not supported on this device");
+            return;
+        }
+
+        if (usbHostDiscovery == null) {
+            usbDiscoveryExecutor = Executors.newSingleThreadExecutor();
+            usbHostDiscovery = new UsbHostDiscovery(this, usbDiscoveryExecutor);
+        }
+
+        usbLinkManager.start(new UsbLinkManager.Listener() {
+            @Override
+            public void onUsbLinkUp(Network network, String iface) {
+                LimeLog.info("USB link up on " + iface + ", discovering hosts there");
+                usbDiscoveryNetwork = network;
+                usbHostDiscovery.start(network, usbDiscoveryListener);
+
+                // Schedule the periodic re-scan so a deleted host can still come back
+                // (see USB_DISCOVERY_RESTART_MS)
+                usbDiscoveryHandler.removeCallbacks(usbDiscoveryRestart);
+                usbDiscoveryHandler.postDelayed(usbDiscoveryRestart, USB_DISCOVERY_RESTART_MS);
+            }
+
+            @Override
+            public void onUsbLinkDown() {
+                LimeLog.info("USB link down");
+                usbDiscoveryHandler.removeCallbacks(usbDiscoveryRestart);
+                usbDiscoveryNetwork = null;
+                if (usbHostDiscovery != null) {
+                    usbHostDiscovery.stop();
+                }
+            }
+
+            @Override
+            public void onUsbLinkUnavailable() {
+                LimeLog.info("USB link unavailable (no cable, unsupported OS, or denied)");
+            }
+        });
+    }
+
+    private void stopUsbLinkDiscovery() {
+        usbDiscoveryHandler.removeCallbacks(usbDiscoveryRestart);
+        usbDiscoveryNetwork = null;
+
+        if (usbHostDiscovery != null) {
+            usbHostDiscovery.stop();
+        }
+
+        if (usbLinkManager != null) {
+            usbLinkManager.stop();
+        }
+    }
+
+    // Timer for the USB discovery re-scan, explained at USB_DISCOVERY_RESTART_MS.
+    // Each re-scan stops the session and starts a new one, which makes NsdManager enumerate
+    // the services that are currently online, so a host whose entry was deleted is reported
+    // again.
+    private final Handler usbDiscoveryHandler = new Handler(Looper.getMainLooper());
+    private Network usbDiscoveryNetwork;
+    private final Runnable usbDiscoveryRestart = new Runnable() {
+        @Override
+        public void run() {
+            if (usbHostDiscovery != null && usbDiscoveryNetwork != null) {
+                // Only call start(): UsbHostDiscovery internally runs the asynchronous chain
+                // "stop, wait for onDiscoveryStopped, start again". Calling stop() here first
+                // and then start() collides with the asynchronous nature of
+                // stopServiceDiscovery() and yields FAILURE_ALREADY_ACTIVE(4), so discovery
+                // never comes up at all (observed as a start failed: 4 line every 10 seconds).
+                usbHostDiscovery.start(usbDiscoveryNetwork, usbDiscoveryListener);
+            }
+            usbDiscoveryHandler.postDelayed(this, USB_DISCOVERY_RESTART_MS);
+        }
+    };
+
+    /**
+     * Hosts discovered on the USB link.
+     *
+     * Note that usb0 yields link-local addresses carrying a scope (fe80::xxxx%usb0). That form
+     * has to survive all the way to the native layer, where getaddrinfo parses it directly,
+     * while on the Java side NvHTTP.ScopeAwareDns is what puts the scope back.
+     */
+    private final UsbHostDiscovery.Listener usbDiscoveryListener = new UsbHostDiscovery.Listener() {
+        @Override
+        public void onHostFound(String name, String address, int port) {
+            LimeLog.info("USB-discovered host " + name + " at " + address + ":" + port);
+
+            ComputerDetails details = new ComputerDetails();
+            details.localAddress = new ComputerDetails.AddressTuple(address, port);
+
+            try {
+                if (!addComputerBlocking(details)) {
+                    LimeLog.warning("USB-discovered PC failed to respond: " + details);
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
+        @Override
+        public void onDiscoveryError(String message) {
+            LimeLog.warning("USB mDNS discovery error: " + message);
+        }
+    };
 
     private void populateExternalAddress(ComputerDetails details) {
         boolean boundToNetwork = false;
@@ -571,9 +718,12 @@ public class ComputerManagerService extends Service {
 
             return newDetails;
         } catch (XmlPullParserException e) {
-            e.printStackTrace();
+            LimeLog.warning("Polling " + address + " returned bad XML: " + e);
             return null;
         } catch (IOException e) {
+            // This used to swallow the exception entirely, which left new cases such as
+            // link-local/USB impossible to diagnose
+            LimeLog.info("Polling " + address + " failed: " + e);
             return null;
         }
     }
@@ -771,6 +921,12 @@ public class ComputerManagerService extends Service {
             ConnectivityManager connMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             connMgr.registerDefaultNetworkCallback(networkCallback);
         }
+
+        // USB link: request it as early as possible.
+        // This is here rather than only in startPolling() because requestNetwork() needs the
+        // app to be in the foreground, and PcView is normally already there by the time the
+        // service is created. startPolling() calls it again as a retry.
+        startUsbLinkDiscovery();
     }
 
     @Override
@@ -784,6 +940,11 @@ public class ComputerManagerService extends Service {
             // Unbind from the discovery service
             unbindService(discoveryServiceConnection);
         }
+
+        // The USB link lives as long as the service and is only released when it is
+        // destroyed. Otherwise PcView's stopPolling(), which happens just before a stream
+        // starts, would tear down the usb0 that was only just brought up.
+        stopUsbLinkDiscovery();
 
         // FIXME: Should await termination here but we have timeout issues in HttpURLConnection
 

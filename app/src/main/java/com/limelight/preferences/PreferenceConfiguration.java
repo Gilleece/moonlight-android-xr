@@ -53,6 +53,10 @@ public class PreferenceConfiguration {
     public static final String ENABLE_PERF_OVERLAY_STRING = "checkbox_enable_perf_overlay";
     private static final String ENABLE_GL_RENDER_PATH_PREF_STRING = "checkbox_enable_gl_render_path";
     private static final String ENABLE_VR_MODE_PREF_STRING = "checkbox_enable_vr_mode";
+    // USB link: stream over the cable using Horizon OS 2.5+ USB networking (NCM) instead of
+    // ADB reverse port forwarding. Not to be confused with USB_DRIVER_PREF_SRING, which
+    // selects the USB gamepad driver.
+    public static final String USB_LINK_PREF_STRING = "checkbox_usb_link";
     public static final String VR_HEAD_LOCKED_PREF_STRING = "checkbox_vr_head_locked";
     private static final String VR_DISTANCE_PREF_STRING = "seekbar_vr_distance";
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
@@ -160,6 +164,7 @@ public class PreferenceConfiguration {
     private static final String DEFAULT_VR_SHARPENING = "quality";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
+    private static final boolean DEFAULT_USB_LINK = false;
     private static final boolean DEFAULT_VR_GAZE = true;
     private static final boolean DEFAULT_VR_HAND_TRACKING = true;
     private static final boolean DEFAULT_VR_POINTER = true;
@@ -665,6 +670,17 @@ public class PreferenceConfiguration {
         // https://www.nvidia.com/en-us/geforce/forums/notifications/comment/155192/
         return Build.MANUFACTURER.equalsIgnoreCase("NVIDIA") &&
                 Build.FINGERPRINT.contains("PPR1.180610.011/4079208_2235.1395");
+    }
+
+    /**
+     * Whether the USB link is enabled.
+     *
+     * Reads SharedPreferences on its own so that a single check does not have to parse every
+     * setting.
+     */
+    public static boolean isUsbLinkEnabled(Context context) {
+        return PreferenceManager.getDefaultSharedPreferences(context)
+                .getBoolean(USB_LINK_PREF_STRING, DEFAULT_USB_LINK);
     }
 
     public static PreferenceConfiguration readPreferences(Context context) {

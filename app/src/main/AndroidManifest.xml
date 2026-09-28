@@ -25,6 +25,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- USB link (Horizon OS 2.5+ USB networking / NCM). Requesting the
+         TRANSPORT_USB link needs CHANGE_NETWORK_STATE; mDNS discovery reuses the
+         CHANGE_WIFI_MULTICAST_STATE declaration already present below. -->
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />

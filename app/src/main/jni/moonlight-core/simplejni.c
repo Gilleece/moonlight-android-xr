@@ -5,10 +5,70 @@
 
 #include <arpa/inet.h>
 #include <string.h>
+#include <dlfcn.h>
 
 #include "minisdl.h"
 #include "controller_type.h"
 #include "controller_list.h"
+
+// USB link (Horizon OS 2.5+ USB networking / NCM).
+//
+// That link is point-to-point IPv6 link-local and carries no default route, so
+// UDP sockets created by the native side (moonlight-common-c) land on the system
+// default network (Wi-Fi) instead. The control and video streams Sunshine sends
+// over the USB link are then all rejected: the connection dies right after
+// "Initial Ping Timeout", which the user sees as a black screen.
+//
+// Binding the whole process to the USB network makes those sockets use it.
+//
+// android_setprocnetwork() arrived in API 23 while this project's minSdk is 21,
+// so referring to it directly trips the compiler's availability check. Resolve
+// it at runtime with dlsym and skip silently where it is unavailable.
+// net_handle_t is just uint64_t from <android/multinetwork.h>; define it here
+// rather than pulling in that header.
+typedef uint64_t usb_net_handle_t;
+typedef int (*setprocnetwork_fn_t)(usb_net_handle_t);
+
+static setprocnetwork_fn_t resolve_setprocnetwork(void) {
+    static setprocnetwork_fn_t fn = NULL;
+    static int resolved = 0;
+
+    if (!resolved) {
+        // Try the global symbol table first, then libandroid.so
+        fn = (setprocnetwork_fn_t) dlsym(RTLD_DEFAULT, "android_setprocnetwork");
+        if (fn == NULL) {
+            void *lib = dlopen("libandroid.so", RTLD_NOW);
+            if (lib != NULL) {
+                fn = (setprocnetwork_fn_t) dlsym(lib, "android_setprocnetwork");
+            }
+        }
+        resolved = 1;
+
+        if (fn == NULL) {
+            __android_log_print(ANDROID_LOG_WARN, "Moonlight",
+                                "android_setprocnetwork not resolvable on this platform");
+        }
+    }
+
+    return fn;
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_nvstream_jni_MoonBridge_setProcessNetwork(JNIEnv *env, jclass clazz, jlong netId) {
+    setprocnetwork_fn_t setprocnetwork = resolve_setprocnetwork();
+    if (setprocnetwork == NULL) {
+        return;
+    }
+
+    int ret = setprocnetwork((usb_net_handle_t) netId);
+    if (ret != 0) {
+        __android_log_print(ANDROID_LOG_ERROR, "Moonlight",
+                            "android_setprocnetwork(%lld) failed: %d", (long long) netId, ret);
+    } else {
+        __android_log_print(ANDROID_LOG_INFO, "Moonlight",
+                            "Process bound to network %lld", (long long) netId);
+    }
+}
 
 JNIEXPORT void JNICALL
 Java_com_limelight_nvstream_jni_MoonBridge_sendMouseMove(JNIEnv *env, jclass clazz, jshort deltaX, jshort deltaY) {
