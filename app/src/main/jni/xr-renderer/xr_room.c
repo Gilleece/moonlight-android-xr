@@ -3,6 +3,7 @@
 #include "xr_renderer.h"
 #include "xr_shaders.h"
 #include "xr_atlas.h"
+#include "xr_roommesh.h"
 
 // Everything a room's shape and lighting is made of, gathered in one place so
 // the look can be changed without reading the model
@@ -36,8 +37,8 @@ typedef struct {
     float spillRadius;
     // How much of that light a fully lit vertex takes
     float spillGain;
-    // How much of the room's colour comes off its atlas, and how far down that
-    // atlas is turned on the way in
+    // How much of a textured part's colour comes off its atlas, and how far
+    // down the whole room is turned on the way in
     float texMix;
     float dim;
     unsigned seed;
@@ -177,7 +178,7 @@ static float roomScale(XrCtx* ctx, int style) {
     return scale;
 }
 
-// How far down the atlas is turned as the room draws. Nothing is baked into the
+// How far down the room is turned as it draws. Nothing is baked into the
 // geometry from this, so the property moves it frame to frame with no rebuild
 // behind it, and it wins over whatever the built style left in place.
 static float roomDim(XrCtx* ctx) {
@@ -277,39 +278,39 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     }
 }
 
-// Whether the assets a baked room is made of have both arrived, and both are
-// that room's. Only one room is resident, so a style whose turn it is waits
-// here while its own pair is read.
+// Whether everything a baked room is made of has arrived and belongs to the
+// room being asked about: the model, and every atlas the model asks for. One
+// room is resident, so a style whose turn it is waits here while its own set is
+// read.
 static int roomAssetsReady(XrCtx* ctx, int style) {
-    return ctx->roomModelReady && ctx->roomModelStyle == style
-            && ctx->roomTextureReady && ctx->roomTextureStyle == style;
+    if (!ctx->roomModelReady || ctx->roomModelStyle != style) {
+        return 0;
+    }
+    for (int i = 0; i < ctx->roomAtlasCount; i++) {
+        if (!ctx->roomTextureReady[i] || ctx->roomTextureStyle[i] != style) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 // Turns the loaded model into the layout the room's buffer is in. Nothing is
-// generated here beyond the light: the shape and the texture coordinates come
-// off the model, and the colour is mixed out by the atlas. The model arrives in
-// its own space, so this is where the anchor and the scale go on. The normals
-// are left alone, since a uniform scale does not turn them.
-static int buildModelRoomGeometry(XrCtx* ctx, const RoomParams* p, float scale, float* verts,
-                                  unsigned short* indices, int* vertexCount, int* indexCount) {
-    if (!ctx->roomModelReady) {
-        return 0;
-    }
-    static const float white[3] = { 1.0f, 1.0f, 1.0f };
+// generated here beyond the light: the shape, the texture coordinates and the
+// colour all come off the model. A textured part carries no colour of its own
+// and its atlas is mixed over the top of it as the part draws; a part painted
+// from its vertex colours carries them here. The model arrives in its own
+// space, so this is where the anchor and the scale go on. The normals are left
+// alone, since a uniform scale does not turn them.
+static void buildModelRoomVertices(XrCtx* ctx, const RoomParams* p, float scale, float* verts) {
     for (int i = 0; i < ctx->roomModelVertexCount; i++) {
         const float* src = ctx->roomModelVerts + (size_t)i * ROOM_MODEL_FLOATS;
         Vec3 pos = { (src[0] - p->anchor.x) * scale,
                      (src[1] - p->anchor.y) * scale,
                      (src[2] - p->anchor.z) * scale };
         Vec3 normal = { src[3], src[4], src[5] };
-        roomWriteVertex(p, verts, i, pos, white, roomSpillWeight(p, pos, normal),
+        roomWriteVertex(p, verts, i, pos, src + 8, roomSpillWeight(p, pos, normal),
                         src[6], src[7]);
     }
-    memcpy(indices, ctx->roomModelIndices,
-           (size_t)ctx->roomModelIndexCount * sizeof(unsigned short));
-    *vertexCount = ctx->roomModelVertexCount;
-    *indexCount = ctx->roomModelIndexCount;
-    return 1;
 }
 
 // Builds a style's room and hands it to the buffers. Called once for the first
@@ -322,6 +323,7 @@ static int uploadRoomGeometry(XrCtx* ctx, int style) {
     if (style <= 0) {
         ctx->roomVertexCount = 0;
         ctx->roomIndexCount = 0;
+        ctx->roomPartCount = 0;
         ctx->roomClear[0] = 0.0f;
         ctx->roomClear[1] = 0.0f;
         ctx->roomClear[2] = 0.0f;
@@ -332,59 +334,50 @@ static int uploadRoomGeometry(XrCtx* ctx, int style) {
     }
     float scale = roomScale(ctx, style);
     RoomParams params = roomParams(style, scale);
-    int maxVerts = ctx->roomModelVertexCount;
-    int maxIndices = ctx->roomModelIndexCount;
-    float* verts = malloc((size_t)maxVerts * ROOM_VERTEX_FLOATS * sizeof(float));
-    unsigned short* indices = malloc((size_t)maxIndices * sizeof(unsigned short));
-    if (verts == NULL || indices == NULL) {
-        free(verts);
-        free(indices);
+    int vertexCount = ctx->roomModelVertexCount;
+    int indexCount = ctx->roomModelIndexCount;
+    float* verts = malloc((size_t)vertexCount * ROOM_VERTEX_FLOATS * sizeof(float));
+    if (verts == NULL) {
         LOGE("room geometry allocation failed");
         return 0;
     }
-
-    int vertexCount = 0;
-    int indexCount = 0;
-    int ok = buildModelRoomGeometry(ctx, &params, scale, verts, indices,
-                                    &vertexCount, &indexCount);
-    if (ok) {
-        if (ctx->roomVertexBuffer == 0) {
-            glGenBuffers(1, &ctx->roomVertexBuffer);
-        }
-        glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
-        glBufferData(GL_ARRAY_BUFFER,
-                     (GLsizeiptr)vertexCount * ROOM_VERTEX_FLOATS * sizeof(float),
-                     verts, GL_STATIC_DRAW);
-        if (ctx->roomIndexBuffer == 0) {
-            glGenBuffers(1, &ctx->roomIndexBuffer);
-        }
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->roomIndexBuffer);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)indexCount * sizeof(unsigned short),
-                     indices, GL_STATIC_DRAW);
-        // Everything else in here draws from client arrays with no buffer
-        // bound, so leaving one bound would turn their pointers into offsets
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-
-        ctx->roomVertexCount = vertexCount;
-        ctx->roomIndexCount = indexCount;
-        ctx->roomSpillGain = params.spillGain;
-        ctx->roomTexMix = params.texMix;
-        ctx->roomDim = params.dim;
-        // A textured room has no wall shade to take this from, and its shell is
-        // closed, so all this covers is the frame before the first draw
-        ctx->roomClear[0] = 0.010f;
-        ctx->roomClear[1] = 0.010f;
-        ctx->roomClear[2] = 0.012f;
-        LOGEV("room ready, style %d, scale %.2f, %d vertices, %d indices",
-              style, scale, vertexCount, indexCount);
+    buildModelRoomVertices(ctx, &params, scale, verts);
+    if (ctx->roomVertexBuffer == 0) {
+        glGenBuffers(1, &ctx->roomVertexBuffer);
     }
+    glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
+    glBufferData(GL_ARRAY_BUFFER,
+                 (GLsizeiptr)vertexCount * ROOM_VERTEX_FLOATS * sizeof(float),
+                 verts, GL_STATIC_DRAW);
+    if (ctx->roomIndexBuffer == 0) {
+        glGenBuffers(1, &ctx->roomIndexBuffer);
+    }
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ctx->roomIndexBuffer);
+    // The model's own indices, since the parts draw its vertices as they came
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)indexCount * sizeof(uint32_t),
+                 ctx->roomModelIndices, GL_STATIC_DRAW);
+    // Everything else in here draws from client arrays with no buffer bound,
+    // so leaving one bound would turn their pointers into offsets
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     free(verts);
-    free(indices);
-    if (!ok) {
-        LOGE("room geometry build failed for style %d", style);
-    }
-    return ok;
+
+    ctx->roomVertexCount = vertexCount;
+    ctx->roomIndexCount = indexCount;
+    memcpy(ctx->roomParts, ctx->roomModelParts,
+           (size_t)ctx->roomModelPartCount * sizeof(RoomMeshPart));
+    ctx->roomPartCount = ctx->roomModelPartCount;
+    ctx->roomSpillGain = params.spillGain;
+    ctx->roomTexMix = params.texMix;
+    ctx->roomDim = params.dim;
+    // A textured room has no wall shade to take this from, and its shell is
+    // closed, so all this covers is the frame before the first draw
+    ctx->roomClear[0] = 0.010f;
+    ctx->roomClear[1] = 0.010f;
+    ctx->roomClear[2] = 0.012f;
+    LOGEV("room ready, style %d, scale %.2f, %d vertices, %d indices, %d parts",
+          style, scale, vertexCount, indexCount, ctx->roomPartCount);
+    return 1;
 }
 
 // Which style can actually be built at this moment. A room cannot come up until
@@ -608,12 +601,6 @@ void prepareRoom(XrCtx* ctx) {
 // and cleared.
 static void drawRoomEyes(XrCtx* ctx) {
     glUseProgram(ctx->roomProgram);
-    // The atlas a baked room is painted with, or the white stand in, which the
-    // mix below leaves out of the picture anyway. Only ever the atlas of the
-    // room in the buffers, so no frame can paint one room with another's.
-    int atlasOn = ctx->roomTextureReady && ctx->roomTextureStyle == ctx->roomBuiltStyle;
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, atlasOn ? ctx->roomTexture : ctx->roomWhiteTexture);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
     // Nothing has been sampled off the video yet on the first frames, so the
@@ -624,7 +611,6 @@ static void drawRoomEyes(XrCtx* ctx) {
     // effects, and the colour sample they share is taken for either one.
     int lit = ctx->ambiSeeded && ctx->roomLightOn;
     glUniform1f(ctx->roomSpillGainUniform, lit ? ctx->roomSpillGain : 0.0f);
-    glUniform1f(ctx->roomTexMixUniform, ctx->roomTexMix);
     glUniform1f(ctx->roomDimUniform, roomDim(ctx));
 
     glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
@@ -639,6 +625,8 @@ static void drawRoomEyes(XrCtx* ctx) {
     glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, stride, (const void*)(7 * sizeof(float)));
     glEnableVertexAttribArray(3);
 
+    // The unit the parts bind their own atlas to as they draw
+    glActiveTexture(GL_TEXTURE1);
     for (int eye = 0; eye < ROOM_EYES; eye++) {
         glViewport(eye * ctx->roomEyeWidth, 0, ctx->roomEyeWidth, ctx->roomEyeHeight);
 
@@ -652,8 +640,27 @@ static void drawRoomEyes(XrCtx* ctx) {
         matMul(viewProj, proj, view);
         glUniformMatrix4fv(ctx->roomViewProjUniform, 1, GL_FALSE, viewProj);
 
-        glDrawElements(GL_TRIANGLES, ctx->roomIndexCount, GL_UNSIGNED_SHORT, (const void*)0);
+        // A part at a time, each from its own atlas or its own colours. A part
+        // with no atlas is painted from the vertex colours the model came with,
+        // so the mix goes the other way for it. Only ever an atlas of the room
+        // in the buffers, so no frame can paint one room with another's, and
+        // the white stand in only ever covers a room that lost one.
+        for (int i = 0; i < ctx->roomPartCount; i++) {
+            const RoomMeshPart* part = &ctx->roomParts[i];
+            int textured = part->atlas >= 0;
+            GLuint texture = ctx->roomWhiteTexture;
+            if (textured && ctx->roomTextureReady[part->atlas]
+                    && ctx->roomTextureStyle[part->atlas] == ctx->roomBuiltStyle) {
+                texture = ctx->roomTextures[part->atlas];
+            }
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glUniform1f(ctx->roomTexMixUniform, textured ? ctx->roomTexMix : 0.0f);
+            glDrawElements(GL_TRIANGLES, (GLsizei)part->indexCount, GL_UNSIGNED_INT,
+                           (const void*)((size_t)part->firstIndex * sizeof(uint32_t)));
+        }
     }
+    // Every other pass leaves unit 0 the active one
+    glActiveTexture(GL_TEXTURE0);
 }
 
 // Draws the room into its own image, one half per eye. The layer that shows it
@@ -738,17 +745,24 @@ void renderRoom(XrCtx* ctx) {
     ctx->roomRendered = 1;
 }
 
-// Whatever atlas is up, dropped. Every upload makes a fresh texture, so
-// nothing of the one before, a compressed chain or its level count, can carry
-// over onto the next, and a room that is going gives its memory back before
-// the room arriving asks for its own.
-static void releaseRoomTexture(XrCtx* ctx) {
-    if (ctx->roomTexture != 0) {
-        glDeleteTextures(1, &ctx->roomTexture);
-        ctx->roomTexture = 0;
+// One atlas slot, dropped. Every upload makes a fresh texture, so nothing of
+// the one before, a compressed chain or its level count, can carry over onto
+// the next.
+static void releaseRoomTexture(XrCtx* ctx, int slot) {
+    if (ctx->roomTextures[slot] != 0) {
+        glDeleteTextures(1, &ctx->roomTextures[slot]);
+        ctx->roomTextures[slot] = 0;
     }
-    ctx->roomTextureReady = 0;
-    ctx->roomTextureStyle = 0;
+    ctx->roomTextureReady[slot] = 0;
+    ctx->roomTextureStyle[slot] = 0;
+}
+
+// Every atlas the resident room brought with it, so a room that is going gives
+// its memory back before the room arriving asks for its own
+static void releaseRoomTextures(XrCtx* ctx) {
+    for (int slot = 0; slot < ROOM_MESH_ATLASES_MAX; slot++) {
+        releaseRoomTexture(ctx, slot);
+    }
 }
 
 // The baked room a picker cell names, or 0 with a line in the log for a cell
@@ -764,15 +778,15 @@ static int bakedStyleForCell(int cell, const char* what) {
 
 // A baked room's model, and the cell whose room it is. Read off the assets in
 // Java and parsed here, since the renderer has no glTF loader: the bake script
-// has already flattened it to positions, normals and texture coordinates.
-// Handed over from the frame loop, which is the thread that builds the
-// geometry out of it.
+// has already flattened it to positions, normals, texture coordinates and
+// colours, and cut it into the parts the draw walks. Handed over from the frame
+// loop, which is the thread that builds the geometry out of it.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomModel(JNIEnv* env, jobject thiz,
                                                                    jlong handle, jobject buffer,
                                                                    jint length, jint cell) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || buffer == NULL || length < 12) {
+    if (ctx == NULL || buffer == NULL || length <= 0) {
         return;
     }
     int style = bakedStyleForCell(cell, "model");
@@ -783,57 +797,29 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomModel(JNIEnv* env, j
     if (data == NULL || (*env)->GetDirectBufferCapacity(env, buffer) < (jlong)length) {
         return;
     }
-    if (memcmp(data, "MXR1", 4) != 0) {
-        LOGW("room model is not an MXR1 file, ignoring it");
+    RoomMeshInfo info;
+    if (!roomMeshParse(data, (size_t)length, &info)) {
+        LOGW("room model for style %d is not a mesh the renderer reads (%d bytes)", style, length);
         return;
     }
 
-    uint32_t vertexCount = 0;
-    uint32_t indexCount = 0;
-    memcpy(&vertexCount, data + 4, sizeof(vertexCount));
-    memcpy(&indexCount, data + 8, sizeof(indexCount));
-    // Both are held to what the file could possibly hold before any of the byte
-    // counts are worked out, so none of the arithmetic below can wrap
-    size_t payload = (size_t)length - 12;
-    if (vertexCount == 0 || vertexCount > ROOM_MAX_VERTS
-            || indexCount == 0 || indexCount % 3 != 0
-            || indexCount > payload / sizeof(unsigned short)) {
-        LOGW("room model counts make no sense: %u vertices, %u indices",
-             vertexCount, indexCount);
-        return;
-    }
-    size_t vertexBytes = (size_t)vertexCount * ROOM_MODEL_FLOATS * sizeof(float);
-    size_t indexBytes = (size_t)indexCount * sizeof(unsigned short);
-    if (12 + vertexBytes + indexBytes != (size_t)length) {
-        LOGW("room model is %d bytes, its header asks for %zu",
-             length, 12 + vertexBytes + indexBytes);
-        return;
-    }
-
+    size_t vertexBytes = (size_t)info.vertexCount * ROOM_MODEL_FLOATS * sizeof(float);
+    size_t indexBytes = (size_t)info.indexCount * sizeof(uint32_t);
     float* verts = malloc(vertexBytes);
-    unsigned short* indices = malloc(indexBytes);
+    uint32_t* indices = malloc(indexBytes);
     if (verts == NULL || indices == NULL) {
         free(verts);
         free(indices);
         LOGE("room model allocation failed");
         return;
     }
-    memcpy(verts, data + 12, vertexBytes);
-    memcpy(indices, data + 12 + vertexBytes, indexBytes);
+    memcpy(verts, data + info.vertexOffset, vertexBytes);
+    memcpy(indices, data + info.indexOffset, indexBytes);
 
-    for (uint32_t i = 0; i < indexCount; i++) {
-        if (indices[i] >= vertexCount) {
-            free(verts);
-            free(indices);
-            LOGW("room model index %u is past its %u vertices",
-                 (unsigned)indices[i], vertexCount);
-            return;
-        }
-    }
-    // The room that was resident is going, so its atlas goes with it rather
+    // The room that was resident is going, so its atlases go with it rather
     // than waiting in GL memory to be painted on this one
     if (ctx->roomModelStyle != style) {
-        releaseRoomTexture(ctx);
+        releaseRoomTextures(ctx);
     }
     // Kept in the model's own space. The anchor and the scale go on as the
     // geometry is built, so the scale can move without this being read again.
@@ -841,11 +827,16 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomModel(JNIEnv* env, j
     free(ctx->roomModelIndices);
     ctx->roomModelVerts = verts;
     ctx->roomModelIndices = indices;
-    ctx->roomModelVertexCount = (int)vertexCount;
-    ctx->roomModelIndexCount = (int)indexCount;
+    ctx->roomModelVertexCount = (int)info.vertexCount;
+    ctx->roomModelIndexCount = (int)info.indexCount;
+    memcpy(ctx->roomModelParts, info.parts, (size_t)info.partCount * sizeof(RoomMeshPart));
+    ctx->roomModelPartCount = (int)info.partCount;
+    ctx->roomAtlasCount = (int)info.atlasCount;
     ctx->roomModelStyle = style;
     ctx->roomModelReady = 1;
-    LOGEV("room model ready, style %d, %u vertices, %u indices", style, vertexCount, indexCount);
+    LOGEV("room model ready, style %d, %u vertices, %u triangles, %u parts, %d painted from "
+          "vertex colours, %u atlases", style, info.vertexCount, info.indexCount / 3,
+          info.partCount, roomMeshPaintedParts(&info), info.atlasCount);
 }
 
 // The GL format for a block size the atlas tool writes
@@ -859,27 +850,32 @@ static GLenum roomAtlasFormat(uint32_t block) {
     return GL_COMPRESSED_RGBA_ASTC_6x6_KHR;
 }
 
-// A room's atlas, a whole .atlas file from tools/atlas_astc.py: every mip level
-// is already there as ASTC blocks, so it goes up level by level as it is, with
-// nothing decoded and no chain built. A plain texture rather than a swapchain,
-// since nothing composites it: the room samples it as it draws. Also from the
-// frame loop, which is where the GL context is current.
+// One of a room's atlases, a whole .atlas file from tools/atlas_astc.py, into
+// the slot the model's parts name it by: every mip level is already there as
+// ASTC blocks, so it goes up level by level as it is, with nothing decoded and
+// no chain built. A plain texture rather than a swapchain, since nothing
+// composites it: the room samples it as it draws. Also from the frame loop,
+// which is where the GL context is current.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomAtlas(JNIEnv* env, jobject thiz,
                                                                    jlong handle, jobject buffer,
-                                                                   jint cell) {
+                                                                   jint cell, jint slot) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL || buffer == NULL) {
+        return;
+    }
+    if (slot < 0 || slot >= ROOM_MESH_ATLASES_MAX) {
+        LOGW("room atlas for cell %d is in slot %d, which there is not", cell, slot);
         return;
     }
     int style = bakedStyleForCell(cell, "atlas");
     if (style == 0) {
         return;
     }
-    // Whatever was up is another room's or an older copy of this one's, so an
-    // atlas refused below leaves the room on its stand in, never on the wrong
-    // atlas
-    releaseRoomTexture(ctx);
+    // Whatever was in the slot is another room's or an older copy of this
+    // one's, so an atlas refused below leaves the room on the void, never on
+    // the wrong atlas
+    releaseRoomTexture(ctx, slot);
     if (!ctx->astcSupported) {
         LOGW("room atlas for style %d is ASTC and this GPU has no "
              "GL_KHR_texture_compression_astc_ldr", style);
@@ -896,9 +892,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomAtlas(JNIEnv* env, j
 
     long started = nowNs();
     GLenum format = roomAtlasFormat(info.blockWidth);
-    glGenTextures(1, &ctx->roomTexture);
+    glGenTextures(1, &ctx->roomTextures[slot]);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, ctx->roomTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->roomTextures[slot]);
     // Whatever an earlier call left behind, so the check below is this atlas's
     for (int i = 0; i < 8 && glGetError() != GL_NO_ERROR; i++) {
     }
@@ -922,16 +918,16 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomAtlas(JNIEnv* env, j
     GLenum error = glGetError();
     glBindTexture(GL_TEXTURE_2D, 0);
     if (error != GL_NO_ERROR) {
-        releaseRoomTexture(ctx);
-        LOGW("room atlas %ux%u for style %d refused, GL error 0x%x",
-             info.width, info.height, style, error);
+        releaseRoomTexture(ctx, slot);
+        LOGW("room atlas %ux%u for style %d, slot %d refused, GL error 0x%x",
+             info.width, info.height, style, slot, error);
         return;
     }
 
-    ctx->roomTextureStyle = style;
-    ctx->roomTextureReady = 1;
-    LOGEV("room atlas %ux%u ASTC %ux%u ready, style %d, %d levels, %.1f MB, "
+    ctx->roomTextureStyle[slot] = style;
+    ctx->roomTextureReady[slot] = 1;
+    LOGEV("room atlas %ux%u ASTC %ux%u ready, style %d, slot %d, %d levels, %.1f MB, "
           "anisotropy %.0f, upload calls %.1f ms",
-          info.width, info.height, info.blockWidth, info.blockHeight, style, info.levels,
+          info.width, info.height, info.blockWidth, info.blockHeight, style, slot, info.levels,
           (double)size / (1024.0 * 1024.0), ctx->roomAnisotropy, (nowNs() - started) / 1e6);
 }

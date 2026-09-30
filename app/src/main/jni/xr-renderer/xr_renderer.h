@@ -37,6 +37,7 @@
 #include "xr_math.h"
 #include "xr_shared.h"
 #include "xr_depthmap.h"
+#include "xr_roommesh.h"
 
 #define TAG "moonlight-xr"
 
@@ -276,17 +277,16 @@ static inline long nowNs(void) {
 // Ten floats a vertex: position, colour, spill weight, texture coordinate and
 // one spare
 #define ROOM_VERTEX_FLOATS 10
-// Sixteen bit indices, so this is as many vertices as one room can hold
-#define ROOM_MAX_VERTS 65535
-// Floats a vertex in the baked model file: position, normal, texture coordinate
-#define ROOM_MODEL_FLOATS 8
+// Floats a vertex in the baked model file: position, normal, texture
+// coordinate and colour
+#define ROOM_MODEL_FLOATS ROOM_MESH_VERTEX_FLOATS
 // How large the room is drawn. The theater is modelled in metres around its
 // seat, so it is drawn as built. The property below moves it between the two
 // bounds.
 #define ROOM_THEATER_SCALE 1.0f
 #define ROOM_SCALE_MIN 0.25f
 #define ROOM_SCALE_MAX 4.0f
-// What the brightness property can ask for, either side of the atlas going on
+// What the brightness property can ask for, either side of the room going on
 // exactly as it was baked
 #define ROOM_DIM_MIN 0.10f
 #define ROOM_DIM_MAX 2.0f
@@ -635,24 +635,33 @@ typedef struct {
     GLuint roomIndexBuffer;
     int roomVertexCount;
     int roomIndexCount;
-    // The baked model a textured style is built from, kept in its own copy so a
-    // rebuild does not need the assets read again. Held exactly as the file has
-    // it: the anchor and the scale go on as the geometry is built, so a scale
+    // The parts the buffers were built with, each drawn from its own atlas or
+    // its vertex colours. Copied at the build, so a model arriving for the next
+    // room cannot change what the buffers in use are drawn as.
+    RoomMeshPart roomParts[ROOM_MESH_PARTS_MAX];
+    int roomPartCount;
+    // The baked model a style is built from, kept in its own copy so a rebuild
+    // does not need the assets read again. Held exactly as the file has it:
+    // the anchor and the scale go on as the geometry is built, so a scale
     // change is a rebuild rather than another read.
     float* roomModelVerts;
-    unsigned short* roomModelIndices;
+    uint32_t* roomModelIndices;
     int roomModelVertexCount;
     int roomModelIndexCount;
+    RoomMeshPart roomModelParts[ROOM_MESH_PARTS_MAX];
+    int roomModelPartCount;
+    // How many atlases its parts are painted from, one slot each
+    int roomAtlasCount;
     int roomModelReady;
-    // Its atlas, and a 1x1 white stand in so the sampler always has something
-    // complete bound before the atlas is up
-    GLuint roomTexture;
-    int roomTextureReady;
-    // Which baked room the model and the atlas above belong to. Only one room
-    // is resident at a time, so a style is only built once both are its own,
-    // and a model arriving for another room drops the atlas it replaces.
+    // The atlases, a slot each, and a 1x1 white stand in so the sampler always
+    // has something complete bound whatever a part is painted from
+    GLuint roomTextures[ROOM_MESH_ATLASES_MAX];
+    int roomTextureReady[ROOM_MESH_ATLASES_MAX];
+    // Which baked room the model and each atlas belong to. Only one room is
+    // resident at a time, so a style is only built once all of them are its
+    // own, and a model arriving for another room drops the atlases it replaces.
     int roomModelStyle;
-    int roomTextureStyle;
+    int roomTextureStyle[ROOM_MESH_ATLASES_MAX];
     GLuint roomWhiteTexture;
     float roomTexMix;
     float roomDim;

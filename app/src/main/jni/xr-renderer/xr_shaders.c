@@ -384,12 +384,11 @@ const char* const GLOW_FRAGMENT_SRC =
     "    fragColor = vec4(color * a, a);\n"
     "}\n";
 
-// The 3d room. Both the colouring of the generated room and the light the
-// picture throws are worked out per vertex: the geometry is a few hundred
-// vertices, and the only thing that changes frame to frame is how much of the
-// screen's light lands on each of them. All the fragment side does is pick
-// between that vertex colour and the atlas a baked room is textured with, which
-// is what keeps a full screen projection layer affordable.
+// The 3d room. The light the picture throws is worked out per vertex: the only
+// thing that changes frame to frame is how much of the screen's light lands on
+// each of them. All the fragment side does is pick between the part's vertex
+// colour and the atlas it is textured with, which is what keeps a full screen
+// projection layer affordable.
 const char* const ROOM_VERTEX_SRC =
     "#version 300 es\n"
     "precision highp float;\n"
@@ -429,8 +428,10 @@ const char* const ROOM_FRAGMENT_SRC =
     "uniform float u_dim;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
-    // A generated room is at mix 0 and a textured one at 1. The sample happens
-    // either way, so a white 1x1 stands in while nothing else is loaded.
-    "    vec3 base = mix(v_color, texture(u_room, v_uv).rgb * u_dim, u_texMix);\n"
+    // A part painted from its vertex colours is at mix 0 and a textured one at
+    // 1. The sample happens either way, so a white 1x1 stands in for a part
+    // with no atlas. The brightness goes on either side of the mix, so it
+    // turns the whole room down and not only its atlases.
+    "    vec3 base = mix(v_color, texture(u_room, v_uv).rgb, u_texMix) * u_dim;\n"
     "    fragColor = vec4(base + v_wash, 1.0);\n"
     "}\n";

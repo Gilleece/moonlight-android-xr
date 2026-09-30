@@ -517,7 +517,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     glDeleteRenderbuffers(1, &ctx->roomDepthBuffer);
     glDeleteBuffers(1, &ctx->roomVertexBuffer);
     glDeleteBuffers(1, &ctx->roomIndexBuffer);
-    glDeleteTextures(1, &ctx->roomTexture);
+    glDeleteTextures(ROOM_MESH_ATLASES_MAX, ctx->roomTextures);
     glDeleteTextures(1, &ctx->roomWhiteTexture);
     if (ctx->roomProgram != 0) {
         glDeleteProgram(ctx->roomProgram);
