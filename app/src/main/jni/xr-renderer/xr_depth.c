@@ -1,6 +1,9 @@
 // The depth model's staging: the frame is drawn small and read back for
-// the model on the frame loop, and the depth thread normalises the result
-// and uploads it as the map the warp samples.
+// the model on the frame loop, the stage thread turns the readback into the
+// model input, the depth thread runs the model in Java, and the stage thread
+// normalises the result and uploads it as the map the warp samples. Each
+// capture travels in one of DEPTH_PAIRS pairs of staging, so the stages of
+// one map overlap the model's run on another.
 #include "xr_renderer.h"
 #include "xr_depthmap.h"
 #include "xr_shaders.h"
@@ -46,19 +49,33 @@ int initDepthModel(XrCtx* ctx) {
         return 0;
     }
 
-    // The depth thread gets its own context in the same share group, so it
-    // can upload into the back depth texture while the frame loop draws
+    // The depth thread gets its own context in the same share group for the
+    // model, and the stage thread another, so it can map the readbacks and
+    // upload into the back depth texture while the frame loop draws and the
+    // model runs
     const EGLint contextAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+    const EGLint pbufferAttribs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
     ctx->depthContext = eglCreateContext(ctx->eglDisplay, ctx->eglConfig, ctx->eglContext,
                                          contextAttribs);
     if (ctx->depthContext == EGL_NO_CONTEXT) {
         LOGE("depth thread context creation failed: %d", eglGetError());
         return 0;
     }
-    const EGLint pbufferAttribs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
     ctx->depthPbuffer = eglCreatePbufferSurface(ctx->eglDisplay, ctx->eglConfig, pbufferAttribs);
     if (ctx->depthPbuffer == EGL_NO_SURFACE) {
         LOGE("depth thread pbuffer creation failed: %d", eglGetError());
+        return 0;
+    }
+    ctx->depthStageContext = eglCreateContext(ctx->eglDisplay, ctx->eglConfig, ctx->eglContext,
+                                              contextAttribs);
+    if (ctx->depthStageContext == EGL_NO_CONTEXT) {
+        LOGE("depth stage context creation failed: %d", eglGetError());
+        return 0;
+    }
+    ctx->depthStagePbuffer = eglCreatePbufferSurface(ctx->eglDisplay, ctx->eglConfig,
+                                                     pbufferAttribs);
+    if (ctx->depthStagePbuffer == EGL_NO_SURFACE) {
+        LOGE("depth stage pbuffer creation failed: %d", eglGetError());
         return 0;
     }
 
@@ -66,26 +83,30 @@ int initDepthModel(XrCtx* ctx) {
     // the first real upload has to land somewhere else
     ctx->depthWriteIndex = 1;
     atomic_init(&ctx->depthStagedIndex, 0);
+    atomic_init(&ctx->depthLastPair, 0);
 
-    // Storage only: each capture reads back into one of these and the depth
+    // Storage only: each capture reads back into its pair's and the stage
     // thread maps it later, so nothing is ever uploaded into them
-    glGenBuffers(2, ctx->depthPbos);
-    for (int i = 0; i < 2; i++) {
+    glGenBuffers(DEPTH_PAIRS, ctx->depthPbos);
+    for (int i = 0; i < DEPTH_PAIRS; i++) {
         glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[i]);
         glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)(count * 4), NULL, GL_STREAM_READ);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
-    ctx->modelInput = malloc(count * 3 * sizeof(float));
-    ctx->modelOutput = malloc(count * sizeof(float));
+    int pairsOk = 1;
+    for (int i = 0; i < DEPTH_PAIRS; i++) {
+        ctx->modelInput[i] = malloc(count * 3 * sizeof(float));
+        ctx->modelOutput[i] = malloc(count * sizeof(float));
+        pairsOk = pairsOk && ctx->modelInput[i] != NULL && ctx->modelOutput[i] != NULL;
+    }
     ctx->depthUploadBuf = malloc(count * 4);
     ctx->depthNorm = malloc(count * sizeof(float));
     ctx->depthTau = malloc(count * sizeof(float));
     ctx->depthLow = malloc(count * sizeof(float));
     ctx->depthScratch = malloc(count * sizeof(float));
     ctx->depthColSums = malloc((size_t)w * sizeof(float));
-    if (ctx->modelInput == NULL || ctx->modelOutput == NULL ||
-            ctx->depthUploadBuf == NULL || ctx->depthNorm == NULL ||
+    if (!pairsOk || ctx->depthUploadBuf == NULL || ctx->depthNorm == NULL ||
             ctx->depthTau == NULL || ctx->depthLow == NULL ||
             ctx->depthScratch == NULL || ctx->depthColSums == NULL) {
         LOGE("depth staging buffer allocation failed");
@@ -96,38 +117,45 @@ int initDepthModel(XrCtx* ctx) {
     return 1;
 }
 
+static int pairOk(jint pair) {
+    return pair >= 0 && pair < DEPTH_PAIRS;
+}
+
 JNIEXPORT jobject JNICALL
-Java_com_limelight_binding_video_XrRenderer_nativeGetModelInput(JNIEnv* env, jobject thiz, jlong handle) {
+Java_com_limelight_binding_video_XrRenderer_nativeGetModelInput(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jint pair) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || ctx->modelInput == NULL) {
+    if (ctx == NULL || !pairOk(pair) || ctx->modelInput[pair] == NULL) {
         return NULL;
     }
-    return (*env)->NewDirectByteBuffer(env, ctx->modelInput,
+    return (*env)->NewDirectByteBuffer(env, ctx->modelInput[pair],
                                        (jlong)ctx->depthTexW * ctx->depthTexH * 3 * sizeof(float));
 }
 
 JNIEXPORT jobject JNICALL
-Java_com_limelight_binding_video_XrRenderer_nativeGetModelOutput(JNIEnv* env, jobject thiz, jlong handle) {
+Java_com_limelight_binding_video_XrRenderer_nativeGetModelOutput(JNIEnv* env, jobject thiz,
+                                                                 jlong handle, jint pair) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || ctx->modelOutput == NULL) {
+    if (ctx == NULL || !pairOk(pair) || ctx->modelOutput[pair] == NULL) {
         return NULL;
     }
-    return (*env)->NewDirectByteBuffer(env, ctx->modelOutput,
+    return (*env)->NewDirectByteBuffer(env, ctx->modelOutput[pair],
                                        (jlong)ctx->depthTexW * ctx->depthTexH * sizeof(float));
 }
 
 // Draws the current frame into the downscale target and asks for it back into
-// a pixel buffer. Nothing waits here: a readback straight into memory drains
-// the whole GPU queue, which at 90 Hz is most of a frame gone. The depth
-// thread waits on the fence left behind here and maps the buffer right before
-// the model needs it, in nativeFinishDepthCapture, which is a thread with no
-// frame deadline to miss.
+// the pair's pixel buffer. Nothing waits here: a readback straight into memory
+// drains the whole GPU queue, which at 90 Hz is most of a frame gone. The
+// stage thread waits on the fence left behind here and maps the buffer into
+// the pair's model input, in nativeFinishDepthCapture, on a thread with no
+// frame deadline to miss. Java only hands over a pair nothing else is using.
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env, jobject thiz,
                                                                     jlong handle,
-                                                                    jfloatArray texMatrixArr) {
+                                                                    jfloatArray texMatrixArr,
+                                                                    jint pair) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || ctx->depthPbos[0] == 0) {
+    if (ctx == NULL || ctx->depthPbos[0] == 0 || !pairOk(pair)) {
         return 0;
     }
     const int w = ctx->depthTexW;
@@ -154,39 +182,34 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
     glEnableVertexAttribArray(1);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
-    // The handoff guard on the Java side means the depth thread is always done
-    // with the other slot by the time a new capture gets here, but ping
-    // ponging costs nothing and leaves room if that guard ever loosens
-    int slot = 1 - ctx->captureIndex;
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[slot]);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[pair]);
     glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    if (ctx->captureFences[slot] != NULL) {
-        // Only reachable if that guard was bypassed, and a fence nothing ever
-        // waited on would otherwise leak here
-        glDeleteSync(ctx->captureFences[slot]);
+    if (ctx->captureFences[pair] != NULL) {
+        // Only reachable if Java handed out a pair still in use, and a fence
+        // nothing ever waited on would otherwise leak here
+        glDeleteSync(ctx->captureFences[pair]);
     }
 
     // Fence first, flush second, and the order is the whole point: a flush
     // only pushes out what is already in this context's queue, so flushing
     // before the fence exists leaves the fence itself sitting unflushed. The
-    // depth thread waits on it from another context and cannot flush this
+    // stage thread waits on it from another context and cannot flush this
     // one on our behalf, so it would block until this thread happened to
     // flush for some unrelated reason.
-    ctx->captureFences[slot] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    ctx->captureFences[pair] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
     glFlush();
-    ctx->captureIndex = slot;
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
     return nowNs() - startNs;
 }
 
-// The scene cut detector, on the capture just copied into the model input.
-// Only one capture is in flight at a time, so the next map uploaded is the
-// one made from it, and what the check finds waits in depthResets for that
-// upload to take.
-static void depthCutCheck(XrCtx* ctx, int w, int h) {
+// The scene cut detector, on the capture just copied into the pair's model
+// input. Captures are finished in the order they were taken, so the detector
+// steps through them in order, and what it finds stays with the pair until
+// the map made from it goes up.
+static void depthCutCheck(XrCtx* ctx, int pair, int w, int h) {
     int level = ctx->depthCutLevel;
     if (level == 0) {
         depthCutClear(&ctx->depthCut);
@@ -194,7 +217,7 @@ static void depthCutCheck(XrCtx* ctx, int w, int h) {
     }
 
     DepthThumb thumb;
-    depthThumbMake(&thumb, ctx->modelInput, w, h);
+    depthThumbMake(&thumb, ctx->modelInput[pair], w, h);
     // What the detector is about to judge, taken before the step moves it on
     int trace = level >= 2;
     float td = -1.0f, th = -1.0f, td2 = -1.0f, th2 = -1.0f, tcorr = 0.0f;
@@ -225,13 +248,10 @@ static void depthCutCheck(XrCtx* ctx, int w, int h) {
              "jump %d cut %d", ctx->depthCutChecks, td, th, td2, th2, tcorr, tout, tback,
              (cut & DEPTH_CUT_JUMP) != 0, (cut & DEPTH_CUT_CONFIRMED) != 0);
     }
-    if (cut & DEPTH_CUT_JUMP) {
-        ctx->depthResets |= DEPTH_RESET_TEXEL;
-    }
+    depthResetsSet(&ctx->depthResets, pair, depthCutResets(cut));
     if (!(cut & DEPTH_CUT_CONFIRMED)) {
         return;
     }
-    ctx->depthResets |= DEPTH_RESET_RANGE;
 
     long now = nowNs();
     if (ctx->depthCutLogNs != 0 && now - ctx->depthCutLogNs < DEPTH_CUT_LOG_NS) {
@@ -249,25 +269,27 @@ static void depthCutCheck(XrCtx* ctx, int w, int h) {
     ctx->depthCutUnlogged = 0;
 }
 
-// Waits for the last capture's readback to land, then copies it out of the
-// pixel buffer into the model input. Rows are flipped on the way: GL hands
-// back the bottom row first and the model wants the image the right way up,
-// since monocular depth leans heavily on which way is down. Runs on the depth
-// thread right before the model reads the input, so nothing else has to keep
-// the two in step, and the scene cut detector looks at it there. Returns the
-// time it took, or -1 when the buffer could not be mapped and there is
-// nothing to run the model on.
+// Waits for a pair's readback to land, then copies it out of the pixel buffer
+// into the pair's model input. Rows are flipped on the way: GL hands back the
+// bottom row first and the model wants the image the right way up, since
+// monocular depth leans heavily on which way is down. Runs on the stage thread
+// as soon as the capture is queued, while the model runs the other pair, and
+// the scene cut detector looks at it there. Returns the time it took, or -1
+// when the buffer could not be mapped and there is nothing to run the model
+// on.
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env, jobject thiz,
-                                                                     jlong handle) {
+                                                                     jlong handle, jint pair) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || ctx->depthPbos[0] == 0) {
+    if (ctx == NULL || ctx->depthPbos[0] == 0 || !pairOk(pair)) {
         return -1;
     }
     const int w = ctx->depthTexW;
     const int h = ctx->depthTexH;
     long startNs = nowNs();
-    int slot = ctx->captureIndex;
+    const int slot = pair;
+    // Nothing found yet, so a capture that cannot be mapped carries nothing
+    depthResetsSet(&ctx->depthResets, pair, 0);
 
     GLsync fence = ctx->captureFences[slot];
     if (fence != NULL) {
@@ -295,7 +317,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
 
     for (int y = 0; y < h; y++) {
         const unsigned char* src = pixels + (size_t)(h - 1 - y) * w * 4;
-        float* dst = ctx->modelInput + (size_t)y * w * 3;
+        float* dst = ctx->modelInput[pair] + (size_t)y * w * 3;
         for (int x = 0; x < w; x++) {
             dst[x * 3 + 0] = src[x * 4 + 0] * (1.0f / 255.0f);
             dst[x * 3 + 1] = src[x * 4 + 1] * (1.0f / 255.0f);
@@ -305,8 +327,30 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
 
     glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    depthCutCheck(ctx, w, h);
+    depthCutCheck(ctx, pair, w, h);
     return nowNs() - startNs;
+}
+
+static jboolean bindContext(XrCtx* ctx, EGLContext context, EGLSurface surface,
+                            const char* who) {
+    if (!eglMakeCurrent(ctx->eglDisplay, surface, surface, context)) {
+        LOGE("%s eglMakeCurrent failed: %d", who, eglGetError());
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+static void unbindContext(XrCtx* ctx, EGLContext* context, EGLSurface* surface) {
+    eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    if (*surface != EGL_NO_SURFACE) {
+        eglDestroySurface(ctx->eglDisplay, *surface);
+        *surface = EGL_NO_SURFACE;
+    }
+    if (*context != EGL_NO_CONTEXT) {
+        eglDestroyContext(ctx->eglDisplay, *context);
+        *context = EGL_NO_CONTEXT;
+    }
+    eglReleaseThread();
 }
 
 // Binds the depth thread's context. Called once from that thread before it
@@ -317,11 +361,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeBindDepthContext(JNIEnv* env, 
     if (ctx == NULL) {
         return JNI_FALSE;
     }
-    if (!eglMakeCurrent(ctx->eglDisplay, ctx->depthPbuffer, ctx->depthPbuffer, ctx->depthContext)) {
-        LOGE("depth thread eglMakeCurrent failed: %d", eglGetError());
-        return JNI_FALSE;
-    }
-    return JNI_TRUE;
+    return bindContext(ctx, ctx->depthContext, ctx->depthPbuffer, "depth thread");
 }
 
 JNIEXPORT void JNICALL
@@ -330,16 +370,29 @@ Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env
     if (ctx == NULL) {
         return;
     }
-    eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
-    if (ctx->depthPbuffer != EGL_NO_SURFACE) {
-        eglDestroySurface(ctx->eglDisplay, ctx->depthPbuffer);
-        ctx->depthPbuffer = EGL_NO_SURFACE;
+    unbindContext(ctx, &ctx->depthContext, &ctx->depthPbuffer);
+}
+
+// The same for the stage thread, called once from it before it touches GL
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeBindDepthStageContext(JNIEnv* env, jobject thiz,
+                                                                        jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return JNI_FALSE;
     }
-    if (ctx->depthContext != EGL_NO_CONTEXT) {
-        eglDestroyContext(ctx->eglDisplay, ctx->depthContext);
-        ctx->depthContext = EGL_NO_CONTEXT;
+    return bindContext(ctx, ctx->depthStageContext, ctx->depthStagePbuffer, "depth stage");
+}
+
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthStageContext(JNIEnv* env,
+                                                                          jobject thiz,
+                                                                          jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
     }
-    eglReleaseThread();
+    unbindContext(ctx, &ctx->depthStageContext, &ctx->depthStagePbuffer);
 }
 
 // The model output averaged per texel over real time, alpha = 1 - exp(-dt /
@@ -364,7 +417,7 @@ static const float* depthTauMap(XrCtx* ctx, const float* output, int count, long
     return ctx->depthTau;
 }
 
-// Normalizes the model output to 0..1 and uploads it as the depth map the
+// Normalizes a pair's model output to 0..1 and uploads it as the depth map the
 // warp samples. Both models emit relative inverse depth on an arbitrary
 // scale, so the range has to be found per frame. Rows flip back here.
 //
@@ -375,16 +428,20 @@ static const float* depthTauMap(XrCtx* ctx, const float* output, int count, long
 // map's capture starts them again instead. The guide colour rides along in
 // RGB so the upsampling pass gets the exact frame the depth came from.
 //
-// Runs on the depth thread, writing the next slot in a fixed rotation, never
-// the one the frame loop is reading, then publishing it behind a fence. This
-// used to finish instead, which stalled this thread until the GPU was idle
-// and still did not promise the frame loop's context, a different one in the
-// same share group, would see the result. A fence is something that context
-// can wait on itself, at the point it samples the texture.
+// Runs on the stage thread while the model runs the other pair, and in
+// capture order, so a map from a capture taken before a cut can never land
+// after the map the cut starts the averages on. It writes the next slot in
+// a fixed rotation, never the one the frame loop is reading, then publishes
+// it behind a fence. This used to finish instead, which stalled the thread
+// until the GPU was idle and still did not promise the frame loop's context,
+// a different one in the same share group, would see the result. A fence is
+// something that context can wait on itself, at the point it samples the
+// texture.
 JNIEXPORT jlong JNICALL
-Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobject thiz, jlong handle) {
+Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobject thiz,
+                                                              jlong handle, jint pair) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || ctx->modelOutput == NULL) {
+    if (ctx == NULL || !pairOk(pair) || ctx->modelOutput[pair] == NULL) {
         return 0;
     }
     const int w = ctx->depthTexW;
@@ -393,8 +450,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
 
     // Whatever the cut check found on this map's capture, or on an earlier
     // one whose model run made no map
-    int resets = ctx->depthResets;
-    ctx->depthResets = 0;
+    int resets = depthResetsTake(&ctx->depthResets, pair);
     if (resets & DEPTH_RESET_TEXEL) {
         ctx->depthTauValid = 0;
     }
@@ -402,7 +458,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
         ctx->depthRange.valid = 0;
     }
 
-    const float* raw = depthTauMap(ctx, ctx->modelOutput, w * h, startNs);
+    const float* raw = depthTauMap(ctx, ctx->modelOutput[pair], w * h, startNs);
     float lo, hi;
     robustRange(raw, w * h, &lo, &hi);
     depthRangeStep(&ctx->depthRange, lo, hi, (float)(startNs - ctx->rangeNs) / 1e9f,
@@ -443,7 +499,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     }
 
     for (int y = 0; y < h; y++) {
-        const float* guide = ctx->modelInput + (size_t)(h - 1 - y) * w * 3;
+        const float* guide = ctx->modelInput[pair] + (size_t)(h - 1 - y) * w * 3;
         const float* norm = ctx->depthNorm + (size_t)y * w;
         const float* low = ctx->depthLow + (size_t)y * w;
         unsigned char* dst = ctx->depthUploadBuf + (size_t)y * w * 4;
@@ -483,6 +539,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     // Index and fence go out together under one release store, so the frame
     // loop can never see the new index without the fence that belongs to it
     atomic_store_explicit(&ctx->depthStagedIndex, writeIndex, memory_order_release);
+    atomic_store_explicit(&ctx->depthLastPair, pair, memory_order_relaxed);
 
     // Always the next slot in the rotation, never a function of where the
     // frame loop currently is, which is what keeps this from landing on a slot
@@ -492,9 +549,22 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     return nowNs() - startNs;
 }
 
+// A capture that made no map, its readback unmappable or its model run
+// failed, in its turn among the maps. Whatever its cut check found goes to
+// the next map made.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeDropDepth(JNIEnv* env, jobject thiz,
+                                                            jlong handle, jint pair) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || !pairOk(pair)) {
+        return;
+    }
+    depthResetsDrop(&ctx->depthResets, pair);
+}
+
 // Waits, once, for the fence guarding the slot the frame loop is about to
 // sample, then discards it. Once the wait is in this context's queue every
-// later command is ordered behind the depth thread's upload by the queue
+// later command is ordered behind the stage thread's upload by the queue
 // itself, so a second site in the same frame, or the same slot next frame,
 // has nothing left to wait for.
 void waitForDepthSlot(XrCtx* ctx) {

@@ -45,6 +45,11 @@
 #define DEPTH_TEX_W_MAX 512
 #define DEPTH_TEX_H_MAX 288
 
+// Sets of depth staging a capture travels in: the readback, the model input
+// it is turned into and the output the model writes. Two, so one capture can
+// be read back and the last map uploaded while the model runs the other.
+#define DEPTH_PAIRS 2
+
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512

@@ -475,22 +475,25 @@ static void pollEvents(XrCtx* ctx) {
 static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyXrInput(ctx);
 
-    // The depth thread has been joined by now, but a slot published after the
-    // frame loop last sampled it still carries a fence nothing waited on
+    // The depth threads have been joined by now, but a slot published after
+    // the frame loop last sampled it still carries a fence nothing waited on,
+    // and so does a capture the stage thread never got to
     for (int i = 0; i < DEPTH_TEX_COUNT; i++) {
         if (ctx->depthFences[i] != NULL) {
             glDeleteSync(ctx->depthFences[i]);
         }
     }
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < DEPTH_PAIRS; i++) {
         if (ctx->captureFences[i] != NULL) {
             glDeleteSync(ctx->captureFences[i]);
         }
     }
-    glDeleteBuffers(2, ctx->depthPbos);
+    glDeleteBuffers(DEPTH_PAIRS, ctx->depthPbos);
     glDeleteBuffers(1, &ctx->ambiDetectPbo);
-    free(ctx->modelInput);
-    free(ctx->modelOutput);
+    for (int i = 0; i < DEPTH_PAIRS; i++) {
+        free(ctx->modelInput[i]);
+        free(ctx->modelOutput[i]);
+    }
     free(ctx->depthUploadBuf);
     free(ctx->depthNorm);
     free(ctx->depthTau);
@@ -572,6 +575,14 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
 
     if (ctx->eglDisplay != EGL_NO_DISPLAY) {
         eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        // The stage thread destroys its own context as it ends, so these are
+        // only left when the model never loaded and it never started
+        if (ctx->depthStagePbuffer != EGL_NO_SURFACE) {
+            eglDestroySurface(ctx->eglDisplay, ctx->depthStagePbuffer);
+        }
+        if (ctx->depthStageContext != EGL_NO_CONTEXT) {
+            eglDestroyContext(ctx->eglDisplay, ctx->depthStageContext);
+        }
         if (ctx->eglPbuffer != EGL_NO_SURFACE) {
             eglDestroySurface(ctx->eglDisplay, ctx->eglPbuffer);
         }

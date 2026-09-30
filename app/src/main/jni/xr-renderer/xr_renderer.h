@@ -311,22 +311,17 @@ static inline long nowNs(void) {
 #define ROOM_DIM_MIN 0.10f
 #define ROOM_DIM_MAX 2.0f
 
-// Three depth textures rather than two: the depth thread advances through
+// Three depth textures rather than two: the stage thread advances through
 // them in a fixed rotation, so a slot it is about to overwrite was last handed
 // to the frame loop a full rotation ago rather than one. One inference dwarfs
 // anything the frame loop could still have in flight from that slot by then.
 #define DEPTH_TEX_COUNT 3
 
-// What a capture's cut check asks of the map made from it: the per texel
-// average and the range started again
-#define DEPTH_RESET_TEXEL 1
-#define DEPTH_RESET_RANGE 2
-
 // The least time between two scene cut lines in the log, so a stream that
 // cuts on every beat cannot flood it. The next line says how many went unsaid.
 #define DEPTH_CUT_LOG_NS 2000000000L
 
-// Generous on purpose: the depth thread has no per frame deadline, and a
+// Generous on purpose: the stage thread has no per frame deadline, and a
 // short timeout here would only trade a hung capture for a torn one
 #define CAPTURE_FENCE_TIMEOUT_NS 500000000ull
 
@@ -449,15 +444,15 @@ typedef struct {
     // Set by nativeInit before any GL init and fixed from then on.
     int depthTexW;
     int depthTexH;
-    // Triple buffered: the frame loop samples one slot while the depth thread
+    // Triple buffered: the frame loop samples one slot while the stage thread
     // rotates through the rest, so neither ever blocks on the other. Which
     // slot the frame loop reads is its own to write.
     GLuint depthTextures[DEPTH_TEX_COUNT];
     int depthReadIndex;
-    // The slot the depth thread's next upload lands in. Its own to read and
+    // The slot the stage thread's next upload lands in. Its own to read and
     // write, so nothing guards it.
     int depthWriteIndex;
-    // Published by the depth thread together with the fence for that slot,
+    // Published by the stage thread together with the fence for that slot,
     // and adopted by the frame loop once it notices a new value. The release
     // and acquire on this one word are what keep the frame loop from seeing
     // the index before the fence that has to come with it.
@@ -467,9 +462,14 @@ typedef struct {
     GLsync depthFences[DEPTH_TEX_COUNT];
 
     // Second context in the same share group for the depth thread. Inference
-    // takes longer than a display frame, so it cannot run on the frame loop
+    // takes longer than a display frame, so it cannot run on the frame loop.
+    // Only the model runs on it.
     EGLContext depthContext;
     EGLSurface depthPbuffer;
+    // Third, for the stage thread, which turns each readback into a model
+    // input and uploads each map while the model runs on the other pair
+    EGLContext depthStageContext;
+    EGLSurface depthStagePbuffer;
 
     // Depth model staging. The frame is downscaled to depthTexW by depthTexH
     // on the GPU, read back, run through the model in Java, and the result
@@ -478,22 +478,23 @@ typedef struct {
     GLint downscaleTexMatrixUniform;
     GLuint downscaleTexture;
     GLuint downscaleFbo;
-    // The readback goes through a pixel buffer, so the frame loop only queues
-    // the transfer, and the depth thread waits on the fence and maps it right
-    // before the model needs it. Two, ping ponged, though the handoff guard
-    // means only one is ever in flight: the spare is headroom.
-    GLuint depthPbos[2];
-    int captureIndex;
-    GLsync captureFences[2];
-    float* modelInput;
-    float* modelOutput;
+    // One set per pair. The frame loop queues a readback into a pair's pixel
+    // buffer and leaves a fence, the stage thread waits on it and maps the
+    // buffer into the pair's model input, and the model writes the pair's
+    // output. Java hands the pairs out, so each has one owner at a time.
+    GLuint depthPbos[DEPTH_PAIRS];
+    GLsync captureFences[DEPTH_PAIRS];
+    float* modelInput[DEPTH_PAIRS];
+    float* modelOutput[DEPTH_PAIRS];
+    // The pair the live map was made from, for the frame capture only
+    atomic_int depthLastPair;
     unsigned char* depthUploadBuf;
 
     // The map normalised to 0..1, and the range it was normalised against,
     // smoothed on its own over real time: a single outlier pixel moving the
     // min or max used to shift the whole mapping, which pumps the entire
     // image. The range and the time of the map it last took belong to the
-    // depth thread.
+    // stage thread.
     float* depthNorm;
     float* depthLow;
     float* depthScratch;
@@ -504,7 +505,7 @@ typedef struct {
     long rangeNs;
     // The model output averaged per texel over real time, ahead of the range
     // and the normalisation, so raw model flicker does not reach the eyes.
-    // The depth thread's too.
+    // The stage thread's too.
     float* depthTau;
     int depthTauValid;
     long depthTauNs;
@@ -514,13 +515,12 @@ typedef struct {
     int rangeTauMs;
     // Scene cuts, found on the model input before the model runs. A jump
     // starts the per texel average again and a confirmed cut the range, at
-    // the next map uploaded, which is the one made from that capture. A
-    // capture whose model run fails leaves them for the map after. All but
-    // the level belong to the depth thread. The level is 0 off, 1 on, and 2
+    // the map made from the capture it was found on (DepthResets). All but
+    // the level belong to the stage thread. The level is 0 off, 1 on, and 2
     // on with a line per capture, which only a debug build can ask for.
     int depthCutLevel;
     DepthCut depthCut;
-    int depthResets;
+    DepthResets depthResets;
     long depthCutChecks;
     long depthCutLogNs;
     int depthCutUnlogged;
@@ -1110,7 +1110,7 @@ int linkProgram(GLuint* out, const char* fragmentSrc, const char* what);
 int initGl(XrCtx* ctx);
 void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation);
 
-// xr_depth.c: the depth model staging and the depth thread's uploads
+// xr_depth.c: the depth model staging and the stage thread's uploads
 int initDepthModel(XrCtx* ctx);
 void waitForDepthSlot(XrCtx* ctx);
 

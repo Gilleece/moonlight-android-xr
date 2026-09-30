@@ -681,6 +681,106 @@ static void testCutPictures(void) {
     }
 }
 
+// The resets ride with the pair whose capture found them, are taken once by
+// the map made from it, and a capture that made no map hands them on
+static void testResets(void) {
+    CHECK(depthCutResets(0) == 0);
+    CHECK(depthCutResets(DEPTH_CUT_JUMP) == DEPTH_RESET_TEXEL);
+    CHECK(depthCutResets(DEPTH_CUT_CONFIRMED) == DEPTH_RESET_RANGE);
+    CHECK(depthCutResets(DEPTH_CUT_JUMP | DEPTH_CUT_CONFIRMED)
+          == (DEPTH_RESET_TEXEL | DEPTH_RESET_RANGE));
+
+    DepthResets r;
+    memset(&r, 0, sizeof(r));
+
+    // The capture in pair 1 was checked, and jumped, before the map from
+    // pair 0 went up: that map takes nothing, pair 1's takes the reset, once
+    depthResetsSet(&r, 0, 0);
+    depthResetsSet(&r, 1, DEPTH_RESET_TEXEL);
+    CHECK(depthResetsTake(&r, 0) == 0);
+    CHECK(depthResetsTake(&r, 1) == DEPTH_RESET_TEXEL);
+    CHECK(depthResetsTake(&r, 1) == 0);
+
+    // A cut on a capture that made no map goes to the next map made, merged
+    // with that map's own, and no further
+    depthResetsSet(&r, 0, DEPTH_RESET_TEXEL);
+    depthResetsDrop(&r, 0);
+    depthResetsSet(&r, 1, DEPTH_RESET_RANGE);
+    CHECK(depthResetsTake(&r, 1) == (DEPTH_RESET_TEXEL | DEPTH_RESET_RANGE));
+    depthResetsSet(&r, 0, 0);
+    CHECK(depthResetsTake(&r, 0) == 0);
+
+    // Two drops in a row both reach the map after them
+    depthResetsSet(&r, 0, DEPTH_RESET_TEXEL);
+    depthResetsDrop(&r, 0);
+    depthResetsSet(&r, 1, DEPTH_RESET_RANGE);
+    depthResetsDrop(&r, 1);
+    depthResetsSet(&r, 0, 0);
+    CHECK(depthResetsTake(&r, 0) == (DEPTH_RESET_TEXEL | DEPTH_RESET_RANGE));
+
+    // A capture read back again into a pair starts from what its own check
+    // found, not from what the pair held before
+    depthResetsSet(&r, 1, DEPTH_RESET_RANGE);
+    depthResetsSet(&r, 1, 0);
+    CHECK(depthResetsTake(&r, 1) == 0);
+}
+
+// The detector over two pairs in the order the stage thread runs them: each
+// capture is checked as soon as it is read back, while the map from the one
+// before it is still to go up. The jump and the confirmation land on the
+// maps made from the captures that found them, and the maps from captures
+// before the cut take nothing, so none of them can seed the average again
+// after it has started over.
+static void testResetsInPipeline(void) {
+    const float levels[] = { 0.2f, 0.2f, 0.2f, 0.7f, 0.7f, 0.7f, 0.7f };
+    const int count = (int)(sizeof(levels) / sizeof(levels[0]));
+    DepthCut c;
+    memset(&c, 0, sizeof(c));
+    DepthResets r;
+    memset(&r, 0, sizeof(r));
+    int got[7];
+    int waiting = -1;
+    for (int i = 0; i < count; i++) {
+        int pair = i % DEPTH_PAIRS;
+        DepthThumb t = flatThumb(levels[i]);
+        float d, h;
+        depthResetsSet(&r, pair, depthCutResets(depthCutStep(&c, &t, &d, &h)));
+        if (waiting >= 0) {
+            got[waiting] = depthResetsTake(&r, waiting % DEPTH_PAIRS);
+        }
+        waiting = i;
+    }
+    got[waiting] = depthResetsTake(&r, waiting % DEPTH_PAIRS);
+    CHECK(got[0] == 0 && got[1] == 0 && got[2] == 0);
+    CHECK(got[3] == DEPTH_RESET_TEXEL);
+    CHECK(got[4] == DEPTH_RESET_RANGE);
+    CHECK(got[5] == 0 && got[6] == 0);
+
+    // The same cut with the jump's model run failing: its map is dropped and
+    // the reset goes up with the next map, the confirmation's
+    memset(&c, 0, sizeof(c));
+    memset(&r, 0, sizeof(r));
+    waiting = -1;
+    for (int i = 0; i < count; i++) {
+        int pair = i % DEPTH_PAIRS;
+        DepthThumb t = flatThumb(levels[i]);
+        float d, h;
+        depthResetsSet(&r, pair, depthCutResets(depthCutStep(&c, &t, &d, &h)));
+        if (waiting == 3) {
+            depthResetsDrop(&r, waiting % DEPTH_PAIRS);
+            got[waiting] = -1;
+        }
+        else if (waiting >= 0) {
+            got[waiting] = depthResetsTake(&r, waiting % DEPTH_PAIRS);
+        }
+        waiting = i;
+    }
+    got[waiting] = depthResetsTake(&r, waiting % DEPTH_PAIRS);
+    CHECK(got[2] == 0);
+    CHECK(got[4] == (DEPTH_RESET_TEXEL | DEPTH_RESET_RANGE));
+    CHECK(got[5] == 0 && got[6] == 0);
+}
+
 int main(void) {
     testRobustRange();
     testLowPass();
@@ -697,5 +797,7 @@ int main(void) {
     testCut();
     testCutLayout();
     testCutPictures();
+    testResets();
+    testResetsInPipeline();
     return checksDone("xr_depthmap");
 }
