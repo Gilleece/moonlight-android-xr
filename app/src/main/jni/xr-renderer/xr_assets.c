@@ -555,6 +555,12 @@ int roomStyleForCell(int cell) {
     if (cell == ENV_CELL_HOME_THEATER) {
         return ROOM_STYLE_THEATER;
     }
+    if (cell == ENV_CELL_GRAND_CINEMA) {
+        return ROOM_STYLE_GRAND_CINEMA;
+    }
+    if (cell == ENV_CELL_SYNTHWAVE) {
+        return ROOM_STYLE_SYNTHWAVE;
+    }
     return 0;
 }
 

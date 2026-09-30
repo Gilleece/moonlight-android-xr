@@ -176,26 +176,34 @@ static unsigned char* readFile(const char* path, size_t* size) {
     return data;
 }
 
-// The atlases that ship, as the tool wrote them
-static void testShipped(void) {
+// One atlas that ships, as the tool wrote it: the 4096 set every headset but
+// the XR2 Gen 1 reads, or the 2048 set those read
+static void checkShipped(const char* name, uint32_t side, int levels) {
     AtlasInfo info;
     size_t size = 0;
-    unsigned char* full = readFile(ASSETS "home_theater_0.atlas", &size);
-    CHECK(full != NULL);
-    if (full != NULL) {
-        CHECK(atlasParse(full, size, &info) == 13);
-        CHECK(info.width == 4096 && info.height == 4096);
-        CHECK(info.blockWidth == 6 && info.blockHeight == 6);
-        CHECK(info.lengths[12] == 16);
-        free(full);
+    char path[256];
+    snprintf(path, sizeof(path), ASSETS "%s", name);
+    unsigned char* data = readFile(path, &size);
+    CHECK(data != NULL);
+    if (data == NULL) {
+        return;
     }
-    unsigned char* lo = readFile(ASSETS "home_theater_lo_0.atlas", &size);
-    CHECK(lo != NULL);
-    if (lo != NULL) {
-        CHECK(atlasParse(lo, size, &info) == 12);
-        CHECK(info.width == 2048 && info.height == 2048);
-        CHECK(info.lengths[0] == 342u * 342u * 16u);
-        free(lo);
+    CHECK(atlasParse(data, size, &info) == levels);
+    CHECK(info.width == side && info.height == side);
+    CHECK(info.blockWidth == 6 && info.blockHeight == 6);
+    CHECK(info.lengths[0] == atlasLevelBytes(side, side, 6, 6));
+    CHECK(info.lengths[levels - 1] == 16);
+    free(data);
+}
+
+static void testShipped(void) {
+    const char* rooms[] = { "home_theater", "grand_cinema", "synthwave" };
+    for (int i = 0; i < 3; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "%s_0.atlas", rooms[i]);
+        checkShipped(name, 4096, 13);
+        snprintf(name, sizeof(name), "%s_lo_0.atlas", rooms[i]);
+        checkShipped(name, 2048, 12);
     }
 }
 

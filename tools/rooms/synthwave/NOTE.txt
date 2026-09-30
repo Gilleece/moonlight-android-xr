@@ -1,0 +1,58 @@
+"Synthwave" is the owner's own model. Copyright (c) 2026 Sean Gilleece /
+Woodford XR, licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/), attribution to Sean Gilleece /
+Woodford XR. First made for Depthray, Woodford XR's VR video player, and
+borrowed from it for this app. Modelled in Blender and painted in vertex
+colours, the ground, the sun and the vista all carrying their own, with a 4096
+by 4096 atlas on the sofa.
+
+Shipped in the app as the "Synthwave" environment.
+
+The source, synthwave.glb (about 11 MB, the sofa's atlas embedded as a PNG), is
+kept outside the repository. The mesh is the one the Synthwave_HighRes node
+carries; the file's other nodes are markers and carry no geometry. The renderer
+paints a part from its atlas or from its colours and never both, so the bake
+splits that one primitive in two on its vertex colours: the 2,068 triangles
+whose vertices are white take the atlas and the other 10,890 are painted from
+their colours. Run from the top of the repository, with the glb and the
+extracted PNG both outside it:
+
+  python3 tools/bake_room.py --mesh Synthwave_HighRes \
+      --texture synthwave_4k.png synthwave.glb \
+      app/src/main/assets/rooms/synthwave.room
+
+  python3 tools/atlas_astc.py synthwave_4k.png \
+      --out app/src/main/assets/rooms/synthwave_0.atlas
+
+The delivered atlas is already 4096, so it is encoded as it comes, each level a
+Lanczos resize of it. The 2048 set is encoded from a 2048 Lanczos resize saved
+as a PNG first, so its smaller levels are resized from that:
+
+  python3 -c "from PIL import Image; Image.open('synthwave_4k.png').convert('RGB')\
+.resize((2048, 2048), Image.LANCZOS).save('synthwave_2k.png', optimize=True)"
+  python3 tools/atlas_astc.py synthwave_2k.png \
+      --out app/src/main/assets/rooms/synthwave_lo_0.atlas
+
+atlas_astc.py needs astcenc 5.x (ARM's astc-encoder, Apache-2.0) through
+$ASTCENC or on the PATH. Both atlases are ASTC 6x6 at the default "thorough"
+quality with their mip chains down to 1x1.
+
+  synthwave.room           1,306,980 bytes, 26,169 vertices, 12,958 triangles,
+                           two parts: the sofa, 4,874 vertices off the atlas,
+                           and 21,295 painted from their colours
+  synthwave_0.atlas        9,961,612 bytes, 4096 square, 13 levels
+  synthwave_lo_0.atlas     2,497,784 bytes, 2048 square, 12 levels, the set
+                           an XR2 Gen 1 headset reads
+
+The glb's ScreenAnchor empty says the picture hangs at (0, 3.1, -14), 10 by
+5.625 m, and its Viewer_Seated node is at (0, 1.2, 0). The room's row in
+xr_room.c keeps the seat, raised 0.35 m and brought 0.10 m in, and hangs a
+bigger picture than the anchor: 14 by 7.875 m at (0, 4.5, -14), which keeps its
+bottom edge half a metre off the ground. There are no walls, so the row puts
+them 1800 m out where nothing can reach them, marks the room open so nothing
+clamps the picture, and the far plane follows the geometry's own reach, the
+sky 1,800 m out. The picture may be resized, the glow starts on, and the room
+is drawn at 0.53 of its baked brightness.
+
+rooms/thumbs/synthwave.jpg, the picker tile, is a 256 square centre crop of the
+owner's own picture of the room.

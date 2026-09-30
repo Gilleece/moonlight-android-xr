@@ -21,6 +21,27 @@ public class EnvironmentIdsTest {
     }
 
     @Test
+    public void theNewRoomsTakeTheNextFreeIds() {
+        assertEquals(5, PreferenceConfiguration.VR_ENV_GRAND_CINEMA);
+        assertEquals(6, PreferenceConfiguration.VR_ENV_SYNTHWAVE);
+        assertEquals(ENV_CELL_GRAND_CINEMA, EnvironmentIds.cellForId(5));
+        assertEquals(ENV_CELL_SYNTHWAVE, EnvironmentIds.cellForId(6));
+        assertEquals(5, EnvironmentIds.idForCell(ENV_CELL_GRAND_CINEMA));
+        assertEquals(6, EnvironmentIds.idForCell(ENV_CELL_SYNTHWAVE));
+    }
+
+    @Test
+    public void theCellsRunInThePickersOrder() {
+        // Passthrough, void, Home Theater, Grand Cinema, Synthwave, one band
+        assertEquals(0, ENV_CELL_PASSTHROUGH);
+        assertEquals(1, ENV_CELL_VOID);
+        assertEquals(2, ENV_CELL_HOME_THEATER);
+        assertEquals(3, ENV_CELL_GRAND_CINEMA);
+        assertEquals(4, ENV_CELL_SYNTHWAVE);
+        assertEquals(5, ENV_CELL_COUNT);
+    }
+
+    @Test
     public void retiredIdsNameNothing() {
         // The minimal room, PSX Cinema and the photos. Never reused, so none
         // of them can come back meaning something else.
@@ -109,14 +130,18 @@ public class EnvironmentIdsTest {
         assertFalse(EnvironmentIds.isRoomCell(ENV_CELL_PASSTHROUGH));
         assertFalse(EnvironmentIds.isRoomCell(ENV_CELL_VOID));
         assertTrue(EnvironmentIds.isRoomCell(ENV_CELL_HOME_THEATER));
+        assertTrue(EnvironmentIds.isRoomCell(ENV_CELL_GRAND_CINEMA));
+        assertTrue(EnvironmentIds.isRoomCell(ENV_CELL_SYNTHWAVE));
     }
 
     @Test
     public void theGridFitsItsCells() {
-        // One band of square cells with every environment in it
+        // One band of five square cells with every environment in it and no
+        // blank tile left over
         assertEquals(1, PICKER_ROWS);
+        assertEquals(5, PICKER_COLS);
         assertEquals(PICKER_CELL_PX * PICKER_COLS, PICKER_TEX_W);
         assertEquals(PICKER_HEADER_PX + PICKER_CELL_PX, PICKER_TEX_H);
-        assertTrue(ENV_CELL_COUNT <= PICKER_CELLS);
+        assertEquals(PICKER_CELLS, ENV_CELL_COUNT);
     }
 }

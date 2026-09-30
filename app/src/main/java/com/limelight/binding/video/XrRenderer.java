@@ -973,6 +973,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static String roomMeshFile(int cell) {
         switch (cell) {
             case ENV_CELL_HOME_THEATER: return "home_theater.room";
+            case ENV_CELL_GRAND_CINEMA: return "grand_cinema.room";
+            case ENV_CELL_SYNTHWAVE: return "synthwave.room";
             default: return null;
         }
     }
@@ -986,6 +988,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         String set = PreferenceConfiguration.isXr2Gen1Headset() ? "_lo" : "";
         switch (cell) {
             case ENV_CELL_HOME_THEATER: return new String[] { "home_theater" + set + "_0.atlas" };
+            case ENV_CELL_GRAND_CINEMA: return new String[] { "grand_cinema" + set + "_0.atlas" };
+            case ENV_CELL_SYNTHWAVE: return new String[] { "synthwave" + set + "_0.atlas" };
             default: return null;
         }
     }

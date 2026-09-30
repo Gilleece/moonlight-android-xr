@@ -272,6 +272,9 @@ static void checkShipped(const char* name, uint32_t vertices, uint32_t triangles
 
 static void testShipped(void) {
     checkShipped("home_theater.room", 16821, 5876, 1, 0, 1);
+    checkShipped("grand_cinema.room", 43670, 17790, 1, 0, 1);
+    // The sofa off the atlas, and the rest painted from its colours
+    checkShipped("synthwave.room", 26169, 12958, 2, 1, 1);
 }
 
 int main(void) {

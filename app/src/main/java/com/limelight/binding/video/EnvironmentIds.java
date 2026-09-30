@@ -38,7 +38,8 @@ final class EnvironmentIds {
 
     // A cell that is a fully 3d room rather than a plain background
     static boolean isRoomCell(int cell) {
-        return cell == ENV_CELL_HOME_THEATER;
+        return cell == ENV_CELL_HOME_THEATER || cell == ENV_CELL_GRAND_CINEMA
+                || cell == ENV_CELL_SYNTHWAVE;
     }
 
     static int idForCell(int cell) {
@@ -46,6 +47,8 @@ final class EnvironmentIds {
             case ENV_CELL_PASSTHROUGH: return PreferenceConfiguration.VR_ENV_PASSTHROUGH;
             case ENV_CELL_VOID: return PreferenceConfiguration.VR_ENV_VOID;
             case ENV_CELL_HOME_THEATER: return PreferenceConfiguration.VR_ENV_HOME_THEATER;
+            case ENV_CELL_GRAND_CINEMA: return PreferenceConfiguration.VR_ENV_GRAND_CINEMA;
+            case ENV_CELL_SYNTHWAVE: return PreferenceConfiguration.VR_ENV_SYNTHWAVE;
             default: return -1;
         }
     }
@@ -55,6 +58,8 @@ final class EnvironmentIds {
             case PreferenceConfiguration.VR_ENV_PASSTHROUGH: return ENV_CELL_PASSTHROUGH;
             case PreferenceConfiguration.VR_ENV_VOID: return ENV_CELL_VOID;
             case PreferenceConfiguration.VR_ENV_HOME_THEATER: return ENV_CELL_HOME_THEATER;
+            case PreferenceConfiguration.VR_ENV_GRAND_CINEMA: return ENV_CELL_GRAND_CINEMA;
+            case PreferenceConfiguration.VR_ENV_SYNTHWAVE: return ENV_CELL_SYNTHWAVE;
             default: return -1;
         }
     }

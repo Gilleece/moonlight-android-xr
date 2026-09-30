@@ -42,6 +42,8 @@ final class XrPanels {
     private static final String IMAGE_DIR = "images";
     // A baked room shows a picture of itself on its tile, at the cell's own size
     private static final String THEATER_THUMB = "rooms/thumbs/home_theater.jpg";
+    private static final String GRAND_CINEMA_THUMB = "rooms/thumbs/grand_cinema.jpg";
+    private static final String SYNTHWAVE_THUMB = "rooms/thumbs/synthwave.jpg";
     private static final int PICKER_CELL_W = PICKER_TEX_W / PICKER_COLS;
     // One per band, drawn in the strip above its cells
     private static final String[] PICKER_HEADERS = { "Rooms" };
@@ -257,6 +259,16 @@ final class XrPanels {
                 name = "Home Theater";
                 thumb = decodeRoomThumb(THEATER_THUMB);
                 paint.setColor(0xFF14110F);
+            }
+            else if (cell == ENV_CELL_GRAND_CINEMA) {
+                name = "Grand Cinema";
+                thumb = decodeRoomThumb(GRAND_CINEMA_THUMB);
+                paint.setColor(0xFF1A0A0B);
+            }
+            else if (cell == ENV_CELL_SYNTHWAVE) {
+                name = "Synthwave";
+                thumb = decodeRoomThumb(SYNTHWAVE_THUMB);
+                paint.setColor(0xFF140B20);
             }
             else {
                 continue;

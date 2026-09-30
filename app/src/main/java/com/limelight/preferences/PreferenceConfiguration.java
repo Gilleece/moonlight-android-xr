@@ -84,6 +84,8 @@ public class PreferenceConfiguration {
     public static final int VR_ENV_PASSTHROUGH = 0;
     public static final int VR_ENV_VOID = 1;
     public static final int VR_ENV_HOME_THEATER = 4;
+    public static final int VR_ENV_GRAND_CINEMA = 5;
+    public static final int VR_ENV_SYNTHWAVE = 6;
     // Nor is this: a marker that the Gen 1 profile decision has been made
     public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
     // Nor this: a marker that a stored MiDaS has had its one move to ZipDepth

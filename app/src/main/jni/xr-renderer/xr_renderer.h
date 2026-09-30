@@ -263,8 +263,10 @@ static inline long nowNs(void) {
 // one projection layer this renderer has. Which room, 0 for none, each with a
 // row of its own in xr_room.c.
 #define ROOM_STYLE_THEATER 1
+#define ROOM_STYLE_GRAND_CINEMA 2
+#define ROOM_STYLE_SYNTHWAVE 3
 #define ROOM_STYLE_FIRST ROOM_STYLE_THEATER
-#define ROOM_STYLE_LAST ROOM_STYLE_THEATER
+#define ROOM_STYLE_LAST ROOM_STYLE_SYNTHWAVE
 #define ROOM_EYES 2
 // How big the room renders per eye, picked by the Environment Res setting.
 // Half of what the runtime recommends was soft enough against the video layer
@@ -614,7 +616,7 @@ typedef struct {
     // What the debug property asked for, or -1 while the panel still owns it
     int ambiOverride;
 
-    // Which room the picker is on: 0 none, 1 the home theater.
+    // Which room the picker is on: 0 none, else one of the ROOM_STYLE_ values
     // Same arrangement as the glow, with a debug property that can force it.
     int roomStyle;
     int roomOverride;

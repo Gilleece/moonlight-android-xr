@@ -177,6 +177,30 @@ static const RoomModel ROOM_MODELS[] = {
         .spillRadius = 3.0f, .spillGain = 0.55f, .dim = 0.37f,
         .seed = 0xc2b2ae35u, .scale = 1.0f, .resizable = 1, .open = 0, .glow = 1,
     },
+    // Grand Cinema: a raked auditorium, watched from partway up the rake, with
+    // the picture filling the whole of its screen. Built around that picture,
+    // so it cannot be resized, and dark enough that the glow spoils it.
+    {
+        .eye = { 0.0f, 4.8f, 6.0f }, .eyeRaise = 0.40f, .eyeForward = 0.0f,
+        .screen = { 0.0f, 7.4f, -15.42f }, .screenWidth = 22.0f, .screenHeight = 12.375f,
+        .screenFraction = 1.0f,
+        .floorY = -0.3f, .ceilingY = 16.3f, .halfWidth = 14.3f, .backZ = 16.3f,
+        .spillRadius = 8.0f, .spillGain = 0.55f, .dim = 0.21f,
+        .seed = 0x85ebca6bu, .scale = 1.0f, .resizable = 0, .open = 0, .glow = 0,
+    },
+    // Synthwave: no room at all, a ground and a sky that run to the horizon,
+    // so the walls are put where nothing can reach them and the picture hangs
+    // in the open. 14 m across and raised to y 4.5, which keeps its bottom edge
+    // half a metre off the ground; the model's own anchor says 10 by 5.625 at
+    // y 3.1. The light falls off slowly and little of it comes back.
+    {
+        .eye = { 0.0f, 1.2f, 0.0f }, .eyeRaise = 0.35f, .eyeForward = 0.10f,
+        .screen = { 0.0f, 4.5f, -14.0f }, .screenWidth = 14.0f, .screenHeight = 7.875f,
+        .screenFraction = 1.0f,
+        .floorY = 0.0f, .ceilingY = 1800.0f, .halfWidth = 1800.0f, .backZ = 1800.0f,
+        .spillRadius = 6.0f, .spillGain = 0.4f, .dim = 0.53f,
+        .seed = 0x2545f491u, .scale = 1.0f, .resizable = 1, .open = 1, .glow = 1,
+    },
 };
 
 // A row a style, so the table and the list of styles cannot drift apart

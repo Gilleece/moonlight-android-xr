@@ -75,9 +75,9 @@ which one should. Where you leave it is where it will be next time, and
 recentring the headset puts it back to where a fresh install starts.
 
 To the left of the move bar is a button that opens a grid of environments:
-passthrough, an empty black void, and the Home Theater, a 3D room that hangs
-the screen on its wall. Passthrough is in the grid as well as in the settings,
-so it can be switched mid stream.
+passthrough, an empty black void, and three 3D rooms that hang the screen for
+you, the Home Theater, the Grand Cinema and Synthwave. Passthrough is in the
+grid as well as in the settings, so it can be switched mid stream.
 
 ## Settings
 
@@ -231,13 +231,14 @@ use, provided the authors are cited when the data is used in any research or com
 application". The 37 elevation 0 files of the compact set ship unchanged in `assets/hrtf/kemar/`,
 with those terms in the `LICENSE.txt` beside them.
 
-The Home Theater environment is the fork author's own model, Copyright (c) 2026 Sean Gilleece /
-Woodford XR, licensed under [Creative Commons Attribution 4.0](http://creativecommons.org/licenses/by/4.0/)
-with attribution to Sean Gilleece / Woodford XR. It was first made for
-Depthray, Woodford XR's VR video player, and is borrowed from it here. Its
-mesh is baked by `tools/bake_room.py` and its texture compressed to ASTC by `tools/atlas_astc.py`,
-which runs ARM's [astc-encoder](https://github.com/ARM-software/astc-encoder) (Apache 2.0) at build
-time only; the commands are in `tools/rooms/home-theater/NOTE.txt`.
+The Home Theater, Grand Cinema and Synthwave environments are the fork author's own models,
+Copyright (c) 2026 Sean Gilleece / Woodford XR, licensed under
+[Creative Commons Attribution 4.0](http://creativecommons.org/licenses/by/4.0/) with attribution to
+Sean Gilleece / Woodford XR. They were first made for Depthray, Woodford XR's VR video player, and
+are borrowed from it here. Their meshes are baked by `tools/bake_room.py` and their textures
+compressed to ASTC by `tools/atlas_astc.py`, which runs ARM's
+[astc-encoder](https://github.com/ARM-software/astc-encoder) (Apache 2.0) at build time only; the
+commands are in each room's `NOTE.txt` under `tools/rooms/`.
 
 ---
 

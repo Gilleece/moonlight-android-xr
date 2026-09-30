@@ -122,7 +122,9 @@
 #define ENV_CELL_PASSTHROUGH 0
 #define ENV_CELL_VOID 1
 #define ENV_CELL_HOME_THEATER 2
-#define ENV_CELL_COUNT 3
+#define ENV_CELL_GRAND_CINEMA 3
+#define ENV_CELL_SYNTHWAVE 4
+#define ENV_CELL_COUNT 5
 
 // The buttons under the bar are all drawn at this size
 #define BUTTON_TEX 128
