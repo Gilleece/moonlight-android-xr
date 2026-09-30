@@ -326,19 +326,31 @@ public class StreamSettings extends Activity {
             }
 
             // The synthetic depth patterns are development tools. They only
-            // confuse in a release build, so the list keeps the two real
-            // choices there.
+            // confuse in a release build, so the list keeps the real choices
+            // there.
+            final ListPreference depthPref = (ListPreference) findPreference(
+                    PreferenceConfiguration.VR_DEPTH_SOURCE_PREF_STRING);
             if (!BuildConfig.DEBUG) {
-                ListPreference depthPref = (ListPreference) findPreference(
-                        PreferenceConfiguration.VR_DEPTH_SOURCE_PREF_STRING);
-                String[] keep = { "off", "model" };
+                String[] keep = { PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH,
+                        PreferenceConfiguration.VR_DEPTH_SOURCE_MIDAS, "off" };
                 keepPreferenceEntries(depthPref, keep);
                 // Only reachable by setting it from outside the app, since the
                 // two builds do not share preferences, but a value that is no
                 // longer in the list shows as a blank selection
                 if (!Arrays.asList(keep).contains(depthPref.getValue())) {
-                    depthPref.setValue("model");
+                    depthPref.setValue(PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH);
                 }
+            }
+            // MiDaS is not offered on an XR2 Gen 1 headset, and a MiDaS stored
+            // there already runs as ZipDepth, so the list says so
+            if (PreferenceConfiguration.isXr2Gen1Headset()) {
+                removeValue(PreferenceConfiguration.VR_DEPTH_SOURCE_PREF_STRING,
+                        PreferenceConfiguration.VR_DEPTH_SOURCE_MIDAS, new Runnable() {
+                    @Override
+                    public void run() {
+                        depthPref.setValue(PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH);
+                    }
+                });
             }
 
             // Where the log actually is, which is the first thing anyone

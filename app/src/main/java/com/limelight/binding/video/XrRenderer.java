@@ -108,6 +108,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private Canvas overlayCanvas;
     private Paint overlayPaint;
     private volatile float lastInferenceMs;
+    // Which model, at what size, on which runtime, for the overlay
+    private volatile String depthLabel = "";
     private volatile float lastDepthAgeMs;
     private volatile int lastDepthSkips;
 
@@ -291,9 +293,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // in the log too
                 nativeSetFileLog(FileLog.getLogPath(), FileLog.getLevel());
 
-                // The depth staging is allocated at the model's input size, so
-                // that is settled here, before any of it is built
-                DepthSize mapSize = MidasDepthSource.MODEL_SIZE;
+                // The depth staging is allocated at the input size of the
+                // export this headset loads, so the route is settled here,
+                // before any of it is built. The test patterns run at the
+                // default model's size.
+                MidasDepthSource.Spec depthSpec = MidasDepthSource.specFor(prefs.vrDepthModel);
+                MidasDepthSource.Route depthRoute =
+                        depthSpec.route(PreferenceConfiguration.isXr2Gen1Headset());
+                DepthSize mapSize = depthRoute.size;
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         mapSize.width, mapSize.height,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
@@ -326,7 +333,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 inputSurface = new Surface(surfaceTexture);
 
                 if (prefs.vrDepthMode == DEPTH_MODE_MODEL) {
-                    startDepthThread(activity);
+                    FileLog.event("depth model "+depthSpec.name+", "+depthRoute.label()
+                            +", map "+mapSize);
+                    startDepthThread(activity, depthSpec, depthRoute);
                 }
 
                 initOk[0] = true;
@@ -375,7 +384,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
      * thread with its own context in the render context's share group. The
      * frame loop hands over a captured frame and carries on submitting.
      */
-    private void startDepthThread(final Activity activity) {
+    private void startDepthThread(final Activity activity, final MidasDepthSource.Spec spec,
+                                  final MidasDepthSource.Route route) {
         depthThread = new Thread() {
             @Override
             public void run() {
@@ -398,7 +408,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         return;
                     }
 
-                    source = new MidasDepthSource();
+                    MidasDepthSource model = new MidasDepthSource(route);
+                    source = model;
                     if (!source.initialize(activity, input, output)) {
                         // The depth texture keeps the flat map it was
                         // initialized with, so zero disparity, and the
@@ -406,6 +417,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         LimeLog.severe("Depth source init failed, stereo will be flat");
                         return;
                     }
+                    depthLabel = spec.name+" "+route.size+" "+model.runtimeLabel();
 
                     depthReady = true;
                     runDepthLoop(source);
@@ -1253,6 +1265,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("Warp GPU: %.2f ms", warpMs));
         if (depthReady) {
+            sb.append('\n').append("Depth model: ").append(depthLabel);
             sb.append('\n').append(String.format("Depth inference: %.1f ms", lastInferenceMs));
             sb.append('\n').append(String.format("Depth age: %.0f ms", lastDepthAgeMs));
             sb.append('\n').append("Depth frames skipped: ").append(lastDepthSkips);

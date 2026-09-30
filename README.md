@@ -35,8 +35,8 @@ untested, and the depth model may be too expensive for them at any resolution.
 ## How it works
 
     decoder -> SurfaceTexture (external OES texture)
-            -> downscale to 256x256, read back
-            -> MiDaS small on the GPU, on its own thread
+            -> downscale to the model's input, 512x288, read back
+            -> ZipDepth on the GPU, on its own thread
             -> depth upsampled to quarter resolution, guided by the colour frame
             -> occlusion aware gather warp, one view per eye
             -> two OpenXR quad layers, one per eye
@@ -89,7 +89,7 @@ in the grid as well as in the settings, so it can be switched mid stream.
 | Screen distance | 3.0 m | |
 | Screen width | 3.0 m | 3 m wide at 3 m away is about 53 degrees |
 | Passthrough mode | off | Show your room behind the screen. Costs performance, turn it back off if the stream suffers. Also reachable from the environment grid while streaming |
-| Realtime 3D mode | V1.0 - MiDaS Based 3D | "Off" streams flat, the rest are test patterns |
+| Realtime 3D mode | V2.0 - ZipDepth Based 3D (Recommended) | V1.0 is the older MiDaS model, not offered on Quest 2, Quest Pro and Pico 4. "Off" streams flat, the rest are test patterns |
 | Stereo separation | 0.5 % | Of frame width. Above about 0.5 the picture is not any deeper, only harder on the eyes |
 | Screen curvature | 0 | 0 is flat, higher wraps the screen around you |
 
@@ -217,6 +217,11 @@ module per concern:
 GPLv3, as upstream. Added dependencies are all compatible: the Khronos OpenXR loader (Apache 2.0),
 LiteRT and its GPU delegate (Apache 2.0), and the MiDaS v2.1 small depth model (MIT), converted to
 TensorFlow Lite by `tools/convert_midas.py` and committed as an asset.
+
+The default depth model is [ZipDepth](https://github.com/fabiotosi92/ZipDepth) by Fabio Tosi (MIT),
+converted to TensorFlow Lite by `tools/convert_zipdepth.py` (fp16, 512x288) and
+`tools/quantize_depth.py` (the int8 copy the XR2 Gen 1 headsets run) and committed as assets. Its
+licence ships in the APK as `assets/licenses/zipdepth_LICENSE.txt`.
 
 The 360 degree environments are from [Poly Haven](https://polyhaven.com), released under CC0 and
 downsized to 4096x2048 for this app. Poly Haven is community funded and worth supporting.

@@ -58,6 +58,10 @@ public class PreferenceConfiguration {
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     public static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
+    // The two values of that list that name a depth model rather than a test
+    // pattern. MiDaS keeps the plain "model" it has always been stored as.
+    public static final String VR_DEPTH_SOURCE_ZIPDEPTH = "zipdepth";
+    public static final String VR_DEPTH_SOURCE_MIDAS = "model";
     public static final String VR_ENV_RES_PREF_STRING = "list_vr_env_res";
     public static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
@@ -83,6 +87,8 @@ public class PreferenceConfiguration {
     public static final int VR_ENV_FIRST_PHOTO = 100;
     // Nor is this: a marker that the Gen 1 profile decision has been made
     public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
+    // Nor this: a marker that a stored MiDaS has had its one move to ZipDepth
+    public static final String ZIPDEPTH_MOVE_PREF_STRING = "depth_source_zipdepth";
     public static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
     private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
@@ -153,7 +159,9 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_DISTANCE = 30;
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
-    private static final String DEFAULT_VR_DEPTH_SOURCE = "model";
+    // ZipDepth is the better map on every headset here and the only model a
+    // Gen 1 headset can run at all
+    static final String DEFAULT_VR_DEPTH_SOURCE = VR_DEPTH_SOURCE_ZIPDEPTH;
     // Standard everywhere, which caps the room at a size every headset here can
     // hold. Gen 1 headsets are seeded onto low instead, see seedGen1PerfProfile.
     private static final String DEFAULT_VR_ENV_RES = "standard";
@@ -248,6 +256,9 @@ public class PreferenceConfiguration {
     public int vrCurvature;
     // 0 off, 1 flat, 2 ramp, 3 blob, 4 eye test, 5 shift test, 6 depth model
     public int vrDepthMode;
+    // Which model a depth model session runs, zipdepth or model (MiDaS). The
+    // default for any other mode, since the test patterns run at its map size.
+    public String vrDepthModel;
     // How large the 3d room renders per eye, one of the tiers below. The
     // renderer takes the same numbers.
     public int vrEnvResTier;
@@ -423,6 +434,49 @@ public class PreferenceConfiguration {
         // Enterprise are A81xx, the later headsets are not.
         boolean isPico = "pico".equalsIgnoreCase(Build.MANUFACTURER) || "pico".equalsIgnoreCase(Build.BRAND);
         return isPico && model.regionMatches(true, 0, "A81", 0, 3);
+    }
+
+    /** Whether a list_vr_depth_source value names a model rather than a pattern. */
+    public static boolean isDepthModel(String depthSource) {
+        return VR_DEPTH_SOURCE_ZIPDEPTH.equals(depthSource)
+                || VR_DEPTH_SOURCE_MIDAS.equals(depthSource);
+    }
+
+    // MiDaS is far too slow on an XR2 Gen 1 headset, so it is not offered
+    // there. Everything else is offered everywhere.
+    public static boolean isDepthSourceOffered(String depthSource, boolean gen1) {
+        return !gen1 || !VR_DEPTH_SOURCE_MIDAS.equals(depthSource);
+    }
+
+    /** The value a headset runs for a stored one: ZipDepth for a MiDaS it does not offer. */
+    public static String depthSourceForHeadset(String depthSource, boolean gen1) {
+        return isDepthSourceOffered(depthSource, gen1) ? depthSource : VR_DEPTH_SOURCE_ZIPDEPTH;
+    }
+
+    // Moves a stored MiDaS to ZipDepth, once. Installs from before ZipDepth
+    // have "model" stored whether anyone chose it or setDefaultValues wrote
+    // it, and the two cannot be told apart, so everyone gets the new default
+    // once and anything chosen after that sticks. Returns whether it moved.
+    static boolean moveDepthSourceToZipDepth(SharedPreferences prefs) {
+        if (prefs.contains(ZIPDEPTH_MOVE_PREF_STRING)) {
+            return false;
+        }
+        boolean move = VR_DEPTH_SOURCE_MIDAS.equals(
+                prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, null));
+        SharedPreferences.Editor editor = prefs.edit();
+        if (move) {
+            editor.putString(VR_DEPTH_SOURCE_PREF_STRING, VR_DEPTH_SOURCE_ZIPDEPTH);
+        }
+        editor.putBoolean(ZIPDEPTH_MOVE_PREF_STRING, move);
+        editor.apply();
+        return move;
+    }
+
+    // Runs from the application before any activity applies the xml defaults
+    public static void migrateDepthSource(Context context) {
+        if (moveDepthSourceToZipDepth(PreferenceManager.getDefaultSharedPreferences(context))) {
+            FileLog.event("depth model: stored MiDaS moved to ZipDepth, the new default");
+        }
     }
 
     // A Gen 1 headset gets a gentler starting point, written before the xml
@@ -814,7 +868,11 @@ public class PreferenceConfiguration {
         config.vrDistance = prefs.getInt(VR_DISTANCE_PREF_STRING, DEFAULT_VR_DISTANCE);
         config.vrScreenSize = prefs.getInt(VR_SCREEN_SIZE_PREF_STRING, DEFAULT_VR_SCREEN_SIZE);
         config.vrCurvature = prefs.getInt(VR_CURVATURE_PREF_STRING, DEFAULT_VR_CURVATURE);
-        String depthSource = prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, DEFAULT_VR_DEPTH_SOURCE);
+        // A Gen 1 headset runs ZipDepth for a stored MiDaS it does not offer
+        String depthSource = depthSourceForHeadset(
+                prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, DEFAULT_VR_DEPTH_SOURCE),
+                isXr2Gen1Headset());
+        config.vrDepthModel = DEFAULT_VR_DEPTH_SOURCE;
         if (depthSource.equals("flat")) {
             config.vrDepthMode = XrShared.DEPTH_MODE_FLAT;
         }
@@ -830,8 +888,9 @@ public class PreferenceConfiguration {
         else if (depthSource.equals("shifttest")) {
             config.vrDepthMode = XrShared.DEPTH_MODE_SHIFTTEST;
         }
-        else if (depthSource.equals("model")) {
+        else if (isDepthModel(depthSource)) {
             config.vrDepthMode = XrShared.DEPTH_MODE_MODEL;
+            config.vrDepthModel = depthSource;
         }
         else {
             config.vrDepthMode = XrShared.DEPTH_MODE_OFF;

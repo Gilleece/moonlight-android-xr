@@ -23,5 +23,6 @@ public class MoonlightApplication extends Application {
 
         // Has to happen before any activity applies the xml defaults
         PreferenceConfiguration.seedGen1PerfProfile(this);
+        PreferenceConfiguration.migrateDepthSource(this);
     }
 }
