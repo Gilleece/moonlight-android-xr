@@ -1,6 +1,7 @@
 // The OpenXR instance, session and swapchains, the session state machine,
 // and the JNI entry points that bring the renderer up and take it down.
 #include "xr_renderer.h"
+#include "xr_depthmap.h"
 
 int checkXr(XrResult res, const char* what) {
     if (XR_FAILED(res)) {
@@ -588,7 +589,8 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz,
                                                        jobject activity, jint width, jint height,
-                                                       jint stereoMode, jboolean depthDebug,
+                                                       jint stereoMode, jint depthWidth,
+                                                       jint depthHeight, jboolean depthDebug,
                                                        jint convergence, jint depthScale,
                                                        jboolean handTracking, jint sharpenMode,
                                                        jboolean perfOverlay, jboolean ambilight,
@@ -601,6 +603,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->videoWidth = width;
     ctx->videoHeight = height;
     ctx->stereoMode = stereoMode;
+    // The size the depth map runs at, from the model Java picked. Everything
+    // the depth path allocates is sized from it, so it is settled before any
+    // of that is built.
+    if (!depthSizeOk(depthWidth, depthHeight)) {
+        LOGW("depth size %dx%d out of range, using %d square", depthWidth, depthHeight,
+             DEPTH_TEX_SIZE_DEFAULT);
+        depthWidth = DEPTH_TEX_SIZE_DEFAULT;
+        depthHeight = DEPTH_TEX_SIZE_DEFAULT;
+    }
+    ctx->depthTexW = depthWidth;
+    ctx->depthTexH = depthHeight;
     ctx->depthDebug = depthDebug;
     ctx->sessionState = XR_SESSION_STATE_UNKNOWN;
     // Depth arrives at about 20 Hz, so 0.6 settles in roughly two updates.

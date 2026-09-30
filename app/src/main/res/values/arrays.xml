@@ -141,8 +141,9 @@
     </string-array>
 
     <string-array name="vr_depth_source_names">
-        <item>@string/vr_depth_source_off</item>
+        <item>@string/vr_depth_source_zipdepth</item>
         <item>@string/vr_depth_source_model</item>
+        <item>@string/vr_depth_source_off</item>
         <item>@string/vr_depth_source_flat</item>
         <item>@string/vr_depth_source_ramp</item>
         <item>@string/vr_depth_source_blob</item>
@@ -150,8 +151,9 @@
         <item>@string/vr_depth_source_shifttest</item>
     </string-array>
     <string-array name="vr_depth_source_values" translatable="false">
-        <item>off</item>
+        <item>zipdepth</item>
         <item>model</item>
+        <item>off</item>
         <item>flat</item>
         <item>ramp</item>
         <item>blob</item>

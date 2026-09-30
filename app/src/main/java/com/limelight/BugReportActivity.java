@@ -327,6 +327,7 @@ public class BugReportActivity extends Activity {
                 + " bitrate " + prefs.bitrate + " format " + prefs.videoFormat
                 + " pacing " + prefs.framePacing + "\n"
                 + "vr " + prefs.enableVrMode + " depthMode " + prefs.vrDepthMode
+                + " depthModel " + prefs.vrDepthModel
                 + " cadence " + prefs.vrInferenceCadence + " separation " + prefs.vrStereoSeparation
                 + " convergence " + prefs.vrConvergence + " envRes " + prefs.vrEnvResTier
                 + " sharpening " + prefs.vrSharpening + " passthrough " + prefs.vrPassthrough

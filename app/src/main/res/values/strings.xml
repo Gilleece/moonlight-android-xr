@@ -373,6 +373,7 @@
     <string name="analogscroll_left">Left analog stick</string>
 
     <!-- VR Array strings -->
+    <string name="vr_depth_source_zipdepth">V2.0 - ZipDepth Based 3D (Recommended)</string>
     <string name="vr_depth_source_off">Off</string>
     <string name="vr_depth_source_model">V1.0 - MiDaS Based 3D</string>
     <string name="vr_depth_source_flat">Test pattern: flat plane</string>

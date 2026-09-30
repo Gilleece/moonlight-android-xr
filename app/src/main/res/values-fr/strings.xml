@@ -358,6 +358,7 @@
     <string name="bug_report_no_mail">Il n\'y a pas d\'application e-mail sur cet appareil, le rapport a donc été enregistré dans\n\n%1$s\n\nCopiez-le hors du casque et joignez-le à un e-mail à %2$s.</string>
     <string name="bug_report_failed">Impossible d\'écrire le rapport : %1$s</string>
     <!-- VR list options -->
+    <string name="vr_depth_source_zipdepth">V2.0 - 3D basée sur ZipDepth (recommandé)</string>
     <string name="vr_depth_source_off">Désactivé</string>
     <string name="vr_depth_source_model">V1.0 - 3D basée sur MiDaS</string>
     <string name="vr_depth_source_flat">Motif de test : plan plat</string>

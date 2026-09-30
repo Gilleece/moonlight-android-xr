@@ -527,6 +527,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " format=" + prefConfig.videoFormat + " hdr=" + willStreamHdr
                 + " pacing=" + prefConfig.framePacing + " vr=" + prefConfig.enableVrMode
                 + " depthMode=" + prefConfig.vrDepthMode
+                + " depthModel=" + prefConfig.vrDepthModel
                 + " separation=" + prefConfig.vrStereoSeparation
                 + " convergence=" + prefConfig.vrConvergence
                 + " depthScale=" + prefConfig.vrDepthScale

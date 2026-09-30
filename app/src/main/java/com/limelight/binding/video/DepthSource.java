@@ -13,13 +13,13 @@ import java.nio.ByteBuffer;
  * touching the render path.
  */
 public interface DepthSource {
-    /** Square edge length of both the model input and the depth map. */
-    int DEPTH_SIZE = XrShared.DEPTH_TEX_SIZE;
-
     /**
-     * @param input  RGB, DEPTH_SIZE squared, float in 0..1, row 0 at the top
-     * @param output single channel depth, DEPTH_SIZE squared, float, larger
-     *               is nearer, arbitrary scale
+     * Both buffers are at the session's depth size, which is the input size
+     * of the model this source loads.
+     *
+     * @param input  RGB, width by height, float in 0..1, row 0 at the top
+     * @param output single channel depth, width by height, float, larger is
+     *               nearer, arbitrary scale
      */
     boolean initialize(Context context, ByteBuffer input, ByteBuffer output);
 

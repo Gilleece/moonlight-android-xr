@@ -3,6 +3,7 @@ package com.limelight;
 import android.app.Application;
 import android.preference.PreferenceManager;
 
+import com.limelight.binding.video.DepthSelfTest;
 import com.limelight.preferences.PreferenceConfiguration;
 
 /**
@@ -23,5 +24,9 @@ public class MoonlightApplication extends Application {
 
         // Has to happen before any activity applies the xml defaults
         PreferenceConfiguration.seedGen1PerfProfile(this);
+        PreferenceConfiguration.migrateDepthSource(this);
+
+        // Debug builds only, and nothing unless its property is set
+        DepthSelfTest.startIfAsked(this);
     }
 }

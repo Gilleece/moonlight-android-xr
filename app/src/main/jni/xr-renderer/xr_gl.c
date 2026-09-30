@@ -38,20 +38,22 @@ GLuint compileShader(GLenum type, const char* src) {
 // Builds the hardcoded depth map for the stereo test path. Depth convention:
 // 0 far, 1 near, 0.5 sits exactly on the screen plane (zero disparity)
 static int fillSyntheticDepth(XrCtx* ctx) {
-    const int n = DEPTH_TEX_SIZE;
+    const int w = ctx->depthTexW;
+    const int h = ctx->depthTexH;
     // RGBA throughout: depth in alpha, guide colour in rgb. The synthetic
     // patterns have no guide, so it stays neutral and the upsample falls back
     // to a plain blur on them.
-    unsigned char* buf = malloc((size_t)n * n * 4);
+    unsigned char* buf = malloc((size_t)w * h * 4);
     if (buf == NULL) {
         LOGE("no memory for the depth texture");
         return 0;
     }
 
-    for (int y = 0; y < n; y++) {
-        for (int x = 0; x < n; x++) {
-            float fx = x / (float)(n - 1);
-            float fy = y / (float)(n - 1);
+    // In map uv, so every pattern covers the frame the same way at any size
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            float fx = x / (float)(w - 1);
+            float fy = y / (float)(h - 1);
             float d;
             switch (ctx->stereoMode) {
                 case DEPTH_MODE_RAMP:
@@ -75,7 +77,7 @@ static int fillSyntheticDepth(XrCtx* ctx) {
             }
             if (d < 0.0f) d = 0.0f;
             if (d > 1.0f) d = 1.0f;
-            unsigned char* px = buf + ((size_t)y * n + x) * 4;
+            unsigned char* px = buf + ((size_t)y * w + x) * 4;
             px[0] = px[1] = px[2] = 128;
             px[3] = (unsigned char)(d * 255.0f + 0.5f);
         }
@@ -83,7 +85,7 @@ static int fillSyntheticDepth(XrCtx* ctx) {
 
     for (int i = 0; i < DEPTH_TEX_COUNT; i++) {
         glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[i]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -135,6 +137,9 @@ static int initUpsample(XrCtx* ctx) {
     glUseProgram(ctx->upsampleProgram);
     glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_texture"), 0);
     glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_depth"), 1);
+    // The map's size is the session's, so it is set once here
+    glUniform2f(glGetUniformLocation(ctx->upsampleProgram, "u_depthSize"),
+                (float)ctx->depthTexW, (float)ctx->depthTexH);
 
     glGenTextures(1, &ctx->upsampleTexture);
     glBindTexture(GL_TEXTURE_2D, ctx->upsampleTexture);
@@ -422,7 +427,7 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
-    // Either the raw 256x256 map or the edge aware upsample of it. Both carry
+    // Either the raw map or the edge aware upsample of it. Both carry
     // depth in alpha, so the warp shader does not care which it got. With the
     // upsample on, runUpsample already waited on this slot and this is a no-op.
     waitForDepthSlot(ctx);
@@ -550,9 +555,9 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
         // Best effort, the depth thread may be part way through refilling
         // these. The depth texture above is the exact one this frame sampled.
         writeCapture(ctx, "modelinput", ctx->modelInput,
-                     (size_t)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * 3 * sizeof(float));
+                     (size_t)ctx->depthTexW * ctx->depthTexH * 3 * sizeof(float));
         writeCapture(ctx, "depthraw", ctx->modelOutput,
-                     (size_t)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * sizeof(float));
+                     (size_t)ctx->depthTexW * ctx->depthTexH * sizeof(float));
         ctx->captureRequested = 0;
     }
 

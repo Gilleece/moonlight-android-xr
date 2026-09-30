@@ -27,13 +27,13 @@
 import os
 import subprocess
 import sys
-import urllib.request
 
 import numpy as np
 
-ONNX_URL = "https://github.com/isl-org/MiDaS/releases/download/v2_1/model-small.onnx"
-ONNX_FILE = "model-small.onnx"
-OUT_DIR = "tf_out"
+from convert_common import BUILD_DIR, MIDAS_ONNX_BYTES, MIDAS_ONNX_URL, download
+
+ONNX_FILE = os.path.join(BUILD_DIR, "model-small.onnx")
+OUT_DIR = os.path.join(BUILD_DIR, "midas_tf_out")
 ASSET = "app/src/main/assets/midas_v21_small_256_fp16.tflite"
 
 # onnx2tf downloads this for its strict mode accuracy correction, but the
@@ -65,9 +65,7 @@ def make_calibration_data():
 
 
 def main():
-    if not os.path.isfile(ONNX_FILE):
-        print("downloading " + ONNX_URL)
-        urllib.request.urlretrieve(ONNX_URL, ONNX_FILE)
+    download(MIDAS_ONNX_URL, ONNX_FILE, MIDAS_ONNX_BYTES)
 
     make_calibration_data()
 
