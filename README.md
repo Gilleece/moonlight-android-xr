@@ -238,7 +238,10 @@ licensed under [Creative Commons Attribution 4.0](http://creativecommons.org/lic
 Modified for this app: the mesh is baked to a flat format by `tools/bake_room.py` and the
 embedded texture is shipped alongside it.
 
-The Home Theater environment is the fork author's own model, Copyright (c) 2026 Sean Gilleece. Its
+The Home Theater environment is the fork author's own model, Copyright (c) 2026 Sean Gilleece /
+Woodford XR, licensed under [Creative Commons Attribution 4.0](http://creativecommons.org/licenses/by/4.0/)
+with attribution to Sean Gilleece / Woodford XR. It was first made for
+Depthray, Woodford XR's VR video player, and is borrowed from it here. Its
 mesh is baked by `tools/bake_room.py` and its texture compressed to ASTC by `tools/atlas_astc.py`,
 which runs ARM's [astc-encoder](https://github.com/ARM-software/astc-encoder) (Apache 2.0) at build
 time only; the commands are in `tools/rooms/home-theater/NOTE.txt`.

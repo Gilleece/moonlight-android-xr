@@ -1,5 +1,8 @@
-"Home Theater" is the owner's own model. Copyright (c) 2026 Sean Gilleece.
-Modelled in Blender with the lighting baked into one 8192 by 8192 atlas, so the
+"Home Theater" is the owner's own model. Copyright (c) 2026 Sean Gilleece /
+Woodford XR, licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/), attribution to Sean Gilleece /
+Woodford XR. First made for Depthray, Woodford XR's VR video player, and
+borrowed from it for this app. Modelled in Blender with the lighting baked into one 8192 by 8192 atlas, so the
 room ships unlit and needs nothing at runtime but its texture.
 
 Shipped in the app as the "Home Theater" environment.
