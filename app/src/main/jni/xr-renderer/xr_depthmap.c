@@ -10,12 +10,6 @@ float depthSpanFloor(float lo) {
     return floor > 1e-6f ? floor : 1e-6f;
 }
 
-float depthSpanScale(float lo, float hi) {
-    float span = hi - lo;
-    float least = depthSpanFloor(lo);
-    return 1.0f / (span >= least ? span : least);
-}
-
 // 2nd and 98th percentile of the model output, via a histogram. Using the
 // raw min and max lets one stray pixel own the whole mapping: on a measured
 // frame the 2..98 span was 638 of an 805 wide min/max range, so a fifth of
@@ -144,4 +138,44 @@ void lowPass(const float* src, float* dst, float* scratch, float* colSums, int w
 int depthSizeOk(int w, int h) {
     return w >= 64 && h >= 64 && w <= DEPTH_TEX_W_MAX && h <= DEPTH_TEX_H_MAX
             && w % 8 == 0 && h % 8 == 0;
+}
+
+float depthTauAlpha(float dtSec, float tauSec) {
+    if (!(tauSec > 0.0f)) {
+        return 1.0f;
+    }
+    float dt = dtSec < DEPTH_TAU_DT_MIN_S ? DEPTH_TAU_DT_MIN_S
+             : dtSec > DEPTH_TAU_DT_MAX_S ? DEPTH_TAU_DT_MAX_S : dtSec;
+    return 1.0f - expf(-dt / tauSec);
+}
+
+void depthTauBlend(float* avg, const float* v, int count, float alpha, int seed) {
+    for (int i = 0; i < count; i++) {
+        float x = v[i];
+        if (seed) {
+            avg[i] = x;
+        }
+        else if (isfinite(x)) {
+            float a = avg[i];
+            avg[i] = isfinite(a) ? a + alpha * (x - a) : x;
+        }
+    }
+}
+
+void depthRangeStep(DepthRange* r, float lo, float hi, float dtSec, float tauSec) {
+    if (!r->valid || !(tauSec > 0.0f)) {
+        r->lo = lo;
+        r->hi = hi;
+        r->valid = 1;
+        return;
+    }
+    float a = depthTauAlpha(dtSec, tauSec);
+    r->lo += a * (lo - r->lo);
+    r->hi += a * (hi - r->hi);
+}
+
+float depthRangeScale(const DepthRange* r) {
+    float span = r->hi - r->lo;
+    float least = depthSpanFloor(r->lo);
+    return 1.0f / (span >= least ? span : least);
 }

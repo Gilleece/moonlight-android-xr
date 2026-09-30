@@ -36,6 +36,7 @@
 
 #include "xr_math.h"
 #include "xr_shared.h"
+#include "xr_depthmap.h"
 
 #define TAG "moonlight-xr"
 
@@ -351,8 +352,6 @@ typedef struct XrCompositionLayerSettingsFB {
 // without a rebuild. Each is an integer percent of the real value. Read by
 // debug builds only: a release build never polls the property store, so a
 // knob left set from a test session cannot override the panel in one.
-#define PROP_DEPTH_ALPHA "debug.moonlight.depthalpha"
-#define PROP_RANGE_ALPHA "debug.moonlight.rangealpha"
 #define PROP_UPSAMPLE "debug.moonlight.upsample"
 #define PROP_UPSAMPLE_SIGMA "debug.moonlight.upsamplesigma"
 #define PROP_DEPTH_SHARP "debug.moonlight.depthsharp"
@@ -382,6 +381,11 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
 #define PROP_TB_SWAP "debug.moonlight.tbswap"
+// Milliseconds, the time constants of the per texel depth average and of the
+// range the map is normalised against. 0 turns either off, so each map
+// replaces the last or is normalised against its own range.
+#define PROP_DEPTH_TAU "debug.moonlight.depth_tau"
+#define PROP_RANGE_TAU "debug.moonlight.range_tau"
 
 // Radius of the low pass that splits the depth map into an overall shape and
 // the local detail on top of it. About a tenth of the frame, in texels of a
@@ -473,21 +477,29 @@ typedef struct {
     float* modelOutput;
     unsigned char* depthUploadBuf;
 
-    // Temporal smoothing. The normalization range is smoothed separately from
-    // the map itself: a single outlier pixel moving the min or max used to
-    // shift the whole mapping, which pumps the entire image.
-    float* depthEma;
+    // The map normalised to 0..1, and the range it was normalised against,
+    // smoothed on its own over real time: a single outlier pixel moving the
+    // min or max used to shift the whole mapping, which pumps the entire
+    // image. The range and the time of the map it last took belong to the
+    // depth thread.
+    float* depthNorm;
     float* depthLow;
     float* depthScratch;
     float* depthColSums;
     float depthGlobal;
     float depthLocal;
-    int depthEmaValid;
-    float smoothLo;
-    float smoothHi;
-    int rangeValid;
-    float depthAlpha;
-    float rangeAlpha;
+    DepthRange depthRange;
+    long rangeNs;
+    // The model output averaged per texel over real time, ahead of the range
+    // and the normalisation, so raw model flicker does not reach the eyes.
+    // The depth thread's too.
+    float* depthTau;
+    int depthTauValid;
+    long depthTauNs;
+    // Time constants in milliseconds, 0 for none. Set at init and only moved
+    // by the debug knobs.
+    int depthTauMs;
+    int rangeTauMs;
 
     // Edge aware upsample of the depth map, quarter of the video size
     GLuint upsampleProgram;

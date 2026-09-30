@@ -492,7 +492,8 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     free(ctx->modelInput);
     free(ctx->modelOutput);
     free(ctx->depthUploadBuf);
-    free(ctx->depthEma);
+    free(ctx->depthNorm);
+    free(ctx->depthTau);
     free(ctx->depthLow);
     free(ctx->depthScratch);
     free(ctx->depthColSums);
@@ -616,11 +617,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->depthTexH = depthHeight;
     ctx->depthDebug = depthDebug;
     ctx->sessionState = XR_SESSION_STATE_UNKNOWN;
-    // Depth arrives at about 20 Hz, so 0.6 settles in roughly two updates.
-    // The range moves much more slowly on purpose, it should track the scene
-    // rather than the frame.
-    ctx->depthAlpha = 0.60f;
-    ctx->rangeAlpha = 0.15f;
+    // The map is averaged per texel over 30 ms of real time, and the range it
+    // is normalised against over 150 ms, whatever rate the model runs at.
+    ctx->depthTauMs = DEPTH_TAU_DEFAULT_MS;
+    ctx->rangeTauMs = DEPTH_RANGE_TAU_DEFAULT_MS;
     // 0.25 measured best on a captured frame: same 5 px edge as tighter
     // values with a tenth of the speckle
     ctx->upsampleSigmaR = 0.25f;

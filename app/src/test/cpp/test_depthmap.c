@@ -1,5 +1,5 @@
-// The CPU side of the depth map: the percentile range, the low pass and the
-// map size check
+// The CPU side of the depth map: the percentile range, the low pass, the map
+// size check and the averages over time
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -194,13 +194,19 @@ static void testNarrowSpan(void) {
     robustRange(v, N * N, &lo, &hi);
     CHECK(hi - lo > 0.0f);
 
-    // The smoothed range divides by a floored span too, whether its two ends
-    // have met or crossed
-    CHECK(isfinite(depthSpanScale(500.0f, 500.0f)) && depthSpanScale(500.0f, 500.0f) > 0.0f);
-    CHECK(isfinite(depthSpanScale(500.0f, nextafterf(500.0f, 1000.0f))));
-    CHECK(isfinite(depthSpanScale(2.0f, 1.0f)) && depthSpanScale(2.0f, 1.0f) > 0.0f);
+    // The smoothed range divides by a floored span too, from a flat frame and
+    // from one that eases toward it
+    DepthRange s = { 0.0f, 0.0f, 0 };
+    depthRangeStep(&s, 500.0f, 500.0f, 0.0f, 0.15f);
+    CHECK(isfinite(depthRangeScale(&s)) && depthRangeScale(&s) > 0.0f);
+    depthRangeStep(&s, 500.0f, nextafterf(500.0f, 1000.0f), 0.05f, 0.15f);
+    CHECK(isfinite(depthRangeScale(&s)) && depthRangeScale(&s) > 0.0f);
+    // and with its two ends crossed
+    DepthRange crossed = { 2.0f, 1.0f, 1 };
+    CHECK(isfinite(depthRangeScale(&crossed)) && depthRangeScale(&crossed) > 0.0f);
     // An ordinary span is left alone
-    CHECK_NEAR(depthSpanScale(1.0f, 3.0f), 0.5f, 1e-6);
+    DepthRange plain = { 1.0f, 3.0f, 1 };
+    CHECK_NEAR(depthRangeScale(&plain), 0.5f, 1e-6);
 
     // Near zero the floor is the one it always was
     CHECK_NEAR(depthSpanFloor(0.0f), 1e-6, 1e-12);
@@ -223,6 +229,139 @@ static void testRangeRect(void) {
     free(v);
 }
 
+// The range the map is normalised against, a one pole over real time
+static void testDepthRange(void) {
+    DepthRange r = { 0.0f, 0.0f, 0 };
+
+    // The first range is taken as it is
+    depthRangeStep(&r, 1.0f, 2.0f, 0.02f, 0.15f);
+    CHECK(r.valid);
+    CHECK_NEAR(r.lo, 1.0f, 1e-6);
+    CHECK_NEAR(r.hi, 2.0f, 1e-6);
+
+    // One time constant covers 63 percent of a move, six maps 25 ms apart
+    for (int i = 0; i < 6; i++) {
+        depthRangeStep(&r, 1.0f, 2.3f, 0.025f, 0.15f);
+    }
+    CHECK_NEAR(r.hi, 2.0f + 0.3f * (1.0f - expf(-1.0f)), 1e-4);
+    CHECK_NEAR(r.lo, 1.0f, 1e-6);
+
+    // And the same at half the rate, so the settling time does not follow
+    // the model's
+    DepthRange slow = { 1.0f, 2.0f, 1 };
+    for (int i = 0; i < 3; i++) {
+        depthRangeStep(&slow, 1.0f, 2.3f, 0.05f, 0.15f);
+    }
+    CHECK_NEAR(slow.hi, r.hi, 1e-4);
+
+    // It gets there in the end
+    for (int i = 0; i < 200; i++) {
+        depthRangeStep(&r, 1.0f, 2.3f, 0.025f, 0.15f);
+    }
+    CHECK_NEAR(r.hi, 2.3f, 1e-4);
+
+    // A pause counts for no more than a second
+    DepthRange paused = { 1.0f, 2.0f, 1 };
+    DepthRange second = { 1.0f, 2.0f, 1 };
+    depthRangeStep(&paused, 1.0f, 3.0f, 30.0f, 2.0f);
+    depthRangeStep(&second, 1.0f, 3.0f, 1.0f, 2.0f);
+    CHECK_NEAR(paused.hi, second.hi, 1e-6);
+    CHECK(paused.hi < 3.0f);
+
+    // A tau of 0 takes every map's range as it is
+    depthRangeStep(&r, 5.0f, 7.0f, 0.025f, 0.0f);
+    CHECK_NEAR(r.lo, 5.0f, 1e-6);
+    CHECK_NEAR(r.hi, 7.0f, 1e-6);
+
+    // And so does the first map after a reset
+    r.valid = 0;
+    depthRangeStep(&r, 3.0f, 4.0f, 0.025f, 0.15f);
+    CHECK_NEAR(r.lo, 3.0f, 1e-6);
+    CHECK_NEAR(r.hi, 4.0f, 1e-6);
+
+    CHECK_NEAR(depthRangeScale(&r), 1.0f, 1e-6);
+}
+
+// The per texel average: one pole over real time with the time clamped, and
+// nothing that is not finite kept in it
+static void testDepthTau(void) {
+    // One time constant covers about 63 percent of a step
+    CHECK_NEAR(depthTauAlpha(0.1f, 0.1f), 0.632f, 1e-3);
+    CHECK_NEAR(depthTauAlpha(0.05f, 0.2f), 1.0f - expf(-0.25f), 1e-6);
+    // Held to 1/60 s below and 1 s above
+    CHECK_NEAR(depthTauAlpha(0.0f, 0.1f), 1.0f - expf(-(1.0f / 60.0f) / 0.1f), 1e-6);
+    CHECK_NEAR(depthTauAlpha(5.0f, 2.0f), 1.0f - expf(-0.5f), 1e-6);
+    // No time constant is no averaging
+    CHECK_NEAR(depthTauAlpha(0.05f, 0.0f), 1.0f, 1e-9);
+
+    float avg[4];
+    float a[4] = { 1.0f, 2.0f, NAN, 4.0f };
+    float b[4] = { 3.0f, INFINITY, 5.0f, 4.0f };
+    depthTauBlend(avg, a, 4, 0.25f, 1);
+    CHECK_NEAR(avg[0], 1.0f, 1e-6);
+    CHECK(isnan(avg[2]));
+    depthTauBlend(avg, b, 4, 0.25f, 0);
+    CHECK_NEAR(avg[0], 1.5f, 1e-6);
+    // A value that is not finite leaves the texel alone
+    CHECK_NEAR(avg[1], 2.0f, 1e-6);
+    // and a texel that is not finite takes the next one that is
+    CHECK_NEAR(avg[2], 5.0f, 1e-6);
+    CHECK_NEAR(avg[3], 4.0f, 1e-6);
+}
+
+// A step in the raw map, and one in the range, settle on the same clock at
+// the rates the model runs at: 1 - exp(-t / tau) of the way after t seconds
+// of maps, so within 1 percent after 4.6 time constants, give or take a map.
+// Past 60 maps a second each map counts as 1/60 s, which runs the average a
+// little ahead of the clock rather than behind it.
+static void testSettleRates(void) {
+    const float rates[] = { 24.0f, 45.0f, 66.0f };
+    const float tauTexel = DEPTH_TAU_DEFAULT_MS / 1000.0f;
+    const float tauRange = DEPTH_RANGE_TAU_DEFAULT_MS / 1000.0f;
+    const float settled = -logf(0.01f);
+    for (int r = 0; r < 3; r++) {
+        const float dt = 1.0f / rates[r];
+        const float counted = dt > DEPTH_TAU_DT_MIN_S ? dt : DEPTH_TAU_DT_MIN_S;
+        // The clamp costs at most a tenth of the time constant at 66
+        CHECK(dt / counted > 0.9f);
+
+        // The per texel average, a step from 0 to 1 in every texel
+        float avg[8];
+        const float zero[8] = { 0 };
+        const float one[8] = { 1, 1, 1, 1, 1, 1, 1, 1 };
+        depthTauBlend(avg, zero, 8, 1.0f, 1);
+        float worst = 0.0f, doneAt = -1.0f;
+        for (int k = 1; k <= 60; k++) {
+            depthTauBlend(avg, one, 8, depthTauAlpha(dt, tauTexel), 0);
+            float expect = 1.0f - expf(-k * counted / tauTexel);
+            for (int i = 0; i < 8; i++) {
+                worst = fmaxf(worst, fabsf(avg[i] - expect));
+            }
+            if (doneAt < 0.0f && avg[0] > 0.99f) {
+                doneAt = k * dt;
+            }
+        }
+        CHECK(worst < 1e-5f);
+        CHECK_NEAR(doneAt, settled * tauTexel * dt / counted, dt);
+
+        // The range, its far end stepping from 2 to 3
+        DepthRange range = { 1.0f, 2.0f, 1 };
+        worst = 0.0f;
+        doneAt = -1.0f;
+        for (int k = 1; k <= 200; k++) {
+            depthRangeStep(&range, 1.0f, 3.0f, dt, tauRange);
+            float expect = 3.0f - expf(-k * counted / tauRange);
+            worst = fmaxf(worst, fabsf(range.hi - expect));
+            if (doneAt < 0.0f && range.hi > 2.99f) {
+                doneAt = k * dt;
+            }
+        }
+        CHECK(worst < 1e-4f);
+        CHECK_NEAR(doneAt, settled * tauRange * dt / counted, dt);
+        CHECK_NEAR(range.lo, 1.0f, 1e-6);
+    }
+}
+
 int main(void) {
     testRobustRange();
     testLowPass();
@@ -231,5 +370,8 @@ int main(void) {
     testNonFinite();
     testNarrowSpan();
     testRangeRect();
+    testDepthRange();
+    testDepthTau();
+    testSettleRates();
     return checksDone("xr_depthmap");
 }

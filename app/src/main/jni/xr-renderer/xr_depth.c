@@ -79,14 +79,15 @@ int initDepthModel(XrCtx* ctx) {
     ctx->modelInput = malloc(count * 3 * sizeof(float));
     ctx->modelOutput = malloc(count * sizeof(float));
     ctx->depthUploadBuf = malloc(count * 4);
-    ctx->depthEma = malloc(count * sizeof(float));
+    ctx->depthNorm = malloc(count * sizeof(float));
+    ctx->depthTau = malloc(count * sizeof(float));
     ctx->depthLow = malloc(count * sizeof(float));
     ctx->depthScratch = malloc(count * sizeof(float));
     ctx->depthColSums = malloc((size_t)w * sizeof(float));
     if (ctx->modelInput == NULL || ctx->modelOutput == NULL ||
-            ctx->depthUploadBuf == NULL || ctx->depthEma == NULL ||
-            ctx->depthLow == NULL || ctx->depthScratch == NULL ||
-            ctx->depthColSums == NULL) {
+            ctx->depthUploadBuf == NULL || ctx->depthNorm == NULL ||
+            ctx->depthTau == NULL || ctx->depthLow == NULL ||
+            ctx->depthScratch == NULL || ctx->depthColSums == NULL) {
         LOGE("depth staging buffer allocation failed");
         return 0;
     }
@@ -272,13 +273,36 @@ Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env
     eglReleaseThread();
 }
 
+// The model output averaged per texel over real time, alpha = 1 - exp(-dt /
+// tau) with dt the time since the last map, so the settling time is the same
+// whatever rate the model manages. It runs on the raw output, ahead of the
+// range, since the range is smoothed over a history of its own and has to be
+// found on the map that is drawn. Hands back the map to normalise, which is
+// the model output itself when the time constant is 0.
+static const float* depthTauMap(XrCtx* ctx, const float* output, int count, long now) {
+    int tauMs = ctx->depthTauMs;
+    if (tauMs <= 0) {
+        ctx->depthTauValid = 0;
+        return output;
+    }
+    int seed = !ctx->depthTauValid;
+    float alpha = seed ? 1.0f
+                       : depthTauAlpha((float)(now - ctx->depthTauNs) / 1e9f,
+                                       (float)tauMs / 1000.0f);
+    depthTauBlend(ctx->depthTau, output, count, alpha, seed);
+    ctx->depthTauValid = 1;
+    ctx->depthTauNs = now;
+    return ctx->depthTau;
+}
+
 // Normalizes the model output to 0..1 and uploads it as the depth map the
 // warp samples. Both models emit relative inverse depth on an arbitrary
 // scale, so the range has to be found per frame. Rows flip back here.
 //
-// Two separate temporal filters. The range is smoothed so the mapping does
-// not jump when the scene changes, and the map itself is smoothed per texel
-// so raw model flicker does not reach the eyes. The guide colour rides along
+// Two separate temporal filters, each a one pole over real time. The model
+// output is averaged per texel ahead of everything else so raw model flicker
+// does not reach the eyes, and the range is smoothed on its own so the
+// mapping does not jump when the scene changes. The guide colour rides along
 // in RGB so the upsampling pass gets the exact frame the depth came from.
 //
 // Runs on the depth thread, writing the next slot in a fixed rotation, never
@@ -297,36 +321,28 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     const int h = ctx->depthTexH;
     long startNs = nowNs();
 
+    const float* raw = depthTauMap(ctx, ctx->modelOutput, w * h, startNs);
     float lo, hi;
-    robustRange(ctx->modelOutput, w * h, &lo, &hi);
-    if (!ctx->rangeValid) {
-        ctx->smoothLo = lo;
-        ctx->smoothHi = hi;
-        ctx->rangeValid = 1;
-    }
-    else {
-        ctx->smoothLo += ctx->rangeAlpha * (lo - ctx->smoothLo);
-        ctx->smoothHi += ctx->rangeAlpha * (hi - ctx->smoothHi);
-    }
-    // Floored, since the two ends are smoothed apart and a span that rounds
-    // to nothing would make every texel of the map NaN
-    float scale = depthSpanScale(ctx->smoothLo, ctx->smoothHi);
-    float alpha = ctx->depthAlpha;
-    int seed = !ctx->depthEmaValid;
+    robustRange(raw, w * h, &lo, &hi);
+    depthRangeStep(&ctx->depthRange, lo, hi, (float)(startNs - ctx->rangeNs) / 1e9f,
+                   (float)ctx->rangeTauMs / 1000.0f);
+    ctx->rangeNs = startNs;
+    const float rangeLo = ctx->depthRange.lo;
+    const float scale = depthRangeScale(&ctx->depthRange);
 
     for (int y = 0; y < h; y++) {
-        const float* src = ctx->modelOutput + (size_t)(h - 1 - y) * w;
-        float* ema = ctx->depthEma + (size_t)y * w;
+        const float* src = raw + (size_t)(h - 1 - y) * w;
+        float* norm = ctx->depthNorm + (size_t)y * w;
         for (int x = 0; x < w; x++) {
-            // A NaN would otherwise sail through the clamps below and stay in
-            // the average for good
-            float v = (depthRead(src[x], lo) - ctx->smoothLo) * scale;
+            // A NaN, from the model or from a texel of the average nothing
+            // finite has reached yet, would otherwise sail through the clamps
+            // below
+            float v = (depthRead(src[x], lo) - rangeLo) * scale;
             if (v < 0.0f) v = 0.0f;
             if (v > 1.0f) v = 1.0f;
-            ema[x] = seed ? v : ema[x] + alpha * (v - ema[x]);
+            norm[x] = v;
         }
     }
-    ctx->depthEmaValid = 1;
 
     float kg = ctx->depthGlobal;
     float kl = ctx->depthLocal;
@@ -340,19 +356,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     if (remapping) {
         // Scaled with the map on each axis, so the split covers the same part
         // of the picture at any size
-        lowPass(ctx->depthEma, ctx->depthLow, ctx->depthScratch, ctx->depthColSums, w, h,
+        lowPass(ctx->depthNorm, ctx->depthLow, ctx->depthScratch, ctx->depthColSums, w, h,
                 DEPTH_LOWPASS_RADIUS * w / DEPTH_TEX_SIZE_DEFAULT,
                 DEPTH_LOWPASS_RADIUS * h / DEPTH_TEX_SIZE_DEFAULT);
     }
 
     for (int y = 0; y < h; y++) {
         const float* guide = ctx->modelInput + (size_t)(h - 1 - y) * w * 3;
-        const float* ema = ctx->depthEma + (size_t)y * w;
+        const float* norm = ctx->depthNorm + (size_t)y * w;
         const float* low = ctx->depthLow + (size_t)y * w;
         unsigned char* dst = ctx->depthUploadBuf + (size_t)y * w * 4;
         for (int x = 0; x < w; x++) {
-            float v = remapping ? conv + kg * (low[x] - conv) + kl * (ema[x] - low[x])
-                                : ema[x];
+            float v = remapping ? conv + kg * (low[x] - conv) + kl * (norm[x] - low[x])
+                                : norm[x];
             if (v < 0.0f) v = 0.0f;
             if (v > 1.0f) v = 1.0f;
 
