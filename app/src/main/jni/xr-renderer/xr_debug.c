@@ -72,6 +72,12 @@ void pollCaptureRequest(XrCtx* ctx) {
     propIntEvent(PROP_RANGE_TAU, &ctx->rangeTauMs, DEPTH_RANGE_TAU_MAX_MS, "depth range tau ms");
     // 0 off, 1 on, 2 on with a line per capture
     propIntEvent(PROP_DEPTH_CUT, &ctx->depthCutLevel, 2, "depth cut level");
+    // The warp's edge fixes, on as shipped but the cubic read, pixels for
+    // the fade
+    propIntEvent(PROP_SRC_INSET, &ctx->srcInsetOn, 1, "warp source inset");
+    propIntEvent(PROP_EDGE_FADE, &ctx->edgeFadePx, EDGE_FADE_MAX_PX, "warp edge fade px");
+    propIntEvent(PROP_DEPTH_CUBIC, &ctx->depthCubic, 1, "warp cubic depth");
+    propIntEvent(PROP_SEAM_INSET, &ctx->seamInset, 1, "eye seam inset");
     propPercent(PROP_UPSAMPLE_SIGMA, &ctx->upsampleSigmaR);
     propPercent(PROP_DEPTH_SHARP, &ctx->depthSharp);
     propFlag(PROP_OVERLAY, &ctx->overlayVisible);

@@ -34,14 +34,74 @@ const char* const FRAGMENT_SRC =
     "uniform float u_dispTexels;\n"
     "uniform float u_lowResWidth;\n"
     "uniform float u_frameWidth;\n"
+    // How far inside the frame the shifted sample is held, in frame uv. Half a
+    // texel as shipped; -1 is a whole frame outside, which no shift reaches.
+    "uniform float u_srcInset;\n"
+    // Width of the band at the left and right edges over which the shift
+    // falls to nothing, in frame uv. 0 is no band.
+    "uniform float u_edgeFade;\n"
+    "uniform float u_depthCubic;\n"
     "out vec4 fragColor;\n"
+    // The depth here is a quarter of the frame wide, so a texel of it spans
+    // four pixels, and a bilinear read joins texels with straight segments.
+    // Across a depth step the shift then changes inside a single texel, and a
+    // straight silhouette comes out as a staircase with four pixel treads. A
+    // cubic B spline is smooth across texel boundaries. It is done as four
+    // bilinear fetches placed between texel pairs, the way the glow does it,
+    // so it costs three more than the plain read.
+    //
+    // Every read of the depth in a pixel is on that pixel's row, so the
+    // vertical half of the spline is worked out once in main, into depthRow:
+    // the two fetch rows in uv and the share of the first.
+    "vec2 depthSize;\n"
+    "float depthTexelX;\n"
+    "vec3 depthRow;\n"
+    // The spline along one axis at t texels in: where its two fetches go, in
+    // texels, and how much of the first to take. The glow's four weights,
+    // multiplied through by six and folded, which is the same numbers for
+    // about half the arithmetic.
+    "vec3 splineAxis(float t) {\n"
+    "    float base = floor(t);\n"
+    "    float f = t - base;\n"
+    "    float f2 = f * f;\n"
+    "    float g0 = 5.0 + f * (-3.0 + f * (-3.0 + 2.0 * f));\n"
+    "    float w1 = 4.0 + f2 * (-6.0 + 3.0 * f);\n"
+    "    return vec3(base - 0.5 + w1 / g0, base + 1.5 + f2 * f / (6.0 - g0), g0 / 6.0);\n"
+    "}\n"
+    "float depthAt(float x) {\n"
+    "    if (u_depthCubic < 0.5) {\n"
+    "        return texture(u_depth, vec2(x, v_plain.y)).a;\n"
+    "    }\n"
+    "    vec3 sx = splineAxis(x * depthSize.x - 0.5);\n"
+    "    vec2 hx = sx.xy * depthTexelX;\n"
+    "    float a00 = texture(u_depth, vec2(hx.x, depthRow.x)).a;\n"
+    "    float a10 = texture(u_depth, vec2(hx.y, depthRow.x)).a;\n"
+    "    float a01 = texture(u_depth, vec2(hx.x, depthRow.y)).a;\n"
+    "    float a11 = texture(u_depth, vec2(hx.y, depthRow.y)).a;\n"
+    "    return mix(mix(a11, a01, sx.z), mix(a10, a00, sx.z), depthRow.z);\n"
+    "}\n"
     "void main() {\n"
-    "    float d = texture(u_depth, v_plain).a;\n"
+    "    if (u_depthCubic > 0.5) {\n"
+    "        depthSize = vec2(textureSize(u_depth, 0));\n"
+    "        depthTexelX = 1.0 / depthSize.x;\n"
+    "        vec3 sy = splineAxis(v_plain.y * depthSize.y - 0.5);\n"
+    "        depthRow = vec3(sy.xy / depthSize.y, sy.z);\n"
+    "    }\n"
     "    if (u_showDepth > 0.5) {\n"
-    "        fragColor = vec4(d, d, d, 1.0);\n"
+    "        float dd = depthAt(v_plain.x);\n"
+    "        fragColor = vec4(dd, dd, dd, 1.0);\n"
     "        return;\n"
     "    }\n"
     "    vec2 tc = v_plain;\n"
+    // A pixel near a side edge whose shift points outward has nothing in the
+    // frame to read, and the clamp below hands it the edge column, so that
+    // column gets smeared across the width of the shift. Letting the shift die
+    // away over the last few pixels means nothing asks to leave the frame, and
+    // the picture's edge stays where it is in both eyes. Only across, since
+    // the shift is horizontal.
+    "    float edgeW = smoothstep(0.0, max(u_edgeFade, 1e-6),\n"
+    "                             min(v_plain.x, 1.0 - v_plain.x));\n"
+    "    float disp = edgeW * u_disparity;\n"
     "    if (u_occlusion > 0.5) {\n"
     // The offset map already picked the right surface. All that is left is
     // the exact position on it, which the low resolution search only knew to
@@ -52,14 +112,16 @@ const char* const FRAGMENT_SRC =
     "                        * max(u_convergence, 1.0 - u_convergence))) + 2;\n"
     "        vec2 enc = texture(u_offsets, v_plain).rg;\n"
     "        float off = (u_eyeIndex < 0.5 ? enc.r : enc.g) - 0.5;\n"
-    "        tc.x = v_plain.x + off * 2.0 * float(reach) / u_lowResWidth;\n"
+    "        tc.x = v_plain.x + edgeW * off * 2.0 * float(reach) / u_lowResWidth;\n"
     "        float h = 1.0 / u_frameWidth;\n"
     "        for (int i = 0; i < 2; i++) {\n"
-    "            float d0 = texture(u_depth, vec2(tc.x, v_plain.y)).a;\n"
+    // Where the sample lands comes from d0 alone, so only it takes the cubic
+    // read. The pair either side only scales the step.
+    "            float d0 = depthAt(tc.x);\n"
     "            float dm = texture(u_depth, vec2(tc.x - h, v_plain.y)).a;\n"
     "            float dp = texture(u_depth, vec2(tc.x + h, v_plain.y)).a;\n"
-    "            float e = (tc.x - v_plain.x) + u_disparity * (d0 - u_convergence);\n"
-    "            float slope = 1.0 + u_disparity * (dp - dm) / (2.0 * h);\n"
+    "            float e = (tc.x - v_plain.x) + disp * (d0 - u_convergence);\n"
+    "            float slope = 1.0 + disp * (dp - dm) / (2.0 * h);\n"
     "            if (abs(slope) < 0.25) {\n"
     "                slope = 0.25;\n"
     "            }\n"
@@ -67,13 +129,18 @@ const char* const FRAGMENT_SRC =
     "        }\n"
     "    }\n"
     "    else {\n"
-    "        tc.x -= u_disparity * (d - u_convergence);\n"
+    "        tc.x -= disp * (depthAt(v_plain.x) - u_convergence);\n"
     "    }\n"
     "    if (u_barTest > 0.5) {\n"
     "        float b = 1.0 - step(0.004, abs(tc.x - 0.5));\n"
     "        fragColor = vec4(b, b, b, 1.0);\n"
     "        return;\n"
     "    }\n"
+    // Past 0 or 1 the read is left to however the driver treats an external
+    // texture off its edge, and the bilinear tap at the edge texel can reach
+    // round to the far side of the picture. Held half a texel inside, the
+    // sample stays on the picture whatever the shift did.
+    "    tc.x = clamp(tc.x, u_srcInset, 1.0 - u_srcInset);\n"
     "    fragColor = texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy);\n"
     "    fragColor.rgb *= u_tint;\n"
     "}\n";

@@ -639,6 +639,16 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->upsampleSigmaR = 0.25f;
     ctx->upsampleEnabled = 1;
     ctx->occlusionEnabled = 1;
+    // The warp's edges: sample held inside the frame, shift faded out over
+    // the last few pixels each side, and each eye's rectangle a texel clear
+    // of the seam between them. The cubic depth read is off: it measured 1.1
+    // to 1.3 ms of warp GPU time at 4K, which a 90 Hz stream cannot spare
+    // before anyone has seen it make a difference. Its property is there for
+    // the comparison.
+    ctx->srcInsetOn = 1;
+    ctx->edgeFadePx = EDGE_FADE_PX;
+    ctx->depthCubic = 0;
+    ctx->seamInset = 1;
     // Off until it earns its place in a blind comparison on device
     ctx->depthSharp = 0.0f;
     // Starts where the preference left it, and the panel can change it live

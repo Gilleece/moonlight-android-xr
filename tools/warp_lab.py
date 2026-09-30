@@ -37,11 +37,23 @@
 #
 # This reproduces the shipped shader: joint bilateral upsample of the depth
 # guided by colour, then an occlusion aware gather that inverts the forward
-# map. Checked against a device capture: the upsample matches to a mean of
-# 0.001, which is the 8 bit quantisation floor, and the warped eyes to a mean
-# of 1.0 of 255 over the whole frame.
+# map, fading the shift out over the same band at the side edges, and with
+# --depth-cubic 1 reading the depth through the same cubic B spline the
+# shader has behind debug.moonlight.depthcubic, off as shipped. Checked
+# against a 4K device capture: the upsample matches to a mean of 0.001, which
+# is the 8 bit quantisation floor, and the warped eyes to a mean of 0.4 of 255
+# over the whole frame. In the 16 columns at each side the settings the
+# capture was taken with agree two to four times better than the other pair,
+# and around depth edges 5 to 20 percent better, so match --edge-fade and
+# --depth-cubic to the debug.moonlight.edgefade and depthcubic in force at
+# the time.
 #
-# That 99th percentile of about 18 is expected and not a fidelity problem. At a
+# The shader also holds the shifted sample half a texel inside the frame,
+# which here is the clamp to the edge columns the gather already does. The
+# texel each eye's rectangle keeps clear of the seam is the compositor's
+# business and never reaches a capture.
+#
+# The large maximum is expected and not a fidelity problem. At a
 # fold the search picks between competing crossings, so a tiny numeric
 # difference flips which one wins and moves that pixel by the whole disparity.
 # The error is concentrated at fold boundaries; everywhere else it is under a
@@ -149,10 +161,63 @@ def expand(depth_small, w, h):
     return top * (1 - ty) + bot * ty
 
 
+def linear_axis(src, coords, axis):
+    """One bilinear fetch along an axis, clamped to the edge the way the
+    sampler is, at coordinates in texels of that axis."""
+    n = src.shape[axis]
+    p = coords - 0.5
+    i0 = np.floor(p).astype(int)
+    shape = [1, 1]
+    shape[axis] = -1
+    f = (p - i0).astype(np.float32).reshape(shape)
+    a = np.take(src, np.clip(i0, 0, n - 1), axis=axis)
+    b = np.take(src, np.clip(i0 + 1, 0, n - 1), axis=axis)
+    return a * (1 - f) + b * f
+
+
+def cubic_axis(src, out_n, axis):
+    """The shader's cubic B spline read along one axis: four texel weights,
+    folded into two bilinear fetches placed between texel pairs."""
+    n = src.shape[axis]
+    tc = (np.arange(out_n) + 0.5) / out_n * n - 0.5
+    base = np.floor(tc)
+    f = tc - base
+    f2 = f * f
+    f3 = f2 * f
+    w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0
+    w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0
+    w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0
+    w3 = f3 / 6.0
+    g0 = w0 + w1
+    a0 = linear_axis(src, base - 0.5 + w1 / g0, axis)
+    a1 = linear_axis(src, base + 1.5 + w3 / (w2 + w3), axis)
+    shape = [1, 1]
+    shape[axis] = -1
+    g0 = g0.astype(np.float32).reshape(shape)
+    return a1 + (a0 - a1) * g0
+
+
+def expand_cubic(depth_small, w, h):
+    """The cubic read expanded to full resolution. Bilinear fetches are
+    separable, so doing across and then down is the shader's 2d read."""
+    return cubic_axis(cubic_axis(depth_small, w, 1), h, 0)
+
+
+def edge_weight(w, fade_px):
+    """How much of the shift each column keeps: the shader's smoothstep from
+    nothing at the side edges to all of it fade_px in."""
+    if fade_px <= 0:
+        return np.ones(w, np.float32)
+    u = (np.arange(w) + 0.5) / w
+    t = np.clip(np.minimum(u, 1.0 - u) * w / fade_px, 0.0, 1.0)
+    return (t * t * (3.0 - 2.0 * t)).astype(np.float32)
+
+
 def warp_rows(source, depth, y0, y1, sign, disp, convergence, span=20):
     """Occlusion aware gather. A source pixel at offset t lands here with error
     e(t) = t + disp * (d(x + t) - convergence), so every zero crossing is a
-    source that genuinely lands on this pixel and the nearest surface wins."""
+    source that genuinely lands on this pixel and the nearest surface wins.
+    disp is per column, so the edge fade rides along."""
     h, w = source.shape[:2]
     xs = np.arange(w)
     best_t = np.zeros((y1 - y0, w), np.float32)
@@ -161,7 +226,7 @@ def warp_rows(source, depth, y0, y1, sign, disp, convergence, span=20):
     for t in np.arange(-span, span + 1, dtype=np.float32):
         sx = np.clip(xs + t, 0, w - 1).astype(int)
         d = depth[y0:y1][:, sx]
-        e = t + sign * disp * (d - convergence)
+        e = t + sign * disp[None, :] * (d - convergence)
         if prev_e is not None:
             crossed = (np.sign(e) != np.sign(prev_e)) & (np.abs(e - prev_e) > 1e-6)
             frac = np.where(crossed, prev_e / (prev_e - e + 1e-9), 0.0)
@@ -208,6 +273,10 @@ def main():
     ap.add_argument("--sigma", type=float, default=0.25, help="upsample range sigma")
     ap.add_argument("--sharp", type=float, default=0.0,
                     help="depth boundary sharpening, 0 to 1")
+    ap.add_argument("--edge-fade", type=float, default=8.0,
+                    help="pixels the shift fades out over at each side edge, 0 off")
+    ap.add_argument("--depth-cubic", type=int, default=0,
+                    help="1 reads the depth through the cubic B spline, 0 bilinear")
     ap.add_argument("--out", default=None, help="where to write PNGs")
     args = ap.parse_args()
 
@@ -258,8 +327,12 @@ def main():
     # The upsample target is RGBA8, so the warp reads a quantised depth. Skip
     # this and the offset search drifts enough to show up as an edge mismatch
     # against the device.
-    depth_full = expand(np.round(upsampled * 255.0) / 255.0, w, h)
-    disp = args.separation * w
+    quantised = np.round(upsampled * 255.0) / 255.0
+    if args.depth_cubic:
+        depth_full = expand_cubic(quantised, w, h)
+    else:
+        depth_full = expand(quantised, w, h)
+    disp = args.separation * w * edge_weight(w, args.edge_fade)
 
     for name, sign in (("left", 1.0), ("right", -1.0)):
         mine, s15, s50 = warp_frame(source, depth_full, sign, disp, args.convergence)
