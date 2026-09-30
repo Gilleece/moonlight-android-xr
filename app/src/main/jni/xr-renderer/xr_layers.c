@@ -2,17 +2,16 @@
 // assembled in draw order and handed to the compositor.
 #include "xr_renderer.h"
 
-// Worst case reachable is a tab with six rows open: background, the glow,
-// both eyes, stats, the cog button, the panel, six thumbs, ray and cursor,
-// which is 15, or 16 with a stereo background's second layer, exactly this
-// runtime's limit. The display tab comes to two more, its seven rings plus
-// the glow level thumb where the screen tab has six thumbs and no rings,
-// which at its fullest is one past the Pico's sixteen, so a frame over the
-// runtime's limit sheds that tab's hover ring (see nativeEndFrame).
-// The 3d room replaces the environment layer and sheds the move pill and
-// the screen tab's thumbs, so it only ever comes to less. The panel is
-// modal, and since the frame a modal opens now sheds the bar furniture
-// too, the two can no longer land in one frame together.
+// Worst case reachable is a tab with six rows open: the glow, both eyes,
+// stats, the cog button, the panel, six thumbs, ray and cursor, which is 14.
+// A room adds its own layer, but in one the screen tab sheds its thumbs and
+// the move pill goes, so that tab only ever comes to less. The display tab
+// keeps its rows in a room: its seven rings and the glow level thumb over
+// the rest come to 17 at its fullest, one past the Pico's sixteen, so a
+// frame over the runtime's limit sheds that tab's hover ring (see
+// nativeEndFrame). The panel is modal, and since the frame a modal opens now
+// sheds the bar furniture too, the two can no longer land in one frame
+// together.
 // The keyboard sheds the same furniture and adds only its panel and one
 // ring, so it comes to 9. The exit prompt sheds it too and adds its own
 // sheet and the button that opened it, so it comes to less again. Sized
@@ -25,7 +24,6 @@
 typedef struct {
     XrCompositionLayerProjection room;
     XrCompositionLayerProjectionView roomViews[ROOM_EYES];
-    XrCompositionLayerEquirect2KHR background[2];
     XrCompositionLayerQuad glow;
     XrCompositionLayerQuad video[2];
     XrCompositionLayerCylinderKHR cylinder[2];
@@ -228,17 +226,16 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
 
 // The 3d room, drawn per eye into the one projection layer
 static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
-    // The environment, whichever of the two it is. The 3d room takes the
-    // photo's place rather than sitting in front of it, and passthrough wants
-    // the real room instead, so no two of the three ever go up together.
+    // The environment, when it is a room. Passthrough wants the real room
+    // instead, so the two never go up together.
     if (view->roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough) {
         XrCompositionLayerProjection* room = &layers->room;
         memset(room, 0, sizeof(*room));
         memset(layers->roomViews, 0, sizeof(layers->roomViews));
         room->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
         room->layerFlags = 0;
-        // World locked like the photo it stands in for, even when the screen
-        // is head locked
+        // World locked, even when the screen is head locked, or the room would
+        // swing about with the viewer
         room->space = ctx->localSpace;
         room->viewCount = ROOM_EYES;
         room->views = layers->roomViews;
@@ -257,64 +254,6 @@ static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             projView->subImage.imageArrayIndex = 0;
         }
         pushLayer(ctx, layers, room);
-    }
-}
-
-// The 360 photo, as one layer per eye when it is stereo
-static void addBackgroundLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
-    // The photo, in that same slot: submitted before everything else so all of
-    // it sits in front, and skipped when the room or passthrough has the slot.
-    // A square image is top/bottom stereo and goes up as one layer per eye,
-    // each showing its half of the same swapchain.
-    if (ctx->backgroundReady && ctx->backgroundEnabled && !ctx->passthrough && !view->roomOn) {
-        int stereo = ctx->backgroundWidth == ctx->backgroundHeight;
-        int eyeH = stereo ? ctx->backgroundHeight / 2 : ctx->backgroundHeight;
-        int eyes = stereo ? 2 : 1;
-
-        for (int eye = 0; eye < eyes; eye++) {
-            XrCompositionLayerEquirect2KHR* bg = &layers->background[eye];
-            memset(bg, 0, sizeof(*bg));
-            bg->type = XR_TYPE_COMPOSITION_LAYER_EQUIRECT2_KHR;
-            bg->eyeVisibility = !stereo ? XR_EYE_VISIBILITY_BOTH
-                    : ((eye == 0) != (ctx->tbSwap != 0) ? XR_EYE_VISIBILITY_RIGHT
-                                                        : XR_EYE_VISIBILITY_LEFT);
-            bg->subImage.swapchain = ctx->backgroundSwapchain;
-            bg->subImage.imageRect.offset.x = 0;
-            // The top half goes to the right eye: measured off the shipped
-            // photo (the bottom half's content sits shifted right, which is
-            // what a left eye sees) and confirmed by eye in the headset.
-            // debug.moonlight.tbswap trades them for a photo packed the
-            // other way up.
-            bg->subImage.imageRect.offset.y = eye * eyeH;
-            bg->subImage.imageRect.extent.width = ctx->backgroundWidth;
-            bg->subImage.imageRect.extent.height = eyeH;
-            bg->subImage.imageArrayIndex = 0;
-            // World locked, even when the screen is head locked, or the
-            // environment would swing about with the viewer
-            bg->space = ctx->localSpace;
-            bg->pose.orientation.w = 1.0f;
-            // A finite sphere is what gives the room a size. At zero the layer
-            // is infinitely far, so leaning about moves nothing and the eye
-            // reads it as vast. Bring it in and the parallax says how big it
-            // really is.
-            // A mono photo sits on a finite sphere so leaning gives it some
-            // parallax. A stereo photo already carries its depth baked into
-            // the two halves, and a finite sphere would add the compositor's
-            // geometric disparity on top, over converging whatever is close.
-            // Infinite radius leaves the baked depth as the only depth.
-            bg->radius = stereo ? 0.0f : ctx->envRadius;
-            bg->centralHorizontalAngle = 6.2831853f;
-            // Width covers the full turn, so the vertical reach follows the
-            // per eye aspect ratio. A 2:1 image fills the sphere, anything
-            // wider leaves the zenith and nadir empty rather than stretching.
-            float halfV = (float)eyeH / (float)ctx->backgroundWidth * 3.1415927f;
-            if (halfV > 1.5707963f) {
-                halfV = 1.5707963f;
-            }
-            bg->upperVerticalAngle = halfV;
-            bg->lowerVerticalAngle = -halfV;
-            pushLayer(ctx, layers, bg);
-        }
     }
 }
 
@@ -822,7 +761,6 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     ctx->prefCurvature = curvature;
     pollCaptureRequest(ctx);
     propFlag(PROP_PASSTHROUGH, &ctx->passthrough);
-    propFlag(PROP_TB_SWAP, &ctx->tbSwap);
     // The panel first, then the debug property over the top of it, so a blind
     // A/B still wins whatever the panel was left on
     if (ctx->panelSeparation >= 0.0f) {
@@ -915,7 +853,6 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     setLayerSettings(ctx, &layers);
 
     addRoomLayer(ctx, &view, &layers);
-    addBackgroundLayers(ctx, &view, &layers);
     addGlowLayer(ctx, &view, &layers);
     if (ctx->everRendered && ctx->shouldRender) {
         addVideoLayers(ctx, &view, &layers);
@@ -930,7 +867,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addPointerLayers(ctx, &view, &layers);
     }
 
-    // The display tab at its fullest, with a photo, the glow, the stats and
+    // The display tab at its fullest, with a room, the glow, the stats and
     // the ray all up, is one layer past the Pico's sixteen, and a frame over
     // the limit is refused whole. Its hover ring is what goes: the cursor
     // already shows where the ray is.

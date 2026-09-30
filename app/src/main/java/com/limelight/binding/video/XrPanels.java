@@ -34,23 +34,17 @@ import static com.limelight.binding.video.XrShared.*;
 final class XrPanels {
 
     // Environment picker, a grid of thumbnails reachable from inside the
-    // session. One band per category: a header strip carrying its name, then a
-    // row of cells under it. The rooms are the first band, the photos from the
-    // assets folder in name order are the second. A cell is a place in the
-    // grid and nothing more, what gets saved is the stable id it maps to. The
-    // grid and its cells are the PICKER_ and ENV_CELL_ values in XrShared,
-    // which is what the native side hit tests against.
-    static final String ENVIRONMENT_DIR = "environments";
+    // session: a header strip carrying its name, then a row of cells under it.
+    // A cell is a place in the grid and nothing more, what gets saved is the
+    // stable id it maps to. The grid and its cells are the PICKER_ and
+    // ENV_CELL_ values in XrShared, which is what the native side hit tests
+    // against.
     private static final String IMAGE_DIR = "images";
-    // A baked room that has a picture of itself shows that on its tile, at the
-    // cell's own size
+    // A baked room shows a picture of itself on its tile, at the cell's own size
     private static final String THEATER_THUMB = "rooms/thumbs/home_theater.jpg";
     private static final int PICKER_CELL_W = PICKER_TEX_W / PICKER_COLS;
     // One per band, drawn in the strip above its cells
-    private static final String[] PICKER_HEADERS = { "Rooms", "360 Images" };
-    // The photos take whatever the rooms leave, so how many fit is a question
-    // for the layout rather than a count kept here
-    static final int MAX_PHOTOS = PICKER_CELLS - ENV_CELL_FIRST_PHOTO;
+    private static final String[] PICKER_HEADERS = { "Rooms" };
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout is agreed between the two through the COG_
@@ -167,12 +161,9 @@ final class XrPanels {
     private static final String EXIT_QUESTION = "Exit the stream?";
 
     private final Context context;
-    // The photos in the assets folder, in the order the picker shows them
-    private final String[] environmentFiles;
 
-    XrPanels(Context context, String[] environmentFiles) {
+    XrPanels(Context context) {
         this.context = context;
-        this.environmentFiles = environmentFiles;
     }
 
     // Everything the keyboard hands over: the three sheets in state order, the
@@ -262,33 +253,18 @@ final class XrPanels {
                 name = "Black void";
                 paint.setColor(0xFF090909);
             }
-            else if (cell == ENV_CELL_MINIMAL_ROOM) {
-                // No photo to preview, so the room is sketched on the tile
-                // below once the base colour is down
-                name = "Minimal room";
-                paint.setColor(0xFF0B0B0E);
-            }
-            else if (cell == ENV_CELL_PSX_CINEMA) {
-                name = "PSX Cinema";
-                paint.setColor(0xFF120A0C);
-            }
             else if (cell == ENV_CELL_HOME_THEATER) {
                 name = "Home Theater";
                 thumb = decodeRoomThumb(THEATER_THUMB);
                 paint.setColor(0xFF14110F);
-            }
-            else if (cell - ENV_CELL_FIRST_PHOTO < environmentFiles.length) {
-                name = labelFor(environmentFiles[cell - ENV_CELL_FIRST_PHOTO]);
-                thumb = decodeThumb(environmentFiles[cell - ENV_CELL_FIRST_PHOTO], (int)tile.height());
-                paint.setColor(0xFF1E1E20);
             }
             else {
                 continue;
             }
 
             if (thumb != null) {
-                // Scaled to cover and centred, so the middle of the panorama
-                // becomes the preview rather than a squashed whole sphere
+                // Scaled to cover and centred, so a picture of another shape
+                // fills the tile rather than leaving bars
                 BitmapShader shader = new BitmapShader(thumb, Shader.TileMode.CLAMP,
                                                        Shader.TileMode.CLAMP);
                 float scale = Math.max(tile.width() / thumb.getWidth(),
@@ -305,12 +281,6 @@ final class XrPanels {
             paint.setShader(null);
             if (thumb != null) {
                 thumb.recycle();
-            }
-            if (cell == ENV_CELL_MINIMAL_ROOM) {
-                drawRoomTile(canvas, paint, tile, radius);
-            }
-            else if (cell == ENV_CELL_PSX_CINEMA) {
-                drawCinemaTile(canvas, paint, tile, radius);
             }
 
             // Dark band under the label, clipped to the bottom of the tile so
@@ -333,101 +303,6 @@ final class XrPanels {
         ByteBuffer pixels = toBuffer(grid);
         grid.recycle();
         return pixels;
-    }
-
-    /**
-     * The thumbnail for a room cell, drawn rather than photographed: a lit
-     * screen on the wall of a bare dark room, with a faint line low down where
-     * the floor meets it.
-     */
-    private void drawRoomTile(Canvas canvas, Paint paint, RectF tile, float radius) {
-        canvas.save();
-        // Clipped to the tile so nothing leaks past the rounded corners
-        Path clip = new Path();
-        clip.addRoundRect(tile, radius, radius, Path.Direction.CW);
-        canvas.clipPath(clip);
-
-        final float w = tile.width();
-        final float h = tile.height();
-
-        // A 16:9 screen sitting in the upper middle, with a wider soft rect
-        // behind it standing in for the light it throws on the wall
-        float screenW = w * 0.62f;
-        float screenH = screenW * 9.0f / 16.0f;
-        float screenTop = tile.top + h * 0.24f;
-        RectF screen = new RectF(tile.centerX() - screenW * 0.5f, screenTop,
-                tile.centerX() + screenW * 0.5f, screenTop + screenH);
-
-        RectF halo = new RectF(screen);
-        halo.inset(-w * 0.07f, -h * 0.07f);
-        paint.setColor(0x38A6C4F0);
-        canvas.drawRoundRect(halo, radius * 0.7f, radius * 0.7f, paint);
-        paint.setColor(0xFFDCE6F4);
-        canvas.drawRect(screen, paint);
-
-        // Where the floor meets the wall, faint enough to read as a room
-        // rather than as a line across the tile
-        paint.setColor(0x28FFFFFF);
-        float floorY = tile.top + h * 0.78f;
-        canvas.drawRect(new RectF(tile.left, floorY, tile.right, floorY + 1.5f), paint);
-
-        canvas.restore();
-    }
-
-    /**
-     * The thumbnail for the cinema cell: a lit screen between the deep red side
-     * curtains, which is about all of that room that reads at this size.
-     */
-    private void drawCinemaTile(Canvas canvas, Paint paint, RectF tile, float radius) {
-        canvas.save();
-        Path clip = new Path();
-        clip.addRoundRect(tile, radius, radius, Path.Direction.CW);
-        canvas.clipPath(clip);
-
-        final float w = tile.width();
-        final float h = tile.height();
-
-        // The picture, narrower than the bare room's since the curtains take
-        // the sides of the tile
-        float screenW = w * 0.50f;
-        float screenH = screenW * 9.0f / 16.0f;
-        float screenTop = tile.top + h * 0.27f;
-        RectF screen = new RectF(tile.centerX() - screenW * 0.5f, screenTop,
-                tile.centerX() + screenW * 0.5f, screenTop + screenH);
-
-        RectF halo = new RectF(screen);
-        halo.inset(-w * 0.07f, -h * 0.07f);
-        paint.setColor(0x34C4D6F0);
-        canvas.drawRoundRect(halo, radius * 0.7f, radius * 0.7f, paint);
-        paint.setColor(0xFFE2E9F6);
-        canvas.drawRect(screen, paint);
-
-        // Curtains over the ends of that halo, so the light reads as coming
-        // from behind them
-        final float curtainW = w * 0.21f;
-        paint.setColor(0xFF7C1319);
-        canvas.drawRect(new RectF(tile.left, tile.top, tile.left + curtainW, tile.bottom), paint);
-        canvas.drawRect(new RectF(tile.right - curtainW, tile.top, tile.right, tile.bottom), paint);
-
-        // Three pleats apiece, which is what says curtain rather than red panel
-        final float pleatW = w * 0.013f;
-        paint.setColor(0xFF4A0B10);
-        for (int i = 1; i < 4; i++) {
-            float along = curtainW * (i / 4.0f);
-            float left = tile.left + along;
-            canvas.drawRect(new RectF(left, tile.top, left + pleatW, tile.bottom), paint);
-            float right = tile.right - curtainW + along;
-            canvas.drawRect(new RectF(right, tile.top, right + pleatW, tile.bottom), paint);
-        }
-
-        // The front of the stage, faint enough to read as the dark of the room
-        // rather than as a line across the tile
-        paint.setColor(0x20FFFFFF);
-        float stageY = tile.top + h * 0.76f;
-        canvas.drawRect(new RectF(tile.left + curtainW, stageY,
-                tile.right - curtainW, stageY + 1.5f), paint);
-
-        canvas.restore();
     }
 
     // The padlocks and the cog ship as PNGs. Colour carries the state, so there
@@ -1148,45 +1023,8 @@ final class XrPanels {
         return pixels;
     }
 
-    // Sampled down on the way out of the JPEG, since a full 4096x2048 decode
-    // for a 240 pixel tile would cost 32 MB apiece
-    private Bitmap decodeThumb(String fileName, int wanted) {
-        InputStream in = null;
-        try {
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            in = context.getAssets().open(ENVIRONMENT_DIR + "/" + fileName);
-            BitmapFactory.decodeStream(in, null, bounds);
-            closeQuietly(in);
-
-            BitmapFactory.Options opts = new BitmapFactory.Options();
-            opts.inSampleSize = 1;
-            while (bounds.outHeight / (opts.inSampleSize * 2) >= wanted) {
-                opts.inSampleSize *= 2;
-            }
-
-            in = context.getAssets().open(ENVIRONMENT_DIR + "/" + fileName);
-            Bitmap thumb = BitmapFactory.decodeStream(in, null, opts);
-            // A square panorama is top/bottom stereo: thumb from the top half,
-            // or the crop lands on the seam between the two eyes
-            if (thumb != null && thumb.getWidth() == thumb.getHeight()) {
-                Bitmap top = Bitmap.createBitmap(thumb, 0, 0,
-                        thumb.getWidth(), thumb.getHeight() / 2);
-                thumb.recycle();
-                return top;
-            }
-            return thumb;
-        } catch (IOException | OutOfMemoryError e) {
-            LimeLog.warning("Thumbnail " + fileName + " failed: " + e);
-            return null;
-        } finally {
-            closeQuietly(in);
-        }
-    }
-
     // A room's own tile picture, already cropped to the cell, so it goes in
-    // whole. Kept apart from decodeThumb, which reads a square picture as a
-    // stereo pair.
+    // whole
     private Bitmap decodeRoomThumb(String path) {
         InputStream in = null;
         try {
@@ -1198,20 +1036,6 @@ final class XrPanels {
         } finally {
             closeQuietly(in);
         }
-    }
-
-    // spaichingen_hill.jpg becomes Spaichingen Hill
-    static String labelFor(String fileName) {
-        int dot = fileName.lastIndexOf('.');
-        String base = dot > 0 ? fileName.substring(0, dot) : fileName;
-        StringBuilder out = new StringBuilder(base.length());
-        boolean wordStart = true;
-        for (int i = 0; i < base.length(); i++) {
-            char c = base.charAt(i) == '_' ? ' ' : base.charAt(i);
-            out.append(wordStart ? Character.toUpperCase(c) : c);
-            wordStart = c == ' ';
-        }
-        return out.toString();
     }
 
     static void closeQuietly(InputStream in) {

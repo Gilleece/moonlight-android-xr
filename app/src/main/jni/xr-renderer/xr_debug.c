@@ -101,8 +101,6 @@ void pollCaptureRequest(XrCtx* ctx) {
     // Tenths of a second
     propScaled(PROP_POINTER_WAKE, &ctx->pointerWake, 0.1f, 100);
     propScaled(PROP_POINTER_SLEEP, &ctx->pointerSleep, 0.1f, 600);
-    // Metres. Zero is the infinite sphere the layer starts out as.
-    propScaled(PROP_ENV_RADIUS, &ctx->envRadius, 1.0f, 200);
     // 0 off, 1 normal, 2 quality, both of them
     propInt(PROP_SHARPEN, &ctx->sharpenMode, 2);
     propInt(PROP_SUPERSAMPLE, &ctx->supersampleMode, 2);
@@ -115,10 +113,9 @@ void pollCaptureRequest(XrCtx* ctx) {
     // sample to the picture inside them. Same trap again: one left at 0 from an
     // earlier session quietly turns the detection off.
     propFlag(PROP_LETTERBOX, &ctx->ambiBarDetect);
-    // 0 forces the room off, 1 forces the minimal room, 2 the psx cinema, 3 the
-    // home theater, and unset leaves the picker in charge. A baked room only
-    // comes up if it is the one resident, which is the one last picked: any
-    // other shows the minimal room in its place.
+    // 0 forces the room off, 1 forces the home theater, and unset leaves the
+    // picker in charge. A room only comes up if it is the one resident, which
+    // is the one last picked: any other leaves the void in its place.
     propInt(PROP_ROOM, &ctx->roomOverride, ROOM_STYLE_THEATER);
     // Percent, both of them, and 0 hands the value back to the room. The scale
     // reaches the baked rooms only, and moving it rebuilds the geometry, so it

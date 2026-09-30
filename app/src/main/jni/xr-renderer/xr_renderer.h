@@ -221,10 +221,6 @@ static inline long nowNs(void) {
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
 
-// Radius of the environment sphere in metres. Finite, so leaning gives the
-// room a size instead of it sitting infinitely far off.
-#define ENV_RADIUS_M 12.0f
-
 // Ambilight. The frame is boiled down to a tiny colour texture once a frame,
 // and a soft quad behind the screen is filled from it, so whatever the picture
 // is sitting in front of picks up the colours on it.
@@ -262,12 +258,9 @@ static inline long nowNs(void) {
 #define AMBI_EDGE_TOP 3
 #define AMBI_EDGES 4
 
-// The 3d room. A dark interior, drawn per eye into the one projection layer
-// this renderer has, instead of the environment sphere. Which room, 0 for none:
-// 1 is generated here, 2 and 3 are baked models that ship in the assets.
-#define ROOM_STYLE_MINIMAL 1
-#define ROOM_STYLE_PSX 2
-#define ROOM_STYLE_THEATER 3
+// The 3d room. A baked model that ships in the assets, drawn per eye into the
+// one projection layer this renderer has. Which room, 0 for none.
+#define ROOM_STYLE_THEATER 1
 #define ROOM_EYES 2
 // How big the room renders per eye, picked by the Environment Res setting.
 // Half of what the runtime recommends was soft enough against the video layer
@@ -283,31 +276,13 @@ static inline long nowNs(void) {
 // Ten floats a vertex: position, colour, spill weight, texture coordinate and
 // one spare
 #define ROOM_VERTEX_FLOATS 10
-#define ROOM_FACES 6
-// Which of the six faces a vertex came off, since each is coloured its own way
-#define ROOM_SURF_WALL    0
-#define ROOM_SURF_FLOOR   1
-#define ROOM_SURF_CEILING 2
 // Sixteen bit indices, so this is as many vertices as one room can hold
 #define ROOM_MAX_VERTS 65535
 // Floats a vertex in the baked model file: position, normal, texture coordinate
 #define ROOM_MODEL_FLOATS 8
-// Where the viewer stands in the cinema's own space. The geometry is built as
-// (model - anchor) * scale, so the room arrives around the origin the way the
-// generated one is built around it. Only x and z are fixed: the height of the
-// anchor follows the scale, so the tier below stays underfoot. The home
-// theater carries its own anchor in its params instead.
-#define ROOM_MODEL_ANCHOR_X 0.0f
-#define ROOM_MODEL_ANCHOR_Z (-12.0f)
-// The seating tier the viewer stands on, in the model's own space, and how far
-// above it the eye sits whatever the room is scaled to
-#define ROOM_MODEL_TIER_Y (-2.55f)
-#define ROOM_EYE_HEIGHT_M 1.25f
-// How large each baked room is drawn. The cinema at full size measured about a
-// fifth too big in the headset; the theater is modelled in metres around its
-// seat, so it is drawn as built. The property below moves either between the
-// two bounds.
-#define ROOM_PSX_SCALE 0.8f
+// How large the room is drawn. The theater is modelled in metres around its
+// seat, so it is drawn as built. The property below moves it between the two
+// bounds.
 #define ROOM_THEATER_SCALE 1.0f
 #define ROOM_SCALE_MIN 0.25f
 #define ROOM_SCALE_MAX 4.0f
@@ -386,7 +361,6 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_BEAM_WIDTH "debug.moonlight.beamwidth"
 #define PROP_POINTER_WAKE "debug.moonlight.pointerwake"
 #define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
-#define PROP_ENV_RADIUS "debug.moonlight.envradius"
 #define PROP_SHARPEN "debug.moonlight.sharpen"
 #define PROP_SUPERSAMPLE "debug.moonlight.supersample"
 #define PROP_AMBILIGHT "debug.moonlight.ambilight"
@@ -395,7 +369,6 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_ROOM "debug.moonlight.room"
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
-#define PROP_TB_SWAP "debug.moonlight.tbswap"
 // Milliseconds, the time constants of the per texel depth average and of the
 // range the map is normalised against. 0 turns either off, so each map
 // replaces the last or is normalised against its own range.
@@ -634,8 +607,7 @@ typedef struct {
     // What the debug property asked for, or -1 while the panel still owns it
     int ambiOverride;
 
-    // Which room the picker is on: 0 none, 1 the minimal room, 2 the cinema,
-    // 3 the home theater.
+    // Which room the picker is on: 0 none, 1 the home theater.
     // Same arrangement as the glow, with a debug property that can force it.
     int roomStyle;
     int roomOverride;
@@ -647,8 +619,8 @@ typedef struct {
     // the wash runs whether the glow is on or not.
     int roomLightOn;
     // Everything the room is drawn with, built the first frame a style asks
-    // for it rather than at startup, the way the background photo arrives.
-    // One side by side image, a half of it per eye.
+    // for it rather than at startup. One side by side image, a half of it per
+    // eye.
     XrSwapchain roomSwapchain;
     uint32_t roomImageCount;
     XrSwapchainImageOpenGLESKHR* roomImages;
@@ -673,7 +645,7 @@ typedef struct {
     int roomModelIndexCount;
     int roomModelReady;
     // Its atlas, and a 1x1 white stand in so the sampler always has something
-    // complete bound while the generated room is up
+    // complete bound before the atlas is up
     GLuint roomTexture;
     int roomTextureReady;
     // Which baked room the model and the atlas above belong to. Only one room
@@ -761,7 +733,6 @@ typedef struct {
     int focusedFrames;
 
     int cylinderSupported;
-    int equirectSupported;
     int layerSettingsSupported;
     // Probed and logged only. Ours is drawn here, but knowing which runtimes
     // offer one of their own is worth a line.
@@ -774,20 +745,6 @@ typedef struct {
     // Whether a frame has already been caught outgrowing the layer array
     int layerDropWarned;
 
-    // 360 photo shown behind everything when passthrough is off. An equirect
-    // layer, so the compositor draws the environment and we still have no
-    // projection layer and no geometry.
-    XrSwapchain backgroundSwapchain;
-    uint32_t backgroundImageCount;
-    XrSwapchainImageOpenGLESKHR* backgroundImages;
-    int backgroundWidth;
-    int backgroundHeight;
-    int backgroundReady;
-    int backgroundEnabled;
-    // Which half of a top/bottom stereo photo goes to which eye, tradeable
-    // over debug.moonlight.tbswap for a photo that packs them the other way
-    int tbSwap;
-    float envRadius;
     int srgbWriteControl;
     // Whether a room's atlas can go up as it ships, ASTC compressed, and how
     // much anisotropic filtering it gets: 1 without the extension, else the
@@ -1008,7 +965,7 @@ typedef struct {
     int pickerCells;
     int envButtonHot;
     // The choice the last environment line was written for, so reapplying the
-    // same one after a photo decode does not repeat it
+    // same one does not repeat it
     int loggedChoice;
 
     // One swapchain per sheet, all filled at startup, so changing tab is a

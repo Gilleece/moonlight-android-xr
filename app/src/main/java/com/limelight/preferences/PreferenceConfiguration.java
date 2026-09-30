@@ -79,14 +79,11 @@ public class PreferenceConfiguration {
     // cell is only where it currently sits in the grid, so rearranging the grid
     // cannot scramble what anyone had picked.
     public static final String VR_ENVIRONMENT_ID_PREF_STRING = "vr_environment_id";
+    // 2 and 3, and everything from 100 up, named environments that have since
+    // gone (see EnvironmentIds) and are never handed out again
     public static final int VR_ENV_PASSTHROUGH = 0;
     public static final int VR_ENV_VOID = 1;
-    public static final int VR_ENV_MINIMAL_ROOM = 2;
-    public static final int VR_ENV_PSX_CINEMA = 3;
     public static final int VR_ENV_HOME_THEATER = 4;
-    // The 360 photos start here, numbered by their order in the assets folder,
-    // well clear of the rooms so both lists can grow
-    public static final int VR_ENV_FIRST_PHOTO = 100;
     // Nor is this: a marker that the Gen 1 profile decision has been made
     public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
     // Nor this: a marker that a stored MiDaS has had its one move to ZipDepth

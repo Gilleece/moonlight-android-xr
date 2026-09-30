@@ -134,7 +134,6 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) haveAndroidCreate = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) ctx->cylinderSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME)) ctx->picoInteraction = 1;
-        if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME)) ctx->equirectSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) ctx->handInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME)) ctx->msftHandInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) ctx->handTracking = 1;
@@ -168,9 +167,6 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->picoInteraction) {
         enableExt(enabledExts, &enabledCount, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
-    }
-    if (ctx->equirectSupported) {
-        enableExt(enabledExts, &enabledCount, XR_KHR_COMPOSITION_LAYER_EQUIRECT2_EXTENSION_NAME);
     }
     if (ctx->handInteraction) {
         enableExt(enabledExts, &enabledCount, XR_EXT_HAND_INTERACTION_EXTENSION_NAME);
@@ -534,7 +530,6 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyArtSwapchain(&ctx->pointerSwapchain, &ctx->pointerImages);
     destroyArtSwapchain(&ctx->barSwapchain, &ctx->barImages);
     destroyArtSwapchain(&ctx->cornerSwapchain, &ctx->cornerImages);
-    destroyArtSwapchain(&ctx->backgroundSwapchain, &ctx->backgroundImages);
     destroyArtSwapchain(&ctx->pickerSwapchain, &ctx->pickerImages);
     destroyArtSwapchain(&ctx->envButtonSwapchain, &ctx->envButtonImages);
     for (int tab = 0; tab < COG_ART_COUNT; tab++) {
@@ -677,7 +672,6 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->pointerSleep = POINTER_SLEEP_SEC;
     // 1 cm reads as a thin line at 3 m without disappearing
     ctx->beamWidth = 0.010f;
-    ctx->envRadius = ENV_RADIUS_M;
     // Comfort comes from absolute disparity and depth comes from the steps
     // between objects, so the overall shape is pulled toward the screen plane
     // while the local detail is boosted. Measured on captured frames this is
@@ -734,9 +728,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
         LOGW("pointer swapchain unavailable, the ray will not be drawn");
     }
 
-    LOGEV("OpenXR init complete (cylinder=%d equirect=%d srgbWriteControl=%d maxLayers=%d)",
-         ctx->cylinderSupported, ctx->equirectSupported, ctx->srgbWriteControl,
-         ctx->maxLayerCount);
+    LOGEV("OpenXR init complete (cylinder=%d srgbWriteControl=%d maxLayers=%d)",
+         ctx->cylinderSupported, ctx->srgbWriteControl, ctx->maxLayerCount);
     return (jlong)(intptr_t)ctx;
 }
 
