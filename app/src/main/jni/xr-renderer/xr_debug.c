@@ -103,8 +103,9 @@ void pollCaptureRequest(XrCtx* ctx) {
     propScaled(PROP_POINTER_SLEEP, &ctx->pointerSleep, 0.1f, 600);
     // Metres. Zero is the infinite sphere the layer starts out as.
     propScaled(PROP_ENV_RADIUS, &ctx->envRadius, 1.0f, 200);
-    // 0 off, 1 normal, 2 quality
+    // 0 off, 1 normal, 2 quality, both of them
     propInt(PROP_SHARPEN, &ctx->sharpenMode, 2);
+    propInt(PROP_SUPERSAMPLE, &ctx->supersampleMode, 2);
     // 0 forces the glow off, 1 to 100 forces it on at that intensity, and
     // unset leaves the panel in charge. Same trap as the rest of these: one
     // left set from an earlier session quietly overrides the panel.

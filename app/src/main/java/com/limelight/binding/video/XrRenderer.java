@@ -240,7 +240,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
                                    int depthWidth, int depthHeight,
                                    boolean depthDebug, int convergence, int depthScale,
-                                   boolean handTracking, int sharpenMode, boolean perfOverlay,
+                                   boolean handTracking, int sharpenMode, int supersampleMode,
+                                   boolean perfOverlay,
                                    boolean ambilight, int ambiLevel, boolean roomLight,
                                    int envResTier);
     private native void nativeSetCaptureDir(long ctx, String dir);
@@ -322,7 +323,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
                         mapSize.width, mapSize.height,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
-                        prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
+                        prefs.vrHandTracking, prefs.vrSharpening, prefs.vrSupersampling,
+                        prefs.enablePerfOverlay,
                         prefs.vrAmbilight, prefs.vrAmbilightLevel, prefs.vrRoomLight,
                         prefs.vrEnvResTier);
                 if (nativeCtx == 0) {
@@ -1209,6 +1211,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             String choice = value == 2 ? "quality" : (value == 1 ? "normal" : "off");
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putString(PreferenceConfiguration.VR_SHARPENING_PREF_STRING, choice)
+                    .apply();
+        }
+        else if (setting == SETTING_SUPERSAMPLE) {
+            String choice = value == 2 ? "quality" : (value == 1 ? "normal" : "off");
+            if (prefConfig != null) {
+                prefConfig.vrSupersampling = value;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putString(PreferenceConfiguration.VR_SUPERSAMPLING_PREF_STRING, choice)
                     .apply();
         }
         else if (setting == SETTING_STATS) {

@@ -605,6 +605,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
                                                        jint depthHeight, jboolean depthDebug,
                                                        jint convergence, jint depthScale,
                                                        jboolean handTracking, jint sharpenMode,
+                                                       jint supersampleMode,
                                                        jboolean perfOverlay, jboolean ambilight,
                                                        jint ambiLevel, jboolean roomLight,
                                                        jint envResTier) {
@@ -687,6 +688,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->convergence = convergence / 100.0f;
     ctx->depthLocal = depthScale / 100.0f;
     ctx->sharpenMode = sharpenMode >= 0 && sharpenMode <= 2 ? sharpenMode : 0;
+    ctx->supersampleMode = supersampleMode >= 0 && supersampleMode <= 2 ? supersampleMode : 0;
     // The panel owns the glow until a debug property says otherwise
     ctx->ambilightOn = ambilight;
     ctx->ambiIntensity = (ambiLevel < 0 ? 0 : (ambiLevel > 100 ? 100 : ambiLevel)) / 100.0f;
