@@ -393,10 +393,11 @@ typedef struct XrCompositionLayerSettingsFB {
 // The scene cut detector: 0 off, 1 on as every build ships, 2 on with a line
 // in the log for every capture
 #define PROP_DEPTH_CUT "debug.moonlight.depth_cut"
-// The warp's four edge fixes, each on as shipped: the shifted sample held
-// inside the frame (0/1), the band the shift fades out over at the left and
-// right edges (pixels, 0 off), the cubic read of the depth map (0/1), and the
-// texel each eye's rectangle keeps clear of the seam with the other (0/1)
+// The warp's four edge fixes: the shifted sample held inside the frame (0/1),
+// the band the shift fades out over at the left and right edges (pixels, 0
+// off), the cubic read of the depth map (0/1), and the texel each eye's
+// rectangle keeps clear of the seam with the other (0/1). All on as shipped
+// but the cubic read, which is off for its cost.
 #define PROP_SRC_INSET "debug.moonlight.srcinset"
 #define PROP_EDGE_FADE "debug.moonlight.edgefade"
 #define PROP_DEPTH_CUBIC "debug.moonlight.depthcubic"
@@ -560,8 +561,8 @@ typedef struct {
     GLuint offsetTexture;
     GLuint offsetFbo;
     int occlusionEnabled;
-    // The edge fixes, all on unless a debug property turns one off. Pixels
-    // for the fade, 0 or 1 for the rest.
+    // The edge fixes, on apart from the cubic read unless a debug property
+    // says otherwise. Pixels for the fade, 0 or 1 for the rest.
     int srcInsetOn;
     int edgeFadePx;
     int depthCubic;

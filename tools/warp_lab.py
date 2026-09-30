@@ -37,14 +37,16 @@
 #
 # This reproduces the shipped shader: joint bilateral upsample of the depth
 # guided by colour, then an occlusion aware gather that inverts the forward
-# map, reading the depth through the same cubic B spline and fading the shift
-# out over the same band at the side edges. Checked against a 4K device
-# capture: the upsample matches to a mean of 0.001, which is the 8 bit
-# quantisation floor, and the warped eyes to a mean of 0.4 of 255 over the
-# whole frame. In the 16 columns at each side the settings the capture was
-# taken with agree two to four times better than the other pair, and around
-# depth edges 5 to 20 percent better, so match --edge-fade and --depth-cubic
-# to the debug.moonlight.edgefade and depthcubic in force at the time.
+# map, fading the shift out over the same band at the side edges, and with
+# --depth-cubic 1 reading the depth through the same cubic B spline the
+# shader has behind debug.moonlight.depthcubic, off as shipped. Checked
+# against a 4K device capture: the upsample matches to a mean of 0.001, which
+# is the 8 bit quantisation floor, and the warped eyes to a mean of 0.4 of 255
+# over the whole frame. In the 16 columns at each side the settings the
+# capture was taken with agree two to four times better than the other pair,
+# and around depth edges 5 to 20 percent better, so match --edge-fade and
+# --depth-cubic to the debug.moonlight.edgefade and depthcubic in force at
+# the time.
 #
 # The shader also holds the shifted sample half a texel inside the frame,
 # which here is the clamp to the edge columns the gather already does. The
@@ -273,7 +275,7 @@ def main():
                     help="depth boundary sharpening, 0 to 1")
     ap.add_argument("--edge-fade", type=float, default=8.0,
                     help="pixels the shift fades out over at each side edge, 0 off")
-    ap.add_argument("--depth-cubic", type=int, default=1,
+    ap.add_argument("--depth-cubic", type=int, default=0,
                     help="1 reads the depth through the cubic B spline, 0 bilinear")
     ap.add_argument("--out", default=None, help="where to write PNGs")
     args = ap.parse_args()
