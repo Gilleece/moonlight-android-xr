@@ -713,6 +713,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->ambiCrop[3] = 1.0f;
     // No environment logged yet, and cell 0 is a real choice
     ctx->loggedChoice = -1;
+    // The whole grid is live until the art arrives with the real count
+    ctx->pickerCells = PICKER_CELLS;
     (*env)->GetJavaVM(env, &ctx->vm);
     ctx->activity = (*env)->NewGlobalRef(env, activity);
 

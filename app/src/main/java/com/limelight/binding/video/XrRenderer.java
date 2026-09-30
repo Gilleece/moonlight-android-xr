@@ -152,18 +152,6 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // named by the picker cell that shows them in roomMeshFile and
     // roomTextureFile below
     private static final String ROOM_DIR = "rooms";
-    // The layout as it shipped before the bands, kept only to read an old saved
-    // cell as the environment it meant at the time
-    private static final int[] LEGACY_CELL_IDS = {
-            PreferenceConfiguration.VR_ENV_PASSTHROUGH,
-            PreferenceConfiguration.VR_ENV_VOID,
-            PreferenceConfiguration.VR_ENV_FIRST_PHOTO,
-            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 1,
-            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 2,
-            PreferenceConfiguration.VR_ENV_FIRST_PHOTO + 3,
-            PreferenceConfiguration.VR_ENV_MINIMAL_ROOM,
-            PreferenceConfiguration.VR_ENV_PSX_CINEMA,
-    };
 
     // Panel art on its way to the GPU. XrPanels draws it on the loader thread
     // and it waits here for the frame loop, which owns the GL context.
@@ -315,7 +303,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadRoomTexture(long ctx, ByteBuffer pixels, int width, int height,
                                                 int cell);
     private native void nativeUploadRoomAtlas(long ctx, ByteBuffer atlas, int cell);
-    private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
+    private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button, int cells);
     private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
                                         ByteBuffer tab3d, ByteBuffer roomTab, ByteBuffer button);
     private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
@@ -829,7 +817,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             ByteBuffer grid = pendingPickerArt.getAndSet(null);
             ByteBuffer button = pendingEnvButton.getAndSet(null);
             if (grid != null || button != null) {
-                nativeUploadPicker(nativeCtx, grid, button);
+                nativeUploadPicker(nativeCtx, grid, button, pickerCellCount());
             }
 
             ByteBuffer screenTab = pendingCogScreenTab.getAndSet(null);
@@ -918,15 +906,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             // old key is left where it is, since nothing costs less than a
             // stale int and an older build can still start on it.
             int legacy = saved.getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1);
-            if (legacy >= 0 && legacy < LEGACY_CELL_IDS.length) {
-                id = LEGACY_CELL_IDS[legacy];
+            if (EnvironmentIds.idForLegacyCell(legacy) >= 0) {
+                id = EnvironmentIds.idForLegacyCell(legacy);
                 saved.edit()
                         .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, id)
                         .apply();
             }
         }
 
-        int cell = cellForId(id);
+        int cell = EnvironmentIds.cellForId(id);
         if (!cellExists(cell)) {
             // Never picked one, so the passthrough checkbox decides: on gives
             // the room, off gives black. A photo only shows once it is chosen.
@@ -936,7 +924,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         passthroughOn = cell == ENV_CELL_PASSTHROUGH;
         nativeSetEnvironment(nativeCtx, cell, false);
 
-        final int startPhoto = isRoomCell(cell) ? -1 : cell - ENV_CELL_FIRST_PHOTO;
+        final int startPhoto = EnvironmentIds.isRoomCell(cell) ? -1 : cell - ENV_CELL_FIRST_PHOTO;
         final int startRoom = cell;
         final int roomTicketAtStart;
         synchronized (roomLock) {
@@ -998,46 +986,18 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         pendingCancelHot.set(exit[3]);
     }
 
-    // A cell that is a fully 3d room rather than a photo or a plain background
-    private static boolean isRoomCell(int cell) {
-        return cell == ENV_CELL_MINIMAL_ROOM || cell == ENV_CELL_PSX_CINEMA;
+    // How much of the grid is real: the fixed cells, then the photos that
+    // shipped. Past that the grid is blank tiles, which the native side is
+    // told about so it can leave them alone.
+    private int pickerCellCount() {
+        return Math.min(ENV_CELL_FIRST_PHOTO + environmentFiles.length, PICKER_CELLS);
     }
 
     // A cell is worth switching to if it is one of the fixed ones or a photo
     // that actually shipped in the assets. The fixed cells come first, so one
     // bound covers both.
     private boolean cellExists(int cell) {
-        return cell >= 0 && cell < ENV_CELL_FIRST_PHOTO + environmentFiles.length;
-    }
-
-    // The two places where cells and saved ids meet. Everything else in here
-    // works in cells, and only the preference speaks ids.
-    private static int idForCell(int cell) {
-        if (cell >= ENV_CELL_FIRST_PHOTO
-                && cell < ENV_CELL_FIRST_PHOTO + XrPanels.MAX_PHOTOS) {
-            return PreferenceConfiguration.VR_ENV_FIRST_PHOTO + (cell - ENV_CELL_FIRST_PHOTO);
-        }
-        switch (cell) {
-            case ENV_CELL_PASSTHROUGH: return PreferenceConfiguration.VR_ENV_PASSTHROUGH;
-            case ENV_CELL_VOID: return PreferenceConfiguration.VR_ENV_VOID;
-            case ENV_CELL_MINIMAL_ROOM: return PreferenceConfiguration.VR_ENV_MINIMAL_ROOM;
-            case ENV_CELL_PSX_CINEMA: return PreferenceConfiguration.VR_ENV_PSX_CINEMA;
-            default: return -1;
-        }
-    }
-
-    private static int cellForId(int id) {
-        if (id >= PreferenceConfiguration.VR_ENV_FIRST_PHOTO
-                && id < PreferenceConfiguration.VR_ENV_FIRST_PHOTO + XrPanels.MAX_PHOTOS) {
-            return ENV_CELL_FIRST_PHOTO + (id - PreferenceConfiguration.VR_ENV_FIRST_PHOTO);
-        }
-        switch (id) {
-            case PreferenceConfiguration.VR_ENV_PASSTHROUGH: return ENV_CELL_PASSTHROUGH;
-            case PreferenceConfiguration.VR_ENV_VOID: return ENV_CELL_VOID;
-            case PreferenceConfiguration.VR_ENV_MINIMAL_ROOM: return ENV_CELL_MINIMAL_ROOM;
-            case PreferenceConfiguration.VR_ENV_PSX_CINEMA: return ENV_CELL_PSX_CINEMA;
-            default: return -1;
-        }
+        return cell >= 0 && cell < pickerCellCount();
     }
 
     private boolean backgroundVisible() {
@@ -1060,7 +1020,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         environmentChoice = cell;
         passthroughOn = cell == ENV_CELL_PASSTHROUGH;
 
-        final int photo = isRoomCell(cell) ? -1 : cell - ENV_CELL_FIRST_PHOTO;
+        final int photo = EnvironmentIds.isRoomCell(cell) ? -1 : cell - ENV_CELL_FIRST_PHOTO;
         if (photo >= 0 && photo != loadedPhoto) {
             Thread loader = new Thread() {
                 @Override
@@ -1077,7 +1037,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // The grid is a second way to reach the passthrough switch, so the
         // setting follows it rather than disagreeing with what is on screen
         PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, idForCell(cell))
+                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING,
+                        EnvironmentIds.idForCell(cell))
                 .putBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING, passthroughOn)
                 .apply();
     }
@@ -1137,15 +1098,22 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static String roomMeshFile(int cell) {
         switch (cell) {
             case ENV_CELL_PSX_CINEMA: return "psx_cinema.room";
+            case ENV_CELL_HOME_THEATER: return "home_theater.room";
             default: return null;
         }
     }
 
     // And the atlas it is painted with. A PNG is decoded here and goes up as
     // pixels; an .atlas is already ASTC with its mip chain and goes up as read.
+    // The theater ships two sets from the same source: 4096, and 2048 for the
+    // XR2 Gen 1 headsets, whose rooms draw at half size and which have the
+    // least memory to spare.
     private static String roomTextureFile(int cell) {
         switch (cell) {
             case ENV_CELL_PSX_CINEMA: return "psx_cinema.png";
+            case ENV_CELL_HOME_THEATER:
+                return PreferenceConfiguration.isXr2Gen1Headset()
+                        ? "home_theater_lo_0.atlas" : "home_theater_0.atlas";
             default: return null;
         }
     }
@@ -1302,7 +1270,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // A 3d room forces the picture onto its wall, so what comes back while
         // one is on is the wall's placement rather than the user's. Writing it
         // would lose where they had the screen in every other environment.
-        if (inputState[IN_POSE_DIRTY] != 0.0f && !isRoomCell(environmentChoice)) {
+        if (inputState[IN_POSE_DIRTY] != 0.0f && !EnvironmentIds.isRoomCell(environmentChoice)) {
             saveScreenPose();
         }
 

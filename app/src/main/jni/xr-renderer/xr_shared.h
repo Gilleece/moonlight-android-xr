@@ -106,12 +106,14 @@
 // quad, with the hover and selection marks as separate outline quads so
 // pointing around the grid never costs an upload. One band per category: a
 // header strip carrying its name, then a row of cells under it.
-#define PICKER_COLS 4
+#define PICKER_COLS 5
 #define PICKER_ROWS 2
 #define PICKER_CELLS (PICKER_COLS * PICKER_ROWS)
-#define PICKER_TEX_W 1024
 #define PICKER_HEADER_PX 40
 #define PICKER_CELL_PX 256
+// Follows the cell, so the columns always divide the texture exactly and a
+// cell stays square however many of them there are
+#define PICKER_TEX_W (PICKER_CELL_PX * PICKER_COLS)
 #define PICKER_BAND_PX (PICKER_HEADER_PX + PICKER_CELL_PX)
 #define PICKER_TEX_H (PICKER_BAND_PX * PICKER_ROWS)
 // The cells of the grid. The fixed ones come first, then the photos from the
@@ -121,7 +123,8 @@
 #define ENV_CELL_VOID 1
 #define ENV_CELL_MINIMAL_ROOM 2
 #define ENV_CELL_PSX_CINEMA 3
-#define ENV_CELL_FIRST_PHOTO 4
+#define ENV_CELL_HOME_THEATER 4
+#define ENV_CELL_FIRST_PHOTO 5
 
 // The buttons under the bar are all drawn at this size
 #define BUTTON_TEX 128

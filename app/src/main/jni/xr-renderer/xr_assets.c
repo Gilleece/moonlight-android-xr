@@ -398,21 +398,23 @@ static void uploadSheet(JNIEnv* env, XrCtx* ctx, jobject buffer, XrSwapchain cha
 
 // The thumbnail grid and the button that opens it, both drawn as Bitmaps in
 // Java. Same frame loop rule as the rest of the art. Flipped on the way in,
-// since a Bitmap runs top down and a texture does not.
+// since a Bitmap runs top down and a texture does not. Java says how many
+// cells it filled, since only it knows how many photos shipped.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobject thiz,
                                                                jlong handle, jobject grid,
-                                                               jobject button) {
+                                                               jobject button, jint cells) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
+    ctx->pickerCells = cells < 0 ? 0 : (cells > PICKER_CELLS ? PICKER_CELLS : cells);
     uploadSheet(env, ctx, grid, ctx->pickerSwapchain, ctx->pickerImages,
                 PICKER_TEX_W, PICKER_TEX_H, &ctx->pickerReady);
     uploadSheet(env, ctx, button, ctx->envButtonSwapchain, ctx->envButtonImages,
                 BUTTON_TEX, BUTTON_TEX, &ctx->envButtonReady);
-    LOGI("picker art %s, button %s", ctx->pickerReady ? "ready" : "missing",
-         ctx->envButtonReady ? "ready" : "missing");
+    LOGI("picker art %s, button %s, %d of %d cells", ctx->pickerReady ? "ready" : "missing",
+         ctx->envButtonReady ? "ready" : "missing", ctx->pickerCells, PICKER_CELLS);
 }
 
 // The settings panel and the cog that opens it, drawn in Java for the same
@@ -556,6 +558,9 @@ int roomStyleForCell(int cell) {
     }
     if (cell == ENV_CELL_PSX_CINEMA) {
         return ROOM_STYLE_PSX;
+    }
+    if (cell == ENV_CELL_HOME_THEATER) {
+        return ROOM_STYLE_THEATER;
     }
     return 0;
 }

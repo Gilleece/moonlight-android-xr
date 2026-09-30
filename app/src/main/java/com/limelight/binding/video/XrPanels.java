@@ -42,6 +42,9 @@ final class XrPanels {
     // which is what the native side hit tests against.
     static final String ENVIRONMENT_DIR = "environments";
     private static final String IMAGE_DIR = "images";
+    // A baked room that has a picture of itself shows that on its tile, at the
+    // cell's own size
+    private static final String THEATER_THUMB = "rooms/thumbs/home_theater.jpg";
     private static final int PICKER_CELL_W = PICKER_TEX_W / PICKER_COLS;
     // One per band, drawn in the strip above its cells
     private static final String[] PICKER_HEADERS = { "Rooms", "360 Images" };
@@ -268,6 +271,11 @@ final class XrPanels {
             else if (cell == ENV_CELL_PSX_CINEMA) {
                 name = "PSX Cinema";
                 paint.setColor(0xFF120A0C);
+            }
+            else if (cell == ENV_CELL_HOME_THEATER) {
+                name = "Home Theater";
+                thumb = decodeRoomThumb(THEATER_THUMB);
+                paint.setColor(0xFF14110F);
             }
             else if (cell - ENV_CELL_FIRST_PHOTO < environmentFiles.length) {
                 name = labelFor(environmentFiles[cell - ENV_CELL_FIRST_PHOTO]);
@@ -1170,6 +1178,22 @@ final class XrPanels {
             return thumb;
         } catch (IOException | OutOfMemoryError e) {
             LimeLog.warning("Thumbnail " + fileName + " failed: " + e);
+            return null;
+        } finally {
+            closeQuietly(in);
+        }
+    }
+
+    // A room's own tile picture, already cropped to the cell, so it goes in
+    // whole. Kept apart from decodeThumb, which reads a square picture as a
+    // stereo pair.
+    private Bitmap decodeRoomThumb(String path) {
+        InputStream in = null;
+        try {
+            in = context.getAssets().open(path);
+            return BitmapFactory.decodeStream(in);
+        } catch (IOException | OutOfMemoryError e) {
+            LimeLog.warning("Thumbnail " + path + " failed: " + e);
             return null;
         } finally {
             closeQuietly(in);

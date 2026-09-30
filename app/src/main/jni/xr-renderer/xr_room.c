@@ -1,4 +1,4 @@
-// The 3d rooms: a generated shell and a baked model, both drawn per eye
+// The 3d rooms: a generated shell and baked models, all drawn per eye
 // into the one projection layer this renderer has, with the picture hung
 // on the far wall.
 #include "xr_renderer.h"
@@ -26,13 +26,20 @@ typedef struct {
     float ceilingLevel;
     // Where the picture hangs, which is what the light is baked from
     Vec3 screenAt;
+    // The point in a baked model's own space that lands on the viewer's
+    // origin: the geometry is built as (model - anchor) * scale. Unused by the
+    // generated room, which is built around the origin already.
+    Vec3 anchor;
     // How high on the wall the picture is mounted, and how far off the wall it
     // stands so the two never fight for the same pixels
     float screenMountY;
     float screenProud;
-    // How wide it is hung. The room sizes its own picture rather than taking
-    // the size slider's, since the wall it goes on is a known size.
+    // How wide it is hung, and the tallest it may be, 0 for no limit past the
+    // room's own walls. The room sizes its own picture rather than taking the
+    // size slider's, since the wall it goes on is a known size, and a picture
+    // taller than 16:9 fits inside the two rather than running off the wall.
     float screenWidth;
+    float screenHeight;
     // Distance at which the screen's light is down to half
     float spillRadius;
     // How much of that light a fully lit vertex takes
@@ -299,6 +306,8 @@ static RoomParams psxCinemaParams(float scale) {
     float anchorY = roomModelAnchorY(scale);
     RoomParams p;
     memset(&p, 0, sizeof(p));
+    Vec3 anchor = { ROOM_MODEL_ANCHOR_X, anchorY, ROOM_MODEL_ANCHOR_Z };
+    p.anchor = anchor;
     p.halfWidth = 15.47f * scale;
     // The seating tier the viewer stands on, which the anchor holds at eye
     // height, and the ceiling over the stalls
@@ -336,10 +345,55 @@ static RoomParams psxCinemaParams(float scale) {
     return p;
 }
 
+// The home theater, a small room modelled in metres around marker nodes: a
+// seated eye at (0, 1.15, 1.12) and a screen anchor centred on (0, 1.55,
+// -3.132) whose scale, 3.6 by 2.025, is the largest picture the room was lit
+// and seated for. The anchor is that eye raised 0.35 and brought 0.10 toward
+// the screen, set by eye in a headset, and every number below is measured off
+// the model and put through the same (model - anchor) * scale as the
+// geometry. Textured throughout, so the surface levels and the subdiv the
+// generator works from are unused.
+static RoomParams homeTheaterParams(float scale) {
+    RoomParams p;
+    memset(&p, 0, sizeof(p));
+    Vec3 anchor = { 0.0f, 1.15f + 0.35f, 1.12f - 0.10f };
+    p.anchor = anchor;
+    // The side walls at model x plus or minus 2.8, one floor throughout at
+    // model y -0.14, so the picture stands on the floor the viewer does, and
+    // the ceiling at 2.84
+    p.halfWidth = 2.8f * scale;
+    p.floorY = (-0.14f - anchor.y) * scale;
+    p.screenFloorY = p.floorY;
+    p.ceilingY = (2.84f - anchor.y) * scale;
+    // The picture sits flat on the front wall at the anchor's z, and the back
+    // wall is at model z 4.41
+    p.screenZ = (-3.132f - anchor.z) * scale;
+    p.backZ = (4.41f - anchor.z) * scale;
+    p.screenMountY = (1.55f - anchor.y) * scale;
+    p.screenProud = 0.0f;
+    // Four fifths of the anchor, 2.88 m across, which sits better from the seat
+    // than a picture filling the whole of it
+    p.screenWidth = 3.6f * 0.8f * scale;
+    p.screenHeight = 2.025f * 0.8f * scale;
+    Vec3 screenAt = { 0.0f, p.screenMountY, p.screenZ };
+    p.screenAt = screenAt;
+    // A room a few metres across, so the light is down to half about the depth
+    // of the seating, and the same gain as the cinema: over a painted atlas less
+    // than this never reads as light at all
+    p.spillRadius = 3.0f * scale;
+    p.spillGain = 0.55f;
+    p.texMix = 1.0f;
+    // Picked by eye in a headset: a little over a third of the atlas as it was
+    // baked
+    p.dim = 0.37f;
+    p.seed = 0xc2b2ae35u;
+    return p;
+}
+
 // Whether a style comes out of a model file and an atlas rather than the
 // generator
 static int bakedRoomStyle(int style) {
-    return style == ROOM_STYLE_PSX;
+    return style == ROOM_STYLE_PSX || style == ROOM_STYLE_THEATER;
 }
 
 // Which room a style asks for, at the scale that style is drawn. Anything
@@ -348,17 +402,21 @@ static RoomParams roomParams(int style, float scale) {
     if (style == ROOM_STYLE_PSX) {
         return psxCinemaParams(scale);
     }
+    if (style == ROOM_STYLE_THEATER) {
+        return homeTheaterParams(scale);
+    }
     return minimalRoomParams();
 }
 
-// How large a style is drawn. Only the baked room is scaled: the generated one
+// How large a style is drawn. Only a baked room is scaled: the generated one
 // is built at the size its own params give. A property set inside the range
 // wins over the shipped default.
 static float roomScale(XrCtx* ctx, int style) {
-    if (style != ROOM_STYLE_PSX) {
+    if (!bakedRoomStyle(style)) {
         return 1.0f;
     }
-    float scale = ctx->roomScaleOverride > 0.0f ? ctx->roomScaleOverride : ROOM_PSX_SCALE;
+    float shipped = style == ROOM_STYLE_PSX ? ROOM_PSX_SCALE : ROOM_THEATER_SCALE;
+    float scale = ctx->roomScaleOverride > 0.0f ? ctx->roomScaleOverride : shipped;
     if (scale < ROOM_SCALE_MIN) {
         scale = ROOM_SCALE_MIN;
     }
@@ -413,6 +471,7 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
         ctx->roomHoldingScreen = 0;
     }
     if (!roomOn) {
+        ctx->roomPlacedStyle = 0;
         return;
     }
 
@@ -423,6 +482,11 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     // known size and the picture is hung to suit it. The clamps below only
     // catch a room whose width does not fit its own wall.
     float width = p.screenWidth;
+    // A room that says how tall its picture may be fits a taller one inside
+    // that, keeping its shape, rather than letting it run up the wall
+    if (p.screenHeight > 0.0f && aspect > 0.0f && width * aspect > p.screenHeight) {
+        width = p.screenHeight / aspect;
+    }
     float maxWidth = 2.0f * p.halfWidth - 0.4f;
     float maxHeight = (p.ceilingY - p.floorY) - 0.3f;
     if (width > maxWidth) {
@@ -453,6 +517,13 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     ctx->screenPose.position.y = mount;
     ctx->screenPose.position.z = p.screenZ + p.screenProud;
     ctx->screenWidth = width;
+    // Once per room and picture shape rather than every frame
+    if (style != ctx->roomPlacedStyle || fabsf(width - ctx->roomPlacedWidth) > 0.001f) {
+        ctx->roomPlacedStyle = style;
+        ctx->roomPlacedWidth = width;
+        LOGEV("room %d hangs the picture %.2f by %.2f m, centre y %.2f z %.2f",
+              style, width, height, mount, ctx->screenPose.position.z);
+    }
 }
 
 // Whether the assets a baked room is made of have both arrived, and both are
@@ -473,13 +544,12 @@ static int buildModelRoomGeometry(XrCtx* ctx, const RoomParams* p, float scale, 
     if (!ctx->roomModelReady) {
         return 0;
     }
-    float anchorY = roomModelAnchorY(scale);
     static const float white[3] = { 1.0f, 1.0f, 1.0f };
     for (int i = 0; i < ctx->roomModelVertexCount; i++) {
         const float* src = ctx->roomModelVerts + (size_t)i * ROOM_MODEL_FLOATS;
-        Vec3 pos = { (src[0] - ROOM_MODEL_ANCHOR_X) * scale,
-                     (src[1] - anchorY) * scale,
-                     (src[2] - ROOM_MODEL_ANCHOR_Z) * scale };
+        Vec3 pos = { (src[0] - p->anchor.x) * scale,
+                     (src[1] - p->anchor.y) * scale,
+                     (src[2] - p->anchor.z) * scale };
         Vec3 normal = { src[3], src[4], src[5] };
         roomWriteVertex(p, verts, i, pos, white, roomSpillWeight(p, pos, normal),
                         src[6], src[7]);

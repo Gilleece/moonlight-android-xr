@@ -535,6 +535,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " sharpening=" + prefConfig.vrSharpening
                 + " supersampling=" + prefConfig.vrSupersampling
                 + " passthrough=" + prefConfig.vrPassthrough
+                + " environment=" + prefConfig.vrEnvironmentId
                 + " hands=" + prefConfig.vrHandTracking
                 + " audio=" + prefConfig.audioConfiguration.channelCount
                 + " virtualSurround=" + prefConfig.vrVirtualSurround);

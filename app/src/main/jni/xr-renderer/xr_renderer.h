@@ -159,8 +159,8 @@ static inline long nowNs(void) {
 #define CORNER_TEX_H 64
 
 // Widened along with the grid so a cell stays about the size it was at three
-// columns
-#define PICKER_WIDTH_FRAC 0.73f
+// columns: five of them now
+#define PICKER_WIDTH_FRAC 0.91f
 #define OUTLINE_TEX 128
 // The button that opens it, sitting to the left of the move bar
 #define ENV_BUTTON_FRAC 0.048f
@@ -264,9 +264,10 @@ static inline long nowNs(void) {
 
 // The 3d room. A dark interior, drawn per eye into the one projection layer
 // this renderer has, instead of the environment sphere. Which room, 0 for none:
-// 1 is generated here, 2 is the baked model that ships in the assets.
+// 1 is generated here, 2 and 3 are baked models that ship in the assets.
 #define ROOM_STYLE_MINIMAL 1
 #define ROOM_STYLE_PSX 2
+#define ROOM_STYLE_THEATER 3
 #define ROOM_EYES 2
 // How big the room renders per eye, picked by the Environment Res setting.
 // Half of what the runtime recommends was soft enough against the video layer
@@ -291,19 +292,23 @@ static inline long nowNs(void) {
 #define ROOM_MAX_VERTS 65535
 // Floats a vertex in the baked model file: position, normal, texture coordinate
 #define ROOM_MODEL_FLOATS 8
-// Where the viewer stands in the model's own space. The geometry is built as
+// Where the viewer stands in the cinema's own space. The geometry is built as
 // (model - anchor) * scale, so the room arrives around the origin the way the
 // generated one is built around it. Only x and z are fixed: the height of the
-// anchor follows the scale, so the tier below stays underfoot.
+// anchor follows the scale, so the tier below stays underfoot. The home
+// theater carries its own anchor in its params instead.
 #define ROOM_MODEL_ANCHOR_X 0.0f
 #define ROOM_MODEL_ANCHOR_Z (-12.0f)
 // The seating tier the viewer stands on, in the model's own space, and how far
 // above it the eye sits whatever the room is scaled to
 #define ROOM_MODEL_TIER_Y (-2.55f)
 #define ROOM_EYE_HEIGHT_M 1.25f
-// How large the baked room is drawn. Full size measured about a fifth too big
-// in the headset, and the property below moves it between these two.
+// How large each baked room is drawn. The cinema at full size measured about a
+// fifth too big in the headset; the theater is modelled in metres around its
+// seat, so it is drawn as built. The property below moves either between the
+// two bounds.
 #define ROOM_PSX_SCALE 0.8f
+#define ROOM_THEATER_SCALE 1.0f
 #define ROOM_SCALE_MIN 0.25f
 #define ROOM_SCALE_MAX 4.0f
 // What the brightness property can ask for, either side of the atlas going on
@@ -629,7 +634,8 @@ typedef struct {
     // What the debug property asked for, or -1 while the panel still owns it
     int ambiOverride;
 
-    // Which room the picker is on: 0 none, 1 the minimal room, 2 the cinema.
+    // Which room the picker is on: 0 none, 1 the minimal room, 2 the cinema,
+    // 3 the home theater.
     // Same arrangement as the glow, with a debug property that can force it.
     int roomStyle;
     int roomOverride;
@@ -704,6 +710,9 @@ typedef struct {
     // The room hangs the picture on its far wall, so where the user had it is
     // put aside for as long as one is on and handed back on the way out
     int roomHoldingScreen;
+    // Where the room last hung it, for the log line that says so
+    int roomPlacedStyle;
+    float roomPlacedWidth;
     XrPosef savedScreenPose;
     float savedScreenWidth;
     float savedScreenRadius;
@@ -994,6 +1003,9 @@ typedef struct {
     int pickerHover;
     int pickerChoice;
     int pickerPick;
+    // How many cells of the grid have something behind them. The rest are
+    // blank tiles, which neither hover nor take a press.
+    int pickerCells;
     int envButtonHot;
     // The choice the last environment line was written for, so reapplying the
     // same one after a photo decode does not repeat it

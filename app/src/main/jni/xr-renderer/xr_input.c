@@ -1157,7 +1157,13 @@ static void updatePicker(XrCtx* ctx, InputFrame* f) {
         }
         int col = (int)(pu * PICKER_COLS);
         if (col >= PICKER_COLS) col = PICKER_COLS - 1;
-        ctx->pickerHover = band * PICKER_COLS + col;
+        // The grid is drawn full whatever shipped, so a cell past the last
+        // real one is a blank tile: pointing at nothing, like a header strip
+        int cell = band * PICKER_COLS + col;
+        if (cell >= ctx->pickerCells) {
+            continue;
+        }
+        ctx->pickerHover = cell;
         f->hand = h;
         f->hitU[h] = pu;
         f->hitV[h] = pv;
