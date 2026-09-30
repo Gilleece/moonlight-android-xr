@@ -927,6 +927,14 @@ typedef struct {
     // Resize scales about the centre, which stays put. These are the corner
     // opposite the one being dragged, and their signs say which corner is held.
     float grabOppX, grabOppY;
+    // In a room a resize moves the share of the room's screen the picture
+    // fills rather than its width, from the share it was picked up at and from
+    // how far along the half diagonal the ray was then, and the room it was
+    // left in owes that share to the preference until a frame has the setting
+    // slot free to carry it
+    int grabRoomPercent;
+    float grabRoomReach;
+    int roomScreenUnsaved;
     int poseDirty;
 
     // Hover state, read by the frame loop to decide which handle to draw

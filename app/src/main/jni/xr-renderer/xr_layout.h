@@ -79,4 +79,18 @@ int lanePercent(int units, int min, int max);
 // the size row's lane where the room may be resized, and all of it where not
 int roomScreenClamp(int percent, int resizable);
 
+// Where a corner drag in a room leaves the picture: the size it started at,
+// scaled by how far along the half diagonal the ray now reaches against how
+// far it reached when the grab began, in the same whole percent and the same
+// lane. Against the start rather than the corner, so taking hold of a bracket
+// that hangs well outside a small picture does not throw the picture out to
+// the ray.
+int roomResizePercent(int startPercent, float startReach, float reach);
+
+// How big a corner bracket on a room's picture is drawn, in metres, for a
+// picture that far from the seat: whatever size looks the same as a bracket
+// on the stand in screen, so a picture on a far wall or shrunk to a quarter
+// still has corners the size of the ones outside a room
+float roomCornerSide(float distance);
+
 #endif

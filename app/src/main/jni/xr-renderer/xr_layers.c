@@ -369,13 +369,13 @@ static void addOverlayLayer(XrCtx* ctx, const FrameView* view, FrameLayers* laye
 // The move bar or the resize corner, whichever the ray is over
 static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // Move bar and resize corner, shown only while the ray is over them.
-    // Both live in the screen's own frame, so they travel with it. Neither
-    // goes up in a room, where the wall holds the picture and there is
-    // nothing for either to move. The buttons beside the bar still come up
-    // on the same hover.
-    if (ctx->handleArtReady && !view->roomOn
-            && (view->barArea || ctx->hoverKind == HOVER_CORNER)) {
-        int isBar = view->barArea;
+    // Both live in the screen's own frame, so they travel with it. The bar
+    // never goes up in a room, where the wall holds the picture, though the
+    // buttons beside it still come up on the same hover; the corners go up
+    // in a room that lets its picture be resized, and nowhere else in one.
+    int isBar = view->barArea && !view->roomOn;
+    int isCorner = !view->barArea && ctx->hoverKind == HOVER_CORNER && cornerSide(ctx) > 0.0f;
+    if (ctx->handleArtReady && (isBar || isCorner)) {
         Vec3 local;
         float sizeW, sizeH;
         float roll = 0.0f;

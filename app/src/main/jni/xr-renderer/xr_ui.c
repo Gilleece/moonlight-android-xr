@@ -28,10 +28,17 @@ float furnitureHeight(XrCtx* ctx) {
 }
 
 // How big the corner brackets are, in metres, and 0 where there are none. A
-// room hangs and sizes its own picture, so nothing there has a corner to drag.
+// room hangs its own picture, so only a room that lets it be resized has
+// corners, and they are sized off the stand in rather than the picture, so
+// they look the same wherever the room hangs it and however small it is.
 float cornerSide(XrCtx* ctx) {
-    if (roomEffective(ctx) > 0) {
-        return 0.0f;
+    int style = roomEffective(ctx);
+    if (style > 0) {
+        if (!roomResizable(style)) {
+            return 0.0f;
+        }
+        XrVector3f p = ctx->screenPose.position;
+        return roomCornerSide(sqrtf(p.x * p.x + p.y * p.y + p.z * p.z));
     }
     return CORNER_FRAC * ctx->screenWidth;
 }

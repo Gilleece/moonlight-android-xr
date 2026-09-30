@@ -88,3 +88,28 @@ int roomScreenClamp(int percent, int resizable) {
     }
     return percent < ROOM_SCREEN_MIN ? ROOM_SCREEN_MIN : percent;
 }
+
+// Whole percent, so a drag moves in the steps the size row does and what the
+// picture shows is what gets written when the hand lets go. A reach at or
+// behind the centre is held a little in front of it, the way the free resize
+// holds its scale.
+int roomResizePercent(int startPercent, float startReach, float reach) {
+    if (startReach < 0.05f) {
+        startReach = 0.05f;
+    }
+    if (reach < 0.05f) {
+        reach = 0.05f;
+    }
+    float wanted = (float)startPercent * reach / startReach;
+    if (wanted < (float)ROOM_SCREEN_MIN) {
+        return ROOM_SCREEN_MIN;
+    }
+    if (wanted > (float)ROOM_SCREEN_MAX) {
+        return ROOM_SCREEN_MAX;
+    }
+    return (int)roundf(wanted);
+}
+
+float roomCornerSide(float distance) {
+    return CORNER_FRAC * STAND_IN_WIDTH_M * distance / STAND_IN_DISTANCE_M;
+}

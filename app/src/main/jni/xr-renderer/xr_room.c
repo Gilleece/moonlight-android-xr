@@ -299,7 +299,8 @@ int roomGlowOn(XrCtx* ctx, int style) {
 // Whether the picture's size is under a hand or a thumb right now, which is
 // when its every step would otherwise be a line in the log
 static int roomSizeDragging(XrCtx* ctx) {
-    return ctx->cogDragSlider == COG_ROOM_ROW_SIZE && ctx->cogDragFace == COG_FACE_ROOM;
+    return ctx->grabMode == GRAB_RESIZE
+            || (ctx->cogDragSlider == COG_ROOM_ROW_SIZE && ctx->cogDragFace == COG_FACE_ROOM);
 }
 
 // How large a style is drawn, which is the size it was built at unless a
@@ -385,6 +386,9 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
         ctx->screenWidth = ctx->savedScreenWidth;
         ctx->screenRadius = ctx->savedScreenRadius;
         ctx->roomHoldingScreen = 0;
+        // A room's corner still held as the room went would carry on as a free
+        // resize of the placement just handed back
+        ctx->grabMode = GRAB_NONE;
     }
     if (!roomOn) {
         ctx->roomPlacedStyle = 0;

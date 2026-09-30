@@ -537,6 +537,22 @@ static void writeInputPose(XrCtx* ctx, float* out) {
     out[IN_POSE + 9] = ctx->panelCurve;
 }
 
+// How far along the half diagonal to the held corner a point on the picture
+// is, as it stood when the grab began: 0 at the centre, 1 on the corner.
+// Measured from the centre, since that is what holds. The half diagonal is the
+// held corner's own position, so projecting onto it keeps that corner under
+// the ray. Measuring from the far corner along the whole diagonal, as this did
+// when that corner was the anchor, would leave the bracket creeping out at half
+// the speed of the hand.
+static float diagonalReach(XrCtx* ctx, float u, float v) {
+    float px = (u - 0.5f) * ctx->grabWidth;
+    float py = (0.5f - v) * ctx->grabHeight;
+    float halfX = -ctx->grabOppX;
+    float halfY = -ctx->grabOppY;
+    float halfLen = halfX * halfX + halfY * halfY;
+    return halfLen > 0.0f ? (px * halfX + py * halfY) / halfLen : 1.0f;
+}
+
 // Move and resize both work off the handle the ray was over when the grip
 // closed. Gripping the picture itself does nothing, which keeps the panel from
 // being dragged by accident while pointing at something.
@@ -562,9 +578,12 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
 
     if (ctx->grabMode == GRAB_NONE) {
         // A 3d room holds the picture on its wall and forces the pose every
-        // frame, so a drag could only fight it. Neither handle is drawn there,
-        // and the corners are not even hovered.
-        if (roomEffective(ctx) > 0) {
+        // frame, so a move could only fight it and the bar is not drawn there.
+        // A room that lets its picture be resized has corners, and those set
+        // how much of the room's screen the picture fills; in any other room
+        // the corners are not even hovered.
+        int roomStyle = roomEffective(ctx);
+        if (roomStyle > 0 && (hover != HOVER_CORNER || !roomResizable(roomStyle))) {
             return;
         }
         if (hand < 0 || (hover != HOVER_BAR && hover != HOVER_CORNER)) {
@@ -599,8 +618,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
             return;
         }
 
-        // The hit itself is not needed any more, but a ray that misses the
-        // plane has nothing to measure the drag against
+        // Outside a room the hit itself is not needed any more, but a ray that
+        // misses the plane has nothing to measure the drag against
         float u, v;
         if (!screenProject(aims[hand], ctx->grabScreen, ctx->screenWidth, height,
                            ctx->screenRadius, curved, &u, &v)) {
@@ -613,6 +632,9 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
         int bottom = (corner >= 2);
         ctx->grabOppX = (right ? -0.5f : 0.5f) * ctx->grabWidth;
         ctx->grabOppY = (bottom ? 0.5f : -0.5f) * ctx->grabHeight;
+        // A room's drag is measured from where the ray met that diagonal now
+        ctx->grabRoomPercent = roomStyle > 0 ? roomScreenPercent(ctx, roomStyle) : 0;
+        ctx->grabRoomReach = diagonalReach(ctx, u, v);
         ctx->grabMode = GRAB_RESIZE;
         return;
     }
@@ -655,19 +677,25 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
         return;
     }
 
-    // Measured from the centre, since that is what holds. The half diagonal is
-    // the held corner's own position, so projecting onto it keeps that corner
-    // under the ray. Measuring from the far corner along the whole diagonal,
-    // as this did when that corner was the anchor, would leave the bracket
-    // creeping out at half the speed of the hand.
-    float px = (u - 0.5f) * ctx->grabWidth;
-    float py = (0.5f - v) * ctx->grabHeight;
-    float halfX = -ctx->grabOppX;
-    float halfY = -ctx->grabOppY;
-    float halfLen = halfX * halfX + halfY * halfY;
-    float scale = (px * halfX + py * halfY) / halfLen;
-    if (scale < 0.05f) {
-        scale = 0.05f;
+    float reach = diagonalReach(ctx, u, v);
+    float scale = reach < 0.05f ? 0.05f : reach;
+
+    int roomStyle = roomEffective(ctx);
+    if (roomStyle > 0) {
+        // In a room the drag sets how much of the room's screen the picture
+        // fills, a quarter of it to all of it, in the whole percent the size
+        // row shows, from where the ray was when the grip closed. The room
+        // keeps the centre where it hangs it, and the share goes to the
+        // preference once the hand lets go.
+        int percent = roomResizePercent(ctx->grabRoomPercent, ctx->grabRoomReach, reach);
+        if (percent != ctx->roomScreen[roomStyle]) {
+            ctx->roomScreen[roomStyle] = percent;
+            ctx->roomScreenUnsaved = roomStyle;
+        }
+        // Hung now rather than at the end of the frame, so the ray and the
+        // bracket it ends on move with the picture
+        applyRoomPlacement(ctx, roomStyle, (float)ctx->videoHeight / (float)ctx->videoWidth, 0);
+        return;
     }
 
     float width = ctx->grabWidth * scale;
@@ -1786,12 +1814,30 @@ static void updateAudioYaw(XrCtx* ctx, int headLocked) {
     }
 }
 
+// A room's size left by a corner goes to the preference once the grab is over,
+// however it ended, on the first frame with the setting slot free. A room gone
+// from under it in the meantime leaves nothing to write it to.
+static void emitRoomScreen(XrCtx* ctx, float* out) {
+    int style = ctx->roomScreenUnsaved;
+    if (style == 0 || ctx->grabMode == GRAB_RESIZE || out[IN_SETTING] >= 0.0f) {
+        return;
+    }
+    ctx->roomScreenUnsaved = 0;
+    if (style != roomEffective(ctx)) {
+        return;
+    }
+    out[IN_SETTING] = (float)SETTING_ROOM_SCREEN;
+    out[IN_SETTING_VALUE] = (float)roomScreenPercent(ctx, style);
+    LOGEV("room %d screen percent %d from a corner", style, roomScreenPercent(ctx, style));
+}
+
 // The slots read off state rather than written as things happen, filled last
 // so they say what this frame left, then the lot to Java
 static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     int readouts[READOUT_VALUES] = { -1, -1, -1 };
     out[IN_SETTING_ROOM] = -1.0f;
     if (ctx != NULL) {
+        emitRoomScreen(ctx, out);
         // Every room keeps its own values, so a room setting says whose it is
         out[IN_SETTING_ROOM] = (float)roomCellForStyle(roomEffective(ctx));
         cogReadouts(ctx, readouts);
