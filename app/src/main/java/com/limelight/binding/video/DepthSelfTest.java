@@ -61,16 +61,17 @@ public final class DepthSelfTest {
 
         MidasDepthSource source = new MidasDepthSource(route);
         try {
-            if (!source.initialize(context, input, output)) {
+            if (!source.initialize(context, new ByteBuffer[] { input },
+                    new ByteBuffer[] { output })) {
                 FileLog.event("depth selftest: "+spec.key+" "+size+" failed to load");
                 return;
             }
             for (int i = 0; i < WARMUP_RUNS; i++) {
-                source.estimate();
+                source.estimate(0);
             }
             float min = Float.MAX_VALUE, max = 0.0f, total = 0.0f;
             for (int i = 0; i < TIMED_RUNS; i++) {
-                if (!source.estimate()) {
+                if (!source.estimate(0)) {
                     FileLog.event("depth selftest: "+spec.key+" "+size+" inference failed");
                     return;
                 }

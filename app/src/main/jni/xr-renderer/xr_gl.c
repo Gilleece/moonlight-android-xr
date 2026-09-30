@@ -347,7 +347,7 @@ static void runOffsetSearch(XrCtx* ctx, float separation) {
 }
 
 void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
-    // Picks up whatever the depth thread most recently finished, once per
+    // Picks up whatever the stage thread most recently finished, once per
     // frame and before anything below samples a depth slot. The acquire is
     // what makes the fence stored alongside the index visible here; the wait
     // on it belongs to the site that samples the texture.
@@ -552,11 +552,13 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
             free(rgba);
             free(alpha);
         }
-        // Best effort, the depth thread may be part way through refilling
-        // these. The depth texture above is the exact one this frame sampled.
-        writeCapture(ctx, "modelinput", ctx->modelInput,
+        // Best effort, from the pair the live map was made from, which the
+        // depth threads may be part way through refilling. The depth texture
+        // above is the exact one this frame sampled.
+        int pair = atomic_load_explicit(&ctx->depthLastPair, memory_order_relaxed);
+        writeCapture(ctx, "modelinput", ctx->modelInput[pair],
                      (size_t)ctx->depthTexW * ctx->depthTexH * 3 * sizeof(float));
-        writeCapture(ctx, "depthraw", ctx->modelOutput,
+        writeCapture(ctx, "depthraw", ctx->modelOutput[pair],
                      (size_t)ctx->depthTexW * ctx->depthTexH * sizeof(float));
         ctx->captureRequested = 0;
     }

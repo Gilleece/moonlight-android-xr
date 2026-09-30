@@ -9,6 +9,8 @@
 
 #include <math.h>
 
+#include "xr_shared.h"
+
 // Bins for the percentile search over the model output
 #define DEPTH_HIST_BINS 512
 
@@ -164,5 +166,34 @@ static inline void depthCutClear(DepthCut* c) {
     c->lastJumped = 0;
     c->pending = 0;
 }
+
+// What a capture's cut check asks of the map made from it: the per texel
+// average and the range started again
+#define DEPTH_RESET_TEXEL 1
+#define DEPTH_RESET_RANGE 2
+
+// The resets a depthCutStep result asks for: a jump starts the per texel
+// average again, and a confirmed cut the range as well
+static inline int depthCutResets(int cut) {
+    return ((cut & DEPTH_CUT_JUMP) ? DEPTH_RESET_TEXEL : 0)
+            | ((cut & DEPTH_CUT_CONFIRMED) ? DEPTH_RESET_RANGE : 0);
+}
+
+// The resets waiting on their maps, one set per pair of staging. A capture is
+// checked as soon as it is read back, often before the map from the capture
+// ahead of it has gone up, so each pair keeps its own until its map does. A
+// capture that makes no map hands its resets on to the next map that is made,
+// since the picture it saw is the one that carries on.
+typedef struct {
+    int pair[DEPTH_PAIRS];
+    int carry;
+} DepthResets;
+
+// What the check on the capture now in this pair found, as the flags above
+void depthResetsSet(DepthResets* r, int pair, int flags);
+// The resets due at the map made from this pair, handed over and forgotten
+int depthResetsTake(DepthResets* r, int pair);
+// This pair's capture made no map, so its resets go to the next one made
+void depthResetsDrop(DepthResets* r, int pair);
 
 #endif

@@ -67,7 +67,7 @@ void pollCaptureRequest(XrCtx* ctx) {
     }
     ctx->capturePollCounter = 0;
 
-    // Milliseconds, 0 for none. The depth thread reads them at its next map.
+    // Milliseconds, 0 for none. The stage thread reads them at its next map.
     propIntEvent(PROP_DEPTH_TAU, &ctx->depthTauMs, DEPTH_TAU_MAX_MS, "depth tau ms");
     propIntEvent(PROP_RANGE_TAU, &ctx->rangeTauMs, DEPTH_RANGE_TAU_MAX_MS, "depth range tau ms");
     // 0 off, 1 on, 2 on with a line per capture

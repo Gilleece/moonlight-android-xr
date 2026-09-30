@@ -337,3 +337,19 @@ int depthCutStep(DepthCut* c, const DepthThumb* t, float* diff, float* hist) {
     c->last = *t;
     return result;
 }
+
+void depthResetsSet(DepthResets* r, int pair, int flags) {
+    r->pair[pair] = flags;
+}
+
+int depthResetsTake(DepthResets* r, int pair) {
+    int due = r->pair[pair] | r->carry;
+    r->pair[pair] = 0;
+    r->carry = 0;
+    return due;
+}
+
+void depthResetsDrop(DepthResets* r, int pair) {
+    r->carry |= r->pair[pair];
+    r->pair[pair] = 0;
+}

@@ -123,6 +123,10 @@ public class MidasDepthSource implements DepthSource {
     private MappedByteBuffer model;
     private Interpreter interpreter;
     private GpuDelegate gpuDelegate;
+    // The staging for every pair the renderer handed over, and the pair the
+    // next run reads and writes. Warmup and the benchmark use the first.
+    private ByteBuffer[] inputs;
+    private ByteBuffer[] outputs;
     private ByteBuffer input;
     private ByteBuffer output;
     private boolean gpuAccelerated;
@@ -161,15 +165,26 @@ public class MidasDepthSource implements DepthSource {
     }
 
     @Override
-    public boolean initialize(Context context, ByteBuffer inputBuffer, ByteBuffer outputBuffer) {
+    public boolean initialize(Context context, ByteBuffer[] inputBuffers,
+                              ByteBuffer[] outputBuffers) {
         long start = SystemClock.elapsedRealtime();
-        input = inputBuffer.order(ByteOrder.nativeOrder());
-        output = outputBuffer.order(ByteOrder.nativeOrder());
-        if (!stagingFits(input.capacity(), output.capacity(), route.size)) {
-            LimeLog.severe("Depth staging is "+input.capacity()+" and "+output.capacity()
-                    +" bytes, not a "+route.size+" map's");
+        int pairs = Math.min(inputBuffers.length, outputBuffers.length);
+        if (pairs == 0) {
+            LimeLog.severe("No depth staging handed over");
             return false;
         }
+        inputs = new ByteBuffer[pairs];
+        outputs = new ByteBuffer[pairs];
+        for (int i = 0; i < pairs; i++) {
+            inputs[i] = inputBuffers[i].order(ByteOrder.nativeOrder());
+            outputs[i] = outputBuffers[i].order(ByteOrder.nativeOrder());
+            if (!stagingFits(inputs[i].capacity(), outputs[i].capacity(), route.size)) {
+                LimeLog.severe("Depth staging is "+inputs[i].capacity()+" and "
+                        +outputs[i].capacity()+" bytes, not a "+route.size+" map's");
+                return false;
+            }
+        }
+        usePair(0);
 
         try {
             model = loadModel(context, route.asset);
@@ -392,8 +407,25 @@ public class MidasDepthSource implements DepthSource {
         }
     }
 
+    private void usePair(int pair) {
+        input = inputs[pair];
+        output = outputs[pair];
+    }
+
+    /**
+     * Runs the model on a pair. The renderer never writes either of a pair's
+     * buffers while the model has it, so nothing here has to guard them.
+     */
     @Override
-    public boolean estimate() {
+    public boolean estimate(int pair) {
+        if (inputs == null || pair < 0 || pair >= inputs.length) {
+            return false;
+        }
+        usePair(pair);
+        return estimate();
+    }
+
+    private boolean estimate() {
         if (interpreter == null) {
             return false;
         }
