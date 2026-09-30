@@ -49,6 +49,16 @@ static void propInt(const char* name, int* target, long maxRaw) {
     }
 }
 
+// The same, saying so in the log when the value moves, so the log of a
+// session shows which half of an A/B each stretch of it was
+static void propIntEvent(const char* name, int* target, long maxRaw, const char* label) {
+    int was = *target;
+    propInt(name, target, maxRaw);
+    if (*target != was) {
+        LOGEV("%s %d", label, *target);
+    }
+}
+
 // Fires once each time the property is set to a value it has not seen. The
 // value becomes the filename tag, so setprop 1, 2, 3 gives three captures.
 void pollCaptureRequest(XrCtx* ctx) {
@@ -57,8 +67,11 @@ void pollCaptureRequest(XrCtx* ctx) {
     }
     ctx->capturePollCounter = 0;
 
-    propPercent(PROP_DEPTH_ALPHA, &ctx->depthAlpha);
-    propPercent(PROP_RANGE_ALPHA, &ctx->rangeAlpha);
+    // Milliseconds, 0 for none. The depth thread reads them at its next map.
+    propIntEvent(PROP_DEPTH_TAU, &ctx->depthTauMs, DEPTH_TAU_MAX_MS, "depth tau ms");
+    propIntEvent(PROP_RANGE_TAU, &ctx->rangeTauMs, DEPTH_RANGE_TAU_MAX_MS, "depth range tau ms");
+    // 0 off, 1 on, 2 on with a line per capture
+    propIntEvent(PROP_DEPTH_CUT, &ctx->depthCutLevel, 2, "depth cut level");
     propPercent(PROP_UPSAMPLE_SIGMA, &ctx->upsampleSigmaR);
     propPercent(PROP_DEPTH_SHARP, &ctx->depthSharp);
     propFlag(PROP_OVERLAY, &ctx->overlayVisible);

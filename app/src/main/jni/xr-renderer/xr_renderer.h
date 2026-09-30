@@ -36,6 +36,7 @@
 
 #include "xr_math.h"
 #include "xr_shared.h"
+#include "xr_depthmap.h"
 
 #define TAG "moonlight-xr"
 
@@ -316,6 +317,15 @@ static inline long nowNs(void) {
 // anything the frame loop could still have in flight from that slot by then.
 #define DEPTH_TEX_COUNT 3
 
+// What a capture's cut check asks of the map made from it: the per texel
+// average and the range started again
+#define DEPTH_RESET_TEXEL 1
+#define DEPTH_RESET_RANGE 2
+
+// The least time between two scene cut lines in the log, so a stream that
+// cuts on every beat cannot flood it. The next line says how many went unsaid.
+#define DEPTH_CUT_LOG_NS 2000000000L
+
 // Generous on purpose: the depth thread has no per frame deadline, and a
 // short timeout here would only trade a hung capture for a torn one
 #define CAPTURE_FENCE_TIMEOUT_NS 500000000ull
@@ -351,8 +361,6 @@ typedef struct XrCompositionLayerSettingsFB {
 // without a rebuild. Each is an integer percent of the real value. Read by
 // debug builds only: a release build never polls the property store, so a
 // knob left set from a test session cannot override the panel in one.
-#define PROP_DEPTH_ALPHA "debug.moonlight.depthalpha"
-#define PROP_RANGE_ALPHA "debug.moonlight.rangealpha"
 #define PROP_UPSAMPLE "debug.moonlight.upsample"
 #define PROP_UPSAMPLE_SIGMA "debug.moonlight.upsamplesigma"
 #define PROP_DEPTH_SHARP "debug.moonlight.depthsharp"
@@ -382,6 +390,14 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
 #define PROP_TB_SWAP "debug.moonlight.tbswap"
+// Milliseconds, the time constants of the per texel depth average and of the
+// range the map is normalised against. 0 turns either off, so each map
+// replaces the last or is normalised against its own range.
+#define PROP_DEPTH_TAU "debug.moonlight.depth_tau"
+#define PROP_RANGE_TAU "debug.moonlight.range_tau"
+// The scene cut detector: 0 off, 1 on as every build ships, 2 on with a line
+// in the log for every capture
+#define PROP_DEPTH_CUT "debug.moonlight.depth_cut"
 
 // Radius of the low pass that splits the depth map into an overall shape and
 // the local detail on top of it. About a tenth of the frame, in texels of a
@@ -473,21 +489,41 @@ typedef struct {
     float* modelOutput;
     unsigned char* depthUploadBuf;
 
-    // Temporal smoothing. The normalization range is smoothed separately from
-    // the map itself: a single outlier pixel moving the min or max used to
-    // shift the whole mapping, which pumps the entire image.
-    float* depthEma;
+    // The map normalised to 0..1, and the range it was normalised against,
+    // smoothed on its own over real time: a single outlier pixel moving the
+    // min or max used to shift the whole mapping, which pumps the entire
+    // image. The range and the time of the map it last took belong to the
+    // depth thread.
+    float* depthNorm;
     float* depthLow;
     float* depthScratch;
     float* depthColSums;
     float depthGlobal;
     float depthLocal;
-    int depthEmaValid;
-    float smoothLo;
-    float smoothHi;
-    int rangeValid;
-    float depthAlpha;
-    float rangeAlpha;
+    DepthRange depthRange;
+    long rangeNs;
+    // The model output averaged per texel over real time, ahead of the range
+    // and the normalisation, so raw model flicker does not reach the eyes.
+    // The depth thread's too.
+    float* depthTau;
+    int depthTauValid;
+    long depthTauNs;
+    // Time constants in milliseconds, 0 for none. Set at init and only moved
+    // by the debug knobs.
+    int depthTauMs;
+    int rangeTauMs;
+    // Scene cuts, found on the model input before the model runs. A jump
+    // starts the per texel average again and a confirmed cut the range, at
+    // the next map uploaded, which is the one made from that capture. A
+    // capture whose model run fails leaves them for the map after. All but
+    // the level belong to the depth thread. The level is 0 off, 1 on, and 2
+    // on with a line per capture, which only a debug build can ask for.
+    int depthCutLevel;
+    DepthCut depthCut;
+    int depthResets;
+    long depthCutChecks;
+    long depthCutLogNs;
+    int depthCutUnlogged;
 
     // Edge aware upsample of the depth map, quarter of the video size
     GLuint upsampleProgram;
