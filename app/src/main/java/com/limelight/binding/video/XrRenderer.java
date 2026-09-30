@@ -287,6 +287,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // One room's own Room tab values, by the picker cell that shows it
     private native void nativeSetRoomLevels(long ctx, int cell, int brightness, boolean glow,
                                             int light, int screen);
+    // The running model's own separation and convergence, in the preferences'
+    // units, which the 3D tab's reset goes back to
+    private native void nativeSetDepthDefaults(long ctx, int separation, int convergence);
     private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
                                              ByteBuffer symbols, ByteBuffer buttonIcon,
                                              float[] keyRects, int[] codesLower,
@@ -352,6 +355,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // the panel writes back to this same instance, which is the one
                 // the decoder's stats path checks
                 prefConfig = prefs;
+                nativeSetDepthDefaults(nativeCtx, depthSpec.defaultSeparation,
+                        depthSpec.defaultConvergence);
                 restoreScreenPose();
                 startEnvironment(prefs);
 
@@ -928,9 +933,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         synchronized (nativeLock) {
             curveOk = nativeCtx != 0 && nativeGetCylinderSupported(nativeCtx);
         }
-        // Same for the 3D rows with stereo turned off in settings
+        // Same for the 3D rows with stereo turned off in settings. Their ticks
+        // mark the running model's own pair.
         boolean stereoOk = prefConfig != null && prefConfig.vrDepthMode != DEPTH_MODE_OFF;
-        pendingCogSheets.set(panels.buildCogTabs(curveOk, stereoOk));
+        MidasDepthSource.Spec spec = MidasDepthSource.specFor(
+                prefConfig != null ? prefConfig.vrDepthModel : null);
+        pendingCogSheets.set(panels.buildCogTabs(curveOk, stereoOk, spec.defaultSeparation,
+                spec.defaultConvergence));
         pendingCogButton.set(panels.buildCogButton());
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
@@ -1263,9 +1272,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (prefConfig != null) {
                 prefConfig.vrStereoSeparation = value;
             }
-            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                    .putInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING, value)
-                    .apply();
+            SharedPreferences saved = PreferenceManager.getDefaultSharedPreferences(prefsContext);
+            saved.edit().putInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING, value).apply();
+            FileLog.event("separation " + value + " saved, the preference holds "
+                    + saved.getInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING, -1));
         }
         else if (setting == SETTING_CONVERGENCE) {
             if (prefConfig != null) {
@@ -1276,17 +1286,22 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     .apply();
         }
         else if (setting == SETTING_RESET_3D) {
-            // Both at once, since the reset button moved both
+            // Both at once, since the reset button moved both, and back to
+            // nothing stored rather than to numbers: nothing stored is the
+            // running model's own pair, so a later change of model moves it
+            // along with the model the way it would have had it never been
+            // touched
+            String model = prefConfig != null ? prefConfig.vrDepthModel : null;
             if (prefConfig != null) {
-                prefConfig.vrStereoSeparation = PreferenceConfiguration.DEFAULT_VR_SEPARATION;
-                prefConfig.vrConvergence = PreferenceConfiguration.DEFAULT_VR_CONVERGENCE;
+                prefConfig.vrStereoSeparation = PreferenceConfiguration.defaultSeparation(model);
+                prefConfig.vrConvergence = PreferenceConfiguration.defaultConvergence(model);
             }
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                    .putInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING,
-                            PreferenceConfiguration.DEFAULT_VR_SEPARATION)
-                    .putInt(PreferenceConfiguration.VR_CONVERGENCE_PREF_STRING,
-                            PreferenceConfiguration.DEFAULT_VR_CONVERGENCE)
+                    .remove(PreferenceConfiguration.VR_SEPARATION_PREF_STRING)
+                    .remove(PreferenceConfiguration.VR_CONVERGENCE_PREF_STRING)
                     .apply();
+            FileLog.event("3d pair back to the model's own "
+                    + PreferenceConfiguration.defaultPairLabel(model));
         }
     }
 

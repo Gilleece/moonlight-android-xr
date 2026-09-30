@@ -1067,6 +1067,10 @@ typedef struct {
     // thumb reads back
     float panelSeparation;
     float separationCurrent;
+    // The running model's own pair, as the warp takes them, which the 3D tab's
+    // reset goes back to. Handed down by Java before the first frame.
+    float defaultSeparation;
+    float defaultConvergence;
 
     long statFrames;
     long statTotalNs;

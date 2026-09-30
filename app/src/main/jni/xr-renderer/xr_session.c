@@ -660,6 +660,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     // Only a placeholder: the first endFrame writes the real one, long before
     // there is any way to open the panel and read it
     ctx->separationCurrent = 0.005f;
+    // MiDaS's pair until Java hands down the running model's
+    ctx->defaultSeparation = 0.005f;
+    ctx->defaultConvergence = 0.5f;
     ctx->cogDragSlider = -1;
     ctx->cogDragHand = -1;
     ctx->cogDragFace = -1;

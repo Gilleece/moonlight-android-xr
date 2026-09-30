@@ -1389,17 +1389,19 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
         if (onReset && ctx->triggerEdge[h] && face == COG_TAB_3D) {
-            // The shipped defaults, 0.5 percent and half convergence, said
-            // here rather than read back so the button works the same way
-            // whatever the preferences were left on. Still allowed while
-            // stereo is off, where it does no harm and keeps the button
-            // from being a dead rectangle.
-            ctx->panelSeparation = 0.005f;
-            ctx->separationCurrent = 0.005f;
-            ctx->convergence = 0.5f;
+            // The running model's own pair, handed down when the session
+            // started, so the button works the same way whatever the
+            // preferences were left on. Still allowed while stereo is off,
+            // where it does no harm and keeps the button from being a dead
+            // rectangle.
+            ctx->panelSeparation = ctx->defaultSeparation;
+            ctx->separationCurrent = ctx->defaultSeparation;
+            ctx->convergence = ctx->defaultConvergence;
             f->out[IN_SETTING] = (float)SETTING_RESET_3D;
             f->out[IN_SETTING_VALUE] = 0.0f;
-            LOGI("3d settings reset from the panel");
+            LOGEV("3d settings reset from the panel to separation %d, convergence %d",
+                  (int)roundf(ctx->defaultSeparation * 1000.0f),
+                  (int)roundf(ctx->defaultConvergence * 100.0f));
         }
         else if (onReset && ctx->triggerEdge[h]) {
             // Hands the curve back to the preference and drops the

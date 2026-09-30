@@ -8,6 +8,7 @@ import android.preference.PreferenceManager;
 import android.view.Display;
 
 import com.limelight.FileLog;
+import com.limelight.binding.video.MidasDepthSource;
 import com.limelight.binding.video.XrShared;
 import com.limelight.nvstream.jni.MoonBridge;
 
@@ -183,15 +184,18 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_VR_GAZE = true;
     private static final boolean DEFAULT_VR_HAND_TRACKING = true;
     private static final boolean DEFAULT_VR_POINTER = true;
-    // Tenths of a percent of frame width. 5 measured comfortable on device and
-    // 7 already strained, once the depth map started using its full range.
+    // MiDaS's separation, tenths of a percent of frame width. 5 measured
+    // comfortable on device and 7 already strained, once the depth map started
+    // using its full range. Each model carries a pair of its own
+    // (MidasDepthSource.Spec), and nothing stored means the running model's.
     public static final int DEFAULT_VR_SEPARATION = 5;
     private static final boolean DEFAULT_VR_DEPTH_DEBUG = false;
     private static final int DEFAULT_VR_INFERENCE_CADENCE = 3;
     // Neither of these is in the 2d settings. Measured on device, neither is
     // perceptible at a comfortable separation, so they would be sliders that
     // do nothing. Convergence is on the in headset panel instead, where it sits
-    // beside the depth slider that gives it something to do.
+    // beside the depth slider that gives it something to do. Both models start
+    // it here.
     public static final int DEFAULT_VR_CONVERGENCE = 50;
     private static final int DEFAULT_VR_DEPTH_SCALE = 100;
     // On at half strength, which is where the panel's tick sits. Anyone who has
@@ -488,6 +492,36 @@ public class PreferenceConfiguration {
     /** The value a headset runs for a stored one: ZipDepth for a MiDaS it does not offer. */
     public static String depthSourceForHeadset(String depthSource, boolean gen1) {
         return isDepthSourceOffered(depthSource, gen1) ? depthSource : VR_DEPTH_SOURCE_ZIPDEPTH;
+    }
+
+    /**
+     * The separation a model starts on, in tenths of a percent of frame width.
+     * A session with a test pattern or with depth off takes the default
+     * model's, as it takes that model's map size.
+     */
+    public static int defaultSeparation(String depthModel) {
+        return MidasDepthSource.specFor(depthModel).defaultSeparation;
+    }
+
+    /** And the convergence it starts on, in percent. */
+    public static int defaultConvergence(String depthModel) {
+        return MidasDepthSource.specFor(depthModel).defaultConvergence;
+    }
+
+    // The pair as stored, or the running model's own where nothing is. Only
+    // someone moving a value stores it, so a change of model moves the pair
+    // nobody chose and never one somebody did.
+    static int storedSeparation(SharedPreferences prefs, String depthModel) {
+        return prefs.getInt(VR_SEPARATION_PREF_STRING, defaultSeparation(depthModel));
+    }
+
+    static int storedConvergence(SharedPreferences prefs, String depthModel) {
+        return prefs.getInt(VR_CONVERGENCE_PREF_STRING, defaultConvergence(depthModel));
+    }
+
+    /** A model's own pair as the log lines give it, separation then convergence. */
+    public static String defaultPairLabel(String depthModel) {
+        return defaultSeparation(depthModel) + "/" + defaultConvergence(depthModel);
     }
 
     /** One room's own values for the headset panel's Room tab. */
@@ -1077,10 +1111,10 @@ public class PreferenceConfiguration {
         config.vrPointer = prefs.getBoolean(VR_POINTER_PREF_STRING, DEFAULT_VR_POINTER);
         config.vrGaze = prefs.getBoolean(VR_GAZE_PREF_STRING, DEFAULT_VR_GAZE);
         config.vrHandTracking = prefs.getBoolean(VR_HAND_TRACKING_PREF_STRING, DEFAULT_VR_HAND_TRACKING);
-        config.vrStereoSeparation = prefs.getInt(VR_SEPARATION_PREF_STRING, DEFAULT_VR_SEPARATION);
+        config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);
-        config.vrConvergence = prefs.getInt(VR_CONVERGENCE_PREF_STRING, DEFAULT_VR_CONVERGENCE);
+        config.vrConvergence = storedConvergence(prefs, config.vrDepthModel);
         config.vrDepthScale = prefs.getInt(VR_DEPTH_SCALE_PREF_STRING, DEFAULT_VR_DEPTH_SCALE);
         config.vrAmbilight = prefs.getBoolean(VR_AMBILIGHT_PREF_STRING, DEFAULT_VR_AMBILIGHT);
         config.vrAmbilightLevel = prefs.getInt(VR_AMBILIGHT_LEVEL_PREF_STRING,

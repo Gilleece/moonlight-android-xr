@@ -331,7 +331,9 @@ public class BugReportActivity extends Activity {
                 + "vr " + prefs.enableVrMode + " depthMode " + prefs.vrDepthMode
                 + " depthModel " + prefs.vrDepthModel
                 + " cadence " + prefs.vrInferenceCadence + " separation " + prefs.vrStereoSeparation
-                + " convergence " + prefs.vrConvergence + " envRes " + prefs.vrEnvResTier
+                + " convergence " + prefs.vrConvergence
+                + " defaultPair " + PreferenceConfiguration.defaultPairLabel(prefs.vrDepthModel)
+                + " envRes " + prefs.vrEnvResTier
                 + " sharpening " + prefs.vrSharpening + " supersampling " + prefs.vrSupersampling
                 + " passthrough " + prefs.vrPassthrough
                 + " environment " + prefs.vrEnvironmentId

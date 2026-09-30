@@ -14,7 +14,6 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 
 import com.limelight.LimeLog;
-import com.limelight.preferences.PreferenceConfiguration;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -85,10 +84,6 @@ final class XrPanels {
     // values that take effect the moment they move belong on the panel, which
     // is why the depth source itself stays in the 2d settings.
     private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
-    // Where the measured comfort cap, which is also the shipped default, falls
-    // along the separation track
-    private static final float COG_SEP_CAP_T =
-            PreferenceConfiguration.DEFAULT_VR_SEPARATION / (float)COG_SEP_STEPS;
 
     // The in world keyboard. Three sheets of the same layout, one per state,
     // handed over in state order, along with the geometry that goes with them:
@@ -401,12 +396,15 @@ final class XrPanels {
      * the session picks another swapchain rather than redrawing anything. Only
      * the labels, tracks and cells live in the texture: thumbs, selection
      * rings and the Room tab's percents are quads of their own, so using the
-     * panel costs no upload of a whole sheet.
+     * panel costs no upload of a whole sheet. The 3D tab's ticks mark the
+     * running model's own pair, in the preferences' units.
      */
-    ByteBuffer[] buildCogTabs(boolean curveOk, boolean stereoOk) {
+    ByteBuffer[] buildCogTabs(boolean curveOk, boolean stereoOk, int defaultSeparation,
+                              int defaultConvergence) {
         ByteBuffer[] sheets = new ByteBuffer[COG_ART_COUNT];
         for (int art = 0; art < COG_ART_COUNT; art++) {
-            Bitmap sheet = buildCogSheet(art, curveOk, stereoOk);
+            Bitmap sheet = buildCogSheet(art, curveOk, stereoOk, defaultSeparation,
+                    defaultConvergence);
             sheets[art] = toBuffer(sheet);
             sheet.recycle();
         }
@@ -428,7 +426,8 @@ final class XrPanels {
     // One sheet of the panel. The ones past the tabs are what a room shows:
     // the Room tab with its size row live or greyed, then the display and 3D
     // tabs with the Room tab's name over the first slot.
-    private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk) {
+    private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk,
+                                 int defaultSeparation, int defaultConvergence) {
         Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
         boolean inRoom = art >= COG_ART_ROOM;
@@ -443,7 +442,7 @@ final class XrPanels {
             drawCogSliderRows(canvas, curveOk);
         }
         else if (tab == COG_TAB_3D) {
-            drawCog3dRows(canvas, stereoOk);
+            drawCog3dRows(canvas, stereoOk, defaultSeparation, defaultConvergence);
         }
         else {
             drawCogOptionRows(canvas);
@@ -680,8 +679,10 @@ final class XrPanels {
 
     // 3D tab: the two values worth reaching mid stream. Depth runs past the
     // comfortable range on purpose, with the far end marked, since where that
-    // range ends is a matter of eyes rather than of hardware.
-    private void drawCog3dRows(Canvas canvas, boolean stereoOk) {
+    // range ends is a matter of eyes rather than of hardware. The ticks and
+    // the start of the marked end are the running model's own pair.
+    private void drawCog3dRows(Canvas canvas, boolean stereoOk, int defaultSeparation,
+                               int defaultConvergence) {
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
         text.setTextSize(22.0f);
         text.setTextAlign(Paint.Align.LEFT);
@@ -704,15 +705,16 @@ final class XrPanels {
             canvas.drawText(COG_SLIDER3D_ROWS[row], 0.06f * COG_TEX_W,
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
-            // The default sits a third along the depth track and halfway along
-            // convergence, and a tick says so on both
-            float markT = row == 0 ? COG_SEP_CAP_T : 0.5f;
+            // A tick at the model's default on both tracks
+            float markT = row == 0 ? defaultSeparation / (float)COG_SEP_STEPS
+                    : defaultConvergence / 100.0f;
             float markX = trackL + markT * (trackR - trackL);
 
             if (row == 0) {
-                // Measured on device: past 0.5 percent the depth stops growing
-                // and only the strain does, so the rest of the track is drawn
-                // as a place you can go rather than one you should
+                // Measured on device: past the model's default the depth
+                // stops growing and only the strain does, so the rest of the
+                // track is drawn as a place you can go rather than one you
+                // should
                 track.setColor(stereoOk ? 0x66FFFFFF : 0x30FFFFFF);
                 canvas.drawLine(trackL, y, markX, y, track);
                 track.setColor(stereoOk ? 0x66FFB74D : 0x30FFB74D);

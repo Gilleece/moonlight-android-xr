@@ -796,6 +796,24 @@ void cogReadouts(XrCtx* ctx, int* values) {
     values[2] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
 }
 
+// The running model's own pair, in the preferences' units, handed down once
+// before the first frame. The 3D tab's reset goes back to it.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetDepthDefaults(JNIEnv* env, jobject thiz,
+                                                                   jlong handle, jint separation,
+                                                                   jint convergence) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    // Kept on the tracks, which is all the panel can show or write
+    int units = separation < 0 ? 0 : (separation > COG_SEP_STEPS ? COG_SEP_STEPS : separation);
+    int percent = convergence < 0 ? 0 : (convergence > 100 ? 100 : convergence);
+    ctx->defaultSeparation = units * 0.001f;
+    ctx->defaultConvergence = percent / 100.0f;
+    LOGEV("3d defaults: separation %d, convergence %d", units, percent);
+}
+
 // Padlock sits clear of the left edge, halfway up, in the furniture's flat
 // local frame. Where the picture is curved the draw puts this on the surface,
 // and the arc length that comes out of it is the same x, so the hit test below
