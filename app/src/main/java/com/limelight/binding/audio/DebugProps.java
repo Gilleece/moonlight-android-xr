@@ -12,6 +12,7 @@ import java.io.InputStreamReader;
  */
 final class DebugProps {
     static final String SURROUND_REAR_MS = "debug.moonlight.surround_rear_ms";
+    static final String AUDIO_SELFTEST = "debug.moonlight.audio_selftest";
 
     private DebugProps() {
     }
