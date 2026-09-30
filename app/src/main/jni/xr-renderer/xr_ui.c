@@ -502,6 +502,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_SHARPEN) {
         return COG_SHARPEN_CELLS;
     }
+    if (option == COG_OPTION_SUPERSAMPLE) {
+        return COG_SUPERSAMPLE_CELLS;
+    }
     if (option == COG_OPTION_HEAD_LOCK) {
         return COG_HEAD_LOCK_CELLS;
     }
@@ -520,6 +523,9 @@ int cogOptionCells(int option) {
 int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     if (option == COG_OPTION_SHARPEN) {
         return ctx->sharpenMode;
+    }
+    if (option == COG_OPTION_SUPERSAMPLE) {
+        return ctx->supersampleMode;
     }
     if (option == COG_OPTION_HEAD_LOCK) {
         return headLocked ? 1 : 0;
@@ -540,6 +546,10 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
     if (option == COG_OPTION_SHARPEN) {
         ctx->sharpenMode = cell;
         return SETTING_SHARPEN;
+    }
+    if (option == COG_OPTION_SUPERSAMPLE) {
+        ctx->supersampleMode = cell;
+        return SETTING_SUPERSAMPLE;
     }
     if (option == COG_OPTION_STATS) {
         ctx->overlayVisible = cell != 0;

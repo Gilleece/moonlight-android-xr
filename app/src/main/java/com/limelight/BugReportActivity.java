@@ -330,7 +330,8 @@ public class BugReportActivity extends Activity {
                 + " depthModel " + prefs.vrDepthModel
                 + " cadence " + prefs.vrInferenceCadence + " separation " + prefs.vrStereoSeparation
                 + " convergence " + prefs.vrConvergence + " envRes " + prefs.vrEnvResTier
-                + " sharpening " + prefs.vrSharpening + " passthrough " + prefs.vrPassthrough
+                + " sharpening " + prefs.vrSharpening + " supersampling " + prefs.vrSupersampling
+                + " passthrough " + prefs.vrPassthrough
                 + " hands " + prefs.vrHandTracking + " gaze " + prefs.vrGaze
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"
                 + "fileLog " + prefs.fileLogLevel + "\n";

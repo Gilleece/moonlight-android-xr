@@ -323,6 +323,8 @@
     <string name="summary_vr_env_res">La netteté avec laquelle la pièce 3D autour de l\'écran est rendue. Une valeur plus élevée coûte plus de temps GPU. Ultra est expérimental et peut provoquer des à-coups ou des saccades.</string>
     <string name="title_vr_sharpening">Accentuation de l\'écran</string>
     <string name="summary_vr_sharpening">Accentue la netteté de l\'écran virtuel dans le compositeur du casque. Ne coûte rien sur les casques pris en charge et est ignoré sur les runtimes sans l\'extension.</string>
+    <string name="title_vr_supersampling">Suréchantillonnage de l\'écran</string>
+    <string name="summary_vr_supersampling">Suréchantillonne l\'écran virtuel dans le compositeur du casque, ce qui stabilise les détails fins qui scintillent quand l\'écran est affiché plus petit que le flux. Utilise un peu de temps GPU du compositeur et est ignoré sur les runtimes sans l\'extension.</string>
     <string name="title_vr_depth_debug">Afficher la carte de profondeur</string>
     <string name="summary_vr_depth_debug">Affiche la carte de profondeur en niveaux de gris à la place de la vidéo, pour vérifier la qualité de la profondeur</string>
     <string name="title_vr_eye_swap">Inverser les yeux</string>
@@ -375,6 +377,9 @@
     <string name="vr_sharpening_off">Désactivé</string>
     <string name="vr_sharpening_normal">Normal</string>
     <string name="vr_sharpening_quality">Qualité</string>
+    <string name="vr_supersampling_off">Désactivé</string>
+    <string name="vr_supersampling_normal">Normal</string>
+    <string name="vr_supersampling_quality">Qualité</string>
 
     <string name="vr_file_log_off">Désactivé</string>
     <string name="vr_file_log_basic">Avertissements et erreurs</string>

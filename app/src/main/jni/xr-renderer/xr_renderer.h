@@ -331,6 +331,8 @@ static inline long nowNs(void) {
 #define XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME "XR_FB_composition_layer_settings"
 #define XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB ((XrStructureType)1000204000)
 typedef XrFlags64 XrCompositionLayerSettingsFlagsFB;
+#define XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SUPER_SAMPLING_BIT_FB ((XrCompositionLayerSettingsFlagsFB)0x00000001)
+#define XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB ((XrCompositionLayerSettingsFlagsFB)0x00000002)
 #define XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SHARPENING_BIT_FB ((XrCompositionLayerSettingsFlagsFB)0x00000004)
 #define XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB ((XrCompositionLayerSettingsFlagsFB)0x00000008)
 typedef struct XrCompositionLayerSettingsFB {
@@ -378,6 +380,7 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
 #define PROP_ENV_RADIUS "debug.moonlight.envradius"
 #define PROP_SHARPEN "debug.moonlight.sharpen"
+#define PROP_SUPERSAMPLE "debug.moonlight.supersample"
 #define PROP_AMBILIGHT "debug.moonlight.ambilight"
 #define PROP_AMBI_SMOOTH "debug.moonlight.ambismooth"
 #define PROP_LETTERBOX "debug.moonlight.letterbox"
@@ -448,6 +451,10 @@ typedef struct {
 
     // 0 off, 1 normal, 2 quality, compositor sharpening on the screen layers
     int sharpenMode;
+    // The same values for the compositor's supersampling on the same layers
+    int supersampleMode;
+    // The pair last logged, plus one so zero means nothing logged yet
+    int layerFlagsLogged;
 
     int videoWidth;
     int videoHeight;

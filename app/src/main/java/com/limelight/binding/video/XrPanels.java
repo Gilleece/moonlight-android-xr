@@ -70,8 +70,9 @@ final class XrPanels {
     // room, which only shows in one, and head lock is ignored in one, but both
     // stay live here like the rest: the picker can put a room up at any moment.
     private static final String[] COG_OPTION_ROWS =
-            { "Sharpen", "Stats", "Head locked", "Glow", "Screen light" };
+            { "Sharpen", "Supersample", "Stats", "Head locked", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
+            { "Off", "Normal", "Quality" },
             { "Off", "Normal", "Quality" },
             { "Off", "On" },
             { "Off", "On" },

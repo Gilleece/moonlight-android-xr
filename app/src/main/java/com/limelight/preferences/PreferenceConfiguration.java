@@ -64,6 +64,7 @@ public class PreferenceConfiguration {
     public static final String VR_DEPTH_SOURCE_MIDAS = "model";
     public static final String VR_ENV_RES_PREF_STRING = "list_vr_env_res";
     public static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
+    public static final String VR_SUPERSAMPLING_PREF_STRING = "list_vr_supersampling";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
@@ -165,6 +166,8 @@ public class PreferenceConfiguration {
     // hold. Gen 1 headsets are seeded onto low instead, see seedGen1PerfProfile.
     private static final String DEFAULT_VR_ENV_RES = "standard";
     private static final String DEFAULT_VR_SHARPENING = "quality";
+    // Off until the owner has judged it worn: it costs compositor GPU time
+    static final String DEFAULT_VR_SUPERSAMPLING = "off";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
@@ -263,6 +266,8 @@ public class PreferenceConfiguration {
     public int vrEnvResTier;
     // 0 off, 1 normal, 2 quality
     public int vrSharpening;
+    // The same, for the compositor's supersampling
+    public int vrSupersampling;
     public boolean vrEyeSwap;
     // Tenths of a percent of frame width
     public int vrStereoSeparation;
@@ -433,6 +438,18 @@ public class PreferenceConfiguration {
         // Enterprise are A81xx, the later headsets are not.
         boolean isPico = "pico".equalsIgnoreCase(Build.MANUFACTURER) || "pico".equalsIgnoreCase(Build.BRAND);
         return isPico && model.regionMatches(true, 0, "A81", 0, 3);
+    }
+
+    // The stored supersampling choice as the renderer takes it: 0 off, 1
+    // normal, 2 quality. Anything it does not know is off, the default.
+    static int supersamplingMode(String value) {
+        if ("normal".equals(value)) {
+            return 1;
+        }
+        if ("quality".equals(value)) {
+            return 2;
+        }
+        return 0;
     }
 
     /** Whether a list_vr_depth_source value names a model rather than a pattern. */
@@ -917,6 +934,8 @@ public class PreferenceConfiguration {
         else {
             config.vrSharpening = 2;
         }
+        config.vrSupersampling = supersamplingMode(
+                prefs.getString(VR_SUPERSAMPLING_PREF_STRING, DEFAULT_VR_SUPERSAMPLING));
         config.vrEyeSwap = prefs.getBoolean(VR_EYE_SWAP_PREF_STRING, DEFAULT_VR_EYE_SWAP);
         config.vrPassthrough = prefs.getBoolean(VR_PASSTHROUGH_PREF_STRING, DEFAULT_VR_PASSTHROUGH);
         config.vrPointer = prefs.getBoolean(VR_POINTER_PREF_STRING, DEFAULT_VR_POINTER);

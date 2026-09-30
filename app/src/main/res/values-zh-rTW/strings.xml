@@ -308,6 +308,8 @@
     <string name="summary_vr_env_res">螢幕周圍 3D 虛擬房間的渲染清晰度。畫質越高越消耗 GPU 效能。極致為實驗性功能，可能導致延遲或掉影格。</string>
     <string name="title_vr_sharpening">虛擬螢幕銳化</string>
     <string name="summary_vr_sharpening">在頭戴裝置合成器中銳化虛擬螢幕。在受支援的頭戴裝置上幾乎不增加額外開銷；若執行階段不支援此擴充功能則自動略過。</string>
+    <string name="title_vr_supersampling">虛擬螢幕超取樣</string>
+    <string name="summary_vr_supersampling">在頭戴裝置合成器中對虛擬螢幕進行超取樣，讓螢幕顯示得比串流畫面小時閃爍的細節保持穩定。會佔用少量合成器 GPU 時間；若執行階段不支援此擴充功能則自動略過。</string>
     <string name="title_vr_depth_debug">顯示深度圖</string>
     <string name="summary_vr_depth_debug">將視訊渲染為灰階深度圖而非正常畫面，用於檢查 3D 深度品質</string>
     <string name="title_vr_eye_swap">對調左右眼</string>
@@ -374,6 +376,9 @@
     <string name="vr_sharpening_off">關閉</string>
     <string name="vr_sharpening_normal">標準</string>
     <string name="vr_sharpening_quality">高畫質</string>
+    <string name="vr_supersampling_off">關閉</string>
+    <string name="vr_supersampling_normal">標準</string>
+    <string name="vr_supersampling_quality">高畫質</string>
 
     <string name="vr_file_log_off">關閉</string>
     <string name="vr_file_log_basic">僅警告與錯誤</string>

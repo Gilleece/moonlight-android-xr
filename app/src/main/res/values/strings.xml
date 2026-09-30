@@ -282,6 +282,8 @@
     <string name="summary_vr_env_res">How sharply the 3D room around the screen is rendered. Higher costs more GPU time. Ultra is experimental and may cause hitches or stutter.</string>
     <string name="title_vr_sharpening">Screen sharpening</string>
     <string name="summary_vr_sharpening">Sharpen the virtual screen in the headset compositor. Costs nothing on supported headsets and is ignored on runtimes without the extension.</string>
+    <string name="title_vr_supersampling">Screen supersampling</string>
+    <string name="summary_vr_supersampling">Supersample the virtual screen in the headset compositor, which steadies fine detail that shimmers when the screen is shown smaller than the stream. Uses some compositor GPU time and is ignored on runtimes without the extension.</string>
     <string name="title_vr_depth_debug">Show depth map</string>
     <string name="summary_vr_depth_debug">Render the depth map as grayscale instead of the video, for checking depth quality</string>
     <string name="title_vr_eye_swap">Swap eyes</string>
@@ -390,6 +392,9 @@
     <string name="vr_sharpening_off">Off</string>
     <string name="vr_sharpening_normal">Normal</string>
     <string name="vr_sharpening_quality">Quality</string>
+    <string name="vr_supersampling_off">Off</string>
+    <string name="vr_supersampling_normal">Normal</string>
+    <string name="vr_supersampling_quality">Quality</string>
 
     <string name="vr_file_log_off">Off</string>
     <string name="vr_file_log_basic">Warnings and errors</string>

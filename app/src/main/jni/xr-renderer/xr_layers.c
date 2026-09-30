@@ -5,8 +5,10 @@
 // Worst case reachable is a tab with six rows open: background, the glow,
 // both eyes, stats, the cog button, the panel, six thumbs, ray and cursor,
 // which is 15, or 16 with a stereo background's second layer, exactly this
-// runtime's limit. The display tab comes to one more, its six rings plus
-// the glow level thumb where the screen tab has six thumbs and no rings.
+// runtime's limit. The display tab comes to two more, its seven rings plus
+// the glow level thumb where the screen tab has six thumbs and no rings,
+// which at its fullest is one past the Pico's sixteen, so a frame over the
+// runtime's limit sheds that tab's hover ring (see nativeEndFrame).
 // The 3d room replaces the environment layer and sheds the move pill and
 // the screen tab's thumbs, so it only ever comes to less. The panel is
 // modal, and since the frame a modal opens now sheds the bar furniture
@@ -40,14 +42,18 @@ typedef struct {
     XrCompositionLayerQuad cogPanel;
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMark[COG_OPTION_COUNT + 1];
-    XrCompositionLayerQuad cogThumb[COG_SLIDER_COUNT];
+    // One per row of whichever tab has the most. The display tab's glow level
+    // track is its seventh row, so it is the one that sets the size.
+    XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SLIDER_COUNT
+                                    ? COG_DISPLAY_SLIDER_ROW + 1 : COG_SLIDER_COUNT];
     XrCompositionLayerQuad kbPanel;
     XrCompositionLayerQuad kbMark;
     XrCompositionLayerQuad beam;
     XrCompositionLayerQuad dot;
-    XrCompositionLayerSettingsFB sharpen;
-    // NULL when sharpening is off or unsupported, which leaves every chain untouched
-    const void* sharpenChain;
+    XrCompositionLayerSettingsFB settings;
+    // NULL when sharpening and supersampling are both off or unsupported,
+    // which leaves every chain untouched
+    const void* settingsChain;
     const XrCompositionLayerBaseHeader* order[FRAME_MAX_LAYERS];
     uint32_t count;
 } FrameLayers;
@@ -73,6 +79,18 @@ typedef struct {
     // and cost the whole frame with a -24 on device.
     int barArea;
 } FrameView;
+
+// Takes a layer back out of the frame, keeping the order of the rest
+static void dropLayer(FrameLayers* layers, const void* layer) {
+    for (uint32_t i = 0; i < layers->count; i++) {
+        if (layers->order[i] == (const XrCompositionLayerBaseHeader*)layer) {
+            memmove(&layers->order[i], &layers->order[i + 1],
+                    (layers->count - i - 1) * sizeof(layers->order[0]));
+            layers->count--;
+            return;
+        }
+    }
+}
 
 // Adds a layer to the frame. One past the array would be a smashed stack, so a
 // frame that gets there drops the layer and says so once: the layer that went
@@ -168,18 +186,43 @@ static void logWarpStats(XrCtx* ctx) {
     }
 }
 
-// Compositor sharpening during its sampling pass, so it costs us nothing.
-// One struct serves every layer that wants it. NULL when off or unsupported
-// leaves the chain untouched and today's exact behaviour.
-static void setSharpenChain(XrCtx* ctx, FrameLayers* layers) {
-    layers->sharpenChain = NULL;
-    if (ctx->layerSettingsSupported && ctx->sharpenMode != 0) {
-        memset(&layers->sharpen, 0, sizeof(layers->sharpen));
-        layers->sharpen.type = XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB;
-        layers->sharpen.layerFlags = ctx->sharpenMode == 2
-                ? XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB
-                : XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SHARPENING_BIT_FB;
-        layers->sharpenChain = &layers->sharpen;
+// Compositor sharpening and supersampling, both done in its sampling pass, so
+// neither costs the app anything. Supersampling is the compositor filtering
+// harder where a layer is drawn smaller than its texture, which a 4K picture
+// on a headset usually is. The extension allows one bit of each in the same
+// word. One struct serves every layer that wants it, and NULL when both are
+// off or the runtime lacks the extension leaves every chain untouched.
+static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
+    // Said whenever either moves, so a session log shows which half of an
+    // A/B each stretch was, and once at the start
+    int logged = ctx->sharpenMode * 3 + ctx->supersampleMode + 1;
+    if (logged != ctx->layerFlagsLogged) {
+        ctx->layerFlagsLogged = logged;
+        LOGEV("layer flags: sharpen %d supersample %d%s", ctx->sharpenMode,
+              ctx->supersampleMode, ctx->layerSettingsSupported ? "" : " (not offered, ignored)");
+    }
+    layers->settingsChain = NULL;
+    if (!ctx->layerSettingsSupported) {
+        return;
+    }
+    XrCompositionLayerSettingsFlagsFB flags = 0;
+    if (ctx->sharpenMode == 1) {
+        flags |= XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SHARPENING_BIT_FB;
+    }
+    else if (ctx->sharpenMode == 2) {
+        flags |= XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SHARPENING_BIT_FB;
+    }
+    if (ctx->supersampleMode == 1) {
+        flags |= XR_COMPOSITION_LAYER_SETTINGS_NORMAL_SUPER_SAMPLING_BIT_FB;
+    }
+    else if (ctx->supersampleMode == 2) {
+        flags |= XR_COMPOSITION_LAYER_SETTINGS_QUALITY_SUPER_SAMPLING_BIT_FB;
+    }
+    if (flags != 0) {
+        memset(&layers->settings, 0, sizeof(layers->settings));
+        layers->settings.type = XR_TYPE_COMPOSITION_LAYER_SETTINGS_FB;
+        layers->settings.layerFlags = flags;
+        layers->settingsChain = &layers->settings;
     }
 }
 
@@ -327,7 +370,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
             XrCompositionLayerCylinderKHR* cyl = &layers->cylinder[eye];
             memset(cyl, 0, sizeof(*cyl));
             cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
-            cyl->next = layers->sharpenChain;
+            cyl->next = layers->settingsChain;
             // Radius runs from 4x distance (slightly curved) down to the
             // distance itself (wrapped around the viewer) as curvature rises
             float radius = ctx->screenRadius;
@@ -345,7 +388,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         }
         else {
             XrCompositionLayerQuad* quad = &layers->video[eye];
-            quadLayer(quad, layers->sharpenChain, 0, ctx->swapchain, ctx->videoWidth,
+            quadLayer(quad, layers->settingsChain, 0, ctx->swapchain, ctx->videoWidth,
                       ctx->videoHeight, view->space, view->screenPose, view->screenWidth,
                       view->screenHeight);
             quad->eyeVisibility = visibility;
@@ -374,7 +417,7 @@ static void addOverlayLayer(XrCtx* ctx, const FrameView* view, FrameLayers* laye
                             view->screenHeight * 0.5f - overlayH * 0.5f - margin,
                             // A little in front so the two never z fight
                             0.01f };
-        quadLayer(&layers->overlay, layers->sharpenChain,
+        quadLayer(&layers->overlay, layers->settingsChain,
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->overlaySwapchain,
                   OVERLAY_WIDTH, OVERLAY_HEIGHT, view->space,
                   poseOffset(view->screenPose, statsLocal), overlayW, overlayH);
@@ -494,7 +537,7 @@ static void addExitPromptLayer(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // handle rather than an upload. Sharpened like the grid, since what it
     // carries is text.
     if (ctx->exitConfirmOpen && ctx->exitPromptReady[ctx->exitHoverZone]) {
-        quadLayer(&layers->exitPrompt, layers->sharpenChain,
+        quadLayer(&layers->exitPrompt, layers->settingsChain,
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->exitPromptSwapchains[ctx->exitHoverZone], EXIT_TEX_W, EXIT_TEX_H,
                   view->space, ctx->exitPose, ctx->exitW, ctx->exitH);
@@ -538,7 +581,7 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
         float pickW, pickH;
         XrPosef pickPose = pickerPose(ctx, &pickW, &pickH);
 
-        quadLayer(&layers->picker, layers->sharpenChain,
+        quadLayer(&layers->picker, layers->settingsChain,
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->pickerSwapchain,
                   PICKER_TEX_W, PICKER_TEX_H, view->space, pickPose, pickW, pickH);
         pushLayer(ctx, layers, &layers->picker);
@@ -584,7 +627,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // screen tab picks its own sheet. Sharpened: it carries text.
     int cogArt = cogScreenLocked(ctx) ? COG_ART_ROOM_SCREEN : ctx->cogTab;
     if (ctx->cogOpen && ctx->cogPanelReady[cogArt]) {
-        quadLayer(&layers->cogPanel, layers->sharpenChain,
+        quadLayer(&layers->cogPanel, layers->settingsChain,
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->cogPanelSwapchains[cogArt], COG_TEX_W, COG_TEX_H, view->space,
                   ctx->cogPose, ctx->cogW, ctx->cogH);
@@ -667,7 +710,7 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     // crowd the runtime's layer ceiling, and the modal has the ray anyway.
     if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
             && ctx->kbPanelReady[ctx->kbState]) {
-        quadLayer(&layers->kbPanel, layers->sharpenChain,
+        quadLayer(&layers->kbPanel, layers->settingsChain,
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->kbPanelSwapchains[ctx->kbState], KB_TEX_W, KB_TEX_H, view->space,
                   ctx->kbPose, ctx->kbW, ctx->kbH);
@@ -868,7 +911,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     FrameLayers layers;
     layers.count = 0;
-    setSharpenChain(ctx, &layers);
+    setLayerSettings(ctx, &layers);
 
     addRoomLayer(ctx, &view, &layers);
     addBackgroundLayers(ctx, &view, &layers);
@@ -886,8 +929,16 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addPointerLayers(ctx, &view, &layers);
     }
 
+    // The display tab at its fullest, with a photo, the glow, the stats and
+    // the ray all up, is one layer past the Pico's sixteen, and a frame over
+    // the limit is refused whole. Its hover ring is what goes: the cursor
+    // already shows where the ray is.
+    if (layers.count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);
+    }
+
     // Said once and only once, since a frame that crowds the limit is usually
-    // every frame after it. Nothing is dropped here: a missing layer is a
+    // every frame after it. Nothing else is dropped: a missing layer is a
     // silent bug, where the count in the log points straight at the culprit.
     if (layers.count >= (uint32_t)ctx->maxLayerCount && !ctx->layerLimitWarned) {
         ctx->layerLimitWarned = 1;

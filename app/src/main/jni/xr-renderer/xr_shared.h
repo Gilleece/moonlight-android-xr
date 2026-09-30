@@ -90,6 +90,7 @@
 #define SETTING_AMBI_LEVEL 6
 #define SETTING_ROOM_LIGHT 7
 #define SETTING_HEAD_LOCK 8
+#define SETTING_SUPERSAMPLE 9
 
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0
@@ -187,20 +188,24 @@
 // Display tab rows. Cells rather than a track, so a press picks one instead of
 // dragging a value.
 #define COG_OPTION_SHARPEN 0
-#define COG_OPTION_STATS   1
-#define COG_OPTION_HEAD_LOCK 2
-#define COG_OPTION_AMBILIGHT 3
-#define COG_OPTION_ROOM_LIGHT 4
-#define COG_OPTION_COUNT   5
+#define COG_OPTION_SUPERSAMPLE 1
+#define COG_OPTION_STATS   2
+#define COG_OPTION_HEAD_LOCK 3
+#define COG_OPTION_AMBILIGHT 4
+#define COG_OPTION_ROOM_LIGHT 5
+#define COG_OPTION_COUNT   6
 #define COG_SHARPEN_CELLS 3
+#define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_HEAD_LOCK_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
-// Six rows on this tab now, the same grid the screen tab already fills.
-#define COG_DISPLAY_SLIDER_ROW 5
+// Seven rows on this tab, one more than the screen tab: the last is centred
+// at 0.91, which still clears the bottom edge, and this tab has no reset
+// button for it to land on.
+#define COG_DISPLAY_SLIDER_ROW 6
 
 // In world keyboard, for the login boxes and chat windows that turn up mid
 // stream. One sheet of art per state, drawn in Java like the other panels, and

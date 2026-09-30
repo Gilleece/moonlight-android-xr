@@ -533,6 +533,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " depthScale=" + prefConfig.vrDepthScale
                 + " cadence=" + prefConfig.vrInferenceCadence
                 + " sharpening=" + prefConfig.vrSharpening
+                + " supersampling=" + prefConfig.vrSupersampling
                 + " passthrough=" + prefConfig.vrPassthrough
                 + " hands=" + prefConfig.vrHandTracking);
 
