@@ -357,4 +357,25 @@
     <string name="bug_report_saved">Le rapport a été enregistré dans\n\n%1$s</string>
     <string name="bug_report_no_mail">Il n\'y a pas d\'application e-mail sur cet appareil, le rapport a donc été enregistré dans\n\n%1$s\n\nCopiez-le hors du casque et joignez-le à un e-mail à %2$s.</string>
     <string name="bug_report_failed">Impossible d\'écrire le rapport : %1$s</string>
+    <!-- VR list options -->
+    <string name="vr_depth_source_off">Désactivé</string>
+    <string name="vr_depth_source_model">V1.0 - 3D basée sur MiDaS</string>
+    <string name="vr_depth_source_flat">Motif de test : plan plat</string>
+    <string name="vr_depth_source_ramp">Motif de test : rampe horizontale</string>
+    <string name="vr_depth_source_blob">Motif de test : tache centrale</string>
+    <string name="vr_depth_source_eyetest">Motif de test : routage des yeux</string>
+    <string name="vr_depth_source_shifttest">Motif de test : mesure du décalage</string>
+
+    <string name="vr_env_res_low">Basse</string>
+    <string name="vr_env_res_standard">Standard</string>
+    <string name="vr_env_res_high">Haute</string>
+    <string name="vr_env_res_ultra">Ultra (expérimental)</string>
+
+    <string name="vr_sharpening_off">Désactivé</string>
+    <string name="vr_sharpening_normal">Normal</string>
+    <string name="vr_sharpening_quality">Qualité</string>
+
+    <string name="vr_file_log_off">Désactivé</string>
+    <string name="vr_file_log_basic">Avertissements et erreurs</string>
+    <string name="vr_file_log_verbose">Détaillé</string>
 </resources>
