@@ -260,8 +260,11 @@ static inline long nowNs(void) {
 #define AMBI_EDGES 4
 
 // The 3d room. A baked model that ships in the assets, drawn per eye into the
-// one projection layer this renderer has. Which room, 0 for none.
+// one projection layer this renderer has. Which room, 0 for none, each with a
+// row of its own in xr_room.c.
 #define ROOM_STYLE_THEATER 1
+#define ROOM_STYLE_FIRST ROOM_STYLE_THEATER
+#define ROOM_STYLE_LAST ROOM_STYLE_THEATER
 #define ROOM_EYES 2
 // How big the room renders per eye, picked by the Environment Res setting.
 // Half of what the runtime recommends was soft enough against the video layer
@@ -280,10 +283,14 @@ static inline long nowNs(void) {
 // Floats a vertex in the baked model file: position, normal, texture
 // coordinate and colour
 #define ROOM_MODEL_FLOATS ROOM_MESH_VERTEX_FLOATS
-// How large the room is drawn. The theater is modelled in metres around its
-// seat, so it is drawn as built. The property below moves it between the two
-// bounds.
-#define ROOM_THEATER_SCALE 1.0f
+// The room's clip planes: near enough to walk into a wall, and a far plane
+// from the room's own reach with this much to spare, never under the floor
+// every room was once drawn with
+#define ROOM_NEAR_M 0.05f
+#define ROOM_FAR_MIN_M 60.0f
+#define ROOM_FAR_MARGIN 1.5f
+// What the scale property can ask for. Every room is drawn at the size it was
+// built unless it does.
 #define ROOM_SCALE_MIN 0.25f
 #define ROOM_SCALE_MAX 4.0f
 // What the brightness property can ask for, either side of the room going on
@@ -682,6 +689,9 @@ typedef struct {
     int roomFailed;
     int roomRendered;
     float roomSpillGain;
+    // How far the room in the buffers reaches, as the far plane it is drawn
+    // with
+    float roomFarZ;
     float roomClear[3];
     // Both eyes as the room was last drawn from them, which is what the
     // projection layer has to be submitted with. Nothing else in here locates

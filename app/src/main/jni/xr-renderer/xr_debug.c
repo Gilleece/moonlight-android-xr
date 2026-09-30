@@ -113,10 +113,11 @@ void pollCaptureRequest(XrCtx* ctx) {
     // sample to the picture inside them. Same trap again: one left at 0 from an
     // earlier session quietly turns the detection off.
     propFlag(PROP_LETTERBOX, &ctx->ambiBarDetect);
-    // 0 forces the room off, 1 forces the home theater, and unset leaves the
-    // picker in charge. A room only comes up if it is the one resident, which
-    // is the one last picked: any other leaves the void in its place.
-    propInt(PROP_ROOM, &ctx->roomOverride, ROOM_STYLE_THEATER);
+    // 0 forces the room off, a room's style forces that room (1 the home
+    // theater), and unset leaves the picker in charge. A room only comes up if
+    // it is the one resident, which is the one last picked: any other leaves
+    // the void in its place.
+    propInt(PROP_ROOM, &ctx->roomOverride, ROOM_STYLE_LAST);
     // Percent, both of them, and 0 hands the value back to the room. The scale
     // reaches the baked rooms only, and moving it rebuilds the geometry, so it
     // is not a knob to sit on a slider.

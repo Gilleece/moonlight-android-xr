@@ -27,12 +27,15 @@ typedef struct {
     // stands so the two never fight for the same pixels
     float screenMountY;
     float screenProud;
-    // How wide it is hung, and the tallest it may be, 0 for no limit past the
-    // room's own walls. The room sizes its own picture rather than taking the
-    // size slider's, since the wall it goes on is a known size, and a picture
-    // taller than 16:9 fits inside the two rather than running off the wall.
+    // How wide and how tall the room's screen anchor is, which is the largest
+    // the picture is hung. The room sizes its own picture rather than taking
+    // the size slider's, since the wall it goes on is a known size, and a
+    // picture of another shape fits inside the two rather than running off it.
     float screenWidth;
     float screenHeight;
+    // Whether the picture may hang past the walls, the floor and the ceiling,
+    // which is the row's own flag
+    int open;
     // Distance at which the screen's light is down to half
     float spillRadius;
     // How much of that light a fully lit vertex takes
@@ -107,59 +110,142 @@ int roomEffective(XrCtx* ctx) {
     return ctx->roomOverride >= 0 ? ctx->roomOverride : ctx->roomStyle;
 }
 
-// The home theater, a small room modelled in metres around marker nodes: a
-// seated eye at (0, 1.15, 1.12) and a screen anchor centred on (0, 1.55,
-// -3.132) whose scale, 3.6 by 2.025, is the largest picture the room was lit
-// and seated for. The anchor is that eye raised 0.35 and brought 0.10 toward
-// the screen, set by eye in a headset, and every number below is measured off
-// the model and put through the same (model - anchor) * scale as the
-// geometry.
-static RoomParams homeTheaterParams(float scale) {
-    RoomParams p;
-    memset(&p, 0, sizeof(p));
-    Vec3 anchor = { 0.0f, 1.15f + 0.35f, 1.12f - 0.10f };
-    p.anchor = anchor;
-    // The side walls at model x plus or minus 2.8, one floor throughout at
-    // model y -0.14, so the picture stands on the floor the viewer does, and
-    // the ceiling at 2.84
-    p.halfWidth = 2.8f * scale;
-    p.floorY = (-0.14f - anchor.y) * scale;
-    p.screenFloorY = p.floorY;
-    p.ceilingY = (2.84f - anchor.y) * scale;
-    // The picture sits flat on the front wall at the anchor's z, and the back
-    // wall is at model z 4.41
-    p.screenZ = (-3.132f - anchor.z) * scale;
-    p.backZ = (4.41f - anchor.z) * scale;
-    p.screenMountY = (1.55f - anchor.y) * scale;
-    p.screenProud = 0.0f;
-    // Four fifths of the anchor, 2.88 m across, which sits better from the seat
-    // than a picture filling the whole of it
-    p.screenWidth = 3.6f * 0.8f * scale;
-    p.screenHeight = 2.025f * 0.8f * scale;
-    Vec3 screenAt = { 0.0f, p.screenMountY, p.screenZ };
-    p.screenAt = screenAt;
-    // A room a few metres across, so the light is down to half about the depth
-    // of the seating. Over a painted atlas less gain than this never reads as
-    // light at all.
-    p.spillRadius = 3.0f * scale;
-    p.spillGain = 0.55f;
-    p.texMix = 1.0f;
-    // Picked by eye in a headset: a little over a third of the atlas as it was
-    // baked
-    p.dim = 0.37f;
-    p.seed = 0xc2b2ae35u;
-    return p;
-}
+// One room as it was measured off its model, in the model's own space and in
+// metres. Every room ships this way: modelled around a Viewer_Seated node, with
+// a ScreenAnchor empty giving the centre of the picture and the largest it may
+// be hung, so a room is a row here and nothing else. Every number goes through
+// the same (model - anchor) * scale as the geometry.
+typedef struct {
+    // The Viewer_Seated node the model carries, and where the viewer ends up
+    // relative to it: up, and in toward the screen. Set by eye in a headset,
+    // where the marked points sat too low and too far back to watch from.
+    Vec3 eye;
+    float eyeRaise;
+    float eyeForward;
+    // The ScreenAnchor's origin and its scale, which is the picture's largest
+    // width and height. The room was lit and seated for that size.
+    Vec3 screen;
+    float screenWidth;
+    float screenHeight;
+    // How much of the anchor the picture hangs on to start with, a fraction of
+    // its width with the picture's own shape kept
+    float screenFraction;
+    // The floor the architecture stands on, the ceiling over it, the side walls
+    // and the wall behind the viewer
+    float floorY;
+    float ceilingY;
+    float halfWidth;
+    float backZ;
+    // How far the picture's light carries, and how much of it a fully lit
+    // vertex takes
+    float spillRadius;
+    float spillGain;
+    // How bright the room is drawn, a factor over its atlases and colours as
+    // they were baked
+    float dim;
+    // The dither seed, which only has to differ room to room
+    unsigned seed;
+    // The size the room is drawn at, which is the size it was built
+    float scale;
+    // Whether the picture may be resized inside the anchor. A room is lit and
+    // seated for the picture filling it, so that is only allowed where the
+    // picture hangs in a space rather than on a wall built around it.
+    int resizable;
+    // Whether the picture may hang past the room's own walls, floor and
+    // ceiling. A room built around its picture is clamped to them, so an anchor
+    // wider than the wall cannot cut through it; a room in the open has
+    // nothing behind the picture but sky.
+    int open;
+    // Whether the glow around the picture starts on in this room. A dark room
+    // is spoiled by it.
+    int glow;
+} RoomModel;
+
+// Every room that ships, indexed by its style less ROOM_STYLE_FIRST
+static const RoomModel ROOM_MODELS[] = {
+    // Home Theater: a small room with the picture flat on the front wall, four
+    // fifths of the anchor, 2.88 m across, which sits better from the seat than
+    // a picture filling the whole of it. The light is down to half about the
+    // depth of the seating, and over a painted atlas less gain than this never
+    // reads as light at all. A little over a third of the atlas as it was
+    // baked, picked by eye in a headset.
+    {
+        .eye = { 0.0f, 1.15f, 1.12f }, .eyeRaise = 0.35f, .eyeForward = 0.10f,
+        .screen = { 0.0f, 1.55f, -3.132f }, .screenWidth = 3.6f, .screenHeight = 2.025f,
+        .screenFraction = 0.80f,
+        .floorY = -0.14f, .ceilingY = 2.84f, .halfWidth = 2.8f, .backZ = 4.41f,
+        .spillRadius = 3.0f, .spillGain = 0.55f, .dim = 0.37f,
+        .seed = 0xc2b2ae35u, .scale = 1.0f, .resizable = 1, .open = 0, .glow = 1,
+    },
+};
+
+// A row a style, so the table and the list of styles cannot drift apart
+_Static_assert(sizeof(ROOM_MODELS) / sizeof(ROOM_MODELS[0])
+               == ROOM_STYLE_LAST - ROOM_STYLE_FIRST + 1, "a room style with no row");
 
 // Whether a style is one of the rooms that ship as a model
 static int bakedRoomStyle(int style) {
-    return style == ROOM_STYLE_THEATER;
+    return style >= ROOM_STYLE_FIRST && style <= ROOM_STYLE_LAST;
 }
 
-// Which room a style asks for, at the scale that style is drawn
+// The row a style reads. Anything unknown falls back to the first room rather
+// than reading past the table.
+static const RoomModel* roomModel(int style) {
+    if (!bakedRoomStyle(style)) {
+        return &ROOM_MODELS[0];
+    }
+    return &ROOM_MODELS[style - ROOM_STYLE_FIRST];
+}
+
+// Which room a style asks for, at the scale that style is drawn. The anchor is
+// the model's seated eye point moved by the two offsets, and every number off
+// the model goes through the same (model - anchor) * scale the geometry does,
+// so moving the anchor moves the whole room around the viewer.
 static RoomParams roomParams(int style, float scale) {
-    (void)style;
-    return homeTheaterParams(scale);
+    const RoomModel* m = roomModel(style);
+
+    RoomParams p;
+    memset(&p, 0, sizeof(p));
+    Vec3 anchor = { m->eye.x, m->eye.y + m->eyeRaise, m->eye.z - m->eyeForward };
+    p.anchor = anchor;
+    p.halfWidth = m->halfWidth * scale;
+    p.floorY = (m->floorY - anchor.y) * scale;
+    // One floor throughout in every room that ships, so the picture stands on
+    // the same one the viewer does
+    p.screenFloorY = p.floorY;
+    p.ceilingY = (m->ceilingY - anchor.y) * scale;
+    p.screenZ = (m->screen.z - anchor.z) * scale;
+    p.backZ = (m->backZ - anchor.z) * scale;
+    p.screenMountY = (m->screen.y - anchor.y) * scale;
+    // The picture sits flat against the anchor, so nothing stands it off
+    p.screenProud = 0.0f;
+    p.screenWidth = m->screenWidth * scale;
+    p.screenHeight = m->screenHeight * scale;
+    p.open = m->open;
+    Vec3 screenAt = { (m->screen.x - anchor.x) * scale, p.screenMountY, p.screenZ };
+    p.screenAt = screenAt;
+    p.spillRadius = m->spillRadius * scale;
+    p.spillGain = m->spillGain;
+    p.texMix = 1.0f;
+    p.dim = m->dim;
+    p.seed = m->seed;
+    return p;
+}
+
+// Whether the picture may be resized in a style's room. Only a room answers
+// here: outside one the picture is the user's to size however they like.
+static int roomResizable(int style) {
+    return bakedRoomStyle(style) && roomModel(style)->resizable;
+}
+
+// How much of its anchor a style's room starts the picture on
+static float roomScreenFraction(int style) {
+    return bakedRoomStyle(style) ? roomModel(style)->screenFraction : 1.0f;
+}
+
+// Whether a style's room starts with the glow around the picture on
+static int roomDefaultGlow(int style) {
+    return !bakedRoomStyle(style) || roomModel(style)->glow;
 }
 
 // How large a style is drawn, which is the size it was built at unless a
@@ -168,7 +254,8 @@ static float roomScale(XrCtx* ctx, int style) {
     if (!bakedRoomStyle(style)) {
         return 1.0f;
     }
-    float scale = ctx->roomScaleOverride > 0.0f ? ctx->roomScaleOverride : ROOM_THEATER_SCALE;
+    float scale = ctx->roomScaleOverride > 0.0f ? ctx->roomScaleOverride
+                                                : roomModel(style)->scale;
     if (scale < ROOM_SCALE_MIN) {
         scale = ROOM_SCALE_MIN;
     }
@@ -176,6 +263,27 @@ static float roomScale(XrCtx* ctx, int style) {
         scale = ROOM_SCALE_MAX;
     }
     return scale;
+}
+
+// How far the room's own pass has to see. Every room is drawn on its own, so
+// the far plane is that room's rather than one number that has to suit all of
+// them: the geometry's own reach with room to spare, the walls the table gives
+// under that in case a model comes up short, and what every room was drawn with
+// before as the floor, so a small room keeps the precision it had and a sky that
+// runs to the horizon is inside the frustum.
+static float roomFarPlane(const RoomParams* p, float reach) {
+    float walls = p->halfWidth;
+    if (fabsf(p->backZ) > walls) {
+        walls = fabsf(p->backZ);
+    }
+    if (p->ceilingY > walls) {
+        walls = p->ceilingY;
+    }
+    if (reach > walls) {
+        walls = reach;
+    }
+    float far = walls * ROOM_FAR_MARGIN;
+    return far < ROOM_FAR_MIN_M ? ROOM_FAR_MIN_M : far;
 }
 
 // How far down the room is turned as it draws. Nothing is baked into the
@@ -230,42 +338,50 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     // The same scale the geometry was built at, so the picture and the walls
     // around it never disagree
     RoomParams p = roomParams(style, roomScale(ctx, style));
-    // The room says how big its picture is, not the size slider: the wall is a
-    // known size and the picture is hung to suit it. The clamps below only
-    // catch a room whose width does not fit its own wall.
+    // The room says how big its picture is, not the size slider: the anchor is
+    // a known size and the picture is fitted inside it with its own shape
+    // kept, so a taller film loses width rather than running up the wall, and
+    // hung at the room's own fraction of that
     float width = p.screenWidth;
-    // A room that says how tall its picture may be fits a taller one inside
-    // that, keeping its shape, rather than letting it run up the wall
-    if (p.screenHeight > 0.0f && aspect > 0.0f && width * aspect > p.screenHeight) {
+    if (aspect > 0.0f && p.screenHeight > 0.0f && width * aspect > p.screenHeight) {
         width = p.screenHeight / aspect;
     }
-    float maxWidth = 2.0f * p.halfWidth - 0.4f;
-    float maxHeight = (p.ceilingY - p.floorY) - 0.3f;
-    if (width > maxWidth) {
-        width = maxWidth;
-    }
-    if (width * aspect > maxHeight) {
-        width = maxHeight / aspect;
+    width *= roomScreenFraction(style);
+    // The clamps only catch a room whose own anchor does not fit its wall, and
+    // an open room has no wall to fit: its anchor is hung as it is written
+    if (!p.open) {
+        float maxWidth = 2.0f * p.halfWidth - 0.4f;
+        float maxHeight = (p.ceilingY - p.floorY) - 0.3f;
+        if (width > maxWidth) {
+            width = maxWidth;
+        }
+        if (width * aspect > maxHeight) {
+            width = maxHeight / aspect;
+        }
     }
     float height = width * aspect;
     // And hung where the whole of it is on the wall rather than through the
     // floor or the ceiling. The floor here is the one under the picture, not
     // the tier the viewer is on, which in a raked room is metres higher and
-    // would push the picture back up the wall.
+    // would push the picture back up the wall. An open room is left alone: its
+    // picture is meant to stand above the room.
     float mount = p.screenMountY;
-    float lowest = p.screenFloorY + height * 0.5f + 0.1f;
-    float highest = p.ceilingY - height * 0.5f - 0.1f;
-    if (mount < lowest) {
-        mount = lowest;
-    }
-    if (mount > highest) {
-        mount = highest;
+    if (!p.open) {
+        float lowest = p.screenFloorY + height * 0.5f + 0.1f;
+        float highest = p.ceilingY - height * 0.5f - 0.1f;
+        if (mount < lowest) {
+            mount = lowest;
+        }
+        if (mount > highest) {
+            mount = highest;
+        }
     }
 
     // Square to the wall and facing the viewer, the same identity orientation
     // the placement starts out with
     memset(&ctx->screenPose, 0, sizeof(ctx->screenPose));
     ctx->screenPose.orientation.w = 1.0f;
+    ctx->screenPose.position.x = p.screenAt.x;
     ctx->screenPose.position.y = mount;
     ctx->screenPose.position.z = p.screenZ + p.screenProud;
     ctx->screenWidth = width;
@@ -300,17 +416,26 @@ static int roomAssetsReady(XrCtx* ctx, int style) {
 // and its atlas is mixed over the top of it as the part draws; a part painted
 // from its vertex colours carries them here. The model arrives in its own
 // space, so this is where the anchor and the scale go on. The normals are left
-// alone, since a uniform scale does not turn them.
-static void buildModelRoomVertices(XrCtx* ctx, const RoomParams* p, float scale, float* verts) {
+// alone, since a uniform scale does not turn them. Hands back how far the room
+// runs from the viewer, which is what its far plane is worked out from, taken
+// here because the vertices are being walked anyway.
+static float buildModelRoomVertices(XrCtx* ctx, const RoomParams* p, float scale,
+                                    float* verts) {
+    float furthest = 0.0f;
     for (int i = 0; i < ctx->roomModelVertexCount; i++) {
         const float* src = ctx->roomModelVerts + (size_t)i * ROOM_MODEL_FLOATS;
         Vec3 pos = { (src[0] - p->anchor.x) * scale,
                      (src[1] - p->anchor.y) * scale,
                      (src[2] - p->anchor.z) * scale };
+        float away = pos.x * pos.x + pos.y * pos.y + pos.z * pos.z;
+        if (away > furthest) {
+            furthest = away;
+        }
         Vec3 normal = { src[3], src[4], src[5] };
         roomWriteVertex(p, verts, i, pos, src + 8, roomSpillWeight(p, pos, normal),
                         src[6], src[7]);
     }
+    return sqrtf(furthest);
 }
 
 // Builds a style's room and hands it to the buffers. Called once for the first
@@ -324,6 +449,7 @@ static int uploadRoomGeometry(XrCtx* ctx, int style) {
         ctx->roomVertexCount = 0;
         ctx->roomIndexCount = 0;
         ctx->roomPartCount = 0;
+        ctx->roomFarZ = ROOM_FAR_MIN_M;
         ctx->roomClear[0] = 0.0f;
         ctx->roomClear[1] = 0.0f;
         ctx->roomClear[2] = 0.0f;
@@ -341,7 +467,7 @@ static int uploadRoomGeometry(XrCtx* ctx, int style) {
         LOGE("room geometry allocation failed");
         return 0;
     }
-    buildModelRoomVertices(ctx, &params, scale, verts);
+    float reach = buildModelRoomVertices(ctx, &params, scale, verts);
     if (ctx->roomVertexBuffer == 0) {
         glGenBuffers(1, &ctx->roomVertexBuffer);
     }
@@ -367,6 +493,7 @@ static int uploadRoomGeometry(XrCtx* ctx, int style) {
     memcpy(ctx->roomParts, ctx->roomModelParts,
            (size_t)ctx->roomModelPartCount * sizeof(RoomMeshPart));
     ctx->roomPartCount = ctx->roomModelPartCount;
+    ctx->roomFarZ = roomFarPlane(&params, reach);
     ctx->roomSpillGain = params.spillGain;
     ctx->roomTexMix = params.texMix;
     ctx->roomDim = params.dim;
@@ -375,8 +502,11 @@ static int uploadRoomGeometry(XrCtx* ctx, int style) {
     ctx->roomClear[0] = 0.010f;
     ctx->roomClear[1] = 0.010f;
     ctx->roomClear[2] = 0.012f;
-    LOGEV("room ready, style %d, scale %.2f, %d vertices, %d indices, %d parts",
-          style, scale, vertexCount, indexCount, ctx->roomPartCount);
+    LOGEV("room ready, style %d, scale %.2f, %d vertices, %d indices, %d parts, far %.0f m, "
+          "open %d, resizable %d, screen %.2f of its anchor, glow %s, brightness %.2f",
+          style, scale, vertexCount, indexCount, ctx->roomPartCount, (double)ctx->roomFarZ,
+          params.open, roomResizable(style), (double)roomScreenFraction(style),
+          roomDefaultGlow(style) ? "on" : "off", (double)params.dim);
     return 1;
 }
 
@@ -634,8 +764,8 @@ static void drawRoomEyes(XrCtx* ctx) {
         float view[16];
         float viewProj[16];
         // Near enough to walk into a wall without it clipping, far enough to
-        // hold a room a few metres across
-        projectionFromFov(proj, ctx->roomViews[eye].fov, 0.05f, 60.0f);
+        // hold whatever this room reaches to
+        projectionFromFov(proj, ctx->roomViews[eye].fov, ROOM_NEAR_M, ctx->roomFarZ);
         viewFromPose(view, ctx->roomViews[eye].pose);
         matMul(viewProj, proj, view);
         glUniformMatrix4fv(ctx->roomViewProjUniform, 1, GL_FALSE, viewProj);
