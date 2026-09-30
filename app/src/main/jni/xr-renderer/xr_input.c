@@ -1358,21 +1358,11 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
 
         if (row >= 0 && !cogRowIsTrack(face, row)) {
             // Cells, so a press picks one rather than starting a drag
-            int cells = face == COG_FACE_ROOM ? COG_ROOM_SWITCH_CELLS : cogOptionCells(row);
-            int cell = cogCellAt(pu, cells);
+            int cell = cogCellAt(pu, cogRowCells(face, row));
             ctx->cogHoverSlider = cell >= 0 ? row : -1;
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
-                if (face == COG_FACE_ROOM) {
-                    cogApplyRoomCell(ctx, row, cell, f->out);
-                }
-                else {
-                    int id = cogApplyOption(ctx, row, cell);
-                    if (id >= 0) {
-                        f->out[IN_SETTING] = (float)id;
-                        f->out[IN_SETTING_VALUE] = (float)cell;
-                    }
-                }
+                cogApplyCell(ctx, face, row, cell, f->out);
             }
             break;
         }
@@ -1400,7 +1390,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             f->out[IN_SETTING] = (float)SETTING_RESET_3D;
             f->out[IN_SETTING_VALUE] = 0.0f;
             LOGEV("3d settings reset from the panel to separation %d, convergence %d",
-                  (int)roundf(ctx->defaultSeparation * 1000.0f),
+                  separationUnits(ctx->defaultSeparation),
                   (int)roundf(ctx->defaultConvergence * 100.0f));
         }
         else if (onReset && ctx->triggerEdge[h]) {

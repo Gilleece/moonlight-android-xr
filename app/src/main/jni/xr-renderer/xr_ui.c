@@ -371,7 +371,21 @@ int cogRowIsTrack(int face, int row) {
     if (face == COG_FACE_ROOM) {
         return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
     }
+    if (face == COG_TAB_3D) {
+        return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE;
+    }
     return 1;
+}
+
+// How many cells a row of cells has, on whichever face it is
+int cogRowCells(int face, int row) {
+    if (face == COG_FACE_ROOM) {
+        return COG_ROOM_SWITCH_CELLS;
+    }
+    if (face == COG_TAB_3D) {
+        return COG_PRESET_CELLS;
+    }
+    return cogOptionCells(row);
 }
 
 // Whether a row can do anything here. A dead row is drawn greyed, carries no
@@ -497,8 +511,7 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         if (slider == COG_ROW3D_SEPARATION) {
             // Snapped to the units the preference is stored in, so what the
             // thumb shows is exactly what gets written when the drag ends
-            int units = (int)roundf(t * COG_SEP_STEPS);
-            ctx->panelSeparation = units * 0.001f;
+            ctx->panelSeparation = separationOf(laneUnits(t, 0, COG_SEP_STEPS));
             ctx->separationCurrent = ctx->panelSeparation;
         }
         else if (slider == COG_ROW3D_CONVERGENCE) {
@@ -702,6 +715,54 @@ void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out) {
     out[IN_SETTING_VALUE] = (float)cell;
 }
 
+// Which cell of a row of cells on the Room or 3D tab is in force, or -1 where
+// none is. A separation dragged to somewhere between the presets is none of
+// them, so their row carries no ring.
+int cogCellInForce(XrCtx* ctx, int face, int row) {
+    if (face == COG_FACE_ROOM) {
+        return cogRoomCellValue(ctx, row);
+    }
+    if (face == COG_TAB_3D && row == COG_ROW3D_PRESET) {
+        return cogPresetAt(separationUnits(ctx->separationCurrent), ctx->presetUnits);
+    }
+    return -1;
+}
+
+// A preset writes its separation the way letting go of the track there
+// would, so it goes to the preference by the same road
+static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
+    static const char* const PRESET_NAMES[COG_PRESET_CELLS] = {
+        "Comfort", "Balanced", "Strong"
+    };
+    if (row != COG_ROW3D_PRESET || cell < 0 || cell >= COG_PRESET_CELLS) {
+        return;
+    }
+    int units = ctx->presetUnits[cell];
+    ctx->panelSeparation = separationOf(units);
+    ctx->separationCurrent = ctx->panelSeparation;
+    out[IN_SETTING] = (float)SETTING_SEPARATION;
+    out[IN_SETTING_VALUE] = (float)units;
+    LOGEV("3d preset %s from the panel, separation %d", PRESET_NAMES[cell], units);
+}
+
+// A press on a cell, whichever tab it is on, applied here and now and handed
+// to Java to store in the same frame
+void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
+    if (face == COG_FACE_ROOM) {
+        cogApplyRoomCell(ctx, row, cell, out);
+        return;
+    }
+    if (face == COG_TAB_3D) {
+        cogApply3dCell(ctx, row, cell, out);
+        return;
+    }
+    int id = cogApplyOption(ctx, row, cell);
+    if (id >= 0) {
+        out[IN_SETTING] = (float)id;
+        out[IN_SETTING_VALUE] = (float)cell;
+    }
+}
+
 // Letting go of a slider, either on purpose or because focus went away mid
 // drag. Persisting where it ended up rather than every frame on the way there
 // is the same policy a grab uses, so this is where the writing happens.
@@ -754,7 +815,7 @@ void cogDragEnded(XrCtx* ctx, float* out) {
         if (slider == COG_ROW3D_SEPARATION) {
             out[IN_SETTING] = (float)SETTING_SEPARATION;
             // Tenths of a percent of frame width, the preference's units
-            out[IN_SETTING_VALUE] = roundf(ctx->separationCurrent * 1000.0f);
+            out[IN_SETTING_VALUE] = (float)separationUnits(ctx->separationCurrent);
         }
         else if (slider == COG_ROW3D_CONVERGENCE) {
             out[IN_SETTING] = (float)SETTING_CONVERGENCE;
@@ -796,22 +857,37 @@ void cogReadouts(XrCtx* ctx, int* values) {
     values[2] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
 }
 
-// The running model's own pair, in the preferences' units, handed down once
-// before the first frame. The 3D tab's reset goes back to it.
+// Held on the depth track, which is all the panel can show or write
+static int onSeparationTrack(int units) {
+    return units < 0 ? 0 : (units > COG_SEP_STEPS ? COG_SEP_STEPS : units);
+}
+
+// The running model's own pair and the separations its presets write, all in
+// the preferences' units and the presets in cell order, handed down once
+// before the first frame. The 3D tab's reset goes back to the pair.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeSetDepthDefaults(JNIEnv* env, jobject thiz,
                                                                    jlong handle, jint separation,
-                                                                   jint convergence) {
+                                                                   jint convergence,
+                                                                   jintArray presets) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
-    // Kept on the tracks, which is all the panel can show or write
-    int units = separation < 0 ? 0 : (separation > COG_SEP_STEPS ? COG_SEP_STEPS : separation);
+    int units = onSeparationTrack(separation);
     int percent = convergence < 0 ? 0 : (convergence > 100 ? 100 : convergence);
-    ctx->defaultSeparation = units * 0.001f;
+    ctx->defaultSeparation = separationOf(units);
     ctx->defaultConvergence = percent / 100.0f;
-    LOGEV("3d defaults: separation %d, convergence %d", units, percent);
+    if (presets != NULL && (*env)->GetArrayLength(env, presets) >= COG_PRESET_CELLS) {
+        int values[COG_PRESET_CELLS];
+        (*env)->GetIntArrayRegion(env, presets, 0, COG_PRESET_CELLS, values);
+        for (int i = 0; i < COG_PRESET_CELLS; i++) {
+            ctx->presetUnits[i] = onSeparationTrack(values[i]);
+        }
+    }
+    LOGEV("3d defaults: separation %d, convergence %d, presets %d %d %d", units, percent,
+          ctx->presetUnits[COG_PRESET_COMFORT], ctx->presetUnits[COG_PRESET_BALANCED],
+          ctx->presetUnits[COG_PRESET_STRONG]);
 }
 
 // Padlock sits clear of the left edge, halfway up, in the furniture's flat

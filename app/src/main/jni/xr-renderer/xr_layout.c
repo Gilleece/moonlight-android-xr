@@ -1,5 +1,6 @@
-// Which handle a point is over, and the stand in screen the furniture hangs
-// against in a room. No GL and no context, so the host tests reach all of it.
+// Which handle a point is over, the stand in screen the furniture hangs
+// against in a room, and the settings panel's tracks and presets. No GL and no
+// context, so the host tests reach all of it.
 #include <string.h>
 
 #include "xr_layout.h"
@@ -80,6 +81,29 @@ float lanePlace(int units, int min, int max) {
 // percent is more confusing than useful
 int lanePercent(int units, int min, int max) {
     return (int)roundf(lanePlace(units, min, max) * 100.0f);
+}
+
+// Rounded rather than cut, so a value that went through a float comes back
+// to the unit it started as. Not held to the track: the debug property can
+// ask for more than the track shows.
+int separationUnits(float separation) {
+    return (int)roundf(separation * 1000.0f);
+}
+
+float separationOf(int units) {
+    return units * 0.001f;
+}
+
+int cogPresetAt(int units, const int presets[COG_PRESET_CELLS]) {
+    static const int order[COG_PRESET_CELLS] = {
+        COG_PRESET_BALANCED, COG_PRESET_COMFORT, COG_PRESET_STRONG
+    };
+    for (int i = 0; i < COG_PRESET_CELLS; i++) {
+        if (presets[order[i]] == units) {
+            return order[i];
+        }
+    }
+    return -1;
 }
 
 int roomScreenClamp(int percent, int resizable) {

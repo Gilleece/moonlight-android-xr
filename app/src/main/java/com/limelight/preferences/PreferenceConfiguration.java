@@ -8,6 +8,7 @@ import android.preference.PreferenceManager;
 import android.view.Display;
 
 import com.limelight.FileLog;
+import com.limelight.binding.video.DepthPresets;
 import com.limelight.binding.video.MidasDepthSource;
 import com.limelight.binding.video.XrShared;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -522,6 +523,11 @@ public class PreferenceConfiguration {
     /** A model's own pair as the log lines give it, separation then convergence. */
     public static String defaultPairLabel(String depthModel) {
         return defaultSeparation(depthModel) + "/" + defaultConvergence(depthModel);
+    }
+
+    /** Which of the 3D tab's presets a separation is under that model, or none, for the logs. */
+    public static String presetLabel(int separation, String depthModel) {
+        return DepthPresets.name(DepthPresets.presetFor(separation, defaultSeparation(depthModel)));
     }
 
     /** One room's own values for the headset panel's Room tab. */

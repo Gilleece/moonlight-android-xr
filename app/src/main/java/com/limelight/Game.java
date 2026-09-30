@@ -531,6 +531,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " separation=" + prefConfig.vrStereoSeparation
                 + " convergence=" + prefConfig.vrConvergence
                 + " defaultPair=" + PreferenceConfiguration.defaultPairLabel(prefConfig.vrDepthModel)
+                + " preset=" + PreferenceConfiguration.presetLabel(prefConfig.vrStereoSeparation,
+                        prefConfig.vrDepthModel)
                 + " depthScale=" + prefConfig.vrDepthScale
                 + " cadence=" + prefConfig.vrInferenceCadence
                 + " sharpening=" + prefConfig.vrSharpening

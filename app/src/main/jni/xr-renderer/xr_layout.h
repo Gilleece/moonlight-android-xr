@@ -1,5 +1,6 @@
 // The plain geometry of what hangs around the picture: which handle a point
-// is over, and the stand in screen a room measures its furniture against.
+// is over, and the stand in screen a room measures its furniture against,
+// with the arithmetic behind the settings panel's tracks and presets.
 // Nothing in here touches GL, OpenXR beyond its plain value types, or the
 // context, so it can be built and checked on a desktop as well as on the
 // headset.
@@ -8,6 +9,7 @@
 #define XR_LAYOUT_H
 
 #include "xr_math.h"
+#include "xr_shared.h"
 
 // What the ray is over. Handles only show while hovered, which is how spatial
 // panels usually behave: nothing visible until you go looking for it.
@@ -74,6 +76,18 @@ XrPosef standInPose(void);
 int laneUnits(float t, int min, int max);
 float lanePlace(int units, int min, int max);
 int lanePercent(int units, int min, int max);
+
+// The 3D tab's depth track. A separation, as a fraction of frame width, in the
+// tenths of a percent the preference stores, which is also the step the track
+// moves in, and back.
+int separationUnits(float separation);
+float separationOf(int units);
+
+// Which preset a separation in those units is, as its cell, or -1 when it is
+// none of them. The three are in cell order. Balanced is tried first, so a
+// default near an end that clamps another preset onto it still reads as
+// Balanced.
+int cogPresetAt(int units, const int presets[COG_PRESET_CELLS]);
 
 // How much of a room's screen the picture hangs at, in whole percent: inside
 // the size row's lane where the room may be resized, and all of it where not

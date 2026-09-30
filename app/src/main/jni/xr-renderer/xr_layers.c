@@ -612,17 +612,26 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                            cogOptionCells(option), hoverMark ? 1.12f : 1.0f);
             }
         }
-        else if (face == COG_FACE_ROOM && ctx->outlineReady) {
-            static const int ROOM_CELL_ROWS[2] = { COG_ROOM_ROW_GLOW, COG_ROOM_ROW_LIGHT };
-            for (int m = 0; m < 2; m++) {
-                int row = ROOM_CELL_ROWS[m];
-                addCogRing(ctx, view, layers, &layers->cogMark[m], row,
-                           cogRoomCellValue(ctx, row), COG_ROOM_SWITCH_CELLS, 1.0f);
+        else if ((face == COG_FACE_ROOM || face == COG_TAB_3D) && ctx->outlineReady) {
+            // The Room and 3D tabs mix cells with tracks. Each live row of
+            // cells rings the one in force, where there is one: the presets
+            // ring none once the depth track is dragged off all three.
+            int marks = 0;
+            int rowCount = cogTabRowCount(face);
+            for (int row = 0; row < rowCount && marks < COG_OPTION_COUNT; row++) {
+                if (cogRowIsTrack(face, row) || !cogRowLive(ctx, face, row)) {
+                    continue;
+                }
+                int cell = cogCellInForce(ctx, face, row);
+                if (cell >= 0) {
+                    addCogRing(ctx, view, layers, &layers->cogMark[marks++], row, cell,
+                               cogRowCells(face, row), 1.0f);
+                }
             }
             int hoverRow = ctx->cogHoverSlider;
             if (hoverRow >= 0 && !cogRowIsTrack(face, hoverRow) && ctx->cogHoverCell >= 0) {
                 addCogRing(ctx, view, layers, &layers->cogMark[COG_OPTION_COUNT], hoverRow,
-                           ctx->cogHoverCell, COG_ROOM_SWITCH_CELLS, 1.12f);
+                           ctx->cogHoverCell, cogRowCells(face, hoverRow), 1.12f);
             }
         }
 

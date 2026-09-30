@@ -82,6 +82,16 @@ public class DepthPairPrefsTest {
         assertEquals("5/50", PreferenceConfiguration.defaultPairLabel(MIDAS));
     }
 
+    // The same separation is a different preset under each model
+    @Test
+    public void theLogLinesNameThePresetUnderTheRunningModel() {
+        assertEquals("Balanced", PreferenceConfiguration.presetLabel(6, ZIPDEPTH));
+        assertEquals("none", PreferenceConfiguration.presetLabel(6, MIDAS));
+        assertEquals("Comfort", PreferenceConfiguration.presetLabel(2, MIDAS));
+        assertEquals("Strong", PreferenceConfiguration.presetLabel(9, ZIPDEPTH));
+        assertEquals("none", PreferenceConfiguration.presetLabel(7, ZIPDEPTH));
+    }
+
     // Just enough of SharedPreferences for the two keys
     private static final class FakePrefs implements SharedPreferences, SharedPreferences.Editor {
         final Map<String, Object> values = new HashMap<>();

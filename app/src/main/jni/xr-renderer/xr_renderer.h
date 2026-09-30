@@ -1068,9 +1068,12 @@ typedef struct {
     float panelSeparation;
     float separationCurrent;
     // The running model's own pair, as the warp takes them, which the 3D tab's
-    // reset goes back to. Handed down by Java before the first frame.
+    // reset goes back to, and the separations its presets write, in the
+    // preference's units and cell order. Handed down by Java before the first
+    // frame.
     float defaultSeparation;
     float defaultConvergence;
+    int presetUnits[COG_PRESET_CELLS];
 
     long statFrames;
     long statTotalNs;
@@ -1206,8 +1209,11 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu);
 int cogOptionCells(int option);
 int cogOptionValue(XrCtx* ctx, int option, int headLocked);
 int cogApplyOption(XrCtx* ctx, int option, int cell);
+int cogRowCells(int face, int row);
 int cogRoomCellValue(XrCtx* ctx, int row);
 void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
+int cogCellInForce(XrCtx* ctx, int face, int row);
+void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
 void cogDragEnded(XrCtx* ctx, float* out);
 int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);

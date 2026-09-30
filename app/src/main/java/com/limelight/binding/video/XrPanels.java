@@ -80,9 +80,11 @@ final class XrPanels {
             { "Off", "On" },
             { "Off", "On" }
     };
-    // 3D tab: two sliders, drawn the same way the screen tab's are. Only
-    // values that take effect the moment they move belong on the panel, which
-    // is why the depth source itself stays in the 2d settings.
+    // 3D tab: a row of presets over two sliders, drawn the same way the
+    // display tab's cells and the screen tab's tracks are, in the COG_ROW3D_
+    // order. Only values that take effect the moment they move belong on the
+    // panel, which is why the depth source itself stays in the 2d settings.
+    private static final String COG_PRESET_ROW = "Preset";
     private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
 
     // The in world keyboard. Three sheets of the same layout, one per state,
@@ -604,10 +606,15 @@ final class XrPanels {
 
     // One row of cells, one press wide each, as the display tab draws them
     private static void drawCogCells(Canvas canvas, String[] names, float y) {
+        drawCogCells(canvas, names, y, true);
+    }
+
+    // The same, greyed like a dead track where the row can do nothing
+    private static void drawCogCells(Canvas canvas, String[] names, float y, boolean live) {
         Paint cellText = new Paint(Paint.ANTI_ALIAS_FLAG);
         cellText.setTextSize(19.0f);
         cellText.setTextAlign(Paint.Align.CENTER);
-        cellText.setColor(Color.WHITE);
+        cellText.setColor(live ? Color.WHITE : 0x30FFFFFF);
 
         Paint cell = new Paint(Paint.ANTI_ALIAS_FLAG);
         final float trackL = COG_TRACK_L * COG_TEX_W;
@@ -621,11 +628,11 @@ final class XrPanels {
                     trackL + (i + 1) * span - 3.0f, y + cellHalf);
 
             cell.setStyle(Paint.Style.FILL);
-            cell.setColor(0x28FFFFFF);
+            cell.setColor(live ? 0x28FFFFFF : 0x10FFFFFF);
             canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
             cell.setStyle(Paint.Style.STROKE);
             cell.setStrokeWidth(2.0f);
-            cell.setColor(0x50FFFFFF);
+            cell.setColor(live ? 0x50FFFFFF : 0x20FFFFFF);
             canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
 
             canvas.drawText(names[i], box.centerX(),
@@ -677,10 +684,12 @@ final class XrPanels {
         }
     }
 
-    // 3D tab: the two values worth reaching mid stream. Depth runs past the
-    // comfortable range on purpose, with the far end marked, since where that
-    // range ends is a matter of eyes rather than of hardware. The ticks and
-    // the start of the marked end are the running model's own pair.
+    // 3D tab: three presets, then the two values worth reaching mid stream.
+    // Depth runs past the comfortable range on purpose, with the far end
+    // marked, since where that range ends is a matter of eyes rather than of
+    // hardware. The ticks and the start of the marked end are the running
+    // model's own pair, which is also where Balanced sits. Which preset is in
+    // force is a ring the native side puts over its cell.
     private void drawCog3dRows(Canvas canvas, boolean stereoOk, int defaultSeparation,
                                int defaultConvergence) {
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -700,17 +709,27 @@ final class XrPanels {
         final float trackR = COG_TRACK_R * COG_TEX_W;
         final float tickHalf = COG_CELL_HALF * COG_TEX_H;
 
-        for (int row = 0; row < COG_SLIDER3D_ROWS.length; row++) {
+        float presetY = (COG_ROW_V0 + COG_ROW3D_PRESET * COG_ROW_STEP) * COG_TEX_H;
+        canvas.drawText(COG_PRESET_ROW, 0.06f * COG_TEX_W,
+                presetY - (text.ascent() + text.descent()) * 0.5f, text);
+        String[] presets = new String[COG_PRESET_CELLS];
+        for (int preset = 0; preset < COG_PRESET_CELLS; preset++) {
+            presets[preset] = DepthPresets.name(preset);
+        }
+        drawCogCells(canvas, presets, presetY, stereoOk);
+
+        for (int i = 0; i < COG_SLIDER3D_ROWS.length; i++) {
+            int row = COG_ROW3D_SEPARATION + i;
             float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
-            canvas.drawText(COG_SLIDER3D_ROWS[row], 0.06f * COG_TEX_W,
+            canvas.drawText(COG_SLIDER3D_ROWS[i], 0.06f * COG_TEX_W,
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
             // A tick at the model's default on both tracks
-            float markT = row == 0 ? defaultSeparation / (float)COG_SEP_STEPS
+            float markT = row == COG_ROW3D_SEPARATION ? defaultSeparation / (float)COG_SEP_STEPS
                     : defaultConvergence / 100.0f;
             float markX = trackL + markT * (trackR - trackL);
 
-            if (row == 0) {
+            if (row == COG_ROW3D_SEPARATION) {
                 // Measured on device: past the model's default the depth
                 // stops growing and only the strain does, so the rest of the
                 // track is drawn as a place you can go rather than one you
@@ -752,13 +771,14 @@ final class XrPanels {
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
 
         if (!stereoOk) {
-            // Otherwise two dead sliders with no explanation
+            // Otherwise a tab of dead rows with no explanation. Under the
+            // last of them, where the Room tab says why its size row is dead.
             Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
             hint.setTextSize(17.0f);
             hint.setTextAlign(Paint.Align.CENTER);
             hint.setColor(0x50FFFFFF);
             canvas.drawText("3D is off in settings", COG_TEX_W * 0.5f,
-                    0.62f * COG_TEX_H, hint);
+                    (COG_ROW_V0 + COG_ROW3D_COUNT * COG_ROW_STEP) * COG_TEX_H, hint);
         }
     }
 

@@ -333,6 +333,8 @@ public class BugReportActivity extends Activity {
                 + " cadence " + prefs.vrInferenceCadence + " separation " + prefs.vrStereoSeparation
                 + " convergence " + prefs.vrConvergence
                 + " defaultPair " + PreferenceConfiguration.defaultPairLabel(prefs.vrDepthModel)
+                + " preset " + PreferenceConfiguration.presetLabel(prefs.vrStereoSeparation,
+                        prefs.vrDepthModel)
                 + " envRes " + prefs.vrEnvResTier
                 + " sharpening " + prefs.vrSharpening + " supersampling " + prefs.vrSupersampling
                 + " passthrough " + prefs.vrPassthrough

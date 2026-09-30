@@ -246,12 +246,22 @@
 #define COG_READOUT_L 0.26f
 #define COG_READOUT_T 0.19f
 
-// 3D tab rows, sliders like the screen tab's. Only values that take effect the
-// moment they move belong here: the depth source itself is settled when the
-// session starts, so it stays in the 2d settings.
-#define COG_ROW3D_SEPARATION 0
-#define COG_ROW3D_CONVERGENCE 1
-#define COG_ROW3D_COUNT 2
+// 3D tab rows, in the order they are drawn: a row of preset cells over two
+// sliders like the screen tab's. Only values that take effect the moment they
+// move belong here: the depth source itself is settled when the session
+// starts, so it stays in the 2d settings.
+#define COG_ROW3D_PRESET 0
+#define COG_ROW3D_SEPARATION 1
+#define COG_ROW3D_CONVERGENCE 2
+#define COG_ROW3D_COUNT 3
+// The presets, in the order their cells are drawn. Each is a separation on the
+// depth track: Balanced is the running model's default, and Comfort and Strong
+// are this many steps of the track under and over it, kept on the track.
+#define COG_PRESET_COMFORT 0
+#define COG_PRESET_BALANCED 1
+#define COG_PRESET_STRONG 2
+#define COG_PRESET_CELLS 3
+#define COG_PRESET_STEPS 3
 // Right hand end of the separation track, as a fraction of frame width. Three
 // times the 0.5 percent that phase 6 measured as the useful maximum: past
 // there depth stops growing and only the strain does, so the far end of the

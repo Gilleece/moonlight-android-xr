@@ -288,8 +288,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeSetRoomLevels(long ctx, int cell, int brightness, boolean glow,
                                             int light, int screen);
     // The running model's own separation and convergence, in the preferences'
-    // units, which the 3D tab's reset goes back to
-    private native void nativeSetDepthDefaults(long ctx, int separation, int convergence);
+    // units, which the 3D tab's reset goes back to, and the separations its
+    // presets write, in cell order
+    private native void nativeSetDepthDefaults(long ctx, int separation, int convergence,
+                                               int[] presets);
     private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
                                              ByteBuffer symbols, ByteBuffer buttonIcon,
                                              float[] keyRects, int[] codesLower,
@@ -356,7 +358,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // the decoder's stats path checks
                 prefConfig = prefs;
                 nativeSetDepthDefaults(nativeCtx, depthSpec.defaultSeparation,
-                        depthSpec.defaultConvergence);
+                        depthSpec.defaultConvergence,
+                        DepthPresets.values(depthSpec.defaultSeparation));
                 restoreScreenPose();
                 startEnvironment(prefs);
 
@@ -1275,7 +1278,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             SharedPreferences saved = PreferenceManager.getDefaultSharedPreferences(prefsContext);
             saved.edit().putInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING, value).apply();
             FileLog.event("separation " + value + " saved, the preference holds "
-                    + saved.getInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING, -1));
+                    + saved.getInt(PreferenceConfiguration.VR_SEPARATION_PREF_STRING, -1)
+                    + ", preset " + PreferenceConfiguration.presetLabel(value,
+                            prefConfig != null ? prefConfig.vrDepthModel : null));
         }
         else if (setting == SETTING_CONVERGENCE) {
             if (prefConfig != null) {
