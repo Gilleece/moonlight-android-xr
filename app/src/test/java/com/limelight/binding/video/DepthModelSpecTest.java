@@ -42,8 +42,14 @@ public class DepthModelSpecTest {
         assertEquals("zipdepth_256_int8dr.tflite", route.asset);
         assertEquals(DepthSize.square(256), route.size);
         assertFalse(route.gpu);
-        assertEquals(4, route.threads);
-        assertEquals("zipdepth_256_int8dr.tflite on cpu (4 threads)", route.label());
+        assertEquals(1, route.threads);
+        assertEquals("zipdepth_256_int8dr.tflite on cpu (1 thread)", route.label());
+    }
+
+    @Test
+    public void theThreadCountReadsRight() {
+        assertEquals("1 thread", MidasDepthSource.threadCount(1));
+        assertEquals("2 threads", MidasDepthSource.threadCount(2));
     }
 
     @Test
