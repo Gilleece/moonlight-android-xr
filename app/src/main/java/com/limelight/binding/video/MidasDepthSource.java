@@ -53,7 +53,7 @@ public class MidasDepthSource implements DepthSource {
 
         /** The asset and the runtime, as the log words them. */
         public String label() {
-            return asset+" on "+(gpu ? "gpu" : "cpu ("+threads+" threads)");
+            return asset+" on "+(gpu ? "gpu" : "cpu ("+threadCount(threads)+")");
         }
     }
 
@@ -80,8 +80,10 @@ public class MidasDepthSource implements DepthSource {
         }
     }
 
-    // What a CPU route runs on, the big cores these headsets have
-    private static final int CPU_THREADS = 4;
+    // What a CPU route asks for. LiteRT's default XNNPACK path runs the model
+    // on one thread whatever it is asked for (timed on a Quest 2), and an app
+    // there only gets three big cores, which a stream's own threads need too.
+    private static final int CPU_THREADS = 1;
     // What a delegate that will not load falls back to
     private static final int FALLBACK_CPU_THREADS = 2;
 
@@ -454,7 +456,11 @@ public class MidasDepthSource implements DepthSource {
 
     /** gpu, or cpu with its thread count, whichever the model really runs on. */
     public String runtimeLabel() {
-        return gpuAccelerated ? "gpu" : "cpu ("+cpuThreads+" threads)";
+        return gpuAccelerated ? "gpu" : "cpu ("+threadCount(cpuThreads)+")";
+    }
+
+    static String threadCount(int threads) {
+        return threads+(threads == 1 ? " thread" : " threads");
     }
 
     /** How long the model took to map and build, kernel compile or cache read included. */
