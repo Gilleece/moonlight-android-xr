@@ -27,7 +27,8 @@ $ASTCENC or on the PATH. Both atlases are ASTC 6x6 at the default "thorough"
 quality with their mip chains down to 1x1, each level a Lanczos resize of the
 8192 source.
 
-  home_theater.room        573,540 bytes, 16,821 vertices, 5,876 triangles
+  home_theater.room        810,672 bytes, 16,821 vertices, 5,876 triangles,
+                          one part painted from the atlas
   home_theater_0.atlas   9,961,612 bytes, 4096 square, 13 levels
   home_theater_lo_0.atlas 2,497,784 bytes, 2048 square, 12 levels, the set
                           an XR2 Gen 1 headset reads

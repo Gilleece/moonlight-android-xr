@@ -104,10 +104,10 @@
 
 // Environment picker. A grid of thumbnails drawn in Java and shown as one
 // quad, with the hover and selection marks as separate outline quads so
-// pointing around the grid never costs an upload. One band per category: a
-// header strip carrying its name, then a row of cells under it.
+// pointing around the grid never costs an upload. One band: a header strip
+// carrying its name, then a row of cells under it.
 #define PICKER_COLS 5
-#define PICKER_ROWS 2
+#define PICKER_ROWS 1
 #define PICKER_CELLS (PICKER_COLS * PICKER_ROWS)
 #define PICKER_HEADER_PX 40
 #define PICKER_CELL_PX 256
@@ -116,15 +116,15 @@
 #define PICKER_TEX_W (PICKER_CELL_PX * PICKER_COLS)
 #define PICKER_BAND_PX (PICKER_HEADER_PX + PICKER_CELL_PX)
 #define PICKER_TEX_H (PICKER_BAND_PX * PICKER_ROWS)
-// The cells of the grid. The fixed ones come first, then the photos from the
-// assets folder in name order take whatever the rooms leave. A cell is a place
-// in the grid and nothing more: what gets saved is the stable id it maps to.
+// The cells of the grid, in the order they are drawn, and how many of them
+// there are. A cell is a place in the grid and nothing more: what gets saved
+// is the stable id it maps to.
 #define ENV_CELL_PASSTHROUGH 0
 #define ENV_CELL_VOID 1
-#define ENV_CELL_MINIMAL_ROOM 2
-#define ENV_CELL_PSX_CINEMA 3
-#define ENV_CELL_HOME_THEATER 4
-#define ENV_CELL_FIRST_PHOTO 5
+#define ENV_CELL_HOME_THEATER 2
+#define ENV_CELL_GRAND_CINEMA 3
+#define ENV_CELL_SYNTHWAVE 4
+#define ENV_CELL_COUNT 5
 
 // The buttons under the bar are all drawn at this size
 #define BUTTON_TEX 128

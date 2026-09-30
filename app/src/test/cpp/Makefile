@@ -10,7 +10,8 @@ AUDIO := ../../main/jni/xr-audio
 INCLUDES := -Istubs -I$(SRC)
 OUT := build
 
-TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_audio
+TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_roommesh \
+         $(OUT)/test_audio
 
 .PHONY: test clean
 
@@ -29,6 +30,11 @@ $(OUT)/test_depthmap: test_depthmap.c check.h $(SRC)/xr_depthmap.c $(SRC)/xr_dep
 $(OUT)/test_atlas: test_atlas.c check.h $(SRC)/xr_atlas.c $(SRC)/xr_atlas.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_atlas.c $(SRC)/xr_atlas.c -lm
+
+# Reads the room meshes that ship as well, relative to this directory
+$(OUT)/test_roommesh: test_roommesh.c check.h $(SRC)/xr_roommesh.c $(SRC)/xr_roommesh.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_roommesh.c $(SRC)/xr_roommesh.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it

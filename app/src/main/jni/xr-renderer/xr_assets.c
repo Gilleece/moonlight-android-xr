@@ -1,6 +1,5 @@
 // The swapchains the art lives in and the uploads that fill them, from the
-// pointer and handle art drawn here to the panels and photos handed over
-// from Java.
+// pointer and handle art drawn here to the panels handed over from Java.
 #include "xr_renderer.h"
 
 /**
@@ -161,7 +160,7 @@ static int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR*
     return 1;
 }
 
-// Rows arrive bottom up, so a photo uploaded as it comes would put the sky
+// Rows arrive bottom up, so a picture uploaded as it comes would put the sky
 // underfoot
 static int uploadFlipped(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
                          const unsigned char* px, int width, int height) {
@@ -399,7 +398,7 @@ static void uploadSheet(JNIEnv* env, XrCtx* ctx, jobject buffer, XrSwapchain cha
 // The thumbnail grid and the button that opens it, both drawn as Bitmaps in
 // Java. Same frame loop rule as the rest of the art. Flipped on the way in,
 // since a Bitmap runs top down and a texture does not. Java says how many
-// cells it filled, since only it knows how many photos shipped.
+// cells it filled, and any past those are blank tiles.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobject thiz,
                                                                jlong handle, jobject grid,
@@ -553,14 +552,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadLock(JNIEnv* env, jobjec
 // place the two numberings meet: Java names a room by its cell, and a baked
 // room's assets arrive tagged the same way.
 int roomStyleForCell(int cell) {
-    if (cell == ENV_CELL_MINIMAL_ROOM) {
-        return ROOM_STYLE_MINIMAL;
-    }
-    if (cell == ENV_CELL_PSX_CINEMA) {
-        return ROOM_STYLE_PSX;
-    }
     if (cell == ENV_CELL_HOME_THEATER) {
         return ROOM_STYLE_THEATER;
+    }
+    if (cell == ENV_CELL_GRAND_CINEMA) {
+        return ROOM_STYLE_GRAND_CINEMA;
+    }
+    if (cell == ENV_CELL_SYNTHWAVE) {
+        return ROOM_STYLE_SYNTHWAVE;
     }
     return 0;
 }
@@ -568,62 +567,17 @@ int roomStyleForCell(int cell) {
 // Which cell the picker is showing as chosen, so it survives a restart
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jobject thiz,
-                                                                 jlong handle, jint choice,
-                                                                 jboolean backgroundOn) {
+                                                                 jlong handle, jint choice) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
     ctx->pickerChoice = choice;
-    ctx->backgroundEnabled = backgroundOn;
     ctx->roomStyle = roomStyleForCell(choice);
     if (choice != ctx->loggedChoice) {
         ctx->loggedChoice = choice;
         LOGEV("environment %d, room %d", choice, roomEffective(ctx));
     }
-}
-
-// The 360 photo, uploaded once from the frame loop. Same rule as the rest of
-// the art: a swapchain image cannot be waited on before the session runs.
-JNIEXPORT void JNICALL
-Java_com_limelight_binding_video_XrRenderer_nativeUploadBackground(JNIEnv* env, jobject thiz,
-                                                                   jlong handle, jobject buffer,
-                                                                   jint width, jint height) {
-    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || buffer == NULL || width <= 0 || height <= 0) {
-        return;
-    }
-    if (!ctx->equirectSupported) {
-        LOGW("no equirect layer support, skipping the background");
-        return;
-    }
-
-    const unsigned char* px = (const unsigned char*)(*env)->GetDirectBufferAddress(env, buffer);
-    if (px == NULL) {
-        return;
-    }
-
-    // Switching environment reuses the swapchain, since every one of them is
-    // the same size. Only a different size needs a new one.
-    if (ctx->backgroundSwapchain != XR_NULL_HANDLE
-            && (ctx->backgroundWidth != width || ctx->backgroundHeight != height)) {
-        destroyArtSwapchain(&ctx->backgroundSwapchain, &ctx->backgroundImages);
-        ctx->backgroundReady = 0;
-    }
-
-    if (ctx->backgroundSwapchain == XR_NULL_HANDLE) {
-        if (!createArtSwapchain(ctx, width, height, "create background swapchain",
-                                &ctx->backgroundSwapchain, &ctx->backgroundImages,
-                                &ctx->backgroundImageCount)) {
-            return;
-        }
-        ctx->backgroundWidth = width;
-        ctx->backgroundHeight = height;
-    }
-
-    ctx->backgroundReady = uploadFlipped(ctx, ctx->backgroundSwapchain, ctx->backgroundImages,
-                                         px, width, height);
-    LOGI("background %dx%d %s", width, height, ctx->backgroundReady ? "ready" : "failed");
 }
 
 // Pixels come from a Bitmap the stats are drawn into on the Java side, which

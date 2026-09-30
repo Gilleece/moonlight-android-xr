@@ -37,6 +37,7 @@
 #include "xr_math.h"
 #include "xr_shared.h"
 #include "xr_depthmap.h"
+#include "xr_roommesh.h"
 
 #define TAG "moonlight-xr"
 
@@ -221,10 +222,6 @@ static inline long nowNs(void) {
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
 
-// Radius of the environment sphere in metres. Finite, so leaning gives the
-// room a size instead of it sitting infinitely far off.
-#define ENV_RADIUS_M 12.0f
-
 // Ambilight. The frame is boiled down to a tiny colour texture once a frame,
 // and a soft quad behind the screen is filled from it, so whatever the picture
 // is sitting in front of picks up the colours on it.
@@ -262,12 +259,14 @@ static inline long nowNs(void) {
 #define AMBI_EDGE_TOP 3
 #define AMBI_EDGES 4
 
-// The 3d room. A dark interior, drawn per eye into the one projection layer
-// this renderer has, instead of the environment sphere. Which room, 0 for none:
-// 1 is generated here, 2 and 3 are baked models that ship in the assets.
-#define ROOM_STYLE_MINIMAL 1
-#define ROOM_STYLE_PSX 2
-#define ROOM_STYLE_THEATER 3
+// The 3d room. A baked model that ships in the assets, drawn per eye into the
+// one projection layer this renderer has. Which room, 0 for none, each with a
+// row of its own in xr_room.c.
+#define ROOM_STYLE_THEATER 1
+#define ROOM_STYLE_GRAND_CINEMA 2
+#define ROOM_STYLE_SYNTHWAVE 3
+#define ROOM_STYLE_FIRST ROOM_STYLE_THEATER
+#define ROOM_STYLE_LAST ROOM_STYLE_SYNTHWAVE
 #define ROOM_EYES 2
 // How big the room renders per eye, picked by the Environment Res setting.
 // Half of what the runtime recommends was soft enough against the video layer
@@ -283,35 +282,20 @@ static inline long nowNs(void) {
 // Ten floats a vertex: position, colour, spill weight, texture coordinate and
 // one spare
 #define ROOM_VERTEX_FLOATS 10
-#define ROOM_FACES 6
-// Which of the six faces a vertex came off, since each is coloured its own way
-#define ROOM_SURF_WALL    0
-#define ROOM_SURF_FLOOR   1
-#define ROOM_SURF_CEILING 2
-// Sixteen bit indices, so this is as many vertices as one room can hold
-#define ROOM_MAX_VERTS 65535
-// Floats a vertex in the baked model file: position, normal, texture coordinate
-#define ROOM_MODEL_FLOATS 8
-// Where the viewer stands in the cinema's own space. The geometry is built as
-// (model - anchor) * scale, so the room arrives around the origin the way the
-// generated one is built around it. Only x and z are fixed: the height of the
-// anchor follows the scale, so the tier below stays underfoot. The home
-// theater carries its own anchor in its params instead.
-#define ROOM_MODEL_ANCHOR_X 0.0f
-#define ROOM_MODEL_ANCHOR_Z (-12.0f)
-// The seating tier the viewer stands on, in the model's own space, and how far
-// above it the eye sits whatever the room is scaled to
-#define ROOM_MODEL_TIER_Y (-2.55f)
-#define ROOM_EYE_HEIGHT_M 1.25f
-// How large each baked room is drawn. The cinema at full size measured about a
-// fifth too big in the headset; the theater is modelled in metres around its
-// seat, so it is drawn as built. The property below moves either between the
-// two bounds.
-#define ROOM_PSX_SCALE 0.8f
-#define ROOM_THEATER_SCALE 1.0f
+// Floats a vertex in the baked model file: position, normal, texture
+// coordinate and colour
+#define ROOM_MODEL_FLOATS ROOM_MESH_VERTEX_FLOATS
+// The room's clip planes: near enough to walk into a wall, and a far plane
+// from the room's own reach with this much to spare, never under the floor
+// every room was once drawn with
+#define ROOM_NEAR_M 0.05f
+#define ROOM_FAR_MIN_M 60.0f
+#define ROOM_FAR_MARGIN 1.5f
+// What the scale property can ask for. Every room is drawn at the size it was
+// built unless it does.
 #define ROOM_SCALE_MIN 0.25f
 #define ROOM_SCALE_MAX 4.0f
-// What the brightness property can ask for, either side of the atlas going on
+// What the brightness property can ask for, either side of the room going on
 // exactly as it was baked
 #define ROOM_DIM_MIN 0.10f
 #define ROOM_DIM_MAX 2.0f
@@ -386,7 +370,6 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_BEAM_WIDTH "debug.moonlight.beamwidth"
 #define PROP_POINTER_WAKE "debug.moonlight.pointerwake"
 #define PROP_POINTER_SLEEP "debug.moonlight.pointersleep"
-#define PROP_ENV_RADIUS "debug.moonlight.envradius"
 #define PROP_SHARPEN "debug.moonlight.sharpen"
 #define PROP_SUPERSAMPLE "debug.moonlight.supersample"
 #define PROP_AMBILIGHT "debug.moonlight.ambilight"
@@ -395,7 +378,6 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_ROOM "debug.moonlight.room"
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
-#define PROP_TB_SWAP "debug.moonlight.tbswap"
 // Milliseconds, the time constants of the per texel depth average and of the
 // range the map is normalised against. 0 turns either off, so each map
 // replaces the last or is normalised against its own range.
@@ -634,8 +616,7 @@ typedef struct {
     // What the debug property asked for, or -1 while the panel still owns it
     int ambiOverride;
 
-    // Which room the picker is on: 0 none, 1 the minimal room, 2 the cinema,
-    // 3 the home theater.
+    // Which room the picker is on: 0 none, else one of the ROOM_STYLE_ values
     // Same arrangement as the glow, with a debug property that can force it.
     int roomStyle;
     int roomOverride;
@@ -647,8 +628,8 @@ typedef struct {
     // the wash runs whether the glow is on or not.
     int roomLightOn;
     // Everything the room is drawn with, built the first frame a style asks
-    // for it rather than at startup, the way the background photo arrives.
-    // One side by side image, a half of it per eye.
+    // for it rather than at startup. One side by side image, a half of it per
+    // eye.
     XrSwapchain roomSwapchain;
     uint32_t roomImageCount;
     XrSwapchainImageOpenGLESKHR* roomImages;
@@ -663,24 +644,33 @@ typedef struct {
     GLuint roomIndexBuffer;
     int roomVertexCount;
     int roomIndexCount;
-    // The baked model a textured style is built from, kept in its own copy so a
-    // rebuild does not need the assets read again. Held exactly as the file has
-    // it: the anchor and the scale go on as the geometry is built, so a scale
+    // The parts the buffers were built with, each drawn from its own atlas or
+    // its vertex colours. Copied at the build, so a model arriving for the next
+    // room cannot change what the buffers in use are drawn as.
+    RoomMeshPart roomParts[ROOM_MESH_PARTS_MAX];
+    int roomPartCount;
+    // The baked model a style is built from, kept in its own copy so a rebuild
+    // does not need the assets read again. Held exactly as the file has it:
+    // the anchor and the scale go on as the geometry is built, so a scale
     // change is a rebuild rather than another read.
     float* roomModelVerts;
-    unsigned short* roomModelIndices;
+    uint32_t* roomModelIndices;
     int roomModelVertexCount;
     int roomModelIndexCount;
+    RoomMeshPart roomModelParts[ROOM_MESH_PARTS_MAX];
+    int roomModelPartCount;
+    // How many atlases its parts are painted from, one slot each
+    int roomAtlasCount;
     int roomModelReady;
-    // Its atlas, and a 1x1 white stand in so the sampler always has something
-    // complete bound while the generated room is up
-    GLuint roomTexture;
-    int roomTextureReady;
-    // Which baked room the model and the atlas above belong to. Only one room
-    // is resident at a time, so a style is only built once both are its own,
-    // and a model arriving for another room drops the atlas it replaces.
+    // The atlases, a slot each, and a 1x1 white stand in so the sampler always
+    // has something complete bound whatever a part is painted from
+    GLuint roomTextures[ROOM_MESH_ATLASES_MAX];
+    int roomTextureReady[ROOM_MESH_ATLASES_MAX];
+    // Which baked room the model and each atlas belong to. Only one room is
+    // resident at a time, so a style is only built once all of them are its
+    // own, and a model arriving for another room drops the atlases it replaces.
     int roomModelStyle;
-    int roomTextureStyle;
+    int roomTextureStyle[ROOM_MESH_ATLASES_MAX];
     GLuint roomWhiteTexture;
     float roomTexMix;
     float roomDim;
@@ -701,6 +691,9 @@ typedef struct {
     int roomFailed;
     int roomRendered;
     float roomSpillGain;
+    // How far the room in the buffers reaches, as the far plane it is drawn
+    // with
+    float roomFarZ;
     float roomClear[3];
     // Both eyes as the room was last drawn from them, which is what the
     // projection layer has to be submitted with. Nothing else in here locates
@@ -761,7 +754,6 @@ typedef struct {
     int focusedFrames;
 
     int cylinderSupported;
-    int equirectSupported;
     int layerSettingsSupported;
     // Probed and logged only. Ours is drawn here, but knowing which runtimes
     // offer one of their own is worth a line.
@@ -774,20 +766,6 @@ typedef struct {
     // Whether a frame has already been caught outgrowing the layer array
     int layerDropWarned;
 
-    // 360 photo shown behind everything when passthrough is off. An equirect
-    // layer, so the compositor draws the environment and we still have no
-    // projection layer and no geometry.
-    XrSwapchain backgroundSwapchain;
-    uint32_t backgroundImageCount;
-    XrSwapchainImageOpenGLESKHR* backgroundImages;
-    int backgroundWidth;
-    int backgroundHeight;
-    int backgroundReady;
-    int backgroundEnabled;
-    // Which half of a top/bottom stereo photo goes to which eye, tradeable
-    // over debug.moonlight.tbswap for a photo that packs them the other way
-    int tbSwap;
-    float envRadius;
     int srgbWriteControl;
     // Whether a room's atlas can go up as it ships, ASTC compressed, and how
     // much anisotropic filtering it gets: 1 without the extension, else the
@@ -1008,7 +986,7 @@ typedef struct {
     int pickerCells;
     int envButtonHot;
     // The choice the last environment line was written for, so reapplying the
-    // same one after a photo decode does not repeat it
+    // same one does not repeat it
     int loggedChoice;
 
     // One swapchain per sheet, all filled at startup, so changing tab is a
