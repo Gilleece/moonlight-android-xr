@@ -325,7 +325,9 @@ public class BugReportActivity extends Activity {
         PreferenceConfiguration prefs = PreferenceConfiguration.readPreferences(this);
         return "res " + prefs.width + "x" + prefs.height + " fps " + prefs.fps
                 + " bitrate " + prefs.bitrate + " format " + prefs.videoFormat
-                + " pacing " + prefs.framePacing + "\n"
+                + " pacing " + prefs.framePacing
+                + " audio " + prefs.audioConfiguration.channelCount
+                + " virtualSurround " + prefs.vrVirtualSurround + "\n"
                 + "vr " + prefs.enableVrMode + " depthMode " + prefs.vrDepthMode
                 + " depthModel " + prefs.vrDepthModel
                 + " cadence " + prefs.vrInferenceCadence + " separation " + prefs.vrStereoSeparation

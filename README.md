@@ -223,6 +223,13 @@ converted to TensorFlow Lite by `tools/convert_zipdepth.py` (fp16, 512x288) and
 `tools/quantize_depth.py` (the int8 copy the XR2 Gen 1 headsets run) and committed as assets. Its
 licence ships in the APK as `assets/licenses/zipdepth_LICENSE.txt`.
 
+Virtual surround uses the KEMAR head related transfer function measurements by Bill Gardner and
+Keith Martin, MIT Media Lab, 1994 ("HRTF Measurements of a KEMAR Dummy-Head Microphone", MIT Media
+Lab Perceptual Computing Technical Report #280). The data "is provided free with no restrictions on
+use, provided the authors are cited when the data is used in any research or commercial
+application". The 37 elevation 0 files of the compact set ship unchanged in `assets/hrtf/kemar/`,
+with those terms in the `LICENSE.txt` beside them.
+
 The 360 degree environments are from [Poly Haven](https://polyhaven.com), released under CC0 and
 downsized to 4096x2048 for this app. Poly Haven is community funded and worth supporting.
 

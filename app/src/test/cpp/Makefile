@@ -6,10 +6,11 @@
 CC ?= cc
 CFLAGS ?= -std=gnu11 -Wall -Werror -O1 -g
 SRC := ../../main/jni/xr-renderer
+AUDIO := ../../main/jni/xr-audio
 INCLUDES := -Istubs -I$(SRC)
 OUT := build
 
-TESTS := $(OUT)/test_math $(OUT)/test_depthmap
+TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_audio
 
 .PHONY: test clean
 
@@ -23,6 +24,12 @@ $(OUT)/test_math: test_math.c check.h $(SRC)/xr_math.c $(SRC)/xr_math.h
 $(OUT)/test_depthmap: test_depthmap.c check.h $(SRC)/xr_depthmap.c $(SRC)/xr_depthmap.h $(SRC)/xr_shared.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_depthmap.c $(SRC)/xr_depthmap.c -lm
+
+# The audio module ships at -O2 and this test prints what its kernels cost, so
+# it is built the way the app builds it
+$(OUT)/test_audio: test_audio.c check.h $(AUDIO)/xr_audio.c $(AUDIO)/xr_audio.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) -O2 $(INCLUDES) -I$(AUDIO) -o $@ test_audio.c $(AUDIO)/xr_audio.c -lm
 
 clean:
 	rm -rf $(OUT)

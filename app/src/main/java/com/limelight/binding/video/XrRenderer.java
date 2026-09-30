@@ -134,6 +134,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // SETTING_ values in XrShared, so both sides read them off the same file.
     private final float[] inputState = new float[IN_SLOTS];
     private int heldButtons;
+    // The head's yaw against the screen, for the virtual surround. Written by
+    // the frame loop and read by the audio thread once a block.
+    private volatile float headYaw;
     private InputListener inputListener;
     private Context prefsContext;
     private PreferenceConfiguration prefConfig;
@@ -223,6 +226,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     public void setInputListener(InputListener listener) {
         this.inputListener = listener;
+    }
+
+    /**
+     * How far the head has turned from the screen, in radians, positive to
+     * the left, as of the last frame. 0 with the screen locked to the head.
+     * Any thread.
+     */
+    public float getHeadYaw() {
+        return headYaw;
     }
 
     /**
@@ -737,6 +749,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
                     pointer, gaze, inputState);
+            headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
 
             boolean newFrame = pendingFrames.getAndSet(0) > 0;

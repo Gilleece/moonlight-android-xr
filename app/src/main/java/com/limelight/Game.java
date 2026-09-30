@@ -535,7 +535,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " sharpening=" + prefConfig.vrSharpening
                 + " supersampling=" + prefConfig.vrSupersampling
                 + " passthrough=" + prefConfig.vrPassthrough
-                + " hands=" + prefConfig.vrHandTracking);
+                + " hands=" + prefConfig.vrHandTracking
+                + " audio=" + prefConfig.audioConfiguration.channelCount
+                + " virtualSurround=" + prefConfig.vrVirtualSurround);
 
         // Initialize the connection
         conn = new NvConnection(getApplicationContext(),
@@ -2608,7 +2610,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(holder);
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
+            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
+                            prefConfig.vrVirtualSurround, this::vrHeadYaw),
                     decoderRenderer, Game.this);
         }
     }
@@ -2943,6 +2946,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private void sendVrKeyPress(short keyMap, byte modifier) {
         conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, modifier, (byte)0);
         conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, modifier, (byte)0);
+    }
+
+    // For the virtual surround, on the audio thread once a block. A flat
+    // stream has no VR session and no head to turn.
+    private float vrHeadYaw() {
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        return xrRenderer != null ? xrRenderer.getHeadYaw() : 0.0f;
     }
 
     @Override

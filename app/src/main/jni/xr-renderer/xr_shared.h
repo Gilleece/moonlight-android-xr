@@ -78,7 +78,11 @@
 // Set to 1 the frame the exit prompt is confirmed. Nothing else is meaningful
 // here, so a zeroed slot says nothing happened.
 #define IN_EXIT     21
-#define IN_SLOTS    22
+// How far the head has turned from the screen, radians, positive to the left.
+// 0 with the screen locked to the head. The virtual surround turns its
+// speakers by it. Written every frame, carried over when the head is lost.
+#define IN_HEAD_YAW 22
+#define IN_SLOTS    23
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0

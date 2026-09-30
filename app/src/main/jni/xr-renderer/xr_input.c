@@ -1720,6 +1720,27 @@ static void beamIntoRoom(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// The head's yaw against the screen, which the virtual surround turns its
+// speakers by so the sound stays with the picture. A screen locked to the head
+// turns with it, so there the answer is always 0; a room hangs the picture on
+// its wall whatever the lock says. A frame that cannot place the head keeps
+// the last answer rather than snapping the sound back to the front.
+static void updateAudioYaw(XrCtx* ctx, int headLocked) {
+    if (headLocked && roomEffective(ctx) <= 0) {
+        ctx->audioYaw = 0.0f;
+        return;
+    }
+    if (!ctx->sessionRunning || !ctx->placementValid) {
+        return;
+    }
+    XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
+    if (XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, ctx->localSpace,
+                                   ctx->predictedDisplayTime, &head))
+            && (head.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0) {
+        ctx->audioYaw = yawBetween(head.pose.orientation, ctx->screenPose.orientation);
+    }
+}
+
 // Reads the controllers and works out where they are pointing on the screen.
 // Java turns the result into host mouse events, so nothing here knows about
 // the connection.
@@ -1737,6 +1758,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if (ctx != NULL) {
         ctx->gazeEnabled = gazeEnabled;
         ctx->prefCurvature = curvature;
+        // Ahead of every early return below, none of which clear it, so the
+        // sound follows the head with the pointer off or focus lost too
+        updateAudioYaw(ctx, headLocked);
+        out[IN_HEAD_YAW] = ctx->audioYaw;
     }
     // Zero is a real cell, so "nothing picked" has to be said explicitly. Every
     // early return below would otherwise read as a press on the first one. Same
