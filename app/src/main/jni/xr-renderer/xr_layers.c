@@ -304,9 +304,19 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         // The swap toggle reroutes which half each eye sees. Any stereo
         // inversion bug found later is then depth or warp, not routing
         int half = view->eyeSwap ? (1 - eye) : eye;
-        subImage.imageRect.offset.x = view->stereo ? half * ctx->videoWidth : 0;
+        int x = view->stereo ? half * ctx->videoWidth : 0;
+        int w = ctx->videoWidth;
+        // Both eyes share one chain, side by side, and the compositor's filter
+        // reads a texel past the rectangle it is given, which at the seam is
+        // the other eye's picture. Both ends come in by a texel, so the two
+        // eyes lose the same columns and the crop brings no disparity with it.
+        if (view->stereo && ctx->seamInset && w > 2 * SEAM_INSET_TEXELS) {
+            x += SEAM_INSET_TEXELS;
+            w -= 2 * SEAM_INSET_TEXELS;
+        }
+        subImage.imageRect.offset.x = x;
         subImage.imageRect.offset.y = 0;
-        subImage.imageRect.extent.width = ctx->videoWidth;
+        subImage.imageRect.extent.width = w;
         subImage.imageRect.extent.height = ctx->videoHeight;
         subImage.imageArrayIndex = 0;
 

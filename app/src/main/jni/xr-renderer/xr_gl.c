@@ -228,6 +228,9 @@ int initGl(XrCtx* ctx) {
     ctx->dispTexelsUniform = glGetUniformLocation(ctx->program, "u_dispTexels");
     ctx->lowResWidthUniform = glGetUniformLocation(ctx->program, "u_lowResWidth");
     ctx->frameWidthUniform = glGetUniformLocation(ctx->program, "u_frameWidth");
+    ctx->srcInsetUniform = glGetUniformLocation(ctx->program, "u_srcInset");
+    ctx->edgeFadeUniform = glGetUniformLocation(ctx->program, "u_edgeFade");
+    ctx->depthCubicUniform = glGetUniformLocation(ctx->program, "u_depthCubic");
 
     // Sampler units are fixed: color on 0, depth on 1
     glUseProgram(ctx->program);
@@ -442,15 +445,23 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     glUniform1f(ctx->lowResWidthUniform, (float)ctx->upsampleWidth);
     glUniform1f(ctx->frameWidthUniform, (float)ctx->videoWidth);
 
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
-    glEnableVertexAttribArray(1);
-
     // Mono is a single full width draw with zero disparity. Stereo draws the
     // left eye into the left half and the right eye into the right half,
     // with opposite disparity signs
     int eyes = ctx->stereoMode != DEPTH_MODE_OFF ? 2 : 1;
+
+    // Half a texel of the frame, which the shifted sample is held inside, or
+    // with the clamp off a whole frame outside either edge, so nothing is held
+    glUniform1f(ctx->srcInsetUniform,
+                ctx->srcInsetOn ? 0.5f / (float)ctx->videoWidth : -1.0f);
+    glUniform1f(ctx->edgeFadeUniform, (float)ctx->edgeFadePx / (float)ctx->videoWidth);
+    // Mono never uses the depth it reads, so it keeps the single fetch
+    glUniform1f(ctx->depthCubicUniform, ctx->depthCubic && eyes == 2 ? 1.0f : 0.0f);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
 
     // The unwarped frame, drawn first so the real eye passes overwrite it and
     // the submitted frame is unaffected. Readback and file writes stall the

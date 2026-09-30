@@ -393,6 +393,21 @@ typedef struct XrCompositionLayerSettingsFB {
 // The scene cut detector: 0 off, 1 on as every build ships, 2 on with a line
 // in the log for every capture
 #define PROP_DEPTH_CUT "debug.moonlight.depth_cut"
+// The warp's four edge fixes, each on as shipped: the shifted sample held
+// inside the frame (0/1), the band the shift fades out over at the left and
+// right edges (pixels, 0 off), the cubic read of the depth map (0/1), and the
+// texel each eye's rectangle keeps clear of the seam with the other (0/1)
+#define PROP_SRC_INSET "debug.moonlight.srcinset"
+#define PROP_EDGE_FADE "debug.moonlight.edgefade"
+#define PROP_DEPTH_CUBIC "debug.moonlight.depthcubic"
+#define PROP_SEAM_INSET "debug.moonlight.seaminset"
+
+// Pixels of the frame the shift fades to nothing over at each side edge, and
+// the most the property can ask for
+#define EDGE_FADE_PX 8
+#define EDGE_FADE_MAX_PX 64
+// Texels each eye's rectangle comes in by on the side by side axis
+#define SEAM_INSET_TEXELS 1
 
 // Radius of the low pass that splits the depth map into an overall shape and
 // the local detail on top of it. About a tenth of the frame, in texels of a
@@ -545,6 +560,12 @@ typedef struct {
     GLuint offsetTexture;
     GLuint offsetFbo;
     int occlusionEnabled;
+    // The edge fixes, all on unless a debug property turns one off. Pixels
+    // for the fade, 0 or 1 for the rest.
+    int srcInsetOn;
+    int edgeFadePx;
+    int depthCubic;
+    int seamInset;
     float convergence;
     float separationOverride;
     float distanceOverride;
@@ -691,6 +712,9 @@ typedef struct {
     GLint dispTexelsUniform;
     GLint lowResWidthUniform;
     GLint frameWidthUniform;
+    GLint srcInsetUniform;
+    GLint edgeFadeUniform;
+    GLint depthCubicUniform;
     GLuint fbo;
     int barTestFramesLogged;
 

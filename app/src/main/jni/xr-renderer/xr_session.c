@@ -639,6 +639,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->upsampleSigmaR = 0.25f;
     ctx->upsampleEnabled = 1;
     ctx->occlusionEnabled = 1;
+    // The warp's edges: sample held inside the frame, shift faded out over
+    // the last few pixels each side, cubic depth read, and each eye's
+    // rectangle a texel clear of the seam between them
+    ctx->srcInsetOn = 1;
+    ctx->edgeFadePx = EDGE_FADE_PX;
+    ctx->depthCubic = 1;
+    ctx->seamInset = 1;
     // Off until it earns its place in a blind comparison on device
     ctx->depthSharp = 0.0f;
     // Starts where the preference left it, and the panel can change it live
