@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "xr_layout.h"
+#include "xr_shared.h"
 
 int hoverTest(float u, float v, float width, float height, float cornerSide, int* corner) {
     if (cornerSide > 0.0f) {
@@ -52,4 +53,38 @@ XrPosef standInPose(void) {
     pose.orientation.w = 1.0f;
     pose.position.z = -STAND_IN_DISTANCE_M;
     return pose;
+}
+
+// Snapped to whole units, so the thumb shows exactly what gets written when
+// the drag ends, and never off either end
+int laneUnits(float t, int min, int max) {
+    if (t < 0.0f) {
+        t = 0.0f;
+    }
+    if (t > 1.0f) {
+        t = 1.0f;
+    }
+    return min + (int)roundf(t * (float)(max - min));
+}
+
+float lanePlace(int units, int min, int max) {
+    if (max <= min) {
+        return 0.0f;
+    }
+    float t = (float)(units - min) / (float)(max - min);
+    return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+}
+
+// The readout is where the thumb sits rather than the value itself: a
+// brightness running past what the room was baked at reading over a hundred
+// percent is more confusing than useful
+int lanePercent(int units, int min, int max) {
+    return (int)roundf(lanePlace(units, min, max) * 100.0f);
+}
+
+int roomScreenClamp(int percent, int resizable) {
+    if (!resizable || percent > ROOM_SCREEN_MAX) {
+        return ROOM_SCREEN_MAX;
+    }
+    return percent < ROOM_SCREEN_MIN ? ROOM_SCREEN_MIN : percent;
 }

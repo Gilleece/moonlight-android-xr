@@ -43,10 +43,35 @@ float effectiveCurvature(XrCtx* ctx) {
 }
 
 // A room places and sizes its own picture, so every row on the screen tab is
-// dead while one is on. The panel shows a note in their place, and the input
-// side has to agree with what is drawn.
-int cogScreenLocked(XrCtx* ctx) {
-    return ctx->cogTab == COG_TAB_SCREEN && roomEffective(ctx) > 0;
+// dead while one is on, and the first tab is the Room tab instead. Which rows
+// the panel shows, which the input side has to agree with.
+int cogFace(XrCtx* ctx) {
+    return ctx->cogTab == COG_TAB_SCREEN && roomEffective(ctx) > 0 ? COG_FACE_ROOM
+                                                                    : ctx->cogTab;
+}
+
+// Which sheet shows them. In a room every tab is drawn with the Room tab's
+// name over the first slot, and the Room tab itself greys its size row where
+// the room will not have the picture resized.
+int cogArt(XrCtx* ctx) {
+    int style = roomEffective(ctx);
+    if (style <= 0) {
+        return ctx->cogTab;
+    }
+    if (ctx->cogTab == COG_TAB_DISPLAY) {
+        return COG_ART_ROOM_DISPLAY;
+    }
+    if (ctx->cogTab == COG_TAB_3D) {
+        return COG_ART_ROOM_3D;
+    }
+    return roomResizable(style) ? COG_ART_ROOM : COG_ART_ROOM_FIXED;
+}
+
+// The room the Room tab's rows belong to, or 0 with none up. Only ever a
+// style the per room values can be read at.
+static int roomFaceStyle(XrCtx* ctx) {
+    int style = roomEffective(ctx);
+    return style >= ROOM_STYLE_FIRST && style <= ROOM_STYLE_LAST ? style : 0;
 }
 
 // How far the screen's face is tipped up or down, in radians. Positive is
@@ -316,31 +341,82 @@ int exitPromptZone(float u, float v) {
     return EXIT_ZONE_NONE;
 }
 
-// How many rows a tab has, whatever kind they are
-int cogTabRowCount(int tab) {
-    if (tab == COG_TAB_SCREEN) {
+// How many rows a face has, whatever kind they are
+int cogTabRowCount(int face) {
+    if (face == COG_TAB_SCREEN) {
         return COG_SLIDER_COUNT;
     }
-    if (tab == COG_TAB_3D) {
+    if (face == COG_TAB_3D) {
         return COG_ROW3D_COUNT;
+    }
+    if (face == COG_FACE_ROOM) {
+        return COG_ROOM_ROW_COUNT;
     }
     // The option rows, then the glow level track under them
     return COG_DISPLAY_SLIDER_ROW + 1;
 }
 
+// Whether a row is a track to drag rather than a row of cells to press
+int cogRowIsTrack(int face, int row) {
+    if (face == COG_TAB_DISPLAY) {
+        return row == COG_DISPLAY_SLIDER_ROW;
+    }
+    if (face == COG_FACE_ROOM) {
+        return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
+    }
+    return 1;
+}
+
+// Whether a row can do anything here. A dead row is drawn greyed, carries no
+// thumb and takes no press, so the art, the layers and the hit test all ask.
+int cogRowLive(XrCtx* ctx, int face, int row) {
+    // Curving needs a layer type this runtime may not have
+    if (face == COG_TAB_SCREEN && row == COG_SLIDER_CURVE) {
+        return ctx->cylinderSupported;
+    }
+    // With stereo off there is nothing for either 3D row to move
+    if (face == COG_TAB_3D) {
+        return ctx->stereoMode != DEPTH_MODE_OFF;
+    }
+    // A room built around its picture keeps it at the whole of its anchor
+    if (face == COG_FACE_ROOM && row == COG_ROOM_ROW_SIZE) {
+        return roomResizable(roomFaceStyle(ctx));
+    }
+    return 1;
+}
+
 // Where a slider's thumb sits along its track, 0 at the left end and 1 at the
 // right. Read back from the thing the slider controls rather than stored, so
 // dragging the screen about cannot leave the panel disagreeing with it.
-float cogSliderValue(XrCtx* ctx, int tab, int slider) {
+float cogSliderValue(XrCtx* ctx, int face, int slider) {
     XrVector3f p = ctx->screenPose.position;
     float t = 0.0f;
 
-    if (tab == COG_TAB_DISPLAY) {
+    if (face == COG_TAB_DISPLAY) {
         // Only one row on this tab has a thumb, so which one it is does not
         // need asking
         t = ctx->ambiIntensity;
     }
-    else if (tab == COG_TAB_3D) {
+    else if (face == COG_FACE_ROOM) {
+        // The room showing's own values, so the thumbs move when the picker
+        // moves to another room
+        int style = roomFaceStyle(ctx);
+        if (style == 0) {
+            return 0.0f;
+        }
+        if (slider == COG_ROOM_ROW_BRIGHTNESS) {
+            t = lanePlace(ctx->roomBrightness[style], ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
+        }
+        else if (slider == COG_ROOM_ROW_LIGHT_LEVEL) {
+            t = lanePlace(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+        }
+        else if (slider == COG_ROOM_ROW_SIZE) {
+            // A quarter of the room's screen at the left end, all of it at the
+            // right
+            t = lanePlace(roomScreenPercent(ctx, style), ROOM_SCREEN_MIN, ROOM_SCREEN_MAX);
+        }
+    }
+    else if (face == COG_TAB_3D) {
         if (slider == COG_ROW3D_SEPARATION) {
             t = ctx->separationCurrent / COG_SEP_MAX;
         }
@@ -376,12 +452,33 @@ float cogSliderValue(XrCtx* ctx, int tab, int slider) {
 }
 
 // Applies a point on the track to whatever the row controls
-void cogApplySlider(XrCtx* ctx, int tab, int slider, float pu) {
+void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
     float t = (pu - COG_TRACK_L) / (COG_TRACK_R - COG_TRACK_L);
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
 
-    if (tab == COG_TAB_DISPLAY) {
+    if (face == COG_FACE_ROOM) {
+        // Whole units, the ones each preference is stored in, so the thumb
+        // shows exactly what gets written when the drag ends. All three are
+        // read afresh every frame, so the room changes under the thumb.
+        int style = roomFaceStyle(ctx);
+        if (style == 0) {
+            return;
+        }
+        if (slider == COG_ROOM_ROW_BRIGHTNESS) {
+            ctx->roomBrightness[style] = laneUnits(t, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX);
+        }
+        else if (slider == COG_ROOM_ROW_LIGHT_LEVEL) {
+            ctx->roomLightLevel[style] = laneUnits(t, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+        }
+        else if (slider == COG_ROOM_ROW_SIZE && roomResizable(style)) {
+            // About the picture's centre, which the room keeps where it was
+            ctx->roomScreen[style] = laneUnits(t, ROOM_SCREEN_MIN, ROOM_SCREEN_MAX);
+        }
+        return;
+    }
+
+    if (face == COG_TAB_DISPLAY) {
         // Five percent steps, so the thumb shows exactly what the preference
         // will be written with when the drag ends
         int units = (int)roundf(t * 20.0f) * 5;
@@ -389,7 +486,7 @@ void cogApplySlider(XrCtx* ctx, int tab, int slider, float pu) {
         return;
     }
 
-    if (tab == COG_TAB_3D) {
+    if (face == COG_TAB_3D) {
         if (slider == COG_ROW3D_SEPARATION) {
             // Snapped to the units the preference is stored in, so what the
             // thumb shows is exactly what gets written when the drag ends
@@ -525,7 +622,8 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
         return headLocked ? 1 : 0;
     }
     if (option == COG_OPTION_AMBILIGHT) {
-        return ctx->ambilightOn ? 1 : 0;
+        // The switch in force, which in a room is the room's own
+        return roomGlowOn(ctx, roomEffective(ctx)) ? 1 : 0;
     }
     if (option == COG_OPTION_ROOM_LIGHT) {
         return ctx->roomLightOn ? 1 : 0;
@@ -559,6 +657,14 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         return SETTING_HEAD_LOCK;
     }
     if (option == COG_OPTION_AMBILIGHT) {
+        // In a room this is the same switch the Room tab's glow row is, so the
+        // two can never disagree about what is on
+        int style = roomFaceStyle(ctx);
+        if (style != 0) {
+            ctx->roomGlow[style] = cell != 0;
+            LOGEV("room %d glow %s from the panel", style, cell != 0 ? "on" : "off");
+            return SETTING_ROOM_GLOW;
+        }
         ctx->ambilightOn = cell != 0;
         LOGEV("ambilight %s from the panel", ctx->ambilightOn ? "on" : "off");
         return SETTING_AMBILIGHT;
@@ -571,23 +677,73 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
     return -1;
 }
 
+// The Room tab's two rows of cells: the room's own glow, and the screen light,
+// which is one switch for every room and the same one the display tab has
+int cogRoomCellValue(XrCtx* ctx, int row) {
+    if (row == COG_ROOM_ROW_GLOW) {
+        return roomGlowOn(ctx, roomEffective(ctx)) ? 1 : 0;
+    }
+    return ctx->roomLightOn ? 1 : 0;
+}
+
+// Applied here and now, and handed to Java to store in the same frame. The
+// glow is written under the room showing, which IN_SETTING_ROOM names.
+void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out) {
+    int id = row == COG_ROOM_ROW_GLOW ? cogApplyOption(ctx, COG_OPTION_AMBILIGHT, cell)
+                                      : cogApplyOption(ctx, COG_OPTION_ROOM_LIGHT, cell);
+    out[IN_SETTING] = (float)id;
+    out[IN_SETTING_VALUE] = (float)cell;
+}
+
 // Letting go of a slider, either on purpose or because focus went away mid
 // drag. Persisting where it ended up rather than every frame on the way there
 // is the same policy a grab uses, so this is where the writing happens.
 void cogDragEnded(XrCtx* ctx, float* out) {
     int slider = ctx->cogDragSlider;
-    int tab = ctx->cogTab;
+    int face = ctx->cogDragFace;
     ctx->cogDragSlider = -1;
     ctx->cogDragHand = -1;
+    ctx->cogDragFace = -1;
 
     if (slider < 0) {
         return;
     }
-    if (tab == COG_TAB_SCREEN) {
+    if (face == COG_TAB_SCREEN) {
         // The placement is saved from the pose the frame hands back
         ctx->poseDirty = 1;
     }
-    else if (tab == COG_TAB_3D) {
+    else if (face == COG_FACE_ROOM) {
+        // The room's own units, written under the room showing. A room gone
+        // from under the drag leaves nothing to write it to.
+        int style = roomFaceStyle(ctx);
+        if (style == 0) {
+            return;
+        }
+        int setting = -1;
+        int value = 0;
+        const char* what = "";
+        if (slider == COG_ROOM_ROW_BRIGHTNESS) {
+            setting = SETTING_ROOM_BRIGHTNESS;
+            value = ctx->roomBrightness[style];
+            what = "brightness";
+        }
+        else if (slider == COG_ROOM_ROW_LIGHT_LEVEL) {
+            setting = SETTING_ROOM_LIGHT_LEVEL;
+            value = ctx->roomLightLevel[style];
+            what = "light level";
+        }
+        else if (slider == COG_ROOM_ROW_SIZE) {
+            setting = SETTING_ROOM_SCREEN;
+            value = roomScreenPercent(ctx, style);
+            what = "screen percent";
+        }
+        if (setting >= 0) {
+            out[IN_SETTING] = (float)setting;
+            out[IN_SETTING_VALUE] = (float)value;
+            LOGEV("room %d %s %d from the panel", style, what, value);
+        }
+    }
+    else if (face == COG_TAB_3D) {
         if (slider == COG_ROW3D_SEPARATION) {
             out[IN_SETTING] = (float)SETTING_SEPARATION;
             // Tenths of a percent of frame width, the preference's units
@@ -598,7 +754,7 @@ void cogDragEnded(XrCtx* ctx, float* out) {
             out[IN_SETTING_VALUE] = roundf(ctx->convergence * 100.0f);
         }
     }
-    else if (tab == COG_TAB_DISPLAY) {
+    else if (face == COG_TAB_DISPLAY) {
         out[IN_SETTING] = (float)SETTING_AMBI_LEVEL;
         // Whole percent, the preference's units
         out[IN_SETTING_VALUE] = roundf(ctx->ambiIntensity * 100.0f);
@@ -614,6 +770,23 @@ int cogCellAt(float pu, int cells) {
     if (cell < 0) cell = 0;
     if (cell >= cells) cell = cells - 1;
     return cell;
+}
+
+// What the percents beside the Room tab's tracks should say, in IN_READOUT
+// order, or -1 first while the tab is not up. The size says nothing in a room
+// that keeps its picture whole, where its row is greyed.
+void cogReadouts(XrCtx* ctx, int* values) {
+    int style = roomFaceStyle(ctx);
+    if (!ctx->cogOpen || cogFace(ctx) != COG_FACE_ROOM || style == 0) {
+        values[0] = -1;
+        values[1] = -1;
+        values[2] = -1;
+        return;
+    }
+    values[0] = lanePercent(ctx->roomBrightness[style], ROOM_BRIGHTNESS_MIN,
+                            ROOM_BRIGHTNESS_MAX);
+    values[1] = lanePercent(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+    values[2] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
 }
 
 // Padlock sits clear of the left edge, halfway up, in the furniture's flat

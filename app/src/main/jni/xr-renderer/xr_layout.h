@@ -68,4 +68,15 @@ int hoverTest(float u, float v, float width, float height, float cornerSide, int
 // Where the stand in screen hangs, square to the seat
 XrPosef standInPose(void);
 
+// The Room tab's lanes. A place along a track, 0 at the left end and 1 at the
+// right, turned into the whole units the preference is stored in, and back,
+// and the percent of the lane drawn beside it.
+int laneUnits(float t, int min, int max);
+float lanePlace(int units, int min, int max);
+int lanePercent(int units, int min, int max);
+
+// How much of a room's screen the picture hangs at, in whole percent: inside
+// the size row's lane where the room may be resized, and all of it where not
+int roomScreenClamp(int percent, int resizable);
+
 #endif

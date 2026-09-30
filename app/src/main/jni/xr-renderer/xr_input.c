@@ -1257,18 +1257,17 @@ static void updatePicker(XrCtx* ctx, InputFrame* f) {
 static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
     f->hover = HOVER_COGPANEL;
     f->hand = -1;
+    int face = cogFace(ctx);
 
     // A drag keeps the hand that started it, and keeps it even once the
     // ray has wandered off the panel, so a slider can be run to either end
-    // in one go. The display tab is cells apart from its one level row.
-    if (ctx->cogDragSlider >= 0 && cogScreenLocked(ctx)) {
-        // A room took the picture mid drag, which only a debug property
-        // can do, and there is nothing left under the thumb to move
+    // in one go. The display and Room tabs are cells apart from their tracks.
+    if (ctx->cogDragSlider >= 0 && ctx->cogDragFace != face) {
+        // A room came or went mid drag, which only a debug property can do,
+        // and the row under the thumb is another row now
         cogDragEnded(ctx, f->out);
     }
-    else if (ctx->cogDragSlider >= 0
-            && (ctx->cogTab != COG_TAB_DISPLAY
-                || ctx->cogDragSlider == COG_DISPLAY_SLIDER_ROW)) {
+    else if (ctx->cogDragSlider >= 0 && cogRowIsTrack(face, ctx->cogDragSlider)) {
         int h = ctx->cogDragHand;
         float pu, pv;
         if (h >= 0 && f->aimValid[h] && ctx->triggerDown[h]
@@ -1278,7 +1277,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             f->hitU[h] = pu;
             f->hitV[h] = pv;
             ctx->cogHoverSlider = ctx->cogDragSlider;
-            cogApplySlider(ctx, ctx->cogTab, ctx->cogDragSlider, pu);
+            cogApplySlider(ctx, face, ctx->cogDragSlider, pu);
         }
         else {
             cogDragEnded(ctx, f->out);
@@ -1310,31 +1309,17 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 ctx->cogTab = t;
                 ctx->cogDragSlider = -1;
                 ctx->cogDragHand = -1;
+                ctx->cogDragFace = -1;
             }
             break;
         }
 
-        // Below the tabs the screen tab is a note while a room is on, so
-        // rows, tracks and the reset button are all out of reach. The
-        // press is still swallowed, since it landed on the panel.
-        if (cogScreenLocked(ctx)) {
-            ctx->cogHoverSlider = -1;
-            ctx->cogHoverCell = -1;
-            break;
-        }
-
-        int rowCount = cogTabRowCount(ctx->cogTab);
+        // A row that can do nothing here is drawn greyed, and the ray
+        // passes over it as if it were not there
+        int rowCount = cogTabRowCount(face);
         int row = -1;
         for (int s = 0; s < rowCount; s++) {
-            // Curving needs a layer type this runtime may not have, and
-            // the row is drawn greyed to say so
-            if (ctx->cogTab == COG_TAB_SCREEN && s == COG_SLIDER_CURVE
-                    && !ctx->cylinderSupported) {
-                continue;
-            }
-            // With stereo off there is nothing for either 3D row to move,
-            // and both are drawn greyed to match
-            if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
+            if (!cogRowLive(ctx, face, s)) {
                 continue;
             }
             if (fabsf(pv - (COG_ROW_V0 + s * COG_ROW_STEP)) < COG_ROW_HALF) {
@@ -1343,34 +1328,22 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             }
         }
 
-        if (ctx->cogTab == COG_TAB_DISPLAY) {
-            if (row == COG_DISPLAY_SLIDER_ROW) {
-                // The one track on this tab, handled the way the other
-                // tabs' rows are, including the band reaching a little
-                // past both ends for the thumb hanging over them
-                if (pu <= COG_TRACK_L - 0.04f || pu >= COG_TRACK_R + 0.04f) {
-                    row = -1;
-                }
-                ctx->cogHoverSlider = row;
-                ctx->cogHoverCell = -1;
-                if (row >= 0 && ctx->triggerEdge[h]) {
-                    ctx->cogDragSlider = row;
-                    ctx->cogDragHand = h;
-                    // Jumps to where the press landed, same as the others
-                    cogApplySlider(ctx, ctx->cogTab, row, pu);
-                }
-                break;
-            }
-
+        if (row >= 0 && !cogRowIsTrack(face, row)) {
             // Cells, so a press picks one rather than starting a drag
-            int cell = row >= 0 ? cogCellAt(pu, cogOptionCells(row)) : -1;
+            int cells = face == COG_FACE_ROOM ? COG_ROOM_SWITCH_CELLS : cogOptionCells(row);
+            int cell = cogCellAt(pu, cells);
             ctx->cogHoverSlider = cell >= 0 ? row : -1;
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
-                int id = cogApplyOption(ctx, row, cell);
-                if (id >= 0) {
-                    f->out[IN_SETTING] = (float)id;
-                    f->out[IN_SETTING_VALUE] = (float)cell;
+                if (face == COG_FACE_ROOM) {
+                    cogApplyRoomCell(ctx, row, cell, f->out);
+                }
+                else {
+                    int id = cogApplyOption(ctx, row, cell);
+                    if (id >= 0) {
+                        f->out[IN_SETTING] = (float)id;
+                        f->out[IN_SETTING_VALUE] = (float)cell;
+                    }
                 }
             }
             break;
@@ -1383,9 +1356,11 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         }
         ctx->cogHoverSlider = row;
 
-        int onReset = pu >= COG_RESET_L && pu <= COG_RESET_R
+        // Only the screen and 3D tabs have a reset button under their rows
+        int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D)
+                && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
-        if (onReset && ctx->triggerEdge[h] && ctx->cogTab == COG_TAB_3D) {
+        if (onReset && ctx->triggerEdge[h] && face == COG_TAB_3D) {
             // The shipped defaults, 0.5 percent and half convergence, said
             // here rather than read back so the button works the same way
             // whatever the preferences were left on. Still allowed while
@@ -1411,9 +1386,10 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         else if (row >= 0 && ctx->triggerEdge[h]) {
             ctx->cogDragSlider = row;
             ctx->cogDragHand = h;
+            ctx->cogDragFace = face;
             // Jumps to where the press landed rather than waiting for the
             // first bit of movement
-            cogApplySlider(ctx, ctx->cogTab, row, pu);
+            cogApplySlider(ctx, face, row, pu);
         }
     }
 
@@ -1810,6 +1786,22 @@ static void updateAudioYaw(XrCtx* ctx, int headLocked) {
     }
 }
 
+// The slots read off state rather than written as things happen, filled last
+// so they say what this frame left, then the lot to Java
+static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
+    int readouts[READOUT_VALUES] = { -1, -1, -1 };
+    out[IN_SETTING_ROOM] = -1.0f;
+    if (ctx != NULL) {
+        // Every room keeps its own values, so a room setting says whose it is
+        out[IN_SETTING_ROOM] = (float)roomCellForStyle(roomEffective(ctx));
+        cogReadouts(ctx, readouts);
+    }
+    for (int i = 0; i < READOUT_VALUES; i++) {
+        out[IN_READOUT + i] = (float)readouts[i];
+    }
+    (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+}
+
 // Reads the controllers and works out where they are pointing on the screen.
 // Java turns the result into host mouse events, so nothing here knows about
 // the connection.
@@ -1848,7 +1840,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         if (ctx != NULL) {
             releaseInput(ctx, out);
         }
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1861,7 +1853,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     sync.activeActionSets = &active;
     if (XR_FAILED(xrSyncActions(ctx->session, &sync))) {
         ctx->buttonsDown = 0;
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1955,7 +1947,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if (ctx->grabMode != GRAB_NONE) {
         beamToHandle(ctx, &f);
         writeInputPose(ctx, out);
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1967,7 +1959,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         }
         ctx->buttonsDown = 0;
         writeInputPose(ctx, out);
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1988,7 +1980,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     writeInputPose(ctx, out);
     out[IN_PICKER_PICK] = (float)ctx->pickerPick;
-    (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+    handBack(env, ctx, out, outArr);
 }
 
 // Puts back a placement saved from a previous session. Marking the sliders as

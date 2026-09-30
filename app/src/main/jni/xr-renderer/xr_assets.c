@@ -91,6 +91,9 @@ int createPointerSwapchain(XrCtx* ctx) {
 
     createArtSwapchain(ctx, COG_THUMB_TEX, COG_THUMB_TEX, "create cog thumb swapchain",
                        &ctx->cogThumbSwapchain, &ctx->cogThumbImages, &ctx->cogThumbImageCount);
+    createArtSwapchain(ctx, COG_READOUT_TEX_W, COG_READOUT_TEX_H, "create cog readout swapchain",
+                       &ctx->cogReadoutSwapchain, &ctx->cogReadoutImages,
+                       &ctx->cogReadoutImageCount);
 
     for (int state = 0; state < KB_STATE_COUNT; state++) {
         createArtSwapchain(ctx, KB_TEX_W, KB_TEX_H, "create keyboard swapchain",
@@ -417,31 +420,51 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
 }
 
 // The settings panel and the cog that opens it, drawn in Java for the same
-// reason the grid is: the labels are text. Every sheet arrives together and is
-// uploaded once, so changing tab later touches nothing. The last one is the
-// screen tab as it reads inside a room.
+// reason the grid is: the labels are text. Every sheet arrives together, in
+// COG_ART_ order, and is uploaded once, so changing tab later touches nothing.
+// The ones after the tabs are what a room shows in their place.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject thiz,
-                                                            jlong handle, jobject screenTab,
-                                                            jobject displayTab, jobject tab3d,
-                                                            jobject roomTab, jobject button) {
+                                                            jlong handle, jobjectArray sheets,
+                                                            jobject button) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
-    jobject tabs[COG_ART_COUNT] = { screenTab, displayTab, tab3d, roomTab };
-    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
-        uploadSheet(env, ctx, tabs[tab], ctx->cogPanelSwapchains[tab], ctx->cogPanelImages[tab],
-                    COG_TEX_W, COG_TEX_H, &ctx->cogPanelReady[tab]);
+    int count = sheets != NULL ? (*env)->GetArrayLength(env, sheets) : 0;
+    int ready = 0;
+    for (int art = 0; art < COG_ART_COUNT && art < count; art++) {
+        jobject sheet = (*env)->GetObjectArrayElement(env, sheets, art);
+        uploadSheet(env, ctx, sheet, ctx->cogPanelSwapchains[art], ctx->cogPanelImages[art],
+                    COG_TEX_W, COG_TEX_H, &ctx->cogPanelReady[art]);
+        if (sheet != NULL) {
+            (*env)->DeleteLocalRef(env, sheet);
+        }
+        ready += ctx->cogPanelReady[art] ? 1 : 0;
     }
     uploadSheet(env, ctx, button, ctx->cogButtonSwapchain, ctx->cogButtonImages,
                 BUTTON_TEX, BUTTON_TEX, &ctx->cogButtonReady);
-    LOGI("cog tabs %s, %s and %s, room screen %s, button %s",
-         ctx->cogPanelReady[COG_TAB_SCREEN] ? "ready" : "missing",
-         ctx->cogPanelReady[COG_TAB_DISPLAY] ? "ready" : "missing",
-         ctx->cogPanelReady[COG_TAB_3D] ? "ready" : "missing",
-         ctx->cogPanelReady[COG_ART_ROOM_SCREEN] ? "ready" : "missing",
+    LOGI("cog sheets %d of %d ready, button %s", ready, COG_ART_COUNT,
          ctx->cogButtonReady ? "ready" : "missing");
+}
+
+// The strip of percents beside the Room tab's tracks, drawn in Java whenever
+// the frame before said one of them had moved, and the values it was drawn
+// with. The panel only shows it while those are still the values in force.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadCogReadout(JNIEnv* env, jobject thiz,
+                                                                   jlong handle, jobject strip,
+                                                                   jintArray values) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || strip == NULL || values == NULL
+            || (*env)->GetArrayLength(env, values) < READOUT_VALUES) {
+        return;
+    }
+    int drawn[READOUT_VALUES];
+    (*env)->GetIntArrayRegion(env, values, 0, READOUT_VALUES, drawn);
+    uploadSheet(env, ctx, strip, ctx->cogReadoutSwapchain, ctx->cogReadoutImages,
+                COG_READOUT_TEX_W, COG_READOUT_TEX_H, &ctx->cogReadoutReady);
+    memcpy(ctx->cogReadoutDrawn, drawn, sizeof(drawn));
 }
 
 // The keyboard: a sheet of art per state, the button that opens it, and the
@@ -562,6 +585,17 @@ int roomStyleForCell(int cell) {
         return ROOM_STYLE_SYNTHWAVE;
     }
     return 0;
+}
+
+// The other way round, so a room's own setting goes back to Java under the
+// cell that shows it, or -1 for no room
+int roomCellForStyle(int style) {
+    for (int cell = 0; cell < ENV_CELL_COUNT; cell++) {
+        if (style > 0 && roomStyleForCell(cell) == style) {
+            return cell;
+        }
+    }
+    return -1;
 }
 
 // Which cell the picker is showing as chosen, so it survives a restart

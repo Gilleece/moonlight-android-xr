@@ -85,9 +85,10 @@ int initAmbilight(XrCtx* ctx) {
 }
 
 // What the glow is doing this frame. The panel owns it, with the debug
-// property over the top of it the way the separation override works.
+// property over the top of it the way the separation override works. In a
+// room the switch is the room's own, and the app wide one everywhere else.
 void ambiEffective(XrCtx* ctx, int* on, float* level) {
-    int enabled = ctx->ambilightOn;
+    int enabled = roomGlowOn(ctx, roomEffective(ctx));
     float value = ctx->ambiIntensity;
     if (ctx->ambiOverride >= 0) {
         enabled = ctx->ambiOverride > 0;

@@ -156,6 +156,10 @@ static inline long nowNs(void) {
 // size as the environment button on the left
 #define COG_BUTTON_FRAC 0.048f
 #define COG_THUMB_TEX 64
+// Which rows the panel is showing: one of the tabs, or the Room tab, which is
+// what the first tab is while a room is up. Numbered past the tabs, since it
+// is not a tab of its own and nothing else can reach it.
+#define COG_FACE_ROOM COG_TAB_COUNT
 
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
@@ -588,8 +592,16 @@ typedef struct {
     float roomScaleOverride;
     float roomDimOverride;
     // Whether the picture washes its light over the room. Its own option, since
-    // the wash runs whether the glow is on or not.
+    // the wash runs whether the glow is on or not. One value for every room.
     int roomLightOn;
+    // Each baked room's own values for the Room tab's rows, by style, in the
+    // units the preferences hold: brightness and light level in hundredths,
+    // the glow 1 or 0, the size in whole percent of the room's screen. Seeded
+    // from the room table, then handed down from the preferences.
+    int roomBrightness[ROOM_STYLE_LAST + 1];
+    int roomGlow[ROOM_STYLE_LAST + 1];
+    int roomLightLevel[ROOM_STYLE_LAST + 1];
+    int roomScreen[ROOM_STYLE_LAST + 1];
     // Everything the room is drawn with, built the first frame a style asks
     // for it rather than at startup. One side by side image, a half of it per
     // eye.
@@ -971,8 +983,18 @@ typedef struct {
     int cogButtonHot;
     // Which slider is being dragged and by which hand, -1 for none. The drag
     // keeps its hand, so the other one resting on the panel cannot steal it.
+    // And the face it was started on, since the first tab's rows are another
+    // set entirely once a room is up.
     int cogDragSlider;
     int cogDragHand;
+    int cogDragFace;
+    // The strip of percents beside the Room tab's tracks, and the values it
+    // was last drawn with, so it only shows once it says what the rows do
+    XrSwapchain cogReadoutSwapchain;
+    uint32_t cogReadoutImageCount;
+    XrSwapchainImageOpenGLESKHR* cogReadoutImages;
+    int cogReadoutReady;
+    int cogReadoutDrawn[READOUT_VALUES];
     // The row under the ray, and on the display tab the cell within it
     int cogHoverSlider;
     int cogHoverCell;
@@ -1124,6 +1146,10 @@ void runGlowRender(XrCtx* ctx);
 
 // xr_room.c: the 3d rooms
 int roomEffective(XrCtx* ctx);
+int roomResizable(int style);
+void roomLevelsFromTable(XrCtx* ctx);
+int roomScreenPercent(XrCtx* ctx, int style);
+int roomGlowOn(XrCtx* ctx, int style);
 void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded);
 void prepareRoom(XrCtx* ctx);
 void renderRoom(XrCtx* ctx);
@@ -1141,7 +1167,8 @@ float furnitureWidth(XrCtx* ctx);
 float furnitureHeight(XrCtx* ctx);
 float cornerSide(XrCtx* ctx);
 float effectiveCurvature(XrCtx* ctx);
-int cogScreenLocked(XrCtx* ctx);
+int cogFace(XrCtx* ctx);
+int cogArt(XrCtx* ctx);
 float screenPitch(XrCtx* ctx);
 XrQuaternionf screenOrient(float yaw, float pitch, float roll);
 float screenRoll(XrCtx* ctx);
@@ -1159,14 +1186,19 @@ void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSid
 int exitButtonHit(XrCtx* ctx, float u, float v, float height);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
-int cogTabRowCount(int tab);
-float cogSliderValue(XrCtx* ctx, int tab, int slider);
-void cogApplySlider(XrCtx* ctx, int tab, int slider, float pu);
+int cogTabRowCount(int face);
+int cogRowIsTrack(int face, int row);
+int cogRowLive(XrCtx* ctx, int face, int row);
+float cogSliderValue(XrCtx* ctx, int face, int slider);
+void cogApplySlider(XrCtx* ctx, int face, int slider, float pu);
 int cogOptionCells(int option);
 int cogOptionValue(XrCtx* ctx, int option, int headLocked);
 int cogApplyOption(XrCtx* ctx, int option, int cell);
+int cogRoomCellValue(XrCtx* ctx, int row);
+void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 void cogDragEnded(XrCtx* ctx, float* out);
 int cogCellAt(float pu, int cells);
+void cogReadouts(XrCtx* ctx, int* values);
 void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide);
 int lockButtonHit(XrCtx* ctx, float u, float v, float height);
 
@@ -1178,6 +1210,7 @@ void destroyArtSwapchain(XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** image
 int createPointerSwapchain(XrCtx* ctx);
 int uploadPointerArt(XrCtx* ctx);
 int roomStyleForCell(int cell);
+int roomCellForStyle(int style);
 
 // xr_debug.c: setprop knobs and frame capture
 void propFlag(const char* name, int* target);
