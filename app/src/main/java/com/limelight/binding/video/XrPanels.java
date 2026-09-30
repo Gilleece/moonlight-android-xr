@@ -19,7 +19,6 @@ import com.limelight.preferences.PreferenceConfiguration;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 
 import static com.limelight.binding.video.XrShared.*;
 
@@ -51,17 +50,21 @@ final class XrPanels {
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout is agreed between the two through the COG_
     // values in XrShared. Three tabs, a texture each, all uploaded once so
-    // switching is free, and a fourth sheet handed over after them: the screen
-    // tab as it reads while a 3d room hangs the picture, which the native side
-    // picks for itself.
+    // switching is free, and the sheets a 3d room shows handed over after
+    // them, which the native side picks for itself: the Room tab in the first
+    // tab's place, and the other two again with its name over that slot.
     private static final String[] COG_TABS = { "Screen", "Display", "3D" };
+    private static final String COG_ROOM_TAB = "Room";
     private static final String[] COG_SLIDER_ROWS =
             { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size" };
-    // What stands in for those rows in a room, where the wall decides both the
-    // placement and the size
-    private static final String COG_ROOM_NOTICE =
-            "Screen size cannot be changed in a 3D environment. "
-                    + "Please choose a different environment to customise the screen size.";
+    // Room tab: a track, two rows of cells and two more tracks, in the
+    // COG_ROOM_ROW_ order. The screen light is one switch for every room and
+    // the rest are the room's own.
+    private static final String[] COG_ROOM_ROWS =
+            { "Brightness", "Glow", "Screen light", "Light level", "Size" };
+    private static final String[] COG_ROOM_SWITCH = { "Off", "On" };
+    // Under the size row where the room keeps its picture whole
+    private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
     // Display tab: a label and a row of cells, one of which is in force, and
     // the glow level track under them. Head locked sits with the picture rows
     // so the two light rows and the level track they belong with stay together
@@ -393,30 +396,21 @@ final class XrPanels {
     }
 
     /**
-     * The settings panel. A texture per tab and one more for the screen tab in
-     * a room, all drawn once here, so changing tab in the session picks
-     * another swapchain rather than redrawing anything. Only the labels, tracks
-     * and cells live in the texture: thumbs and selection rings are quads of
-     * their own, so using the panel costs no upload.
+     * The settings panel. A texture per tab, and the ones a room shows in
+     * their place, all drawn once here in COG_ART_ order, so changing tab in
+     * the session picks another swapchain rather than redrawing anything. Only
+     * the labels, tracks and cells live in the texture: thumbs, selection
+     * rings and the Room tab's percents are quads of their own, so using the
+     * panel costs no upload of a whole sheet.
      */
     ByteBuffer[] buildCogTabs(boolean curveOk, boolean stereoOk) {
-        Bitmap screenTab = buildCogTab(COG_TAB_SCREEN, curveOk, stereoOk);
-        ByteBuffer screen = toBuffer(screenTab);
-        screenTab.recycle();
-
-        Bitmap displayTab = buildCogTab(COG_TAB_DISPLAY, curveOk, stereoOk);
-        ByteBuffer display = toBuffer(displayTab);
-        displayTab.recycle();
-
-        Bitmap tab3d = buildCogTab(COG_TAB_3D, curveOk, stereoOk);
-        ByteBuffer sheet3d = toBuffer(tab3d);
-        tab3d.recycle();
-
-        Bitmap roomTab = buildCogRoomTab();
-        ByteBuffer room = toBuffer(roomTab);
-        roomTab.recycle();
-
-        return new ByteBuffer[] { screen, display, sheet3d, room };
+        ByteBuffer[] sheets = new ByteBuffer[COG_ART_COUNT];
+        for (int art = 0; art < COG_ART_COUNT; art++) {
+            Bitmap sheet = buildCogSheet(art, curveOk, stereoOk);
+            sheets[art] = toBuffer(sheet);
+            sheet.recycle();
+        }
+        return sheets;
     }
 
     // The cog that opens the settings panel
@@ -431,23 +425,21 @@ final class XrPanels {
         return pixels;
     }
 
-    // The screen tab as it reads inside a 3d room: the same chrome, and a note
-    // where the rows would be, since the room hangs and sizes the picture
-    // itself. The native side shows this sheet in place of the screen tab
-    // while a room is on.
-    private Bitmap buildCogRoomTab() {
+    // One sheet of the panel. The ones past the tabs are what a room shows:
+    // the Room tab with its size row live or greyed, then the display and 3D
+    // tabs with the Room tab's name over the first slot.
+    private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk) {
         Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        drawCogChrome(canvas, COG_TAB_SCREEN);
-        drawCogRoomNotice(canvas);
-        return bitmap;
-    }
-
-    private Bitmap buildCogTab(int tab, boolean curveOk, boolean stereoOk) {
-        Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        drawCogChrome(canvas, tab);
-        if (tab == COG_TAB_SCREEN) {
+        boolean inRoom = art >= COG_ART_ROOM;
+        int tab = art == COG_ART_ROOM_DISPLAY ? COG_TAB_DISPLAY
+                : art == COG_ART_ROOM_3D ? COG_TAB_3D
+                : inRoom ? COG_TAB_SCREEN : art;
+        drawCogChrome(canvas, tab, inRoom);
+        if (art == COG_ART_ROOM || art == COG_ART_ROOM_FIXED) {
+            drawCogRoomRows(canvas, art == COG_ART_ROOM);
+        }
+        else if (tab == COG_TAB_SCREEN) {
             drawCogSliderRows(canvas, curveOk);
         }
         else if (tab == COG_TAB_3D) {
@@ -459,9 +451,10 @@ final class XrPanels {
         return bitmap;
     }
 
-    // Background and tab bar, the part both tabs have in common. The tab this
-    // texture belongs to is the one drawn as current.
-    private void drawCogChrome(Canvas canvas, int tab) {
+    // Background and tab bar, the part every tab has in common. The tab this
+    // texture belongs to is the one drawn as current, and in a room the first
+    // slot is the Room tab.
+    private void drawCogChrome(Canvas canvas, int tab, boolean inRoom) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         canvas.drawColor(0, PorterDuff.Mode.CLEAR);
         paint.setColor(0xF0141416);
@@ -484,7 +477,8 @@ final class XrPanels {
             }
 
             text.setColor(current ? Color.WHITE : 0x60FFFFFF);
-            canvas.drawText(COG_TABS[i], slot.centerX(),
+            String name = inRoom && i == COG_TAB_SCREEN ? COG_ROOM_TAB : COG_TABS[i];
+            canvas.drawText(name, slot.centerX(),
                     slot.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
 
             if (current) {
@@ -551,43 +545,137 @@ final class XrPanels {
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
     }
 
-    // What the screen tab carries in a room instead of its rows: the reason
-    // there are none, centred in the body under the tab bar
-    private void drawCogRoomNotice(Canvas canvas) {
-        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
-        text.setTextSize(22.0f);
-        text.setTextAlign(Paint.Align.CENTER);
-        text.setColor(0xC0FFFFFF);
+    // Room tab: the room's own brightness, its glow, the screen light and the
+    // light's level, and the picture's size inside the room's screen. Drawn
+    // the way the other tabs draw their tracks and cells. The brightness and
+    // size rows start somewhere different in every room, so only the light
+    // level, which starts in the same place everywhere, carries a tick. Where
+    // the room keeps its picture whole the size row is greyed with the reason
+    // under it.
+    private void drawCogRoomRows(Canvas canvas, boolean sizeLive) {
+        Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        label.setTextSize(22.0f);
+        label.setTextAlign(Paint.Align.LEFT);
 
-        String[] lines = wrapText(COG_ROOM_NOTICE, text, 0.80f * COG_TEX_W);
-        float step = (text.descent() - text.ascent()) * 1.4f;
-        float middle = (COG_TAB_BAR_B * COG_TEX_H + COG_TEX_H) * 0.5f;
-        float y = middle - (lines.length - 1) * step * 0.5f
-                - (text.ascent() + text.descent()) * 0.5f;
-        for (String line : lines) {
-            canvas.drawText(line, COG_TEX_W * 0.5f, y, text);
-            y += step;
+        Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
+        track.setStyle(Paint.Style.STROKE);
+        track.setStrokeWidth(6.0f);
+        track.setStrokeCap(Paint.Cap.ROUND);
+
+        Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tick.setColor(0xCCFFFFFF);
+
+        final float trackL = COG_TRACK_L * COG_TEX_W;
+        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float cellHalf = COG_CELL_HALF * COG_TEX_H;
+
+        for (int row = 0; row < COG_ROOM_ROWS.length; row++) {
+            boolean live = row != COG_ROOM_ROW_SIZE || sizeLive;
+            float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
+            label.setColor(live ? Color.WHITE : 0x30FFFFFF);
+            canvas.drawText(COG_ROOM_ROWS[row], 0.06f * COG_TEX_W,
+                    y - (label.ascent() + label.descent()) * 0.5f, label);
+
+            if (row == COG_ROOM_ROW_GLOW || row == COG_ROOM_ROW_LIGHT) {
+                drawCogCells(canvas, COG_ROOM_SWITCH, y);
+                continue;
+            }
+
+            track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
+            canvas.drawLine(trackL, y, trackR, y, track);
+
+            if (row == COG_ROOM_ROW_LIGHT_LEVEL) {
+                float markX = trackL + (ROOM_LIGHT_DEFAULT - ROOM_LIGHT_MIN)
+                        / (float)(ROOM_LIGHT_MAX - ROOM_LIGHT_MIN) * (trackR - trackL);
+                canvas.drawRect(markX - 2.0f, y - cellHalf, markX + 2.0f, y + cellHalf, tick);
+            }
+        }
+
+        if (!sizeLive) {
+            // Otherwise a dead track with no explanation, the way the 3D tab
+            // says why its rows are greyed
+            Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            hint.setTextSize(17.0f);
+            hint.setTextAlign(Paint.Align.CENTER);
+            hint.setColor(0x50FFFFFF);
+            float y = (COG_ROW_V0 + (COG_ROOM_ROW_SIZE + 1) * COG_ROW_STEP) * COG_TEX_H;
+            canvas.drawText(COG_ROOM_FIXED_HINT, COG_TEX_W * 0.5f, y, hint);
         }
     }
 
-    // Greedy word wrap, which is all one fixed sentence on a fixed panel needs
-    private static String[] wrapText(String message, Paint paint, float width) {
-        ArrayList<String> lines = new ArrayList<>();
-        StringBuilder line = new StringBuilder();
-        for (String word : message.split(" ")) {
-            if (line.length() > 0 && paint.measureText(line + " " + word) > width) {
-                lines.add(line.toString());
-                line.setLength(0);
-            }
-            if (line.length() > 0) {
-                line.append(' ');
-            }
-            line.append(word);
+    // One row of cells, one press wide each, as the display tab draws them
+    private static void drawCogCells(Canvas canvas, String[] names, float y) {
+        Paint cellText = new Paint(Paint.ANTI_ALIAS_FLAG);
+        cellText.setTextSize(19.0f);
+        cellText.setTextAlign(Paint.Align.CENTER);
+        cellText.setColor(Color.WHITE);
+
+        Paint cell = new Paint(Paint.ANTI_ALIAS_FLAG);
+        final float trackL = COG_TRACK_L * COG_TEX_W;
+        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float cellHalf = COG_CELL_HALF * COG_TEX_H;
+        float span = (trackR - trackL) / names.length;
+        for (int i = 0; i < names.length; i++) {
+            // Inset so neighbours read as separate buttons rather than one
+            // long strip
+            RectF box = new RectF(trackL + i * span + 3.0f, y - cellHalf,
+                    trackL + (i + 1) * span - 3.0f, y + cellHalf);
+
+            cell.setStyle(Paint.Style.FILL);
+            cell.setColor(0x28FFFFFF);
+            canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
+            cell.setStyle(Paint.Style.STROKE);
+            cell.setStrokeWidth(2.0f);
+            cell.setColor(0x50FFFFFF);
+            canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
+
+            canvas.drawText(names[i], box.centerX(),
+                    box.centerY() - (cellText.ascent() + cellText.descent()) * 0.5f, cellText);
         }
-        if (line.length() > 0) {
-            lines.add(line.toString());
+    }
+
+    /**
+     * The strip of percents beside the Room tab's tracks. Redrawn on the frame
+     * loop whenever one of them moves, into the one bitmap and buffer, which
+     * the upload has finished with by the time the next draw comes round.
+     */
+    static final class Readout {
+        // The rows the values in IN_READOUT order sit beside
+        private static final int[] ROWS =
+                { COG_ROOM_ROW_BRIGHTNESS, COG_ROOM_ROW_LIGHT_LEVEL, COG_ROOM_ROW_SIZE };
+
+        private final Bitmap bitmap = Bitmap.createBitmap(COG_READOUT_TEX_W, COG_READOUT_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ByteBuffer pixels =
+                ByteBuffer.allocateDirect(COG_READOUT_TEX_W * COG_READOUT_TEX_H * 4);
+
+        Readout() {
+            text.setTextSize(20.0f);
+            text.setTextAlign(Paint.Align.RIGHT);
+            text.setColor(0xB0FFFFFF);
         }
-        return lines.toArray(new String[0]);
+
+        // Right aligned a little short of the strip's edge, which is where
+        // the thumb at the left end of a track starts. A value under zero
+        // leaves its row blank.
+        ByteBuffer draw(int[] values) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            float right = COG_READOUT_TEX_W - 8.0f;
+            for (int i = 0; i < ROWS.length && i < values.length; i++) {
+                if (values[i] < 0) {
+                    continue;
+                }
+                float y = (COG_ROW_V0 + ROWS[i] * COG_ROW_STEP - COG_READOUT_T) * COG_TEX_H;
+                canvas.drawText(values[i] + "%", right,
+                        y - (text.ascent() + text.descent()) * 0.5f, text);
+            }
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
     }
 
     // 3D tab: the two values worth reaching mid stream. Depth runs past the
@@ -681,13 +769,6 @@ final class XrPanels {
         label.setTextAlign(Paint.Align.LEFT);
         label.setColor(Color.WHITE);
 
-        Paint cellText = new Paint(Paint.ANTI_ALIAS_FLAG);
-        cellText.setTextSize(19.0f);
-        cellText.setTextAlign(Paint.Align.CENTER);
-        cellText.setColor(Color.WHITE);
-
-        Paint cell = new Paint(Paint.ANTI_ALIAS_FLAG);
-
         final float trackL = COG_TRACK_L * COG_TEX_W;
         final float trackR = COG_TRACK_R * COG_TEX_W;
         final float cellHalf = COG_CELL_HALF * COG_TEX_H;
@@ -696,27 +777,7 @@ final class XrPanels {
             float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
             canvas.drawText(COG_OPTION_ROWS[row], 0.06f * COG_TEX_W,
                     y - (label.ascent() + label.descent()) * 0.5f, label);
-
-            String[] names = COG_OPTION_CELLS[row];
-            float span = (trackR - trackL) / names.length;
-            for (int i = 0; i < names.length; i++) {
-                // Inset so neighbours read as separate buttons rather than one
-                // long strip
-                RectF box = new RectF(trackL + i * span + 3.0f, y - cellHalf,
-                        trackL + (i + 1) * span - 3.0f, y + cellHalf);
-
-                cell.setStyle(Paint.Style.FILL);
-                cell.setColor(0x28FFFFFF);
-                canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
-                cell.setStyle(Paint.Style.STROKE);
-                cell.setStrokeWidth(2.0f);
-                cell.setColor(0x50FFFFFF);
-                canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
-
-                canvas.drawText(names[i], box.centerX(),
-                        box.centerY() - (cellText.ascent() + cellText.descent()) * 0.5f,
-                        cellText);
-            }
+            drawCogCells(canvas, COG_OPTION_CELLS[row], y);
         }
 
         // How strong the glow is, a track under the cells and the only row on

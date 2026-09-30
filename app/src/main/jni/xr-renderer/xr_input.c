@@ -537,6 +537,22 @@ static void writeInputPose(XrCtx* ctx, float* out) {
     out[IN_POSE + 9] = ctx->panelCurve;
 }
 
+// How far along the half diagonal to the held corner a point on the picture
+// is, as it stood when the grab began: 0 at the centre, 1 on the corner.
+// Measured from the centre, since that is what holds. The half diagonal is the
+// held corner's own position, so projecting onto it keeps that corner under
+// the ray. Measuring from the far corner along the whole diagonal, as this did
+// when that corner was the anchor, would leave the bracket creeping out at half
+// the speed of the hand.
+static float diagonalReach(XrCtx* ctx, float u, float v) {
+    float px = (u - 0.5f) * ctx->grabWidth;
+    float py = (0.5f - v) * ctx->grabHeight;
+    float halfX = -ctx->grabOppX;
+    float halfY = -ctx->grabOppY;
+    float halfLen = halfX * halfX + halfY * halfY;
+    return halfLen > 0.0f ? (px * halfX + py * halfY) / halfLen : 1.0f;
+}
+
 // Move and resize both work off the handle the ray was over when the grip
 // closed. Gripping the picture itself does nothing, which keeps the panel from
 // being dragged by accident while pointing at something.
@@ -562,9 +578,12 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
 
     if (ctx->grabMode == GRAB_NONE) {
         // A 3d room holds the picture on its wall and forces the pose every
-        // frame, so a drag could only fight it. Neither handle is drawn there,
-        // and the corners are not even hovered.
-        if (roomEffective(ctx) > 0) {
+        // frame, so a move could only fight it and the bar is not drawn there.
+        // A room that lets its picture be resized has corners, and those set
+        // how much of the room's screen the picture fills; in any other room
+        // the corners are not even hovered.
+        int roomStyle = roomEffective(ctx);
+        if (roomStyle > 0 && (hover != HOVER_CORNER || !roomResizable(roomStyle))) {
             return;
         }
         if (hand < 0 || (hover != HOVER_BAR && hover != HOVER_CORNER)) {
@@ -599,8 +618,8 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
             return;
         }
 
-        // The hit itself is not needed any more, but a ray that misses the
-        // plane has nothing to measure the drag against
+        // Outside a room the hit itself is not needed any more, but a ray that
+        // misses the plane has nothing to measure the drag against
         float u, v;
         if (!screenProject(aims[hand], ctx->grabScreen, ctx->screenWidth, height,
                            ctx->screenRadius, curved, &u, &v)) {
@@ -613,6 +632,9 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
         int bottom = (corner >= 2);
         ctx->grabOppX = (right ? -0.5f : 0.5f) * ctx->grabWidth;
         ctx->grabOppY = (bottom ? 0.5f : -0.5f) * ctx->grabHeight;
+        // A room's drag is measured from where the ray met that diagonal now
+        ctx->grabRoomPercent = roomStyle > 0 ? roomScreenPercent(ctx, roomStyle) : 0;
+        ctx->grabRoomReach = diagonalReach(ctx, u, v);
         ctx->grabMode = GRAB_RESIZE;
         return;
     }
@@ -655,19 +677,25 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, int hand,
         return;
     }
 
-    // Measured from the centre, since that is what holds. The half diagonal is
-    // the held corner's own position, so projecting onto it keeps that corner
-    // under the ray. Measuring from the far corner along the whole diagonal,
-    // as this did when that corner was the anchor, would leave the bracket
-    // creeping out at half the speed of the hand.
-    float px = (u - 0.5f) * ctx->grabWidth;
-    float py = (0.5f - v) * ctx->grabHeight;
-    float halfX = -ctx->grabOppX;
-    float halfY = -ctx->grabOppY;
-    float halfLen = halfX * halfX + halfY * halfY;
-    float scale = (px * halfX + py * halfY) / halfLen;
-    if (scale < 0.05f) {
-        scale = 0.05f;
+    float reach = diagonalReach(ctx, u, v);
+    float scale = reach < 0.05f ? 0.05f : reach;
+
+    int roomStyle = roomEffective(ctx);
+    if (roomStyle > 0) {
+        // In a room the drag sets how much of the room's screen the picture
+        // fills, a quarter of it to all of it, in the whole percent the size
+        // row shows, from where the ray was when the grip closed. The room
+        // keeps the centre where it hangs it, and the share goes to the
+        // preference once the hand lets go.
+        int percent = roomResizePercent(ctx->grabRoomPercent, ctx->grabRoomReach, reach);
+        if (percent != ctx->roomScreen[roomStyle]) {
+            ctx->roomScreen[roomStyle] = percent;
+            ctx->roomScreenUnsaved = roomStyle;
+        }
+        // Hung now rather than at the end of the frame, so the ray and the
+        // bracket it ends on move with the picture
+        applyRoomPlacement(ctx, roomStyle, (float)ctx->videoHeight / (float)ctx->videoWidth, 0);
+        return;
     }
 
     float width = ctx->grabWidth * scale;
@@ -701,10 +729,22 @@ static void swallowTrigger(XrCtx* ctx, int src) {
     }
 }
 
-// Where the ray lands on furniture rather than on the picture. The grid has a
-// plane of its own, everything else sits on the screen.
+// Whether a hover is one of the pieces hung against the furniture's frame
+// rather than the picture itself
+static int onFurniture(int hover) {
+    return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
+            || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK;
+}
+
+// Where the ray lands on furniture rather than on the picture. The grid and the
+// panels have planes of their own, and in a room the bar and its buttons sit
+// on the stand in. Everything else sits on the screen.
 static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef screenPose,
                            float height, float radius, int curved) {
+    if (furnitureOnStandIn(ctx) && onFurniture(hover)) {
+        return screenPoint(u, v, standInPose(), STAND_IN_WIDTH_M, furnitureHeight(ctx),
+                           0.0f, 0);
+    }
     if (hover == HOVER_PICKER) {
         float pickW, pickH;
         XrPosef pose = pickerPose(ctx, &pickW, &pickH);
@@ -755,6 +795,8 @@ typedef struct {
     int curved;
     float height;
     float radius;
+    // How big the picture's corner brackets are, 0 where it has none
+    float cornerSide;
     XrPosef screenPose;
     XrSpaceLocation headLoc;
     int headValid;
@@ -790,6 +832,88 @@ static void releaseInput(XrCtx* ctx, float* out) {
         // writes the value, since out is flushed on the way out.
         cogDragEnded(ctx, out);
     }
+}
+
+// The buttons along the bar and the padlock, claimed off what the hover test
+// said about the same point. u and v are on the furniture's frame, which is
+// the picture outside a room and the stand in inside one.
+static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, float v) {
+    float height = furnitureHeight(ctx);
+    // The button reaches past the left end of the bar's zone, so it is tested
+    // here rather than after a hand has been picked. Otherwise the part of it
+    // outside that zone belongs to no hand at all.
+    if ((hover == HOVER_NONE || hover == HOVER_BAR) && envButtonHit(ctx, u, v, height)) {
+        hover = HOVER_ENVBUTTON;
+    }
+    // The cog is the same button on the other side of the bar, so it is
+    // claimed the same way
+    if ((hover == HOVER_NONE || hover == HOVER_BAR) && cogButtonHit(ctx, u, v, height)) {
+        hover = HOVER_COGBUTTON;
+    }
+    // And the keyboard is one further out again, far enough out that it sits
+    // past the right end of the bar's zone entirely. That is halo ground, so
+    // like the padlock on the left it has to claim the halo back or the ray
+    // never reaches it.
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && kbButtonHit(ctx, u, v, height)) {
+        hover = HOVER_KBBUTTON;
+    }
+    // The exit button is the same distance out on the left, so it sits past
+    // that end of the bar's zone and has to claim the halo back the same way
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && exitButtonHit(ctx, u, v, height)) {
+        hover = HOVER_EXITBUTTON;
+    }
+    // Off the left edge, so the halo owns that ground until the padlock claims
+    // it back
+    if (ctx->handsEnabled && hover != HOVER_ENVBUTTON
+            && (hover == HOVER_NONE || hover == HOVER_HALO)
+            && lockButtonHit(ctx, u, v, height)) {
+        hover = HOVER_LOCK;
+        f->atLock[h] = 1;
+    }
+    return hover;
+}
+
+// In a room the picture and the furniture are on two different planes: the
+// picture on the room's wall, the bar and its buttons on the stand in in front
+// of the seat. The picture keeps what lands on it, the furniture takes what
+// lands on a piece of it, and anything else is the picture's margin or nothing.
+// The hit is left in the coordinates of whichever of the two claimed it.
+static void roomHover(XrCtx* ctx, InputFrame* f, int h) {
+    float pu = 0.0f, pv = 0.0f;
+    int picture = HOVER_NONE;
+    if (screenProject(f->aimPoses[h], f->screenPose, ctx->screenWidth, f->height,
+                      f->radius, f->curved, &pu, &pv)) {
+        picture = hoverTest(pu, pv, ctx->screenWidth, f->height, f->cornerSide,
+                            &f->corners[h]);
+    }
+    if (picture == HOVER_SCREEN || picture == HOVER_CORNER) {
+        f->hovers[h] = picture;
+        f->hitU[h] = pu;
+        f->hitV[h] = pv;
+        return;
+    }
+
+    float su, sv;
+    float standW = STAND_IN_WIDTH_M;
+    float standH = furnitureHeight(ctx);
+    if (screenProject(f->aimPoses[h], standInPose(), standW, standH, 0.0f, 0, &su, &sv)) {
+        int unused;
+        int stand = hoverTest(su, sv, standW, standH, 0.0f, &unused);
+        stand = furnitureHover(ctx, f, h, stand, su, sv);
+        if (onFurniture(stand)) {
+            f->hovers[h] = stand;
+            f->hitU[h] = su;
+            f->hitV[h] = sv;
+            return;
+        }
+    }
+
+    // The picture's own bar zone means nothing here, the stand in's does
+    f->hovers[h] = picture == HOVER_BAR ? HOVER_HALO : picture;
+    f->hitU[h] = pu;
+    f->hitV[h] = pv;
 }
 
 // Reads every source: the triggers, the aim poses and where each ray lands
@@ -889,49 +1013,16 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             f->hitU[h] = kbU;
             f->hitV[h] = kbV;
         }
-        else if (screenProject(f->aimPoses[h], f->screenPose, ctx->screenWidth, f->height,
-                               f->radius, f->curved, &f->hitU[h], &f->hitV[h])) {
-            // No corner brackets in a room, so nothing there claims the ray
-            f->hovers[h] = hoverTest(f->hitU[h], f->hitV[h], ctx->screenWidth, f->height,
-                                     !f->roomOn, &f->corners[h]);
-            // The button reaches past the left end of the bar's zone, so it is
-            // tested here rather than after a hand has been picked. Otherwise
-            // the part of it outside that zone belongs to no hand at all.
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR)
-                    && envButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_ENVBUTTON;
+        else if (!f->roomOn) {
+            if (screenProject(f->aimPoses[h], f->screenPose, ctx->screenWidth, f->height,
+                              f->radius, f->curved, &f->hitU[h], &f->hitV[h])) {
+                int hover = hoverTest(f->hitU[h], f->hitV[h], ctx->screenWidth, f->height,
+                                      f->cornerSide, &f->corners[h]);
+                f->hovers[h] = furnitureHover(ctx, f, h, hover, f->hitU[h], f->hitV[h]);
             }
-            // The cog is the same button on the other side of the bar, so it
-            // is claimed the same way
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR)
-                    && cogButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_COGBUTTON;
-            }
-            // And the keyboard is one further out again, far enough out that
-            // it sits past the right end of the bar's zone entirely. That is
-            // halo ground, so like the padlock on the left it has to claim the
-            // halo back or the ray never reaches it.
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR
-                    || f->hovers[h] == HOVER_HALO)
-                    && kbButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_KBBUTTON;
-            }
-            // The exit button is the same distance out on the left, so it sits
-            // past that end of the bar's zone and has to claim the halo back
-            // the same way
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR
-                    || f->hovers[h] == HOVER_HALO)
-                    && exitButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_EXITBUTTON;
-            }
-            // Off the left edge, so the halo owns that ground until the
-            // padlock claims it back
-            if (ctx->handsEnabled && f->hovers[h] != HOVER_ENVBUTTON
-                    && (f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_HALO)
-                    && lockButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_LOCK;
-                f->atLock[h] = 1;
-            }
+        }
+        else {
+            roomHover(ctx, f, h);
         }
 
         if (ctx->poseSeen[h] && f->dt > 0.0f) {
@@ -1194,18 +1285,17 @@ static void updatePicker(XrCtx* ctx, InputFrame* f) {
 static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
     f->hover = HOVER_COGPANEL;
     f->hand = -1;
+    int face = cogFace(ctx);
 
     // A drag keeps the hand that started it, and keeps it even once the
     // ray has wandered off the panel, so a slider can be run to either end
-    // in one go. The display tab is cells apart from its one level row.
-    if (ctx->cogDragSlider >= 0 && cogScreenLocked(ctx)) {
-        // A room took the picture mid drag, which only a debug property
-        // can do, and there is nothing left under the thumb to move
+    // in one go. The display and Room tabs are cells apart from their tracks.
+    if (ctx->cogDragSlider >= 0 && ctx->cogDragFace != face) {
+        // A room came or went mid drag, which only a debug property can do,
+        // and the row under the thumb is another row now
         cogDragEnded(ctx, f->out);
     }
-    else if (ctx->cogDragSlider >= 0
-            && (ctx->cogTab != COG_TAB_DISPLAY
-                || ctx->cogDragSlider == COG_DISPLAY_SLIDER_ROW)) {
+    else if (ctx->cogDragSlider >= 0 && cogRowIsTrack(face, ctx->cogDragSlider)) {
         int h = ctx->cogDragHand;
         float pu, pv;
         if (h >= 0 && f->aimValid[h] && ctx->triggerDown[h]
@@ -1215,7 +1305,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             f->hitU[h] = pu;
             f->hitV[h] = pv;
             ctx->cogHoverSlider = ctx->cogDragSlider;
-            cogApplySlider(ctx, ctx->cogTab, ctx->cogDragSlider, pu);
+            cogApplySlider(ctx, face, ctx->cogDragSlider, pu);
         }
         else {
             cogDragEnded(ctx, f->out);
@@ -1247,31 +1337,17 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 ctx->cogTab = t;
                 ctx->cogDragSlider = -1;
                 ctx->cogDragHand = -1;
+                ctx->cogDragFace = -1;
             }
             break;
         }
 
-        // Below the tabs the screen tab is a note while a room is on, so
-        // rows, tracks and the reset button are all out of reach. The
-        // press is still swallowed, since it landed on the panel.
-        if (cogScreenLocked(ctx)) {
-            ctx->cogHoverSlider = -1;
-            ctx->cogHoverCell = -1;
-            break;
-        }
-
-        int rowCount = cogTabRowCount(ctx->cogTab);
+        // A row that can do nothing here is drawn greyed, and the ray
+        // passes over it as if it were not there
+        int rowCount = cogTabRowCount(face);
         int row = -1;
         for (int s = 0; s < rowCount; s++) {
-            // Curving needs a layer type this runtime may not have, and
-            // the row is drawn greyed to say so
-            if (ctx->cogTab == COG_TAB_SCREEN && s == COG_SLIDER_CURVE
-                    && !ctx->cylinderSupported) {
-                continue;
-            }
-            // With stereo off there is nothing for either 3D row to move,
-            // and both are drawn greyed to match
-            if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
+            if (!cogRowLive(ctx, face, s)) {
                 continue;
             }
             if (fabsf(pv - (COG_ROW_V0 + s * COG_ROW_STEP)) < COG_ROW_HALF) {
@@ -1280,34 +1356,22 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             }
         }
 
-        if (ctx->cogTab == COG_TAB_DISPLAY) {
-            if (row == COG_DISPLAY_SLIDER_ROW) {
-                // The one track on this tab, handled the way the other
-                // tabs' rows are, including the band reaching a little
-                // past both ends for the thumb hanging over them
-                if (pu <= COG_TRACK_L - 0.04f || pu >= COG_TRACK_R + 0.04f) {
-                    row = -1;
-                }
-                ctx->cogHoverSlider = row;
-                ctx->cogHoverCell = -1;
-                if (row >= 0 && ctx->triggerEdge[h]) {
-                    ctx->cogDragSlider = row;
-                    ctx->cogDragHand = h;
-                    // Jumps to where the press landed, same as the others
-                    cogApplySlider(ctx, ctx->cogTab, row, pu);
-                }
-                break;
-            }
-
+        if (row >= 0 && !cogRowIsTrack(face, row)) {
             // Cells, so a press picks one rather than starting a drag
-            int cell = row >= 0 ? cogCellAt(pu, cogOptionCells(row)) : -1;
+            int cells = face == COG_FACE_ROOM ? COG_ROOM_SWITCH_CELLS : cogOptionCells(row);
+            int cell = cogCellAt(pu, cells);
             ctx->cogHoverSlider = cell >= 0 ? row : -1;
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
-                int id = cogApplyOption(ctx, row, cell);
-                if (id >= 0) {
-                    f->out[IN_SETTING] = (float)id;
-                    f->out[IN_SETTING_VALUE] = (float)cell;
+                if (face == COG_FACE_ROOM) {
+                    cogApplyRoomCell(ctx, row, cell, f->out);
+                }
+                else {
+                    int id = cogApplyOption(ctx, row, cell);
+                    if (id >= 0) {
+                        f->out[IN_SETTING] = (float)id;
+                        f->out[IN_SETTING_VALUE] = (float)cell;
+                    }
                 }
             }
             break;
@@ -1320,9 +1384,11 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         }
         ctx->cogHoverSlider = row;
 
-        int onReset = pu >= COG_RESET_L && pu <= COG_RESET_R
+        // Only the screen and 3D tabs have a reset button under their rows
+        int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D)
+                && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
-        if (onReset && ctx->triggerEdge[h] && ctx->cogTab == COG_TAB_3D) {
+        if (onReset && ctx->triggerEdge[h] && face == COG_TAB_3D) {
             // The shipped defaults, 0.5 percent and half convergence, said
             // here rather than read back so the button works the same way
             // whatever the preferences were left on. Still allowed while
@@ -1348,9 +1414,10 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         else if (row >= 0 && ctx->triggerEdge[h]) {
             ctx->cogDragSlider = row;
             ctx->cogDragHand = h;
+            ctx->cogDragFace = face;
             // Jumps to where the press landed rather than waiting for the
             // first bit of movement
-            cogApplySlider(ctx, ctx->cogTab, row, pu);
+            cogApplySlider(ctx, face, row, pu);
         }
     }
 
@@ -1573,7 +1640,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
         else {
             // The bracket being held sits a half bracket outside the
             // corner, so the ray has to end out there with it
-            float side = ctx->screenWidth * CORNER_FRAC;
+            float side = cornerSide(ctx);
             local.x = (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * (ctx->screenWidth + side);
             local.y = (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * (f->height + side);
         }
@@ -1747,6 +1814,40 @@ static void updateAudioYaw(XrCtx* ctx, int headLocked) {
     }
 }
 
+// A room's size left by a corner goes to the preference once the grab is over,
+// however it ended, on the first frame with the setting slot free. A room gone
+// from under it in the meantime leaves nothing to write it to.
+static void emitRoomScreen(XrCtx* ctx, float* out) {
+    int style = ctx->roomScreenUnsaved;
+    if (style == 0 || ctx->grabMode == GRAB_RESIZE || out[IN_SETTING] >= 0.0f) {
+        return;
+    }
+    ctx->roomScreenUnsaved = 0;
+    if (style != roomEffective(ctx)) {
+        return;
+    }
+    out[IN_SETTING] = (float)SETTING_ROOM_SCREEN;
+    out[IN_SETTING_VALUE] = (float)roomScreenPercent(ctx, style);
+    LOGEV("room %d screen percent %d from a corner", style, roomScreenPercent(ctx, style));
+}
+
+// The slots read off state rather than written as things happen, filled last
+// so they say what this frame left, then the lot to Java
+static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
+    int readouts[READOUT_VALUES] = { -1, -1, -1 };
+    out[IN_SETTING_ROOM] = -1.0f;
+    if (ctx != NULL) {
+        emitRoomScreen(ctx, out);
+        // Every room keeps its own values, so a room setting says whose it is
+        out[IN_SETTING_ROOM] = (float)roomCellForStyle(roomEffective(ctx));
+        cogReadouts(ctx, readouts);
+    }
+    for (int i = 0; i < READOUT_VALUES; i++) {
+        out[IN_READOUT + i] = (float)readouts[i];
+    }
+    (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+}
+
 // Reads the controllers and works out where they are pointing on the screen.
 // Java turns the result into host mouse events, so nothing here knows about
 // the connection.
@@ -1785,7 +1886,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         if (ctx != NULL) {
             releaseInput(ctx, out);
         }
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1798,7 +1899,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     sync.activeActionSets = &active;
     if (XR_FAILED(xrSyncActions(ctx->session, &sync))) {
         ctx->buttonsDown = 0;
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1821,6 +1922,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     f.curved = !f.roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
     f.radius = ctx->screenRadius;
+    f.cornerSide = cornerSide(ctx);
     f.screenPose = ctx->screenPose;
 
     f.now = nowNs();
@@ -1891,7 +1993,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if (ctx->grabMode != GRAB_NONE) {
         beamToHandle(ctx, &f);
         writeInputPose(ctx, out);
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1903,7 +2005,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         }
         ctx->buttonsDown = 0;
         writeInputPose(ctx, out);
-        (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+        handBack(env, ctx, out, outArr);
         return;
     }
 
@@ -1924,7 +2026,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     writeInputPose(ctx, out);
     out[IN_PICKER_PICK] = (float)ctx->pickerPick;
-    (*env)->SetFloatArrayRegion(env, outArr, 0, IN_SLOTS, out);
+    handBack(env, ctx, out, outArr);
 }
 
 // Puts back a placement saved from a previous session. Marking the sliders as

@@ -38,6 +38,7 @@
 #include "xr_shared.h"
 #include "xr_depthmap.h"
 #include "xr_roommesh.h"
+#include "xr_layout.h"
 
 #define TAG "moonlight-xr"
 
@@ -127,37 +128,12 @@ static inline long nowNs(void) {
 #define SCREEN_MIN_WIDTH 0.8f
 #define SCREEN_MAX_WIDTH 8.0f
 
-// What the ray is over. Handles only show while hovered, which is how spatial
-// panels usually behave: nothing visible until you go looking for it.
-#define HOVER_NONE   0
-#define HOVER_SCREEN 1
-#define HOVER_BAR    2
-#define HOVER_CORNER 3
+// What the ray is over, and the handles' sizes and hover zones, are in
+// xr_layout.h with the hover test that reads them
 
 #define GRAB_NONE   0
 #define GRAB_MOVE   1
 #define GRAB_RESIZE 2
-
-// All as a fraction of screen width, so the handles keep their proportions as
-// the screen is resized
-#define BAR_WIDTH_FRAC  0.14f
-// Height follows the art rather than being picked separately. The two used to
-// disagree by 2.5x, which stretched the rounded ends into a slab.
-#define BAR_HEIGHT_FRAC (BAR_WIDTH_FRAC * (float)BAR_TEX_H / (float)BAR_TEX_W)
-#define BAR_GAP_FRAC    0.035f
-#define CORNER_FRAC     0.075f
-// Hover zones are bigger than the art, since aiming at a thin bar is fussy
-#define HOVER_MARGIN 1.7f
-#define CORNER_HOVER 1.5f
-// The bar is small on purpose, so its hover zone is proportionally wider
-#define BAR_HOVER 2.0f
-
-// Handle art, one small swapchain each so there is no atlas offset convention
-// to get wrong
-#define BAR_TEX_W 256
-#define BAR_TEX_H 24
-#define CORNER_TEX_W 64
-#define CORNER_TEX_H 64
 
 // Widened along with the grid so a cell stays about the size it was at three
 // columns: five of them now
@@ -180,6 +156,10 @@ static inline long nowNs(void) {
 // size as the environment button on the left
 #define COG_BUTTON_FRAC 0.048f
 #define COG_THUMB_TEX 64
+// Which rows the panel is showing: one of the tabs, or the Room tab, which is
+// what the first tab is while a room is up. Numbered past the tabs, since it
+// is not a tab of its own and nothing else can reach it.
+#define COG_FACE_ROOM COG_TAB_COUNT
 
 // Metres. Deliberately well under the settings slider's 1 m floor, so the
 // screen can be brought right up to the face.
@@ -206,19 +186,6 @@ static inline long nowNs(void) {
 
 #define EXIT_WIDTH_FRAC 0.30f
 
-#define HOVER_ENVBUTTON 4
-#define HOVER_PICKER    5
-// Nothing under the ray, but close enough to the screen to keep drawing it
-#define HOVER_HALO      6
-#define HOVER_LOCK      7
-#define HOVER_COGBUTTON 8
-#define HOVER_COGPANEL  9
-#define HOVER_KBBUTTON  10
-#define HOVER_KBPANEL   11
-#define HOVER_EXITBUTTON 12
-#define HOVER_EXITPROMPT 13
-// How far past each edge that reaches, as a fraction of the screen
-#define HALO_FRAC 0.5f
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
 
@@ -625,8 +592,16 @@ typedef struct {
     float roomScaleOverride;
     float roomDimOverride;
     // Whether the picture washes its light over the room. Its own option, since
-    // the wash runs whether the glow is on or not.
+    // the wash runs whether the glow is on or not. One value for every room.
     int roomLightOn;
+    // Each baked room's own values for the Room tab's rows, by style, in the
+    // units the preferences hold: brightness and light level in hundredths,
+    // the glow 1 or 0, the size in whole percent of the room's screen. Seeded
+    // from the room table, then handed down from the preferences.
+    int roomBrightness[ROOM_STYLE_LAST + 1];
+    int roomGlow[ROOM_STYLE_LAST + 1];
+    int roomLightLevel[ROOM_STYLE_LAST + 1];
+    int roomScreen[ROOM_STYLE_LAST + 1];
     // Everything the room is drawn with, built the first frame a style asks
     // for it rather than at startup. One side by side image, a half of it per
     // eye.
@@ -952,6 +927,14 @@ typedef struct {
     // Resize scales about the centre, which stays put. These are the corner
     // opposite the one being dragged, and their signs say which corner is held.
     float grabOppX, grabOppY;
+    // In a room a resize moves the share of the room's screen the picture
+    // fills rather than its width, from the share it was picked up at and from
+    // how far along the half diagonal the ray was then, and the room it was
+    // left in owes that share to the preference until a frame has the setting
+    // slot free to carry it
+    int grabRoomPercent;
+    float grabRoomReach;
+    int roomScreenUnsaved;
     int poseDirty;
 
     // Hover state, read by the frame loop to decide which handle to draw
@@ -1008,8 +991,18 @@ typedef struct {
     int cogButtonHot;
     // Which slider is being dragged and by which hand, -1 for none. The drag
     // keeps its hand, so the other one resting on the panel cannot steal it.
+    // And the face it was started on, since the first tab's rows are another
+    // set entirely once a room is up.
     int cogDragSlider;
     int cogDragHand;
+    int cogDragFace;
+    // The strip of percents beside the Room tab's tracks, and the values it
+    // was last drawn with, so it only shows once it says what the rows do
+    XrSwapchain cogReadoutSwapchain;
+    uint32_t cogReadoutImageCount;
+    XrSwapchainImageOpenGLESKHR* cogReadoutImages;
+    int cogReadoutReady;
+    int cogReadoutDrawn[READOUT_VALUES];
     // The row under the ray, and on the display tab the cell within it
     int cogHoverSlider;
     int cogHoverCell;
@@ -1161,6 +1154,10 @@ void runGlowRender(XrCtx* ctx);
 
 // xr_room.c: the 3d rooms
 int roomEffective(XrCtx* ctx);
+int roomResizable(int style);
+void roomLevelsFromTable(XrCtx* ctx);
+int roomScreenPercent(XrCtx* ctx, int style);
+int roomGlowOn(XrCtx* ctx, int style);
 void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded);
 void prepareRoom(XrCtx* ctx);
 void renderRoom(XrCtx* ctx);
@@ -1172,9 +1169,14 @@ void refreshInputSource(XrCtx* ctx);
 int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature);
 
 // xr_ui.c: where the furniture and the panels sit, and what the ray is over
-int hoverTest(float u, float v, float width, float height, int cornersLive, int* corner);
+int furnitureOnStandIn(XrCtx* ctx);
+XrPosef furniturePose(XrCtx* ctx);
+float furnitureWidth(XrCtx* ctx);
+float furnitureHeight(XrCtx* ctx);
+float cornerSide(XrCtx* ctx);
 float effectiveCurvature(XrCtx* ctx);
-int cogScreenLocked(XrCtx* ctx);
+int cogFace(XrCtx* ctx);
+int cogArt(XrCtx* ctx);
 float screenPitch(XrCtx* ctx);
 XrQuaternionf screenOrient(float yaw, float pitch, float roll);
 float screenRoll(XrCtx* ctx);
@@ -1192,14 +1194,19 @@ void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSid
 int exitButtonHit(XrCtx* ctx, float u, float v, float height);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
-int cogTabRowCount(int tab);
-float cogSliderValue(XrCtx* ctx, int tab, int slider);
-void cogApplySlider(XrCtx* ctx, int tab, int slider, float pu);
+int cogTabRowCount(int face);
+int cogRowIsTrack(int face, int row);
+int cogRowLive(XrCtx* ctx, int face, int row);
+float cogSliderValue(XrCtx* ctx, int face, int slider);
+void cogApplySlider(XrCtx* ctx, int face, int slider, float pu);
 int cogOptionCells(int option);
 int cogOptionValue(XrCtx* ctx, int option, int headLocked);
 int cogApplyOption(XrCtx* ctx, int option, int cell);
+int cogRoomCellValue(XrCtx* ctx, int row);
+void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 void cogDragEnded(XrCtx* ctx, float* out);
 int cogCellAt(float pu, int cells);
+void cogReadouts(XrCtx* ctx, int* values);
 void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide);
 int lockButtonHit(XrCtx* ctx, float u, float v, float height);
 
@@ -1211,6 +1218,7 @@ void destroyArtSwapchain(XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** image
 int createPointerSwapchain(XrCtx* ctx);
 int uploadPointerArt(XrCtx* ctx);
 int roomStyleForCell(int cell);
+int roomCellForStyle(int style);
 
 // xr_debug.c: setprop knobs and frame capture
 void propFlag(const char* name, int* target);

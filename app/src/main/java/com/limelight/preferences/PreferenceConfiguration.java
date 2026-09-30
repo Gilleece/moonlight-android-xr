@@ -98,6 +98,15 @@ public class PreferenceConfiguration {
     public static final String VR_AMBILIGHT_PREF_STRING = "checkbox_vr_ambilight";
     public static final String VR_AMBILIGHT_LEVEL_PREF_STRING = "seekbar_vr_ambilight_level";
     public static final String VR_ROOM_LIGHT_PREF_STRING = "checkbox_vr_room_light";
+    // Each room's own values from the headset panel's Room tab, one key per
+    // room by its environment id, so room_brightness_4 is the Home Theater's.
+    // Brightness and the light level are in the renderer's hundredths, the
+    // size in whole percent of the room's screen. The screen light switch and
+    // the glow outside a room keep their one app wide key each.
+    public static final String ROOM_BRIGHTNESS_PREFIX = "room_brightness_";
+    public static final String ROOM_GLOW_PREFIX = "room_glow_";
+    public static final String ROOM_LIGHT_PREFIX = "room_light_";
+    public static final String ROOM_SCREEN_PREFIX = "room_screen_";
     public static final String FILE_LOG_PREF_STRING = "list_vr_file_log";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
@@ -293,6 +302,9 @@ public class PreferenceConfiguration {
     // -1 before anything has been. Read for the logs only: the renderer reads
     // and writes the preference itself.
     public int vrEnvironmentId;
+    // That environment's own Room tab values, or null when it is not a room.
+    // For the logs too: the renderer reads every room's when it starts.
+    public RoomLevels vrRoomLevels;
     // off, basic or verbose
     public String fileLogLevel;
     public boolean enableLatencyToast;
@@ -476,6 +488,121 @@ public class PreferenceConfiguration {
     /** The value a headset runs for a stored one: ZipDepth for a MiDaS it does not offer. */
     public static String depthSourceForHeadset(String depthSource, boolean gen1) {
         return isDepthSourceOffered(depthSource, gen1) ? depthSource : VR_DEPTH_SOURCE_ZIPDEPTH;
+    }
+
+    /** One room's own values for the headset panel's Room tab. */
+    public static final class RoomLevels {
+        // Hundredths of the room as it was baked
+        public final int brightness;
+        public final boolean glow;
+        // Hundredths of the light the room's own row gives it
+        public final int light;
+        // Whole percent of the room's screen
+        public final int screen;
+
+        public RoomLevels(int brightness, boolean glow, int light, int screen) {
+            this.brightness = brightness;
+            this.glow = glow;
+            this.light = light;
+            this.screen = screen;
+        }
+
+        // All four for a log line, joined the way that line joins its keys to
+        // their values
+        public String describe(String join) {
+            return "roomBrightness" + join + brightness + " roomGlow" + join + glow
+                    + " roomLight" + join + light + " roomScreen" + join + screen;
+        }
+    }
+
+    /** Whether an environment id is one of the baked rooms, which keep values of their own. */
+    public static boolean isRoomEnvironment(int envId) {
+        return envId == VR_ENV_HOME_THEATER || envId == VR_ENV_GRAND_CINEMA
+                || envId == VR_ENV_SYNTHWAVE;
+    }
+
+    public static String roomBrightnessKey(int envId) {
+        return ROOM_BRIGHTNESS_PREFIX + envId;
+    }
+
+    public static String roomGlowKey(int envId) {
+        return ROOM_GLOW_PREFIX + envId;
+    }
+
+    public static String roomLightKey(int envId) {
+        return ROOM_LIGHT_PREFIX + envId;
+    }
+
+    public static String roomScreenKey(int envId) {
+        return ROOM_SCREEN_PREFIX + envId;
+    }
+
+    // Where each room starts, which is its row in the renderer's room table,
+    // read off the same constants so the two cannot drift apart
+    public static int defaultRoomBrightness(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_BRIGHTNESS;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_BRIGHTNESS;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_BRIGHTNESS;
+            default: return 100;
+        }
+    }
+
+    public static boolean defaultRoomGlow(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_GLOW != 0;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_GLOW != 0;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_GLOW != 0;
+            default: return DEFAULT_VR_AMBILIGHT;
+        }
+    }
+
+    // The same in every room
+    public static int defaultRoomLight() {
+        return XrShared.ROOM_LIGHT_DEFAULT;
+    }
+
+    public static int defaultRoomScreen(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_SCREEN;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_SCREEN;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_SCREEN;
+            default: return XrShared.ROOM_SCREEN_MAX;
+        }
+    }
+
+    public static boolean roomResizable(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_RESIZABLE != 0;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_RESIZABLE != 0;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_RESIZABLE != 0;
+            default: return false;
+        }
+    }
+
+    /**
+     * The size a room hangs its picture at for a stored percent: a quarter of
+     * its screen to all of it where the room may be resized, and all of it in
+     * a room that keeps its picture whole, whatever was stored.
+     */
+    public static int clampRoomScreen(int envId, int percent) {
+        if (!roomResizable(envId)) {
+            return XrShared.ROOM_SCREEN_MAX;
+        }
+        return Math.max(XrShared.ROOM_SCREEN_MIN, Math.min(XrShared.ROOM_SCREEN_MAX, percent));
+    }
+
+    /** One room's values as stored, the room's own defaults where nothing is, each in its lane. */
+    public static RoomLevels readRoomLevels(SharedPreferences prefs, int envId) {
+        int brightness = prefs.getInt(roomBrightnessKey(envId), defaultRoomBrightness(envId));
+        int light = prefs.getInt(roomLightKey(envId), defaultRoomLight());
+        return new RoomLevels(
+                Math.max(XrShared.ROOM_BRIGHTNESS_MIN,
+                        Math.min(XrShared.ROOM_BRIGHTNESS_MAX, brightness)),
+                prefs.getBoolean(roomGlowKey(envId), defaultRoomGlow(envId)),
+                Math.max(XrShared.ROOM_LIGHT_MIN, Math.min(XrShared.ROOM_LIGHT_MAX, light)),
+                clampRoomScreen(envId, prefs.getInt(roomScreenKey(envId),
+                        defaultRoomScreen(envId))));
     }
 
     // Moves a stored MiDaS to ZipDepth, once. Installs from before ZipDepth
@@ -960,6 +1087,8 @@ public class PreferenceConfiguration {
                 DEFAULT_VR_AMBILIGHT_LEVEL);
         config.vrRoomLight = prefs.getBoolean(VR_ROOM_LIGHT_PREF_STRING, DEFAULT_VR_ROOM_LIGHT);
         config.vrEnvironmentId = prefs.getInt(VR_ENVIRONMENT_ID_PREF_STRING, -1);
+        config.vrRoomLevels = isRoomEnvironment(config.vrEnvironmentId)
+                ? readRoomLevels(prefs, config.vrEnvironmentId) : null;
         config.fileLogLevel = prefs.getString(FILE_LOG_PREF_STRING, DEFAULT_FILE_LOG);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);

@@ -4,14 +4,15 @@
 
 // Worst case reachable is a tab with six rows open: the glow, both eyes,
 // stats, the cog button, the panel, six thumbs, ray and cursor, which is 14.
-// A room adds its own layer, but in one the screen tab sheds its thumbs and
-// the move pill goes, so that tab only ever comes to less. The display tab
-// keeps its rows in a room: its seven rings and the glow level thumb over
-// the rest come to 17 at its fullest, one past the Pico's sixteen, so a
-// frame over the runtime's limit sheds that tab's hover ring (see
-// nativeEndFrame). The panel is modal, and since the frame a modal opens now
-// sheds the bar furniture too, the two can no longer land in one frame
-// together.
+// A room adds its own layer, but in one the screen tab gives way to the Room
+// tab and the move pill goes: three rings, three thumbs and the strip of
+// percents beside them come to 16 with the room, the glow and the stats all
+// up, which is the Pico's limit and no further. The display tab keeps its
+// rows in a room: its seven rings and the glow level thumb over the rest come
+// to 17 at its fullest, one past the Pico's sixteen, so a frame over the
+// runtime's limit sheds the hover ring (see nativeEndFrame). The panel is
+// modal, and since the frame a modal opens now sheds the bar furniture too,
+// the two can no longer land in one frame together.
 // The keyboard sheds the same furniture and adds only its panel and one
 // ring, so it comes to 9. The exit prompt sheds it too and adds its own
 // sheet and the button that opened it, so it comes to less again. Sized
@@ -40,6 +41,7 @@ typedef struct {
     XrCompositionLayerQuad cogPanel;
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMark[COG_OPTION_COUNT + 1];
+    XrCompositionLayerQuad cogReadout;
     // One per row of whichever tab has the most. The display tab's glow level
     // track is its seventh row, so it is the one that sets the size.
     XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SLIDER_COUNT
@@ -367,13 +369,13 @@ static void addOverlayLayer(XrCtx* ctx, const FrameView* view, FrameLayers* laye
 // The move bar or the resize corner, whichever the ray is over
 static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // Move bar and resize corner, shown only while the ray is over them.
-    // Both live in the screen's own frame, so they travel with it. Neither
-    // goes up in a room, where the wall holds the picture and there is
-    // nothing for either to move. The buttons beside the bar still come up
-    // on the same hover.
-    if (ctx->handleArtReady && !view->roomOn
-            && (view->barArea || ctx->hoverKind == HOVER_CORNER)) {
-        int isBar = view->barArea;
+    // Both live in the screen's own frame, so they travel with it. The bar
+    // never goes up in a room, where the wall holds the picture, though the
+    // buttons beside it still come up on the same hover; the corners go up
+    // in a room that lets its picture be resized, and nowhere else in one.
+    int isBar = view->barArea && !view->roomOn;
+    int isCorner = !view->barArea && ctx->hoverKind == HOVER_CORNER && cornerSide(ctx) > 0.0f;
+    if (ctx->handleArtReady && (isBar || isCorner)) {
         Vec3 local;
         float sizeW, sizeH;
         float roll = 0.0f;
@@ -386,7 +388,7 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
                         + sizeH * 0.5f);
         }
         else {
-            sizeW = sizeH = view->screenWidth * CORNER_FRAC;
+            sizeW = sizeH = cornerSide(ctx);
             int right = ctx->hoverCorner == 1 || ctx->hoverCorner == 3;
             int bottom = ctx->hoverCorner >= 2;
             // Half a bracket outside the corner in both axes, so its inner
@@ -419,18 +421,19 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     }
 }
 
-// One of the buttons beside the move bar, wherever its placement puts it
+// One of the buttons beside the move bar, wherever its placement puts it. On
+// the furniture's frame, which in a room is the stand in rather than the wall.
 static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
                          XrCompositionLayerQuad* slot, XrSwapchain chain,
                          void (*placement)(XrCtx*, float, Vec3*, float*), int hot) {
     Vec3 local;
     float side;
-    placement(ctx, view->screenHeight, &local, &side);
+    placement(ctx, furnitureHeight(ctx), &local, &side);
     // Grows a little when the ray is on it, which is the only feedback
     // a quad layer can give without a second texture
     float scale = hot ? 1.18f : 1.0f;
     quadLayer(slot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
-              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(view->screenPose, local),
+              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(furniturePose(ctx), local),
               side * scale, side * scale);
     pushLayer(ctx, layers, slot);
 }
@@ -497,16 +500,18 @@ static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
         float lockYaw = 0.0f;
         lockButtonPlacement(ctx, &local, &side);
         // Hangs off the left edge, which on a curved screen is well in
-        // front of the flat plane the placement is measured in
+        // front of the flat plane the placement is measured in. A room's
+        // picture is never curved, and its furniture is on the stand in.
         curveLocal(&local, ctx->screenRadius, view->screenCurved, &lockYaw);
         Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
         float lockScale = ctx->lockHot ? 1.18f : 1.0f;
+        XrPosef frame = furniturePose(ctx);
 
         quadLayer(&layers->lock, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->handsLocked ? ctx->lockSwapchain : ctx->unlockSwapchain,
-                  LOCK_TEX, LOCK_TEX, view->space, poseOffset(view->screenPose, local),
+                  LOCK_TEX, LOCK_TEX, view->space, poseOffset(frame, local),
                   side * lockScale, side * lockScale);
-        layers->lock.pose.orientation = quatNorm(quatMul(view->screenPose.orientation,
+        layers->lock.pose.orientation = quatNorm(quatMul(frame.orientation,
                                                          axisAngleQuat(yawAxis, lockYaw)));
         pushLayer(ctx, layers, &layers->lock);
     }
@@ -560,24 +565,41 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
     }
 }
 
-// The settings panel, the rings on its display tab and the thumbs on its sliders
+// A ring over one cell of a row on the settings panel, the same trick the
+// picker uses to mark cells without an upload
+static void addCogRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
+                       XrCompositionLayerQuad* mark, int row, int cell, int cells, float scale) {
+    float span = (COG_TRACK_R - COG_TRACK_L) / cells;
+    Vec3 local;
+    local.x = (COG_TRACK_L + (cell + 0.5f) * span - 0.5f) * ctx->cogW;
+    local.y = (0.5f - (COG_ROW_V0 + row * COG_ROW_STEP)) * ctx->cogH;
+    local.z = 0.004f;
+    quadLayer(mark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+              ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
+              poseOffset(ctx->cogPose, local), span * ctx->cogW * scale,
+              2.0f * COG_CELL_HALF * ctx->cogH * scale);
+    pushLayer(ctx, layers, mark);
+}
+
+// The settings panel, the rings on its rows of cells, the thumbs on its
+// sliders, and on the Room tab the percents beside them
 static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The settings panel, at the pose it was opened with. The tab is a
-    // choice of swapchain, all were filled at startup, and in a room the
-    // screen tab picks its own sheet. Sharpened: it carries text.
-    int cogArt = cogScreenLocked(ctx) ? COG_ART_ROOM_SCREEN : ctx->cogTab;
-    if (ctx->cogOpen && ctx->cogPanelReady[cogArt]) {
+    // choice of swapchain, all were filled at startup, and a room has its
+    // own sheets. Sharpened: it carries text.
+    int art = cogArt(ctx);
+    int face = cogFace(ctx);
+    if (ctx->cogOpen && ctx->cogPanelReady[art]) {
         quadLayer(&layers->cogPanel, layers->settingsChain,
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
-                  ctx->cogPanelSwapchains[cogArt], COG_TEX_W, COG_TEX_H, view->space,
+                  ctx->cogPanelSwapchains[art], COG_TEX_W, COG_TEX_H, view->space,
                   ctx->cogPose, ctx->cogW, ctx->cogH);
         pushLayer(ctx, layers, &layers->cogPanel);
 
-        // Display tab. The cells are drawn into the texture, so what is
-        // chosen and what is under the ray are rings over them, the same
-        // trick the picker uses to mark cells without an upload. One per
-        // row for the choice, then a wider one for the hover.
-        if (ctx->cogTab == COG_TAB_DISPLAY && ctx->outlineReady) {
+        // The cells are drawn into the texture, so what is chosen and what is
+        // under the ray are rings over them. One per row for the choice, then
+        // a wider one for the hover.
+        if (face == COG_TAB_DISPLAY && ctx->outlineReady) {
             for (int m = 0; m <= COG_OPTION_COUNT; m++) {
                 int hoverMark = m == COG_OPTION_COUNT;
                 int option = hoverMark ? ctx->cogHoverSlider : m;
@@ -586,44 +608,56 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                 if (option < 0 || option >= COG_OPTION_COUNT || cell < 0) {
                     continue;
                 }
-                float scale = hoverMark ? 1.12f : 1.0f;
-
-                int count = cogOptionCells(option);
-                float span = (COG_TRACK_R - COG_TRACK_L) / count;
-                Vec3 local;
-                local.x = (COG_TRACK_L + (cell + 0.5f) * span - 0.5f) * ctx->cogW;
-                local.y = (0.5f - (COG_ROW_V0 + option * COG_ROW_STEP)) * ctx->cogH;
-                local.z = 0.004f;
-
-                XrCompositionLayerQuad* mark = &layers->cogMark[m];
-                quadLayer(mark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
-                          ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
-                          poseOffset(ctx->cogPose, local), span * ctx->cogW * scale,
-                          2.0f * COG_CELL_HALF * ctx->cogH * scale);
-                pushLayer(ctx, layers, mark);
+                addCogRing(ctx, view, layers, &layers->cogMark[m], option, cell,
+                           cogOptionCells(option), hoverMark ? 1.12f : 1.0f);
+            }
+        }
+        else if (face == COG_FACE_ROOM && ctx->outlineReady) {
+            static const int ROOM_CELL_ROWS[2] = { COG_ROOM_ROW_GLOW, COG_ROOM_ROW_LIGHT };
+            for (int m = 0; m < 2; m++) {
+                int row = ROOM_CELL_ROWS[m];
+                addCogRing(ctx, view, layers, &layers->cogMark[m], row,
+                           cogRoomCellValue(ctx, row), COG_ROOM_SWITCH_CELLS, 1.0f);
+            }
+            int hoverRow = ctx->cogHoverSlider;
+            if (hoverRow >= 0 && !cogRowIsTrack(face, hoverRow) && ctx->cogHoverCell >= 0) {
+                addCogRing(ctx, view, layers, &layers->cogMark[COG_OPTION_COUNT], hoverRow,
+                           ctx->cogHoverCell, COG_ROOM_SWITCH_CELLS, 1.12f);
             }
         }
 
-        // Nothing to drag on the sheet the room shows, so no thumbs go
-        // over it either
-        if (ctx->cogThumbReady && !cogScreenLocked(ctx)) {
+        // The Room tab's percents, once the strip says what the rows do now.
+        // A strip still showing another room's values, or a value a drag has
+        // just moved past, stays down until Java has drawn it again.
+        if (face == COG_FACE_ROOM && ctx->cogReadoutReady) {
+            int readouts[READOUT_VALUES];
+            cogReadouts(ctx, readouts);
+            if (memcmp(readouts, ctx->cogReadoutDrawn, sizeof(readouts)) == 0) {
+                float stripW = (float)COG_READOUT_TEX_W / (float)COG_TEX_W;
+                float stripH = (float)COG_READOUT_TEX_H / (float)COG_TEX_H;
+                Vec3 local;
+                local.x = (COG_READOUT_L + stripW * 0.5f - 0.5f) * ctx->cogW;
+                local.y = (0.5f - (COG_READOUT_T + stripH * 0.5f)) * ctx->cogH;
+                local.z = 0.003f;
+                quadLayer(&layers->cogReadout, layers->settingsChain,
+                          XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                          ctx->cogReadoutSwapchain, COG_READOUT_TEX_W, COG_READOUT_TEX_H,
+                          view->space, poseOffset(ctx->cogPose, local), stripW * ctx->cogW,
+                          stripH * ctx->cogH);
+                pushLayer(ctx, layers, &layers->cogReadout);
+            }
+        }
+
+        if (ctx->cogThumbReady) {
             float thumbSize = ctx->cogH * 0.085f;
-            int rowCount = cogTabRowCount(ctx->cogTab);
+            int rowCount = cogTabRowCount(face);
             for (int s = 0; s < rowCount; s++) {
-                // No thumb on a row that cannot be dragged
-                if (ctx->cogTab == COG_TAB_SCREEN && s == COG_SLIDER_CURVE
-                        && !ctx->cylinderSupported) {
+                // No thumb on a row that cannot be dragged, or on a row of
+                // cells, which has rings over it instead
+                if (!cogRowLive(ctx, face, s) || !cogRowIsTrack(face, s)) {
                     continue;
                 }
-                if (ctx->cogTab == COG_TAB_3D && ctx->stereoMode == DEPTH_MODE_OFF) {
-                    continue;
-                }
-                // Which on the display tab is every row but the level one,
-                // since the rest are cells with rings over them
-                if (ctx->cogTab == COG_TAB_DISPLAY && s != COG_DISPLAY_SLIDER_ROW) {
-                    continue;
-                }
-                float t = cogSliderValue(ctx, ctx->cogTab, s);
+                float t = cogSliderValue(ctx, face, s);
                 Vec3 local;
                 local.x = (COG_TRACK_L + t * (COG_TRACK_R - COG_TRACK_L) - 0.5f) * ctx->cogW;
                 local.y = (0.5f - (COG_ROW_V0 + s * COG_ROW_STEP)) * ctx->cogH;
@@ -869,8 +903,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     // The display tab at its fullest, with a room, the glow, the stats and
     // the ray all up, is one layer past the Pico's sixteen, and a frame over
-    // the limit is refused whole. Its hover ring is what goes: the cursor
-    // already shows where the ray is.
+    // the limit is refused whole. Its hover ring is what goes, and the Room
+    // tab's is the same slot: the cursor already shows where the ray is.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);
     }

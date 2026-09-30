@@ -335,6 +335,8 @@ public class BugReportActivity extends Activity {
                 + " sharpening " + prefs.vrSharpening + " supersampling " + prefs.vrSupersampling
                 + " passthrough " + prefs.vrPassthrough
                 + " environment " + prefs.vrEnvironmentId
+                + " " + (prefs.vrRoomLevels == null ? "room none"
+                        : prefs.vrRoomLevels.describe(" "))
                 + " hands " + prefs.vrHandTracking + " gaze " + prefs.vrGaze
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"
                 + "fileLog " + prefs.fileLogLevel + "\n";

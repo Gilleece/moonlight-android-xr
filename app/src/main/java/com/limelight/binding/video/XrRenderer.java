@@ -164,11 +164,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     private final AtomicReference<ByteBuffer> pendingPickerArt = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingEnvButton = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingCogScreenTab = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingCogDisplayTab = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingCog3dTab = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingCogRoomTab = new AtomicReference<>();
+    // Every sheet of the settings panel, in COG_ART_ order
+    private final AtomicReference<ByteBuffer[]> pendingCogSheets = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
+    // The percents beside the Room tab's tracks, drawn on the frame loop when
+    // the frame says one has moved, and the values last drawn
+    private XrPanels.Readout roomReadout;
+    private final int[] readoutDrawn = { -1, -1, -1 };
+    private final int[] readoutWanted = new int[READOUT_VALUES];
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
     // A baked room on its way to the GPU, read off the frame loop like the art
@@ -279,8 +282,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadRoomModel(long ctx, ByteBuffer mesh, int length, int cell);
     private native void nativeUploadRoomAtlas(long ctx, ByteBuffer atlas, int cell, int slot);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button, int cells);
-    private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
-                                        ByteBuffer tab3d, ByteBuffer roomTab, ByteBuffer button);
+    private native void nativeUploadCog(long ctx, ByteBuffer[] sheets, ByteBuffer button);
+    private native void nativeUploadCogReadout(long ctx, ByteBuffer strip, int[] values);
+    // One room's own Room tab values, by the picker cell that shows it
+    private native void nativeSetRoomLevels(long ctx, int cell, int brightness, boolean glow,
+                                            int light, int screen);
     private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
                                              ByteBuffer symbols, ByteBuffer buttonIcon,
                                              float[] keyRects, int[] codesLower,
@@ -748,6 +754,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     pointer, gaze, inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
+            updateRoomReadout();
 
             boolean newFrame = pendingFrames.getAndSet(0) > 0;
             if (newFrame) {
@@ -795,14 +802,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadPicker(nativeCtx, grid, button, ENV_CELL_COUNT);
             }
 
-            ByteBuffer screenTab = pendingCogScreenTab.getAndSet(null);
-            ByteBuffer displayTab = pendingCogDisplayTab.getAndSet(null);
-            ByteBuffer tab3d = pendingCog3dTab.getAndSet(null);
-            ByteBuffer roomTab = pendingCogRoomTab.getAndSet(null);
+            ByteBuffer[] cogSheets = pendingCogSheets.getAndSet(null);
             ByteBuffer cog = pendingCogButton.getAndSet(null);
-            if (screenTab != null || displayTab != null || tab3d != null
-                    || roomTab != null || cog != null) {
-                nativeUploadCog(nativeCtx, screenTab, displayTab, tab3d, roomTab, cog);
+            if (cogSheets != null || cog != null) {
+                nativeUploadCog(nativeCtx, cogSheets, cog);
             }
 
             ByteBuffer kbLower = pendingKbLower.getAndSet(null);
@@ -880,6 +883,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         passthroughOn = cell == ENV_CELL_PASSTHROUGH;
         nativeSetEnvironment(nativeCtx, cell);
 
+        // Every room's own Room tab values at once, so the picker can move
+        // between rooms without asking again
+        for (int roomCell = 0; roomCell < ENV_CELL_COUNT; roomCell++) {
+            if (!EnvironmentIds.isRoomCell(roomCell)) {
+                continue;
+            }
+            PreferenceConfiguration.RoomLevels levels = PreferenceConfiguration.readRoomLevels(
+                    saved, EnvironmentIds.idForCell(roomCell));
+            nativeSetRoomLevels(nativeCtx, roomCell, levels.brightness, levels.glow,
+                    levels.light, levels.screen);
+        }
+        roomReadout = new XrPanels.Readout();
+
         final int startRoom = cell;
         final int roomTicketAtStart;
         synchronized (roomLock) {
@@ -914,11 +930,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
         // Same for the 3D rows with stereo turned off in settings
         boolean stereoOk = prefConfig != null && prefConfig.vrDepthMode != DEPTH_MODE_OFF;
-        ByteBuffer[] tabs = panels.buildCogTabs(curveOk, stereoOk);
-        pendingCogScreenTab.set(tabs[0]);
-        pendingCogDisplayTab.set(tabs[1]);
-        pendingCog3dTab.set(tabs[2]);
-        pendingCogRoomTab.set(tabs[3]);
+        pendingCogSheets.set(panels.buildCogTabs(curveOk, stereoOk));
         pendingCogButton.set(panels.buildCogButton());
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
@@ -1137,21 +1149,48 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         int setting = (int)inputState[IN_SETTING];
         if (setting >= 0) {
-            applySetting(setting, (int)inputState[IN_SETTING_VALUE]);
+            applySetting(setting, (int)inputState[IN_SETTING_VALUE],
+                    (int)inputState[IN_SETTING_ROOM]);
         }
     }
 
+    // Redraws the percents beside the Room tab's tracks when the frame says
+    // one has moved, and hands the strip straight up, since this is the thread
+    // with the GL context. The native side only shows a strip drawn from the
+    // values in force, so a stale one never reaches the panel.
+    private void updateRoomReadout() {
+        if (inputState[IN_READOUT] < 0.0f || roomReadout == null) {
+            return;
+        }
+        boolean changed = false;
+        for (int i = 0; i < READOUT_VALUES; i++) {
+            readoutWanted[i] = (int)inputState[IN_READOUT + i];
+            changed |= readoutWanted[i] != readoutDrawn[i];
+        }
+        if (!changed) {
+            return;
+        }
+        nativeUploadCogReadout(nativeCtx, roomReadout.draw(readoutWanted), readoutWanted);
+        System.arraycopy(readoutWanted, 0, readoutDrawn, 0, READOUT_VALUES);
+    }
+
     /**
-     * A row on the panel's display or 3D tab was pressed. The native side has
-     * already applied it to the running session, this end only has to make it
-     * stick and tell whatever else in the app cares.
+     * A row on one of the panel's tabs was pressed or let go of. The native
+     * side has already applied it to the running session, this end only has
+     * to make it stick and tell whatever else in the app cares. A room's own
+     * values go under the id of the room they were set in, which roomCell
+     * names.
      */
-    private void applySetting(int setting, int value) {
+    private void applySetting(int setting, int value, int roomCell) {
         if (prefsContext == null) {
             return;
         }
 
-        if (setting == SETTING_SHARPEN) {
+        if (setting == SETTING_ROOM_BRIGHTNESS || setting == SETTING_ROOM_GLOW
+                || setting == SETTING_ROOM_LIGHT_LEVEL || setting == SETTING_ROOM_SCREEN) {
+            applyRoomSetting(setting, value, EnvironmentIds.idForCell(roomCell));
+        }
+        else if (setting == SETTING_SHARPEN) {
             String choice = value == 2 ? "quality" : (value == 1 ? "normal" : "off");
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putString(PreferenceConfiguration.VR_SHARPENING_PREF_STRING, choice)
@@ -1249,6 +1288,37 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                             PreferenceConfiguration.DEFAULT_VR_CONVERGENCE)
                     .apply();
         }
+    }
+
+    // One room's own value, under that room's key, with a line in the log so
+    // a report says what each room was left at
+    private void applyRoomSetting(int setting, int value, int roomId) {
+        if (!PreferenceConfiguration.isRoomEnvironment(roomId)) {
+            return;
+        }
+        SharedPreferences.Editor editor =
+                PreferenceManager.getDefaultSharedPreferences(prefsContext).edit();
+        String key;
+        if (setting == SETTING_ROOM_GLOW) {
+            key = PreferenceConfiguration.roomGlowKey(roomId);
+            editor.putBoolean(key, value != 0);
+        }
+        else {
+            if (setting == SETTING_ROOM_BRIGHTNESS) {
+                key = PreferenceConfiguration.roomBrightnessKey(roomId);
+            }
+            else if (setting == SETTING_ROOM_LIGHT_LEVEL) {
+                key = PreferenceConfiguration.roomLightKey(roomId);
+            }
+            else {
+                key = PreferenceConfiguration.roomScreenKey(roomId);
+                value = PreferenceConfiguration.clampRoomScreen(roomId, value);
+            }
+            editor.putInt(key, value);
+        }
+        editor.apply();
+        FileLog.event("room setting " + key + " = "
+                + (setting == SETTING_ROOM_GLOW ? String.valueOf(value != 0) : value) + " saved");
     }
 
     // Written once when a grab ends, so the screen is where it was left next

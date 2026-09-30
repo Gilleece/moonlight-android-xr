@@ -82,7 +82,16 @@
 // 0 with the screen locked to the head. The virtual surround turns its
 // speakers by it. Written every frame, carried over when the head is lost.
 #define IN_HEAD_YAW 22
-#define IN_SLOTS    23
+// Which room a room's own setting belongs to, as the picker cell showing it,
+// or -1 with no room up. Every frame, since each room keeps its own values.
+#define IN_SETTING_ROOM 23
+// What the Room tab's three tracks read, as the percent drawn beside each:
+// brightness and light level as the place along their lanes, the size as the
+// share of the room's screen. The first is -1 while the tab is not up, and the
+// last is -1 in a room whose size is fixed.
+#define IN_READOUT  24
+#define READOUT_VALUES 3
+#define IN_SLOTS    (IN_READOUT + READOUT_VALUES)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -95,6 +104,42 @@
 #define SETTING_ROOM_LIGHT 7
 #define SETTING_HEAD_LOCK 8
 #define SETTING_SUPERSAMPLE 9
+// A room's own values, stored under that room's id (IN_SETTING_ROOM)
+#define SETTING_ROOM_BRIGHTNESS 10
+#define SETTING_ROOM_GLOW 11
+#define SETTING_ROOM_LIGHT_LEVEL 12
+#define SETTING_ROOM_SCREEN 13
+
+// The lanes the Room tab's rows move along, in the units the preferences
+// hold. Brightness is the room's own in hundredths of the room as baked, from
+// near black to a little over half as bright again. The light off the picture
+// is in hundredths of the gain the room's row gives it, and starts three
+// quarters of the way along its lane. The size is whole percent of the room's
+// screen anchor, from a quarter of it to all of it.
+#define ROOM_BRIGHTNESS_MIN 5
+#define ROOM_BRIGHTNESS_MAX 165
+#define ROOM_LIGHT_MIN 0
+#define ROOM_LIGHT_MAX 200
+#define ROOM_LIGHT_DEFAULT 150
+#define ROOM_SCREEN_MIN 25
+#define ROOM_SCREEN_MAX 100
+
+// Where each baked room starts on those rows, which the room table in
+// xr_room.c is built from and the preferences take their defaults from, so a
+// room is retuned in one place. Glow and resizable are 1 or 0. The light level
+// starts at ROOM_LIGHT_DEFAULT in every room.
+#define ROOM_THEATER_BRIGHTNESS 37
+#define ROOM_THEATER_SCREEN 80
+#define ROOM_THEATER_GLOW 1
+#define ROOM_THEATER_RESIZABLE 1
+#define ROOM_GRAND_CINEMA_BRIGHTNESS 21
+#define ROOM_GRAND_CINEMA_SCREEN 100
+#define ROOM_GRAND_CINEMA_GLOW 0
+#define ROOM_GRAND_CINEMA_RESIZABLE 0
+#define ROOM_SYNTHWAVE_BRIGHTNESS 53
+#define ROOM_SYNTHWAVE_SCREEN 100
+#define ROOM_SYNTHWAVE_GLOW 1
+#define ROOM_SYNTHWAVE_RESIZABLE 1
 
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0
@@ -163,10 +208,14 @@
 #define COG_TAB_DISPLAY 1
 #define COG_TAB_3D      2
 #define COG_TAB_COUNT   3
-// And one more sheet than there are tabs: the screen tab has a second face for
-// when a room hangs the picture and none of its rows can do anything
-#define COG_ART_ROOM_SCREEN 3
-#define COG_ART_COUNT       4
+// And the sheets a room shows instead. While one is up the first tab is the
+// Room tab, whose size row is live or greyed as the room allows, and the other
+// two tabs are drawn again with that name over the first slot.
+#define COG_ART_ROOM         3
+#define COG_ART_ROOM_FIXED   4
+#define COG_ART_ROOM_DISPLAY 5
+#define COG_ART_ROOM_3D      6
+#define COG_ART_COUNT        7
 
 // Screen tab rows, in the order they are drawn
 #define COG_SLIDER_DISTANCE 0
@@ -176,6 +225,26 @@
 #define COG_SLIDER_CURVE    4
 #define COG_SLIDER_SIZE     5
 #define COG_SLIDER_COUNT    6
+
+// Room tab rows, in the order they are drawn: a track, two rows of cells and
+// two more tracks, with the screen light's level under its switch. Only in a
+// room, in the first tab's place, since a room places and sizes the picture
+// itself and none of the screen tab's rows can do anything there.
+#define COG_ROOM_ROW_BRIGHTNESS 0
+#define COG_ROOM_ROW_GLOW 1
+#define COG_ROOM_ROW_LIGHT 2
+#define COG_ROOM_ROW_LIGHT_LEVEL 3
+#define COG_ROOM_ROW_SIZE 4
+#define COG_ROOM_ROW_COUNT 5
+#define COG_ROOM_SWITCH_CELLS 2
+// The percent beside each of its tracks. Drawn in Java whenever one changes
+// and shown as a strip of its own over the panel rather than as part of the
+// sheet, so a drag costs an upload this size rather than the whole sheet's.
+// Where the strip sits on the panel, as fractions of it.
+#define COG_READOUT_TEX_W 96
+#define COG_READOUT_TEX_H 384
+#define COG_READOUT_L 0.26f
+#define COG_READOUT_T 0.19f
 
 // 3D tab rows, sliders like the screen tab's. Only values that take effect the
 // moment they move belong here: the depth source itself is settled when the

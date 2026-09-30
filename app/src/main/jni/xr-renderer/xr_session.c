@@ -537,6 +537,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     }
     destroyArtSwapchain(&ctx->cogButtonSwapchain, &ctx->cogButtonImages);
     destroyArtSwapchain(&ctx->cogThumbSwapchain, &ctx->cogThumbImages);
+    destroyArtSwapchain(&ctx->cogReadoutSwapchain, &ctx->cogReadoutImages);
     for (int state = 0; state < KB_STATE_COUNT; state++) {
         destroyArtSwapchain(&ctx->kbPanelSwapchains[state], &ctx->kbPanelImages[state]);
     }
@@ -661,6 +662,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->separationCurrent = 0.005f;
     ctx->cogDragSlider = -1;
     ctx->cogDragHand = -1;
+    ctx->cogDragFace = -1;
     ctx->cogHoverSlider = -1;
     // No key under the ray, and zero is a real key
     ctx->kbHoverKey = -1;
@@ -689,6 +691,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->ambiOverride = -1;
     // The room's own light off the picture, which the panel owns from here on
     ctx->roomLightOn = roomLight;
+    // And each room's own rows as its table row starts them, until Java hands
+    // down what the preferences say
+    roomLevelsFromTable(ctx);
     // Same for the room, which the picker sets and a property can force, and
     // for the size and brightness it is drawn at, which its params own until
     // a property says otherwise

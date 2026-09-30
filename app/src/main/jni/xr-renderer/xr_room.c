@@ -140,8 +140,8 @@ typedef struct {
     // vertex takes
     float spillRadius;
     float spillGain;
-    // How bright the room is drawn, a factor over its atlases and colours as
-    // they were baked
+    // How bright the room starts, a factor over its atlases and colours as
+    // they were baked. The Room tab's brightness row moves it from there.
     float dim;
     // The dither seed, which only has to differ room to room
     unsigned seed;
@@ -161,7 +161,9 @@ typedef struct {
     int glow;
 } RoomModel;
 
-// Every room that ships, indexed by its style less ROOM_STYLE_FIRST
+// Every room that ships, indexed by its style less ROOM_STYLE_FIRST. The
+// values the Room tab starts from are in xr_shared.h, where the preferences
+// read their defaults off the same numbers.
 static const RoomModel ROOM_MODELS[] = {
     // Home Theater: a small room with the picture flat on the front wall, four
     // fifths of the anchor, 2.88 m across, which sits better from the seat than
@@ -172,10 +174,11 @@ static const RoomModel ROOM_MODELS[] = {
     {
         .eye = { 0.0f, 1.15f, 1.12f }, .eyeRaise = 0.35f, .eyeForward = 0.10f,
         .screen = { 0.0f, 1.55f, -3.132f }, .screenWidth = 3.6f, .screenHeight = 2.025f,
-        .screenFraction = 0.80f,
+        .screenFraction = ROOM_THEATER_SCREEN / 100.0f,
         .floorY = -0.14f, .ceilingY = 2.84f, .halfWidth = 2.8f, .backZ = 4.41f,
-        .spillRadius = 3.0f, .spillGain = 0.55f, .dim = 0.37f,
-        .seed = 0xc2b2ae35u, .scale = 1.0f, .resizable = 1, .open = 0, .glow = 1,
+        .spillRadius = 3.0f, .spillGain = 0.55f, .dim = ROOM_THEATER_BRIGHTNESS / 100.0f,
+        .seed = 0xc2b2ae35u, .scale = 1.0f, .resizable = ROOM_THEATER_RESIZABLE, .open = 0,
+        .glow = ROOM_THEATER_GLOW,
     },
     // Grand Cinema: a raked auditorium, watched from partway up the rake, with
     // the picture filling the whole of its screen. Built around that picture,
@@ -183,10 +186,11 @@ static const RoomModel ROOM_MODELS[] = {
     {
         .eye = { 0.0f, 4.8f, 6.0f }, .eyeRaise = 0.40f, .eyeForward = 0.0f,
         .screen = { 0.0f, 7.4f, -15.42f }, .screenWidth = 22.0f, .screenHeight = 12.375f,
-        .screenFraction = 1.0f,
+        .screenFraction = ROOM_GRAND_CINEMA_SCREEN / 100.0f,
         .floorY = -0.3f, .ceilingY = 16.3f, .halfWidth = 14.3f, .backZ = 16.3f,
-        .spillRadius = 8.0f, .spillGain = 0.55f, .dim = 0.21f,
-        .seed = 0x85ebca6bu, .scale = 1.0f, .resizable = 0, .open = 0, .glow = 0,
+        .spillRadius = 8.0f, .spillGain = 0.55f, .dim = ROOM_GRAND_CINEMA_BRIGHTNESS / 100.0f,
+        .seed = 0x85ebca6bu, .scale = 1.0f, .resizable = ROOM_GRAND_CINEMA_RESIZABLE,
+        .open = 0, .glow = ROOM_GRAND_CINEMA_GLOW,
     },
     // Synthwave: no room at all, a ground and a sky that run to the horizon,
     // so the walls are put where nothing can reach them and the picture hangs
@@ -196,10 +200,11 @@ static const RoomModel ROOM_MODELS[] = {
     {
         .eye = { 0.0f, 1.2f, 0.0f }, .eyeRaise = 0.35f, .eyeForward = 0.10f,
         .screen = { 0.0f, 4.5f, -14.0f }, .screenWidth = 14.0f, .screenHeight = 7.875f,
-        .screenFraction = 1.0f,
+        .screenFraction = ROOM_SYNTHWAVE_SCREEN / 100.0f,
         .floorY = 0.0f, .ceilingY = 1800.0f, .halfWidth = 1800.0f, .backZ = 1800.0f,
-        .spillRadius = 6.0f, .spillGain = 0.4f, .dim = 0.53f,
-        .seed = 0x2545f491u, .scale = 1.0f, .resizable = 1, .open = 1, .glow = 1,
+        .spillRadius = 6.0f, .spillGain = 0.4f, .dim = ROOM_SYNTHWAVE_BRIGHTNESS / 100.0f,
+        .seed = 0x2545f491u, .scale = 1.0f, .resizable = ROOM_SYNTHWAVE_RESIZABLE,
+        .open = 1, .glow = ROOM_SYNTHWAVE_GLOW,
     },
 };
 
@@ -258,18 +263,44 @@ static RoomParams roomParams(int style, float scale) {
 
 // Whether the picture may be resized in a style's room. Only a room answers
 // here: outside one the picture is the user's to size however they like.
-static int roomResizable(int style) {
+int roomResizable(int style) {
     return bakedRoomStyle(style) && roomModel(style)->resizable;
 }
 
-// How much of its anchor a style's room starts the picture on
-static float roomScreenFraction(int style) {
-    return bakedRoomStyle(style) ? roomModel(style)->screenFraction : 1.0f;
+// Every room's own values as its row starts them, which is where they stay
+// until the preferences are handed down. The light level starts at the same
+// place in every room.
+void roomLevelsFromTable(XrCtx* ctx) {
+    for (int style = ROOM_STYLE_FIRST; style <= ROOM_STYLE_LAST; style++) {
+        const RoomModel* m = roomModel(style);
+        ctx->roomBrightness[style] = (int)roundf(m->dim * 100.0f);
+        ctx->roomGlow[style] = m->glow != 0;
+        ctx->roomLightLevel[style] = ROOM_LIGHT_DEFAULT;
+        ctx->roomScreen[style] = (int)roundf(m->screenFraction * 100.0f);
+    }
 }
 
-// Whether a style's room starts with the glow around the picture on
-static int roomDefaultGlow(int style) {
-    return !bakedRoomStyle(style) || roomModel(style)->glow;
+// How much of its anchor a style's room hangs the picture on, in whole
+// percent. A room that cannot be resized hangs the whole of it whatever was
+// saved for it.
+int roomScreenPercent(XrCtx* ctx, int style) {
+    if (!bakedRoomStyle(style)) {
+        return ROOM_SCREEN_MAX;
+    }
+    return roomScreenClamp(ctx->roomScreen[style], roomResizable(style));
+}
+
+// Whether the glow goes up around the picture. In a room that is the room's
+// own switch, and anywhere else the one app wide switch.
+int roomGlowOn(XrCtx* ctx, int style) {
+    return bakedRoomStyle(style) ? ctx->roomGlow[style] : ctx->ambilightOn;
+}
+
+// Whether the picture's size is under a hand or a thumb right now, which is
+// when its every step would otherwise be a line in the log
+static int roomSizeDragging(XrCtx* ctx) {
+    return ctx->grabMode == GRAB_RESIZE
+            || (ctx->cogDragSlider == COG_ROOM_ROW_SIZE && ctx->cogDragFace == COG_FACE_ROOM);
 }
 
 // How large a style is drawn, which is the size it was built at unless a
@@ -310,12 +341,14 @@ static float roomFarPlane(const RoomParams* p, float reach) {
     return far < ROOM_FAR_MIN_M ? ROOM_FAR_MIN_M : far;
 }
 
-// How far down the room is turned as it draws. Nothing is baked into the
-// geometry from this, so the property moves it frame to frame with no rebuild
-// behind it, and it wins over whatever the built style left in place.
+// How far down the room is turned as it draws, which is the room's own
+// brightness row. Nothing is baked into the geometry from this, so the row and
+// the property move it frame to frame with no rebuild behind them, and the
+// property wins over the row.
 static float roomDim(XrCtx* ctx) {
     if (ctx->roomDimOverride <= 0.0f) {
-        return ctx->roomDim;
+        int style = ctx->roomBuiltStyle;
+        return bakedRoomStyle(style) ? ctx->roomBrightness[style] / 100.0f : ctx->roomDim;
     }
     float dim = ctx->roomDimOverride;
     if (dim < ROOM_DIM_MIN) {
@@ -353,6 +386,9 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
         ctx->screenWidth = ctx->savedScreenWidth;
         ctx->screenRadius = ctx->savedScreenRadius;
         ctx->roomHoldingScreen = 0;
+        // A room's corner still held as the room went would carry on as a free
+        // resize of the placement just handed back
+        ctx->grabMode = GRAB_NONE;
     }
     if (!roomOn) {
         ctx->roomPlacedStyle = 0;
@@ -365,12 +401,12 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     // The room says how big its picture is, not the size slider: the anchor is
     // a known size and the picture is fitted inside it with its own shape
     // kept, so a taller film loses width rather than running up the wall, and
-    // hung at the room's own fraction of that
+    // hung at the share of that the room's size row says
     float width = p.screenWidth;
     if (aspect > 0.0f && p.screenHeight > 0.0f && width * aspect > p.screenHeight) {
         width = p.screenHeight / aspect;
     }
-    width *= roomScreenFraction(style);
+    width *= roomScreenPercent(ctx, style) / 100.0f;
     // The clamps only catch a room whose own anchor does not fit its wall, and
     // an open room has no wall to fit: its anchor is hung as it is written
     if (!p.open) {
@@ -409,8 +445,10 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
     ctx->screenPose.position.y = mount;
     ctx->screenPose.position.z = p.screenZ + p.screenProud;
     ctx->screenWidth = width;
-    // Once per room and picture shape rather than every frame
-    if (style != ctx->roomPlacedStyle || fabsf(width - ctx->roomPlacedWidth) > 0.001f) {
+    // Once per room and picture shape rather than every frame, and once for a
+    // resize, when it lets go, rather than for every step of it
+    if (style != ctx->roomPlacedStyle
+            || (fabsf(width - ctx->roomPlacedWidth) > 0.001f && !roomSizeDragging(ctx))) {
         ctx->roomPlacedStyle = style;
         ctx->roomPlacedWidth = width;
         LOGEV("room %d hangs the picture %.2f by %.2f m, centre y %.2f z %.2f",
@@ -527,10 +565,11 @@ static int uploadRoomGeometry(XrCtx* ctx, int style) {
     ctx->roomClear[1] = 0.010f;
     ctx->roomClear[2] = 0.012f;
     LOGEV("room ready, style %d, scale %.2f, %d vertices, %d indices, %d parts, far %.0f m, "
-          "open %d, resizable %d, screen %.2f of its anchor, glow %s, brightness %.2f",
-          style, scale, vertexCount, indexCount, ctx->roomPartCount, (double)ctx->roomFarZ,
-          params.open, roomResizable(style), (double)roomScreenFraction(style),
-          roomDefaultGlow(style) ? "on" : "off", (double)params.dim);
+          "open %d, resizable %d, screen %d percent of its anchor, glow %s, brightness %d, "
+          "light level %d", style, scale, vertexCount, indexCount, ctx->roomPartCount,
+          (double)ctx->roomFarZ, params.open, roomResizable(style),
+          roomScreenPercent(ctx, style), ctx->roomGlow[style] ? "on" : "off",
+          ctx->roomBrightness[style], ctx->roomLightLevel[style]);
     return 1;
 }
 
@@ -762,9 +801,12 @@ static void drawRoomEyes(XrCtx* ctx) {
     // turned off: the baked colours and the atlas stay, only the light the
     // picture throws goes. Deliberately not tied to the ambilight: the wash
     // inside a room and the glow around a floating screen are different
-    // effects, and the colour sample they share is taken for either one.
+    // effects, and the colour sample they share is taken for either one. How
+    // much of the room's gain goes on is the room's own light level.
     int lit = ctx->ambiSeeded && ctx->roomLightOn;
-    glUniform1f(ctx->roomSpillGainUniform, lit ? ctx->roomSpillGain : 0.0f);
+    int built = ctx->roomBuiltStyle;
+    float level = bakedRoomStyle(built) ? ctx->roomLightLevel[built] / 100.0f : 1.0f;
+    glUniform1f(ctx->roomSpillGainUniform, lit ? ctx->roomSpillGain * level : 0.0f);
     glUniform1f(ctx->roomDimUniform, roomDim(ctx));
 
     glBindBuffer(GL_ARRAY_BUFFER, ctx->roomVertexBuffer);
@@ -991,6 +1033,34 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomModel(JNIEnv* env, j
     LOGEV("room model ready, style %d, %u vertices, %u triangles, %u parts, %d painted from "
           "vertex colours, %u atlases", style, info.vertexCount, info.indexCount / 3,
           info.partCount, roomMeshPaintedParts(&info), info.atlasCount);
+}
+
+// One room's own values for the Room tab's rows, as its preferences keep them,
+// by the picker cell that shows it. Handed down for every room when the session
+// starts, so the picker can move between them without asking again. Anything
+// out of its lane is brought back inside it.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetRoomLevels(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jint cell,
+                                                                jint brightness, jboolean glow,
+                                                                jint light, jint screen) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    int style = bakedStyleForCell(cell, "levels");
+    if (style == 0) {
+        return;
+    }
+    ctx->roomBrightness[style] = brightness < ROOM_BRIGHTNESS_MIN ? ROOM_BRIGHTNESS_MIN
+            : (brightness > ROOM_BRIGHTNESS_MAX ? ROOM_BRIGHTNESS_MAX : brightness);
+    ctx->roomGlow[style] = glow ? 1 : 0;
+    ctx->roomLightLevel[style] = light < ROOM_LIGHT_MIN ? ROOM_LIGHT_MIN
+            : (light > ROOM_LIGHT_MAX ? ROOM_LIGHT_MAX : light);
+    ctx->roomScreen[style] = roomScreenClamp(screen, roomResizable(style));
+    LOGEV("room %d levels: brightness %d, glow %s, light level %d, screen %d percent",
+          style, ctx->roomBrightness[style], ctx->roomGlow[style] ? "on" : "off",
+          ctx->roomLightLevel[style], ctx->roomScreen[style]);
 }
 
 // The GL format for a block size the atlas tool writes
