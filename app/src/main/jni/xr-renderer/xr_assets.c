@@ -547,6 +547,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadLock(JNIEnv* env, jobjec
     LOGI("lock art %s", ctx->lockArtReady ? "ready" : "missing");
 }
 
+// Which room a picker cell puts up, 0 for a cell that is not a room. The one
+// place the two numberings meet: Java names a room by its cell, and a baked
+// room's assets arrive tagged the same way.
+int roomStyleForCell(int cell) {
+    if (cell == ENV_CELL_MINIMAL_ROOM) {
+        return ROOM_STYLE_MINIMAL;
+    }
+    if (cell == ENV_CELL_PSX_CINEMA) {
+        return ROOM_STYLE_PSX;
+    }
+    return 0;
+}
+
 // Which cell the picker is showing as chosen, so it survives a restart
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jobject thiz,
@@ -558,15 +571,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jo
     }
     ctx->pickerChoice = choice;
     ctx->backgroundEnabled = backgroundOn;
-    if (choice == ENV_CELL_MINIMAL_ROOM) {
-        ctx->roomStyle = ROOM_STYLE_MINIMAL;
-    }
-    else if (choice == ENV_CELL_PSX_CINEMA) {
-        ctx->roomStyle = ROOM_STYLE_PSX;
-    }
-    else {
-        ctx->roomStyle = 0;
-    }
+    ctx->roomStyle = roomStyleForCell(choice);
     if (choice != ctx->loggedChoice) {
         ctx->loggedChoice = choice;
         LOGEV("environment %d, room %d", choice, roomEffective(ctx));

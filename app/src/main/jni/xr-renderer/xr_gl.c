@@ -257,6 +257,22 @@ int initGl(XrCtx* ctx) {
     const char* glExts = (const char*)glGetString(GL_EXTENSIONS);
     ctx->srgbWriteControl = glExts != NULL && strstr(glExts, "GL_EXT_sRGB_write_control") != NULL;
 
+    // What a room's compressed atlas needs, and what it can use. Both are
+    // asked here once so a room picked mid session knows at once.
+    ctx->astcSupported = glExts != NULL
+            && strstr(glExts, "GL_KHR_texture_compression_astc_ldr") != NULL;
+    ctx->roomAnisotropy = 1.0f;
+    GLfloat anisoMost = 1.0f;
+    if (glExts != NULL && strstr(glExts, "GL_EXT_texture_filter_anisotropic") != NULL) {
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &anisoMost);
+        if (anisoMost > 1.0f) {
+            ctx->roomAnisotropy = anisoMost < ROOM_ANISOTROPY_MAX ? anisoMost
+                                                                  : ROOM_ANISOTROPY_MAX;
+        }
+    }
+    LOGEV("room atlas support: ASTC LDR %s, anisotropy %.0f of %.0f",
+          ctx->astcSupported ? "yes" : "no", ctx->roomAnisotropy, anisoMost);
+
     if (glExts != NULL && strstr(glExts, "GL_EXT_disjoint_timer_query") != NULL) {
         pfnGenQueries = (PFNGENQUERIESEXT)eglGetProcAddress("glGenQueriesEXT");
         pfnBeginQuery = (PFNBEGINQUERYEXT)eglGetProcAddress("glBeginQueryEXT");

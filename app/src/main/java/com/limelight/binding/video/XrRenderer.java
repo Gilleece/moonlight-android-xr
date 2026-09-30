@@ -148,10 +148,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile int backgroundWidth;
     private volatile int backgroundHeight;
 
-    // The baked room that ships with the app, mesh and texture atlas
+    // The baked rooms that ship with the app, a mesh and a texture atlas each,
+    // named by the picker cell that shows them in roomMeshFile and
+    // roomTextureFile below
     private static final String ROOM_DIR = "rooms";
-    private static final String ROOM_MESH_FILE = "psx_cinema.room";
-    private static final String ROOM_TEXTURE_FILE = "psx_cinema.png";
     // The layout as it shipped before the bands, kept only to read an old saved
     // cell as the environment it meant at the time
     private static final int[] LEGACY_CELL_IDS = {
@@ -191,13 +191,43 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
-    // The baked room, read on the same thread as the art above. The native side
-    // shows the minimal room in its place until both of these have landed.
-    private final AtomicReference<ByteBuffer> pendingRoomMesh = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingRoomTexture = new AtomicReference<>();
-    private volatile int roomMeshBytes;
-    private volatile int roomTextureWidth;
-    private volatile int roomTextureHeight;
+    // A baked room on its way to the GPU, read off the frame loop like the art
+    // above. The native side shows the minimal room in its place until it has
+    // landed. The mesh, the atlas and the cell they belong to travel as one, so
+    // a room picked while another is being read can never leave the native side
+    // with half of each.
+    private static final class RoomAssets {
+        final int cell;
+        final ByteBuffer mesh;
+        final int meshBytes;
+        // Decoded RGBA rows for a PNG atlas, or null when the atlas is an
+        // .atlas file, which goes up whole as it was read
+        final ByteBuffer pixels;
+        final int width;
+        final int height;
+        final ByteBuffer atlas;
+
+        RoomAssets(int cell, ByteBuffer mesh, ByteBuffer pixels, int width, int height,
+                   ByteBuffer atlas) {
+            this.cell = cell;
+            this.mesh = mesh;
+            this.meshBytes = mesh.remaining();
+            this.pixels = pixels;
+            this.width = width;
+            this.height = height;
+            this.atlas = atlas;
+        }
+    }
+
+    private final AtomicReference<RoomAssets> pendingRoom = new AtomicReference<>();
+    // Only the room on screen is resident. Every pick takes a new ticket, so a
+    // room still being read for an earlier pick is never parked over the one
+    // chosen since, and the cell last parked is not read again while it stands.
+    // Both only under roomLock, which is what makes the check and the park one
+    // step against a pick.
+    private final Object roomLock = new Object();
+    private int roomTicket;
+    private int parkedRoomCell = -1;
     private String[] environmentFiles = new String[0];
     private XrPanels panels;
     private volatile int environmentChoice = ENV_CELL_VOID;
@@ -279,8 +309,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                           float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     private native void nativeUploadBackground(long ctx, ByteBuffer pixels, int width, int height);
-    private native void nativeUploadRoomModel(long ctx, ByteBuffer mesh, int length);
-    private native void nativeUploadRoomTexture(long ctx, ByteBuffer pixels, int width, int height);
+    // The room's assets name the picker cell they belong to, which the native
+    // side turns into its own room style
+    private native void nativeUploadRoomModel(long ctx, ByteBuffer mesh, int length, int cell);
+    private native void nativeUploadRoomTexture(long ctx, ByteBuffer pixels, int width, int height,
+                                                int cell);
+    private native void nativeUploadRoomAtlas(long ctx, ByteBuffer atlas, int cell);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button);
     private native void nativeUploadCog(long ctx, ByteBuffer screenTab, ByteBuffer displayTab,
                                         ByteBuffer tab3d, ByteBuffer roomTab, ByteBuffer button);
@@ -831,14 +865,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadLock(nativeCtx, shut, open);
             }
 
-            ByteBuffer roomMesh = pendingRoomMesh.getAndSet(null);
-            if (roomMesh != null) {
-                nativeUploadRoomModel(nativeCtx, roomMesh, roomMeshBytes);
-            }
-            ByteBuffer roomTexture = pendingRoomTexture.getAndSet(null);
-            if (roomTexture != null) {
-                nativeUploadRoomTexture(nativeCtx, roomTexture, roomTextureWidth,
-                        roomTextureHeight);
+            RoomAssets room = pendingRoom.getAndSet(null);
+            if (room != null) {
+                nativeUploadRoomModel(nativeCtx, room.mesh, room.meshBytes, room.cell);
+                if (room.pixels != null) {
+                    nativeUploadRoomTexture(nativeCtx, room.pixels, room.width, room.height,
+                            room.cell);
+                }
+                else {
+                    nativeUploadRoomAtlas(nativeCtx, room.atlas, room.cell);
+                }
             }
 
             ByteBuffer background = pendingBackground.getAndSet(null);
@@ -901,11 +937,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         nativeSetEnvironment(nativeCtx, cell, false);
 
         final int startPhoto = isRoomCell(cell) ? -1 : cell - ENV_CELL_FIRST_PHOTO;
+        final int startRoom = cell;
+        final int roomTicketAtStart;
+        synchronized (roomLock) {
+            roomTicketAtStart = ++roomTicket;
+        }
         Thread loader = new Thread() {
             @Override
             public void run() {
                 buildPanelArt();
-                loadRoomAssets();
+                loadRoomAssets(startRoom, roomTicketAtStart);
                 if (startPhoto >= 0) {
                     decodePhoto(startPhoto);
                 }
@@ -1030,6 +1071,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             loader.setName("Video - XR Environment");
             loader.start();
         }
+        requestRoom(cell);
         nativeSetEnvironment(nativeCtx, cell, backgroundVisible());
 
         // The grid is a second way to reach the passthrough switch, so the
@@ -1090,39 +1132,104 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
     }
 
+    // The mesh a baked room is built from, by the cell that shows it, or null
+    // for a cell with no model behind it
+    private static String roomMeshFile(int cell) {
+        switch (cell) {
+            case ENV_CELL_PSX_CINEMA: return "psx_cinema.room";
+            default: return null;
+        }
+    }
+
+    // And the atlas it is painted with. A PNG is decoded here and goes up as
+    // pixels; an .atlas is already ASTC with its mip chain and goes up as read.
+    private static String roomTextureFile(int cell) {
+        switch (cell) {
+            case ENV_CELL_PSX_CINEMA: return "psx_cinema.png";
+            default: return null;
+        }
+    }
+
     /**
-     * The baked room and its texture atlas. Both are parked for the frame loop
-     * to hand over, since that thread owns the GL context and is the one that
-     * builds the geometry. Either failing leaves the pair unset, and the cell
-     * shows the minimal room instead of anything broken.
+     * Every pick lands here, room or not, so a room still being read for an
+     * earlier pick is dropped rather than put up over the one chosen now. The
+     * room already resident is not read again.
      */
-    private void loadRoomAssets() {
-        ByteBuffer mesh = readAsset(ROOM_DIR + "/" + ROOM_MESH_FILE);
+    private void requestRoom(final int cell) {
+        final int ticket;
+        synchronized (roomLock) {
+            ticket = ++roomTicket;
+            if (roomMeshFile(cell) == null || cell == parkedRoomCell) {
+                return;
+            }
+        }
+        Thread loader = new Thread() {
+            @Override
+            public void run() {
+                loadRoomAssets(cell, ticket);
+            }
+        };
+        loader.setName("Video - XR Environment");
+        loader.start();
+    }
+
+    /**
+     * One baked room, its mesh and its atlas, read when it is picked and parked
+     * for the frame loop to hand over, since that thread owns the GL context
+     * and is the one that builds the geometry. Either failing parks nothing,
+     * and the cell shows the minimal room instead of anything broken.
+     */
+    private void loadRoomAssets(int cell, int ticket) {
+        String meshFile = roomMeshFile(cell);
+        String textureFile = roomTextureFile(cell);
+        if (meshFile == null || textureFile == null) {
+            return;
+        }
+        long started = System.nanoTime();
+        ByteBuffer mesh = readAsset(ROOM_DIR + "/" + meshFile);
         if (mesh == null) {
             return;
         }
 
-        InputStream in = null;
-        try {
-            in = prefsContext.getAssets().open(ROOM_DIR + "/" + ROOM_TEXTURE_FILE);
-            Bitmap atlas = BitmapFactory.decodeStream(in);
+        RoomAssets room;
+        if (textureFile.endsWith(".png")) {
+            InputStream in = null;
+            try {
+                in = prefsContext.getAssets().open(ROOM_DIR + "/" + textureFile);
+                Bitmap decoded = BitmapFactory.decodeStream(in);
+                if (decoded == null) {
+                    LimeLog.warning("Room texture " + textureFile + " did not decode");
+                    return;
+                }
+                ByteBuffer pixels = XrPanels.toBuffer(decoded);
+                room = new RoomAssets(cell, mesh, pixels, decoded.getWidth(),
+                        decoded.getHeight(), null);
+                decoded.recycle();
+            } catch (IOException | OutOfMemoryError e) {
+                LimeLog.warning("Room texture " + textureFile + " failed: " + e);
+                return;
+            } finally {
+                XrPanels.closeQuietly(in);
+            }
+        }
+        else {
+            ByteBuffer atlas = readAsset(ROOM_DIR + "/" + textureFile);
             if (atlas == null) {
-                LimeLog.warning("Room texture " + ROOM_TEXTURE_FILE + " did not decode");
                 return;
             }
-            roomTextureWidth = atlas.getWidth();
-            roomTextureHeight = atlas.getHeight();
-            ByteBuffer pixels = XrPanels.toBuffer(atlas);
-            atlas.recycle();
-
-            roomMeshBytes = mesh.remaining();
-            pendingRoomMesh.set(mesh);
-            pendingRoomTexture.set(pixels);
-        } catch (IOException | OutOfMemoryError e) {
-            LimeLog.warning("Room texture " + ROOM_TEXTURE_FILE + " failed: " + e);
-        } finally {
-            XrPanels.closeQuietly(in);
+            room = new RoomAssets(cell, mesh, null, 0, 0, atlas);
         }
+
+        synchronized (roomLock) {
+            // Something else was picked while this was read
+            if (ticket != roomTicket) {
+                return;
+            }
+            pendingRoom.set(room);
+            parkedRoomCell = cell;
+        }
+        FileLog.event("room " + meshFile + " and " + textureFile + " read in "
+                + (System.nanoTime() - started) / 1000000 + " ms");
     }
 
     // A whole asset in a direct buffer, which is the only kind the native side

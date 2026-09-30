@@ -310,6 +310,9 @@ static inline long nowNs(void) {
 // exactly as it was baked
 #define ROOM_DIM_MIN 0.10f
 #define ROOM_DIM_MAX 2.0f
+// A floor or a wall seen at a glancing angle keeps its detail with this much
+// anisotropic filtering on a compressed atlas, where the driver offers it
+#define ROOM_ANISOTROPY_MAX 4.0f
 
 // Three depth textures rather than two: the stage thread advances through
 // them in a fixed rotation, so a slot it is about to overwrite was last handed
@@ -667,6 +670,11 @@ typedef struct {
     // complete bound while the generated room is up
     GLuint roomTexture;
     int roomTextureReady;
+    // Which baked room the model and the atlas above belong to. Only one room
+    // is resident at a time, so a style is only built once both are its own,
+    // and a model arriving for another room drops the atlas it replaces.
+    int roomModelStyle;
+    int roomTextureStyle;
     GLuint roomWhiteTexture;
     float roomTexMix;
     float roomDim;
@@ -772,6 +780,11 @@ typedef struct {
     int tbSwap;
     float envRadius;
     int srgbWriteControl;
+    // Whether a room's atlas can go up as it ships, ASTC compressed, and how
+    // much anisotropic filtering it gets: 1 without the extension, else the
+    // driver's most up to ROOM_ANISOTROPY_MAX
+    int astcSupported;
+    float roomAnisotropy;
     // Passthrough is just an environment blend mode: with alpha blend the
     // runtime shows the room wherever our layers do not cover. Both headsets
     // offer it, but Meta only turns the cameras on if the manifest asks.
@@ -1207,6 +1220,7 @@ int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
 void destroyArtSwapchain(XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images);
 int createPointerSwapchain(XrCtx* ctx);
 int uploadPointerArt(XrCtx* ctx);
+int roomStyleForCell(int cell);
 
 // xr_debug.c: setprop knobs and frame capture
 void propFlag(const char* name, int* target);
