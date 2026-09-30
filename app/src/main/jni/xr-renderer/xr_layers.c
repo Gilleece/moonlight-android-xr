@@ -596,7 +596,8 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
 
             for (int m = 0; m < 2; m++) {
                 int cell = marks[m];
-                if (cell < 0 || cell >= PICKER_CELLS) {
+                // A blank tile is not a cell, so nothing is ringed on one
+                if (cell < 0 || cell >= ctx->pickerCells) {
                     continue;
                 }
                 int col = cell % PICKER_COLS;

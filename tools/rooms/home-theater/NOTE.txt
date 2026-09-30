@@ -1,0 +1,42 @@
+"Home Theater" is the owner's own model. Copyright (c) 2026 Sean Gilleece /
+Woodford XR, licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/), attribution to Sean Gilleece /
+Woodford XR. First made for Depthray, Woodford XR's VR video player, and
+borrowed from it for this app. Modelled in Blender with the lighting baked into one 8192 by 8192 atlas, so the
+room ships unlit and needs nothing at runtime but its texture.
+
+Shipped in the app as the "Home Theater" environment.
+
+The source, home_theater.glb (about 38 MB, the atlas embedded as a PNG), is
+kept outside the repository. The mesh is the one the
+Home-Theater-HighRes_Baked node carries; the file's other nodes are markers
+and carry no geometry. Run from the top of the repository, with the glb and
+the extracted PNG both outside it:
+
+  python3 tools/bake_room.py --mesh Home-Theater-HighRes_Baked \
+      --texture home_theater_8k.png home_theater.glb \
+      app/src/main/assets/rooms/home_theater.room
+
+  python3 tools/atlas_astc.py home_theater_8k.png --size 4096 \
+      --out app/src/main/assets/rooms/home_theater_0.atlas
+  python3 tools/atlas_astc.py home_theater_8k.png --size 2048 \
+      --out app/src/main/assets/rooms/home_theater_lo_0.atlas
+
+atlas_astc.py needs astcenc 5.x (ARM's astc-encoder, Apache-2.0) through
+$ASTCENC or on the PATH. Both atlases are ASTC 6x6 at the default "thorough"
+quality with their mip chains down to 1x1, each level a Lanczos resize of the
+8192 source.
+
+  home_theater.room        573,540 bytes, 16,821 vertices, 5,876 triangles
+  home_theater_0.atlas   9,961,612 bytes, 4096 square, 13 levels
+  home_theater_lo_0.atlas 2,497,784 bytes, 2048 square, 12 levels, the set
+                          an XR2 Gen 1 headset reads
+
+The glb's ScreenAnchor empty is where the picture hangs and how big it can be:
+its origin, (0, 1.55, -3.132), is the screen's centre and its scale, 3.6 by
+2.025, the largest width and height in metres. Its Viewer_Seated node is at
+(0, 1.15, 1.12). Neither carries geometry, so the bake leaves them out and the
+numbers live in homeTheaterParams in xr_room.c instead.
+
+rooms/thumbs/home_theater.jpg, the picker tile, is a 256 square centre crop of
+the owner's own picture of the room.

@@ -398,21 +398,23 @@ static void uploadSheet(JNIEnv* env, XrCtx* ctx, jobject buffer, XrSwapchain cha
 
 // The thumbnail grid and the button that opens it, both drawn as Bitmaps in
 // Java. Same frame loop rule as the rest of the art. Flipped on the way in,
-// since a Bitmap runs top down and a texture does not.
+// since a Bitmap runs top down and a texture does not. Java says how many
+// cells it filled, since only it knows how many photos shipped.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobject thiz,
                                                                jlong handle, jobject grid,
-                                                               jobject button) {
+                                                               jobject button, jint cells) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
+    ctx->pickerCells = cells < 0 ? 0 : (cells > PICKER_CELLS ? PICKER_CELLS : cells);
     uploadSheet(env, ctx, grid, ctx->pickerSwapchain, ctx->pickerImages,
                 PICKER_TEX_W, PICKER_TEX_H, &ctx->pickerReady);
     uploadSheet(env, ctx, button, ctx->envButtonSwapchain, ctx->envButtonImages,
                 BUTTON_TEX, BUTTON_TEX, &ctx->envButtonReady);
-    LOGI("picker art %s, button %s", ctx->pickerReady ? "ready" : "missing",
-         ctx->envButtonReady ? "ready" : "missing");
+    LOGI("picker art %s, button %s, %d of %d cells", ctx->pickerReady ? "ready" : "missing",
+         ctx->envButtonReady ? "ready" : "missing", ctx->pickerCells, PICKER_CELLS);
 }
 
 // The settings panel and the cog that opens it, drawn in Java for the same
@@ -547,6 +549,22 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadLock(JNIEnv* env, jobjec
     LOGI("lock art %s", ctx->lockArtReady ? "ready" : "missing");
 }
 
+// Which room a picker cell puts up, 0 for a cell that is not a room. The one
+// place the two numberings meet: Java names a room by its cell, and a baked
+// room's assets arrive tagged the same way.
+int roomStyleForCell(int cell) {
+    if (cell == ENV_CELL_MINIMAL_ROOM) {
+        return ROOM_STYLE_MINIMAL;
+    }
+    if (cell == ENV_CELL_PSX_CINEMA) {
+        return ROOM_STYLE_PSX;
+    }
+    if (cell == ENV_CELL_HOME_THEATER) {
+        return ROOM_STYLE_THEATER;
+    }
+    return 0;
+}
+
 // Which cell the picker is showing as chosen, so it survives a restart
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jobject thiz,
@@ -558,15 +576,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetEnvironment(JNIEnv* env, jo
     }
     ctx->pickerChoice = choice;
     ctx->backgroundEnabled = backgroundOn;
-    if (choice == ENV_CELL_MINIMAL_ROOM) {
-        ctx->roomStyle = ROOM_STYLE_MINIMAL;
-    }
-    else if (choice == ENV_CELL_PSX_CINEMA) {
-        ctx->roomStyle = ROOM_STYLE_PSX;
-    }
-    else {
-        ctx->roomStyle = 0;
-    }
+    ctx->roomStyle = roomStyleForCell(choice);
     if (choice != ctx->loggedChoice) {
         ctx->loggedChoice = choice;
         LOGEV("environment %d, room %d", choice, roomEffective(ctx));

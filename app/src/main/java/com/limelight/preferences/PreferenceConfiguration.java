@@ -83,6 +83,7 @@ public class PreferenceConfiguration {
     public static final int VR_ENV_VOID = 1;
     public static final int VR_ENV_MINIMAL_ROOM = 2;
     public static final int VR_ENV_PSX_CINEMA = 3;
+    public static final int VR_ENV_HOME_THEATER = 4;
     // The 360 photos start here, numbered by their order in the assets folder,
     // well clear of the rooms so both lists can grow
     public static final int VR_ENV_FIRST_PHOTO = 100;
@@ -289,6 +290,10 @@ public class PreferenceConfiguration {
     public int vrAmbilightLevel;
     // The same colours washed over the walls of a 3d environment
     public boolean vrRoomLight;
+    // The environment last picked in the headset, one of the VR_ENV_ ids, or
+    // -1 before anything has been. Read for the logs only: the renderer reads
+    // and writes the preference itself.
+    public int vrEnvironmentId;
     // off, basic or verbose
     public String fileLogLevel;
     public boolean enableLatencyToast;
@@ -955,6 +960,7 @@ public class PreferenceConfiguration {
         config.vrAmbilightLevel = prefs.getInt(VR_AMBILIGHT_LEVEL_PREF_STRING,
                 DEFAULT_VR_AMBILIGHT_LEVEL);
         config.vrRoomLight = prefs.getBoolean(VR_ROOM_LIGHT_PREF_STRING, DEFAULT_VR_ROOM_LIGHT);
+        config.vrEnvironmentId = prefs.getInt(VR_ENVIRONMENT_ID_PREF_STRING, -1);
         config.fileLogLevel = prefs.getString(FILE_LOG_PREF_STRING, DEFAULT_FILE_LOG);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
