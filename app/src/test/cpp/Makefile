@@ -11,7 +11,7 @@ INCLUDES := -Istubs -I$(SRC)
 OUT := build
 
 TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_roommesh \
-         $(OUT)/test_audio
+         $(OUT)/test_layout $(OUT)/test_audio
 
 .PHONY: test clean
 
@@ -35,6 +35,13 @@ $(OUT)/test_atlas: test_atlas.c check.h $(SRC)/xr_atlas.c $(SRC)/xr_atlas.h
 $(OUT)/test_roommesh: test_roommesh.c check.h $(SRC)/xr_roommesh.c $(SRC)/xr_roommesh.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_roommesh.c $(SRC)/xr_roommesh.c -lm
+
+# The hover zones, the stand in and the Room tab's lanes, with the screen maths
+# the stand in is hit tested through
+$(OUT)/test_layout: test_layout.c check.h $(SRC)/xr_layout.c $(SRC)/xr_layout.h $(SRC)/xr_math.c \
+                    $(SRC)/xr_math.h $(SRC)/xr_shared.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_layout.c $(SRC)/xr_layout.c $(SRC)/xr_math.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it
