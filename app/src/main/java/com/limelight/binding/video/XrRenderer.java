@@ -221,6 +221,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // envResTier is the EnvResTier the room renders at: 0 low, 1 standard,
     // 2 high, 3 ultra
     private native long nativeInit(Activity activity, int width, int height, int stereoMode,
+                                   int depthWidth, int depthHeight,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, boolean perfOverlay,
                                    boolean ambilight, int ambiLevel, boolean roomLight,
@@ -290,7 +291,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // in the log too
                 nativeSetFileLog(FileLog.getLogPath(), FileLog.getLevel());
 
+                // The depth staging is allocated at the model's input size, so
+                // that is settled here, before any of it is built
+                DepthSize mapSize = MidasDepthSource.MODEL_SIZE;
                 nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
+                        mapSize.width, mapSize.height,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.enablePerfOverlay,
                         prefs.vrAmbilight, prefs.vrAmbilightLevel, prefs.vrRoomLight,

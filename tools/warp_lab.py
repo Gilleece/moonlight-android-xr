@@ -16,12 +16,19 @@
 #   cap_<tag>_source.raw      W*H*4 uint8 RGBA, the unwarped frame
 #   cap_<tag>_left.raw        W*H*4 uint8 RGBA, what the left eye was shown
 #   cap_<tag>_right.raw       W*H*4 uint8 RGBA, likewise
-#   cap_<tag>_depthtex.raw    256*256 uint8, the depth texture the warp read
-#   cap_<tag>_guidetex.raw    256*256*4 uint8, guide colour in rgb, depth in a
+#   cap_<tag>_depthtex.raw    MW*MH uint8, the depth texture the warp read
+#   cap_<tag>_guidetex.raw    MW*MH*4 uint8, guide colour in rgb, depth in a
+#   cap_<tag>_depthrect.raw   6 float32, MW and MH, then the x, y, w, h of
+#                             the frame the map covers
 #   cap_<tag>_upsampled.raw   (W/4)*(H/4) uint8, the upsampled depth
-#   cap_<tag>_depthraw.raw    256*256 float32, raw model output before
+#   cap_<tag>_depthraw.raw    MW*MH float32, raw model output before
 #                             normalization
-#   cap_<tag>_modelinput.raw  256*256*3 float32, the RGB the model was given
+#   cap_<tag>_modelinput.raw  MW*MH*3 float32, the RGB the model was given
+#
+# MW by MH is the size the session ran its depth map at, 512x288 for ZipDepth
+# on a Gen 2 headset, read off the depthrect file. A capture from before that
+# file existed was 256 square over the whole frame, and its edge is worked
+# out from the guide texture.
 #
 # Orientation: source, left, right, depthtex and upsampled all come back from
 # glReadPixels bottom row first, and agree with each other, so the warp runs on
@@ -48,7 +55,11 @@ import sys
 import numpy as np
 from PIL import Image
 
-DEPTH_SIZE = 256
+# The capture's own map size and the part of the frame it covers, x, y, w, h
+# in frame uv, both replaced by what the capture says
+DEPTH_W = 512
+DEPTH_H = 288
+DEPTH_RECT = (0.0, 0.0, 1.0, 1.0)
 SIGMA_S = 1.5
 CHUNK_ROWS = 108
 
@@ -80,8 +91,12 @@ def jbu_upsample(source, guide_rgb, depth_tex, uw, uh, sigma_r, sharp=0.0):
     vy = (np.arange(uh) + 0.5) / uh
     sx = np.clip((vx * w).astype(int), 0, w - 1)
     sy = np.clip((vy * h).astype(int), 0, h - 1)
-    lp_x = vx * DEPTH_SIZE - 0.5
-    lp_y = vy * DEPTH_SIZE - 0.5
+    # The map covers DEPTH_RECT of the frame, and anything outside it is far
+    mx = (vx - DEPTH_RECT[0]) / DEPTH_RECT[2]
+    my = (vy - DEPTH_RECT[1]) / DEPTH_RECT[3]
+    inside_x = (mx >= 0.0) & (mx <= 1.0)
+    lp_x = mx * DEPTH_W - 0.5
+    lp_y = my * DEPTH_H - 0.5
     bx = np.floor(lp_x).astype(int)
     by = np.floor(lp_y).astype(int)
 
@@ -92,9 +107,9 @@ def jbu_upsample(source, guide_rgb, depth_tex, uw, uh, sigma_r, sharp=0.0):
         lo_d = np.full(uw, 1.0, np.float32)
         hi_d = np.zeros(uw, np.float32)
         for dy in range(-2, 3):
-            qy = np.clip(by[y] + dy, 0, DEPTH_SIZE - 1)
+            qy = np.clip(by[y] + dy, 0, DEPTH_H - 1)
             for dx in range(-2, 3):
-                qx = np.clip(bx + dx, 0, DEPTH_SIZE - 1)
+                qx = np.clip(bx + dx, 0, DEPTH_W - 1)
                 sa = depth_tex[qy, qx]
                 srgb = guide_rgb[qy, qx]
                 offx = qx - lp_x
@@ -113,7 +128,8 @@ def jbu_upsample(source, guide_rgb, depth_tex, uw, uh, sigma_r, sharp=0.0):
             u = np.clip((d - lo_d) / np.maximum(span, 1e-6), 0.0, 1.0)
             snapped = lo_d + span / (1.0 + np.exp(-24.0 * (u - 0.5)))
             d = np.where(span < 0.05, d, d + sharp * (snapped - d))
-        out[y] = d
+        inside = inside_x & (0.0 <= my[y] <= 1.0)
+        out[y] = np.where(inside, d, 0.0)
     return out
 
 
@@ -205,14 +221,25 @@ def main():
         raise SystemExit("no capture tagged %s in %s" % (args.tag, args.directory))
     source = source.reshape(h, w, 4)[:, :, :3].astype(np.float32)
 
-    guide = load_raw(args.directory, args.tag, "guidetex", np.uint8,
-                     DEPTH_SIZE * DEPTH_SIZE * 4)
+    guide = load_raw(args.directory, args.tag, "guidetex", np.uint8, None)
     if guide is None:
         raise SystemExit("capture has no guidetex, it predates the upsample pass")
-    guide = guide.reshape(DEPTH_SIZE, DEPTH_SIZE, 4).astype(np.float32) / 255.0
+    global DEPTH_W, DEPTH_H, DEPTH_RECT
+    shape = load_raw(args.directory, args.tag, "depthrect", np.float32, 6)
+    if shape is not None:
+        DEPTH_W, DEPTH_H = int(shape[0]), int(shape[1])
+        DEPTH_RECT = tuple(float(v) for v in shape[2:])
+    else:
+        DEPTH_W = DEPTH_H = int(round((guide.size / 4) ** 0.5))
+        DEPTH_RECT = (0.0, 0.0, 1.0, 1.0)
+    if DEPTH_W * DEPTH_H * 4 != guide.size:
+        raise SystemExit("guidetex is %d bytes, which is not %dx%d"
+                         % (guide.size, DEPTH_W, DEPTH_H))
+    guide = guide.reshape(DEPTH_H, DEPTH_W, 4).astype(np.float32) / 255.0
     depth_tex = guide[:, :, 3]
 
-    print("source %dx%d, depth %dx%d, upsampled %dx%d" % (w, h, DEPTH_SIZE, DEPTH_SIZE, uw, uh))
+    print("source %dx%d, depth %dx%d over x %.3f y %.3f w %.3f h %.3f, upsampled %dx%d"
+          % ((w, h, DEPTH_W, DEPTH_H) + DEPTH_RECT + (uw, uh)))
     print("depth percentiles: 2%% %.3f  25%% %.3f  50%% %.3f  75%% %.3f  98%% %.3f"
           % tuple(np.percentile(depth_tex, [2, 25, 50, 75, 98])))
     print("interquartile span %.3f of the 0..1 range"
@@ -249,7 +276,7 @@ def main():
     save_png(os.path.join(out, "%s_source.png" % args.tag), source)
     save_png(os.path.join(out, "%s_depth.png" % args.tag), depth_full * 255.0)
     print("one depth texel covers %.1f x %.1f output pixels"
-          % (w / DEPTH_SIZE, h / DEPTH_SIZE))
+          % (w * DEPTH_RECT[2] / DEPTH_W, h * DEPTH_RECT[3] / DEPTH_H))
 
 
 if __name__ == "__main__":

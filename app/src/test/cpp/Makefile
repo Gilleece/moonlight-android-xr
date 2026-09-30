@@ -20,7 +20,7 @@ $(OUT)/test_math: test_math.c check.h $(SRC)/xr_math.c $(SRC)/xr_math.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_math.c $(SRC)/xr_math.c -lm
 
-$(OUT)/test_depthmap: test_depthmap.c check.h $(SRC)/xr_depthmap.c $(SRC)/xr_depthmap.h
+$(OUT)/test_depthmap: test_depthmap.c check.h $(SRC)/xr_depthmap.c $(SRC)/xr_depthmap.h $(SRC)/xr_shared.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_depthmap.c $(SRC)/xr_depthmap.c -lm
 

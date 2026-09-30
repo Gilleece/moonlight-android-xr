@@ -158,9 +158,11 @@ void writeCapture(XrCtx* ctx, const char* what, const void* data, size_t bytes) 
 // captured warp can be reproduced exactly rather than approximately. Depth is
 // the alpha channel, the rgb alongside it is the guide.
 void writeCaptureDepthTexture(XrCtx* ctx) {
-    const int n = DEPTH_TEX_SIZE;
-    unsigned char* rgba = malloc((size_t)n * n * 4);
-    unsigned char* red = malloc((size_t)n * n);
+    const int w = ctx->depthTexW;
+    const int h = ctx->depthTexH;
+    const int count = w * h;
+    unsigned char* rgba = malloc((size_t)count * 4);
+    unsigned char* red = malloc((size_t)count);
     if (rgba == NULL || red == NULL) {
         free(rgba);
         free(red);
@@ -174,12 +176,17 @@ void writeCaptureDepthTexture(XrCtx* ctx) {
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
                            ctx->depthTextures[ctx->depthReadIndex], 0);
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-        glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
-        for (int i = 0; i < n * n; i++) {
+        glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        for (int i = 0; i < count; i++) {
             red[i] = rgba[i * 4 + 3];
         }
-        writeCapture(ctx, "depthtex", red, (size_t)n * n);
-        writeCapture(ctx, "guidetex", rgba, (size_t)n * n * 4);
+        writeCapture(ctx, "depthtex", red, (size_t)count);
+        writeCapture(ctx, "guidetex", rgba, (size_t)count * 4);
+        // The map's size, since it is no longer always square, then the part
+        // of the frame it covers, which is all of it. tools/warp_lab.py reads
+        // this to shape the other files.
+        float shape[6] = { (float)w, (float)h, 0.0f, 0.0f, 1.0f, 1.0f };
+        writeCapture(ctx, "depthrect", shape, sizeof(shape));
     }
     else {
         LOGW("capture: depth texture not readable");

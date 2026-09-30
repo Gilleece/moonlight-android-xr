@@ -28,6 +28,7 @@ import java.nio.channels.FileChannel;
 public class MidasDepthSource implements DepthSource {
 
     private static final String MODEL_ASSET = "midas_v21_small_256_fp16.tflite";
+    public static final DepthSize MODEL_SIZE = DepthSize.square(256);
 
     private static final int WARMUP_RUNS = 3;
     private static final int BENCHMARK_RUNS = 10;
@@ -108,9 +109,16 @@ public class MidasDepthSource implements DepthSource {
         LimeLog.info("Depth model loaded, running on "+(gpuAccelerated ? "GPU" : "CPU")
                 +", input "+shapeToString(inputShape)+" output "+shapeToString(outputShape));
 
-        if (inputShape.length != 4 || inputShape[1] != DEPTH_SIZE || inputShape[2] != DEPTH_SIZE
-                || inputShape[3] != 3) {
-            LimeLog.severe("Unexpected depth model input shape");
+        if (!inputFits(inputShape, MODEL_SIZE) || !outputFits(outputShape, MODEL_SIZE)) {
+            LimeLog.severe("Depth model shape mismatch: input "+shapeToString(inputShape)
+                    +" and output "+shapeToString(outputShape)+" for a "+MODEL_SIZE+" map");
+            release();
+            return false;
+        }
+        if (input.capacity() != MODEL_SIZE.pixels() * 3 * 4
+                || output.capacity() != MODEL_SIZE.pixels() * 4) {
+            LimeLog.severe("Depth staging is "+input.capacity()+" and "+output.capacity()
+                    +" bytes, not a "+MODEL_SIZE+" map's");
             release();
             return false;
         }
@@ -166,7 +174,36 @@ public class MidasDepthSource implements DepthSource {
         return total / (float)runs / 1000000.0f;
     }
 
-    private static String shapeToString(int[] shape) {
+    /** Whether a model input is one RGB image of this size, rows then columns. */
+    static boolean inputFits(int[] shape, DepthSize size) {
+        return shape != null && shape.length == 4 && shape[0] == 1 && shape[1] == size.height
+                && shape[2] == size.width && shape[3] == 3;
+    }
+
+    /**
+     * Whether a model output is one value per pixel of this size, rows then
+     * columns. Axes of 1 are ignored, so 1xHxW, 1xHxWx1 and 1x1xHxW all fit;
+     * each lays the values out the same way.
+     */
+    static boolean outputFits(int[] shape, DepthSize size) {
+        if (shape == null) {
+            return false;
+        }
+        int[] kept = new int[2];
+        int count = 0;
+        for (int dim : shape) {
+            if (dim == 1) {
+                continue;
+            }
+            if (count == 2) {
+                return false;
+            }
+            kept[count++] = dim;
+        }
+        return count == 2 && kept[0] == size.height && kept[1] == size.width;
+    }
+
+    static String shapeToString(int[] shape) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < shape.length; i++) {
             sb.append(i == 0 ? "" : "x").append(shape[i]);

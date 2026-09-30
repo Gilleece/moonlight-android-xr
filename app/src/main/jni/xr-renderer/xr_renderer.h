@@ -384,7 +384,8 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_TB_SWAP "debug.moonlight.tbswap"
 
 // Radius of the low pass that splits the depth map into an overall shape and
-// the local detail on top of it. About a tenth of the frame.
+// the local detail on top of it. About a tenth of the frame, in texels of a
+// 256 square map, and scaled with the map on each axis.
 #define DEPTH_LOWPASS_RADIUS 11
 
 typedef struct {
@@ -428,6 +429,10 @@ typedef struct {
     // wide and each eye gets its own warped copy of the frame
     int stereoMode;
     int depthDebug;
+    // The depth map's size for this session, which is the model input's.
+    // Set by nativeInit before any GL init and fixed from then on.
+    int depthTexW;
+    int depthTexH;
     // Triple buffered: the frame loop samples one slot while the depth thread
     // rotates through the rest, so neither ever blocks on the other. Which
     // slot the frame loop reads is its own to write.
@@ -450,9 +455,9 @@ typedef struct {
     EGLContext depthContext;
     EGLSurface depthPbuffer;
 
-    // Depth model staging. The frame is downscaled to DEPTH_TEX_SIZE on the
-    // GPU, read back, run through the model in Java, and the result goes
-    // back up into the depth texture
+    // Depth model staging. The frame is downscaled to depthTexW by depthTexH
+    // on the GPU, read back, run through the model in Java, and the result
+    // goes back up into the depth texture
     GLuint downscaleProgram;
     GLint downscaleTexMatrixUniform;
     GLuint downscaleTexture;

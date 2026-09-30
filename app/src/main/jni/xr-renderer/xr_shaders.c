@@ -78,16 +78,19 @@ const char* const FRAGMENT_SRC =
     "    fragColor.rgb *= u_tint;\n"
     "}\n";
 
-// Joint bilateral upsample of the depth map. The model output is 256x256
-// against a 4K frame, so one depth texel covers a 15x8 block and every depth
-// boundary reaches the warp as a 15 pixel ramp. That ramp is the halo: it
-// shears whatever colour happens to sit under it.
+// Joint bilateral upsample of the depth map. The model output is a few
+// hundred texels across against a 4K frame, so one depth texel covers a block
+// of up to 15x8 pixels and every depth boundary reaches the warp as a ramp that
+// wide. That ramp is the halo: it shears whatever colour happens to sit under
+// it.
 //
 // Each output pixel weights the 5x5 low resolution depth neighbourhood by how
 // closely each neighbour's colour matches the colour here, so the depth edge
 // snaps to the colour edge instead of straddling it. Measured on a captured
-// frame this takes the edge from 15 px to 5 px, which is the resolution limit
-// of a 256x256 source rather than of this filter.
+// frame from a 256 square map this took the edge from 15 px to 5 px, which is
+// the resolution limit of the source rather than of this filter.
+//
+// u_depthSize is the map's width and height, which is the session's.
 //
 // The guide rides in the rgb of the depth texture, so it is by construction
 // the same frame the depth was inferred from. u_sigmaR trades edge snapping
@@ -103,13 +106,13 @@ const char* const UPSAMPLE_FRAGMENT_SRC =
     "uniform mat4 u_texmatrix;\n"
     "uniform float u_sigmaR;\n"
     "uniform float u_sharp;\n"
+    "uniform vec2 u_depthSize;\n"
     "out vec4 fragColor;\n"
-    "const float N = 256.0;\n"
     "const float SIGMA_S = 1.5;\n"
     "const float FLAT = 0.05;\n"
     "void main() {\n"
     "    vec3 hi = texture(u_texture, (u_texmatrix * vec4(v_plain, 0.0, 1.0)).xy).rgb;\n"
-    "    vec2 lp = v_plain * N - 0.5;\n"
+    "    vec2 lp = v_plain * u_depthSize - 0.5;\n"
     "    ivec2 base = ivec2(floor(lp));\n"
     "    float num = 0.0;\n"
     "    float den = 0.0;\n"
@@ -117,7 +120,7 @@ const char* const UPSAMPLE_FRAGMENT_SRC =
     "    float dhi = 0.0;\n"
     "    for (int dy = -2; dy <= 2; dy++) {\n"
     "        for (int dx = -2; dx <= 2; dx++) {\n"
-    "            ivec2 q = clamp(base + ivec2(dx, dy), ivec2(0), ivec2(int(N) - 1));\n"
+    "            ivec2 q = clamp(base + ivec2(dx, dy), ivec2(0), ivec2(u_depthSize) - 1);\n"
     "            vec4 s = texelFetch(u_depth, q, 0);\n"
     "            vec2 off = vec2(q) - lp;\n"
     "            float ws = exp(-dot(off, off) / (2.0 * SIGMA_S * SIGMA_S));\n"
@@ -203,9 +206,11 @@ const char* const OFFSET_FRAGMENT_SRC =
     "    fragColor = vec4(result / (2.0 * float(reach)) + 0.5, 0.0, 1.0);\n"
     "}\n";
 
-// Feeds the depth model. The video is far larger than 256x256, so a single
+// Feeds the depth model. The video is far larger than the map, so a single
 // bilinear tap per output pixel aliases badly and the depth map crawls with
 // it. A 4x4 box over each destination pixel is still nothing on this GPU.
+// u_texel is one destination texel on each axis, so the box covers exactly
+// that at any map size.
 const char* const DOWNSCALE_FRAGMENT_SRC =
     "#version 300 es\n"
     "#extension GL_OES_EGL_image_external_essl3 : require\n"
@@ -213,12 +218,13 @@ const char* const DOWNSCALE_FRAGMENT_SRC =
     "in vec2 v_plain;\n"
     "uniform samplerExternalOES u_texture;\n"
     "uniform mat4 u_texmatrix;\n"
+    "uniform vec2 u_texel;\n"
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    vec3 sum = vec3(0.0);\n"
     "    for (int y = 0; y < 4; y++) {\n"
     "        for (int x = 0; x < 4; x++) {\n"
-    "            vec2 off = (vec2(float(x), float(y)) - 1.5) * (0.25 / 256.0);\n"
+    "            vec2 off = (vec2(float(x), float(y)) - 1.5) * (0.25 * u_texel);\n"
     "            vec2 tc = v_plain + off;\n"
     "            sum += texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy).rgb;\n"
     "        }\n"

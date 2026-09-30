@@ -8,7 +8,15 @@
 // GL side of the depth model path: the downscale target the frame is
 // rendered into, and the staging buffers it is read back through
 int initDepthModel(XrCtx* ctx) {
-    const int n = DEPTH_TEX_SIZE;
+    // nativeInit sets the size before any GL init runs, so a zero here means
+    // that order broke
+    if (ctx->depthTexW <= 0 || ctx->depthTexH <= 0) {
+        LOGE("depth size not set before the depth model init");
+        return 0;
+    }
+    const int w = ctx->depthTexW;
+    const int h = ctx->depthTexH;
+    const size_t count = (size_t)w * h;
 
     if (!linkProgram(&ctx->downscaleProgram, DOWNSCALE_FRAGMENT_SRC, "downscale")) {
         return 0;
@@ -16,10 +24,14 @@ int initDepthModel(XrCtx* ctx) {
     ctx->downscaleTexMatrixUniform = glGetUniformLocation(ctx->downscaleProgram, "u_texmatrix");
     glUseProgram(ctx->downscaleProgram);
     glUniform1i(glGetUniformLocation(ctx->downscaleProgram, "u_texture"), 0);
+    // One destination texel on each axis, so the box filter spans one texel
+    // of the map at any size. Fixed for the session, so set once here.
+    glUniform2f(glGetUniformLocation(ctx->downscaleProgram, "u_texel"),
+                1.0f / (float)w, 1.0f / (float)h);
 
     glGenTextures(1, &ctx->downscaleTexture);
     glBindTexture(GL_TEXTURE_2D, ctx->downscaleTexture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
@@ -60,17 +72,17 @@ int initDepthModel(XrCtx* ctx) {
     glGenBuffers(2, ctx->depthPbos);
     for (int i = 0; i < 2; i++) {
         glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[i]);
-        glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)n * n * 4, NULL, GL_STREAM_READ);
+        glBufferData(GL_PIXEL_PACK_BUFFER, (GLsizeiptr)(count * 4), NULL, GL_STREAM_READ);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
 
-    ctx->modelInput = malloc((size_t)n * n * 3 * sizeof(float));
-    ctx->modelOutput = malloc((size_t)n * n * sizeof(float));
-    ctx->depthUploadBuf = malloc((size_t)n * n * 4);
-    ctx->depthEma = malloc((size_t)n * n * sizeof(float));
-    ctx->depthLow = malloc((size_t)n * n * sizeof(float));
-    ctx->depthScratch = malloc((size_t)n * n * sizeof(float));
-    ctx->depthColSums = malloc((size_t)n * sizeof(float));
+    ctx->modelInput = malloc(count * 3 * sizeof(float));
+    ctx->modelOutput = malloc(count * sizeof(float));
+    ctx->depthUploadBuf = malloc(count * 4);
+    ctx->depthEma = malloc(count * sizeof(float));
+    ctx->depthLow = malloc(count * sizeof(float));
+    ctx->depthScratch = malloc(count * sizeof(float));
+    ctx->depthColSums = malloc((size_t)w * sizeof(float));
     if (ctx->modelInput == NULL || ctx->modelOutput == NULL ||
             ctx->depthUploadBuf == NULL || ctx->depthEma == NULL ||
             ctx->depthLow == NULL || ctx->depthScratch == NULL ||
@@ -79,7 +91,7 @@ int initDepthModel(XrCtx* ctx) {
         return 0;
     }
 
-    LOGI("depth model staging ready at %dx%d", n, n);
+    LOGI("depth model staging ready at %dx%d", w, h);
     return 1;
 }
 
@@ -90,7 +102,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetModelInput(JNIEnv* env, job
         return NULL;
     }
     return (*env)->NewDirectByteBuffer(env, ctx->modelInput,
-                                       (jlong)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * 3 * sizeof(float));
+                                       (jlong)ctx->depthTexW * ctx->depthTexH * 3 * sizeof(float));
 }
 
 JNIEXPORT jobject JNICALL
@@ -100,7 +112,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetModelOutput(JNIEnv* env, jo
         return NULL;
     }
     return (*env)->NewDirectByteBuffer(env, ctx->modelOutput,
-                                       (jlong)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * sizeof(float));
+                                       (jlong)ctx->depthTexW * ctx->depthTexH * sizeof(float));
 }
 
 // Draws the current frame into the downscale target and asks for it back into
@@ -117,14 +129,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
     if (ctx == NULL || ctx->depthPbos[0] == 0) {
         return 0;
     }
-    const int n = DEPTH_TEX_SIZE;
+    const int w = ctx->depthTexW;
+    const int h = ctx->depthTexH;
     long startNs = nowNs();
 
     float texMatrix[16];
     (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
 
     glBindFramebuffer(GL_FRAMEBUFFER, ctx->downscaleFbo);
-    glViewport(0, 0, n, n);
+    glViewport(0, 0, w, h);
     if (ctx->srgbWriteControl) {
         glDisable(GL_FRAMEBUFFER_SRGB_EXT);
     }
@@ -145,7 +158,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
     // ponging costs nothing and leaves room if that guard ever loosens
     int slot = 1 - ctx->captureIndex;
     glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[slot]);
-    glReadPixels(0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     if (ctx->captureFences[slot] != NULL) {
@@ -182,7 +195,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
     if (ctx == NULL || ctx->depthPbos[0] == 0) {
         return -1;
     }
-    const int n = DEPTH_TEX_SIZE;
+    const int w = ctx->depthTexW;
+    const int h = ctx->depthTexH;
     long startNs = nowNs();
     int slot = ctx->captureIndex;
 
@@ -192,8 +206,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
         // hands back a buffer, so the frame would be normalised from whatever
         // the transfer had managed and the depth map would go subtly wrong
         // with nothing in the log to say why. Half a second is long past
-        // anything a 256x256 readback can take, so this firing means the fence
-        // never landed rather than that the GPU was busy.
+        // anything a readback this small can take, so this firing means the
+        // fence never landed rather than that the GPU was busy.
         if (glClientWaitSync(fence, 0, CAPTURE_FENCE_TIMEOUT_NS) == GL_TIMEOUT_EXPIRED) {
             LOGW("depth capture: readback fence timed out, frame may be torn");
         }
@@ -203,17 +217,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
 
     glBindBuffer(GL_PIXEL_PACK_BUFFER, ctx->depthPbos[slot]);
     const unsigned char* pixels = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
-                                                   (GLsizeiptr)n * n * 4, GL_MAP_READ_BIT);
+                                                   (GLsizeiptr)w * h * 4, GL_MAP_READ_BIT);
     if (pixels == NULL) {
         glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
         LOGW("depth readback could not be mapped: 0x%x", glGetError());
         return -1;
     }
 
-    for (int y = 0; y < n; y++) {
-        const unsigned char* src = pixels + (size_t)(n - 1 - y) * n * 4;
-        float* dst = ctx->modelInput + (size_t)y * n * 3;
-        for (int x = 0; x < n; x++) {
+    for (int y = 0; y < h; y++) {
+        const unsigned char* src = pixels + (size_t)(h - 1 - y) * w * 4;
+        float* dst = ctx->modelInput + (size_t)y * w * 3;
+        for (int x = 0; x < w; x++) {
             dst[x * 3 + 0] = src[x * 4 + 0] * (1.0f / 255.0f);
             dst[x * 3 + 1] = src[x * 4 + 1] * (1.0f / 255.0f);
             dst[x * 3 + 2] = src[x * 4 + 2] * (1.0f / 255.0f);
@@ -259,8 +273,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env
 }
 
 // Normalizes the model output to 0..1 and uploads it as the depth map the
-// warp samples. MiDaS emits relative inverse depth on an arbitrary scale, so
-// the range has to be found per frame. Rows flip back here.
+// warp samples. Both models emit relative inverse depth on an arbitrary
+// scale, so the range has to be found per frame. Rows flip back here.
 //
 // Two separate temporal filters. The range is smoothed so the mapping does
 // not jump when the scene changes, and the map itself is smoothed per texel
@@ -279,11 +293,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     if (ctx == NULL || ctx->modelOutput == NULL) {
         return 0;
     }
-    const int n = DEPTH_TEX_SIZE;
+    const int w = ctx->depthTexW;
+    const int h = ctx->depthTexH;
     long startNs = nowNs();
 
     float lo, hi;
-    robustRange(ctx->modelOutput, n * n, &lo, &hi);
+    robustRange(ctx->modelOutput, w * h, &lo, &hi);
     if (!ctx->rangeValid) {
         ctx->smoothLo = lo;
         ctx->smoothHi = hi;
@@ -293,15 +308,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
         ctx->smoothLo += ctx->rangeAlpha * (lo - ctx->smoothLo);
         ctx->smoothHi += ctx->rangeAlpha * (hi - ctx->smoothHi);
     }
-    float scale = 1.0f / (ctx->smoothHi - ctx->smoothLo);
+    // Floored, since the two ends are smoothed apart and a span that rounds
+    // to nothing would make every texel of the map NaN
+    float scale = depthSpanScale(ctx->smoothLo, ctx->smoothHi);
     float alpha = ctx->depthAlpha;
     int seed = !ctx->depthEmaValid;
 
-    for (int y = 0; y < n; y++) {
-        const float* src = ctx->modelOutput + (size_t)(n - 1 - y) * n;
-        float* ema = ctx->depthEma + (size_t)y * n;
-        for (int x = 0; x < n; x++) {
-            float v = (src[x] - ctx->smoothLo) * scale;
+    for (int y = 0; y < h; y++) {
+        const float* src = ctx->modelOutput + (size_t)(h - 1 - y) * w;
+        float* ema = ctx->depthEma + (size_t)y * w;
+        for (int x = 0; x < w; x++) {
+            // A NaN would otherwise sail through the clamps below and stay in
+            // the average for good
+            float v = (depthRead(src[x], lo) - ctx->smoothLo) * scale;
             if (v < 0.0f) v = 0.0f;
             if (v > 1.0f) v = 1.0f;
             ema[x] = seed ? v : ema[x] + alpha * (v - ema[x]);
@@ -319,16 +338,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     // afford for an effect measured to be invisible.
     int remapping = kg < 0.995f || kg > 1.005f || kl < 0.995f || kl > 1.005f;
     if (remapping) {
-        lowPass(ctx->depthEma, ctx->depthLow, ctx->depthScratch, ctx->depthColSums, n,
-                DEPTH_LOWPASS_RADIUS);
+        // Scaled with the map on each axis, so the split covers the same part
+        // of the picture at any size
+        lowPass(ctx->depthEma, ctx->depthLow, ctx->depthScratch, ctx->depthColSums, w, h,
+                DEPTH_LOWPASS_RADIUS * w / DEPTH_TEX_SIZE_DEFAULT,
+                DEPTH_LOWPASS_RADIUS * h / DEPTH_TEX_SIZE_DEFAULT);
     }
 
-    for (int y = 0; y < n; y++) {
-        const float* guide = ctx->modelInput + (size_t)(n - 1 - y) * n * 3;
-        const float* ema = ctx->depthEma + (size_t)y * n;
-        const float* low = ctx->depthLow + (size_t)y * n;
-        unsigned char* dst = ctx->depthUploadBuf + (size_t)y * n * 4;
-        for (int x = 0; x < n; x++) {
+    for (int y = 0; y < h; y++) {
+        const float* guide = ctx->modelInput + (size_t)(h - 1 - y) * w * 3;
+        const float* ema = ctx->depthEma + (size_t)y * w;
+        const float* low = ctx->depthLow + (size_t)y * w;
+        unsigned char* dst = ctx->depthUploadBuf + (size_t)y * w * 4;
+        for (int x = 0; x < w; x++) {
             float v = remapping ? conv + kg * (low[x] - conv) + kl * (ema[x] - low[x])
                                 : ema[x];
             if (v < 0.0f) v = 0.0f;
@@ -344,7 +366,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     int writeIndex = ctx->depthWriteIndex;
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[writeIndex]);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, n, n, GL_RGBA, GL_UNSIGNED_BYTE, ctx->depthUploadBuf);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, ctx->depthUploadBuf);
 
     if (ctx->depthFences[writeIndex] != NULL) {
         // The frame loop normally takes a slot's fence the frame after it is
