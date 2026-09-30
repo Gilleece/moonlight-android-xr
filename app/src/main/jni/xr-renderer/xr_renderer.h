@@ -317,6 +317,15 @@ static inline long nowNs(void) {
 // anything the frame loop could still have in flight from that slot by then.
 #define DEPTH_TEX_COUNT 3
 
+// What a capture's cut check asks of the map made from it: the per texel
+// average and the range started again
+#define DEPTH_RESET_TEXEL 1
+#define DEPTH_RESET_RANGE 2
+
+// The least time between two scene cut lines in the log, so a stream that
+// cuts on every beat cannot flood it. The next line says how many went unsaid.
+#define DEPTH_CUT_LOG_NS 2000000000L
+
 // Generous on purpose: the depth thread has no per frame deadline, and a
 // short timeout here would only trade a hung capture for a torn one
 #define CAPTURE_FENCE_TIMEOUT_NS 500000000ull
@@ -386,6 +395,9 @@ typedef struct XrCompositionLayerSettingsFB {
 // replaces the last or is normalised against its own range.
 #define PROP_DEPTH_TAU "debug.moonlight.depth_tau"
 #define PROP_RANGE_TAU "debug.moonlight.range_tau"
+// The scene cut detector: 0 off, 1 on as every build ships, 2 on with a line
+// in the log for every capture
+#define PROP_DEPTH_CUT "debug.moonlight.depth_cut"
 
 // Radius of the low pass that splits the depth map into an overall shape and
 // the local detail on top of it. About a tenth of the frame, in texels of a
@@ -500,6 +512,18 @@ typedef struct {
     // by the debug knobs.
     int depthTauMs;
     int rangeTauMs;
+    // Scene cuts, found on the model input before the model runs. A jump
+    // starts the per texel average again and a confirmed cut the range, at
+    // the next map uploaded, which is the one made from that capture. A
+    // capture whose model run fails leaves them for the map after. All but
+    // the level belong to the depth thread. The level is 0 off, 1 on, and 2
+    // on with a line per capture, which only a debug build can ask for.
+    int depthCutLevel;
+    DepthCut depthCut;
+    int depthResets;
+    long depthCutChecks;
+    long depthCutLogNs;
+    int depthCutUnlogged;
 
     // Edge aware upsample of the depth map, quarter of the video size
     GLuint upsampleProgram;

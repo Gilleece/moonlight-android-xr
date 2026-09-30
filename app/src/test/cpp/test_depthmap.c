@@ -1,5 +1,5 @@
 // The CPU side of the depth map: the percentile range, the low pass, the map
-// size check and the averages over time
+// size check, the averages over time and the scene cut detector
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -362,6 +362,325 @@ static void testSettleRates(void) {
     }
 }
 
+static void fillRgb(float* rgb, int w, int h, float left, float right) {
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            float v = x < w / 2 ? left : right;
+            for (int c = 0; c < 3; c++) {
+                rgb[((size_t)y * w + x) * 3 + c] = v;
+            }
+        }
+    }
+}
+
+static void testThumb(void) {
+    // 72 is not a multiple of 16, so the cells are 4 and 5 wide
+    const int n = 72;
+    float* rgb = malloc((size_t)n * n * 3 * sizeof(float));
+    DepthThumb a, b;
+
+    fillRgb(rgb, n, n, 0.5f, 0.5f);
+    depthThumbMake(&a, rgb, n, n);
+    CHECK_NEAR(a.grid[0], 0.5f, 1e-5);
+    CHECK_NEAR(a.grid[DEPTH_CUT_GRID * DEPTH_CUT_GRID - 1], 0.5f, 1e-5);
+    CHECK_NEAR(a.hist[DEPTH_CUT_BINS / 2], 1.0f, 1e-6);
+    CHECK_NEAR(depthThumbDiff(&a, &a), 0.0f, 1e-9);
+    CHECK_NEAR(depthThumbHistDiff(&a, &a), 0.0f, 1e-9);
+
+    // Black on the left, white on the right: the grid splits down the middle
+    // and the histogram holds half in each end bin
+    fillRgb(rgb, n, n, 0.0f, 1.0f);
+    depthThumbMake(&b, rgb, n, n);
+    CHECK_NEAR(b.grid[0], 0.0f, 1e-6);
+    CHECK_NEAR(b.grid[DEPTH_CUT_GRID - 1], 1.0f, 1e-5);
+    CHECK_NEAR(b.hist[0], 0.5f, 0.05);
+    CHECK_NEAR(b.hist[DEPTH_CUT_BINS - 1], 0.5f, 0.05);
+    float sum = 0.0f;
+    for (int i = 0; i < DEPTH_CUT_GRID * DEPTH_CUT_GRID; i++) {
+        sum += b.grid[i];
+    }
+    CHECK_NEAR(sum / (DEPTH_CUT_GRID * DEPTH_CUT_GRID), 0.5f, 1e-5);
+    // Every cell is 0.5 from the flat grey, and no bin is shared with it
+    CHECK_NEAR(depthThumbDiff(&a, &b), 0.5f, 1e-5);
+    CHECK_NEAR(depthThumbHistDiff(&a, &b), 1.0f, 1e-5);
+    free(rgb);
+}
+
+// The grid covers a 16:9 input the same way: its cells split the width and
+// the height each into 16, so the same picture reads the same whatever the
+// map's shape
+static void testThumbRect(void) {
+    const int w = 512, h = 288;
+    float* rgb = malloc((size_t)w * h * 3 * sizeof(float));
+    DepthThumb t, sq;
+    fillRgb(rgb, w, h, 0.0f, 1.0f);
+    depthThumbMake(&t, rgb, w, h);
+    for (int by = 0; by < DEPTH_CUT_GRID; by++) {
+        CHECK_NEAR(t.grid[by * DEPTH_CUT_GRID + 0], 0.0f, 1e-6);
+        CHECK_NEAR(t.grid[by * DEPTH_CUT_GRID + DEPTH_CUT_GRID / 2 - 1], 0.0f, 1e-6);
+        CHECK_NEAR(t.grid[by * DEPTH_CUT_GRID + DEPTH_CUT_GRID / 2], 1.0f, 1e-5);
+        CHECK_NEAR(t.grid[by * DEPTH_CUT_GRID + DEPTH_CUT_GRID - 1], 1.0f, 1e-5);
+    }
+    CHECK_NEAR(t.hist[0], 0.5f, 0.05);
+    CHECK_NEAR(t.hist[DEPTH_CUT_BINS - 1], 0.5f, 0.05);
+
+    // The same picture at the 256 square the other routes run at thumbs the
+    // same
+    const int n = 256;
+    float* sqRgb = malloc((size_t)n * n * 3 * sizeof(float));
+    fillRgb(sqRgb, n, n, 0.0f, 1.0f);
+    depthThumbMake(&sq, sqRgb, n, n);
+    CHECK_NEAR(depthThumbDiff(&t, &sq), 0.0f, 1e-5);
+
+    // Too small on either side for the grid is an empty thumb
+    depthThumbMake(&t, rgb, DEPTH_CUT_GRID - 1, h);
+    CHECK_NEAR(t.grid[0], 0.0f, 1e-9);
+    CHECK_NEAR(t.hist[0], 0.0f, 1e-9);
+    free(rgb);
+    free(sqRgb);
+}
+
+// A grid of one flat level over a histogram that never changes, so a step is
+// read on the grid alone
+static DepthThumb flatThumb(float level) {
+    DepthThumb t;
+    for (int i = 0; i < DEPTH_CUT_GRID * DEPTH_CUT_GRID; i++) {
+        t.grid[i] = level;
+    }
+    for (int i = 0; i < DEPTH_CUT_BINS; i++) {
+        t.hist[i] = 1.0f / DEPTH_CUT_BINS;
+    }
+    return t;
+}
+
+// Runs a sequence of flat levels through a fresh detector, the flags per step
+static void cutRun(const float* levels, int count, int* flags) {
+    DepthCut c;
+    memset(&c, 0, sizeof(c));
+    for (int i = 0; i < count; i++) {
+        DepthThumb t = flatThumb(levels[i]);
+        float d, h;
+        flags[i] = depthCutStep(&c, &t, &d, &h);
+    }
+}
+
+static void testCut(void) {
+    int f[8];
+
+    // Under the jump threshold nothing happens
+    const float drift[] = { 0.50f, 0.50f, 0.50f + DEPTH_CUT_JUMP_DIFF - 0.01f,
+                            0.50f + DEPTH_CUT_JUMP_DIFF - 0.01f };
+    cutRun(drift, 4, f);
+    CHECK(f[0] == 0 && f[1] == 0 && f[2] == 0 && f[3] == 0);
+
+    // A cut: settled, one jump, and the next capture stays with it. The jump
+    // starts the per texel average again, the confirmation the range, and
+    // what it reports is the jump's difference.
+    const float cut[] = { 0.2f, 0.2f, 0.7f, 0.7f, 0.7f };
+    cutRun(cut, 5, f);
+    CHECK(f[0] == 0 && f[1] == 0);
+    CHECK(f[2] == DEPTH_CUT_JUMP);
+    CHECK(f[3] == DEPTH_CUT_CONFIRMED);
+    CHECK(f[4] == 0);
+    DepthCut c;
+    memset(&c, 0, sizeof(c));
+    float d, h;
+    DepthThumb t = flatThumb(0.2f);
+    depthCutStep(&c, &t, &d, &h);
+    t = flatThumb(0.7f);
+    depthCutStep(&c, &t, &d, &h);
+    t = flatThumb(0.72f);
+    CHECK(depthCutStep(&c, &t, &d, &h) == DEPTH_CUT_CONFIRMED);
+    CHECK_NEAR(d, 0.5f, 1e-5);
+    CHECK_NEAR(h, 0.0f, 1e-6);
+
+    // Just over the jump threshold on the grid alone is a jump
+    const float edge[] = { 0.50f, 0.50f, 0.50f + DEPTH_CUT_JUMP_DIFF + 0.005f,
+                           0.50f + DEPTH_CUT_JUMP_DIFF + 0.005f };
+    cutRun(edge, 4, f);
+    CHECK(f[2] == DEPTH_CUT_JUMP);
+    CHECK(f[3] == DEPTH_CUT_CONFIRMED);
+
+    // A flash: a jump there and a jump back, and the range is left alone
+    const float flash[] = { 0.3f, 0.3f, 0.95f, 0.3f, 0.3f };
+    cutRun(flash, 5, f);
+    CHECK(f[2] == DEPTH_CUT_JUMP);
+    CHECK(f[3] == DEPTH_CUT_JUMP);
+    CHECK(f[4] == 0);
+
+    // A fast pan: every step a jump, none confirmed, and none after it
+    // settles either, since the last step of it did not come out of a settled
+    // picture
+    const float pan[] = { 0.1f, 0.1f, 0.25f, 0.4f, 0.55f, 0.7f, 0.7f, 0.7f };
+    cutRun(pan, 8, f);
+    for (int i = 2; i < 6; i++) {
+        CHECK(f[i] == DEPTH_CUT_JUMP);
+    }
+    CHECK(f[6] == 0 && f[7] == 0);
+
+    // The capture after the jump moving on by more than the same threshold
+    // is not a confirmation, and by less is
+    const float moving[] = { 0.2f, 0.2f, 0.6f, 0.6f + DEPTH_CUT_SAME_DIFF + 0.01f };
+    cutRun(moving, 4, f);
+    CHECK(f[2] == DEPTH_CUT_JUMP);
+    CHECK(!(f[3] & DEPTH_CUT_CONFIRMED));
+    const float steady[] = { 0.2f, 0.2f, 0.6f, 0.6f + DEPTH_CUT_SAME_DIFF - 0.01f };
+    cutRun(steady, 4, f);
+    CHECK(f[3] == DEPTH_CUT_CONFIRMED);
+
+    // The histogram on its own: the same grid, the whole of the luma moved to
+    // another bin, is a jump, and one that holds is a cut
+    memset(&c, 0, sizeof(c));
+    DepthThumb x = flatThumb(0.5f);
+    DepthThumb y = x;
+    memset(x.hist, 0, sizeof(x.hist));
+    x.hist[8] = 1.0f;
+    memset(y.hist, 0, sizeof(y.hist));
+    y.hist[2] = 1.0f;
+    CHECK(depthCutStep(&c, &x, &d, &h) == 0);
+    CHECK(depthCutStep(&c, &x, &d, &h) == 0);
+    CHECK(depthCutStep(&c, &y, &d, &h) == DEPTH_CUT_JUMP);
+    CHECK_NEAR(d, 0.0f, 1e-9);
+    CHECK(h > DEPTH_CUT_JUMP_HIST);
+    CHECK(depthCutStep(&c, &y, &d, &h) == DEPTH_CUT_CONFIRMED);
+
+    // A jump that does not stand out from the step before it is motion, even
+    // against the way that step went
+    const float drifting[] = { 0.35f, 0.30f, 0.39f, 0.39f };
+    cutRun(drifting, 4, f);
+    CHECK(f[2] == DEPTH_CUT_JUMP);
+    CHECK(f[3] == 0);
+    // One that does, but lands further still from the capture two back,
+    // carries the motion on; the same jump against motion the other way is
+    // a cut
+    const float onward[] = { 0.30f, 0.34f, 0.50f, 0.50f };
+    cutRun(onward, 4, f);
+    CHECK(f[2] == DEPTH_CUT_JUMP);
+    CHECK(f[3] == 0);
+    const float against[] = { 0.34f, 0.30f, 0.50f, 0.50f };
+    cutRun(against, 4, f);
+    CHECK(f[3] == DEPTH_CUT_CONFIRMED);
+
+    // Cleared, the next capture only seeds it
+    memset(&c, 0, sizeof(c));
+    t = flatThumb(0.2f);
+    depthCutStep(&c, &t, &d, &h);
+    depthCutClear(&c);
+    t = flatThumb(0.9f);
+    CHECK(depthCutStep(&c, &t, &d, &h) == 0);
+}
+
+// A grid ramping left to right, or top to bottom, over a histogram that
+// never changes
+static DepthThumb rampThumb(float lo, float span, int down) {
+    DepthThumb t = flatThumb(0.0f);
+    for (int y = 0; y < DEPTH_CUT_GRID; y++) {
+        for (int x = 0; x < DEPTH_CUT_GRID; x++) {
+            float at = (float)(down ? y : x) / (DEPTH_CUT_GRID - 1);
+            t.grid[y * DEPTH_CUT_GRID + x] = lo + span * at;
+        }
+    }
+    return t;
+}
+
+// The layout the correlation sees: a brighter copy of a picture is the same
+// picture, a new layout is a cut
+static void testCutLayout(void) {
+    DepthThumb ramp = rampThumb(0.2f, 0.4f, 0);
+    DepthThumb flat = flatThumb(0.5f);
+    CHECK_NEAR(depthThumbCorr(&ramp, &ramp), 1.0f, 1e-5);
+    CHECK_NEAR(depthThumbCorr(&ramp, &flat), 0.0f, 1e-9);
+    DepthThumb brighter = rampThumb(0.4f, 0.6f, 0);
+    CHECK_NEAR(depthThumbCorr(&ramp, &brighter), 1.0f, 1e-5);
+    DepthThumb flipped = rampThumb(0.6f, -0.4f, 0);
+    CHECK_NEAR(depthThumbCorr(&ramp, &flipped), -1.0f, 1e-5);
+    DepthThumb down = rampThumb(0.2f, 0.4f, 1);
+    CHECK_NEAR(depthThumbCorr(&ramp, &down), 0.0f, 1e-5);
+
+    // An exposure change jumps and holds, and is not a cut
+    DepthCut c;
+    memset(&c, 0, sizeof(c));
+    float d, h;
+    CHECK(depthCutStep(&c, &ramp, &d, &h) == 0);
+    CHECK(depthCutStep(&c, &ramp, &d, &h) == 0);
+    CHECK(depthCutStep(&c, &brighter, &d, &h) == DEPTH_CUT_JUMP);
+    CHECK(depthCutStep(&c, &brighter, &d, &h) == 0);
+
+    // The same ramp turned on its side is
+    memset(&c, 0, sizeof(c));
+    depthCutStep(&c, &ramp, &d, &h);
+    depthCutStep(&c, &ramp, &d, &h);
+    CHECK(depthCutStep(&c, &down, &d, &h) == DEPTH_CUT_JUMP);
+    CHECK(depthCutStep(&c, &down, &d, &h) == DEPTH_CUT_CONFIRMED);
+    CHECK_NEAR(c.corr, 0.0f, 1e-5);
+}
+
+// Two made up scenes, each a world wider than the frame so it can be panned
+// across: soft shapes, a diagonal band and some fine texture, in pixels
+static float sceneLuma(int scene, float u, float v) {
+    const float tau = 6.2831853f;
+    if (scene == 0) {
+        return 0.5f + 0.18f * sinf(tau * u / 700.0f + 0.4f) * cosf(tau * v / 400.0f)
+                + 0.12f * sinf(tau * (0.8f * u + 0.6f * v) / 150.0f)
+                + 0.06f * sinf(tau * u / 37.0f) * sinf(tau * v / 29.0f);
+    }
+    return 0.42f + 0.2f * cosf(tau * v / 250.0f + 1.1f) * sinf(tau * u / 900.0f + 2.0f)
+            + 0.14f * sinf(tau * (0.3f * u - 0.95f * v) / 120.0f + 0.7f)
+            + 0.06f * cosf(tau * u / 23.0f + v / 17.0f);
+}
+
+// The model input a capture of the scene gives, panned pan pixels across
+static void renderScene(float* rgb, int w, int h, int scene, float pan) {
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            float l = sceneLuma(scene, x + pan, (float)y);
+            float* p = rgb + ((size_t)y * w + x) * 3;
+            p[0] = fminf(fmaxf(1.05f * l, 0.0f), 1.0f);
+            p[1] = fminf(fmaxf(l, 0.0f), 1.0f);
+            p[2] = fminf(fmaxf(0.9f * l, 0.0f), 1.0f);
+        }
+    }
+}
+
+// Pictures through the whole detector, at both map sizes: a steady pan
+// neither jumps nor cuts, so nothing is reset, and a cut to an unrelated
+// scene resets the per texel average on its first capture and the range on
+// the next
+static void testCutPictures(void) {
+    const int sizes[2][2] = { { 512, 288 }, { 256, 256 } };
+    for (int s = 0; s < 2; s++) {
+        const int w = sizes[s][0], h = sizes[s][1];
+        float* rgb = malloc((size_t)w * h * 3 * sizeof(float));
+        DepthCut c;
+        memset(&c, 0, sizeof(c));
+        DepthThumb t;
+        float d, hd;
+
+        // Three pixels a capture, about a map width every four seconds at 45
+        // captures a second
+        int flags = 0;
+        for (int i = 0; i < 12; i++) {
+            renderScene(rgb, w, h, 0, 3.0f * i);
+            depthThumbMake(&t, rgb, w, h);
+            flags |= depthCutStep(&c, &t, &d, &hd);
+        }
+        CHECK(flags == 0);
+
+        // The cut, into a scene that goes on panning
+        int cut[4];
+        for (int i = 0; i < 4; i++) {
+            renderScene(rgb, w, h, 1, 3.0f * i);
+            depthThumbMake(&t, rgb, w, h);
+            cut[i] = depthCutStep(&c, &t, &d, &hd);
+        }
+        CHECK(cut[0] == DEPTH_CUT_JUMP);
+        CHECK(cut[1] == DEPTH_CUT_CONFIRMED);
+        CHECK(c.corr < DEPTH_CUT_CORR_MAX);
+        CHECK(cut[2] == 0 && cut[3] == 0);
+        free(rgb);
+    }
+}
+
 int main(void) {
     testRobustRange();
     testLowPass();
@@ -373,5 +692,10 @@ int main(void) {
     testDepthRange();
     testDepthTau();
     testSettleRates();
+    testThumb();
+    testThumbRect();
+    testCut();
+    testCutLayout();
+    testCutPictures();
     return checksDone("xr_depthmap");
 }

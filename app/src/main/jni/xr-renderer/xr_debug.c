@@ -70,6 +70,8 @@ void pollCaptureRequest(XrCtx* ctx) {
     // Milliseconds, 0 for none. The depth thread reads them at its next map.
     propIntEvent(PROP_DEPTH_TAU, &ctx->depthTauMs, DEPTH_TAU_MAX_MS, "depth tau ms");
     propIntEvent(PROP_RANGE_TAU, &ctx->rangeTauMs, DEPTH_RANGE_TAU_MAX_MS, "depth range tau ms");
+    // 0 off, 1 on, 2 on with a line per capture
+    propIntEvent(PROP_DEPTH_CUT, &ctx->depthCutLevel, 2, "depth cut level");
     propPercent(PROP_UPSAMPLE_SIGMA, &ctx->upsampleSigmaR);
     propPercent(PROP_DEPTH_SHARP, &ctx->depthSharp);
     propFlag(PROP_OVERLAY, &ctx->overlayVisible);

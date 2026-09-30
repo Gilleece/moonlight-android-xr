@@ -182,13 +182,81 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
     return nowNs() - startNs;
 }
 
+// The scene cut detector, on the capture just copied into the model input.
+// Only one capture is in flight at a time, so the next map uploaded is the
+// one made from it, and what the check finds waits in depthResets for that
+// upload to take.
+static void depthCutCheck(XrCtx* ctx, int w, int h) {
+    int level = ctx->depthCutLevel;
+    if (level == 0) {
+        depthCutClear(&ctx->depthCut);
+        return;
+    }
+
+    DepthThumb thumb;
+    depthThumbMake(&thumb, ctx->modelInput, w, h);
+    // What the detector is about to judge, taken before the step moves it on
+    int trace = level >= 2;
+    float td = -1.0f, th = -1.0f, td2 = -1.0f, th2 = -1.0f, tcorr = 0.0f;
+    float tout = 0.0f, tback = 0.0f;
+    if (trace && ctx->depthCut.haveLast) {
+        const DepthCut* c = &ctx->depthCut;
+        td = depthThumbDiff(&thumb, &c->last);
+        th = depthThumbHistDiff(&thumb, &c->last);
+        tcorr = depthThumbCorr(&thumb, &c->last);
+        tout = td / fmaxf(c->lastDiff, 1e-4f);
+        if (c->haveOlder) {
+            td2 = depthThumbDiff(&thumb, &c->older);
+            th2 = depthThumbHistDiff(&thumb, &c->older);
+            tback = td2 / fmaxf(td, 1e-4f);
+        }
+    }
+    float diff, hist;
+    int cut = depthCutStep(&ctx->depthCut, &thumb, &diff, &hist);
+    ctx->depthCutChecks++;
+    if (trace) {
+        // One fixed line per capture, for a parser: the count of captures
+        // checked, d and h against the last capture, d2 and h2 against the one
+        // two back (-1 where there is none), the grid's correlation with the
+        // last one's, out as d over the last step's d, back as d2 over d, and
+        // what this capture fired. A confirmation's gates were measured on
+        // the jump, so read them on the line before it.
+        LOGI("depth cutv %ld d %.4f h %.4f d2 %.4f h2 %.4f corr %.3f out %.2f back %.2f "
+             "jump %d cut %d", ctx->depthCutChecks, td, th, td2, th2, tcorr, tout, tback,
+             (cut & DEPTH_CUT_JUMP) != 0, (cut & DEPTH_CUT_CONFIRMED) != 0);
+    }
+    if (cut & DEPTH_CUT_JUMP) {
+        ctx->depthResets |= DEPTH_RESET_TEXEL;
+    }
+    if (!(cut & DEPTH_CUT_CONFIRMED)) {
+        return;
+    }
+    ctx->depthResets |= DEPTH_RESET_RANGE;
+
+    long now = nowNs();
+    if (ctx->depthCutLogNs != 0 && now - ctx->depthCutLogNs < DEPTH_CUT_LOG_NS) {
+        ctx->depthCutUnlogged++;
+        return;
+    }
+    if (ctx->depthCutUnlogged > 0) {
+        LOGEV("depth cut: diff %.3f hist %.3f corr %.2f, %d more not logged", diff, hist,
+              ctx->depthCut.corr, ctx->depthCutUnlogged);
+    }
+    else {
+        LOGEV("depth cut: diff %.3f hist %.3f corr %.2f", diff, hist, ctx->depthCut.corr);
+    }
+    ctx->depthCutLogNs = now;
+    ctx->depthCutUnlogged = 0;
+}
+
 // Waits for the last capture's readback to land, then copies it out of the
 // pixel buffer into the model input. Rows are flipped on the way: GL hands
 // back the bottom row first and the model wants the image the right way up,
 // since monocular depth leans heavily on which way is down. Runs on the depth
 // thread right before the model reads the input, so nothing else has to keep
-// the two in step. Returns the time it took, or -1 when the buffer could not
-// be mapped and there is nothing to run the model on.
+// the two in step, and the scene cut detector looks at it there. Returns the
+// time it took, or -1 when the buffer could not be mapped and there is
+// nothing to run the model on.
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env, jobject thiz,
                                                                      jlong handle) {
@@ -237,6 +305,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
 
     glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    depthCutCheck(ctx, w, h);
     return nowNs() - startNs;
 }
 
@@ -302,8 +371,9 @@ static const float* depthTauMap(XrCtx* ctx, const float* output, int count, long
 // Two separate temporal filters, each a one pole over real time. The model
 // output is averaged per texel ahead of everything else so raw model flicker
 // does not reach the eyes, and the range is smoothed on its own so the
-// mapping does not jump when the scene changes. The guide colour rides along
-// in RGB so the upsampling pass gets the exact frame the depth came from.
+// mapping does not jump when the scene changes. A scene cut found on this
+// map's capture starts them again instead. The guide colour rides along in
+// RGB so the upsampling pass gets the exact frame the depth came from.
 //
 // Runs on the depth thread, writing the next slot in a fixed rotation, never
 // the one the frame loop is reading, then publishing it behind a fence. This
@@ -320,6 +390,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     const int w = ctx->depthTexW;
     const int h = ctx->depthTexH;
     long startNs = nowNs();
+
+    // Whatever the cut check found on this map's capture, or on an earlier
+    // one whose model run made no map
+    int resets = ctx->depthResets;
+    ctx->depthResets = 0;
+    if (resets & DEPTH_RESET_TEXEL) {
+        ctx->depthTauValid = 0;
+    }
+    if (resets & DEPTH_RESET_RANGE) {
+        ctx->depthRange.valid = 0;
+    }
 
     const float* raw = depthTauMap(ctx, ctx->modelOutput, w * h, startNs);
     float lo, hi;

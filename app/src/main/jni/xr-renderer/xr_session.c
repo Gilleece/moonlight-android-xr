@@ -618,9 +618,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->depthDebug = depthDebug;
     ctx->sessionState = XR_SESSION_STATE_UNKNOWN;
     // The map is averaged per texel over 30 ms of real time, and the range it
-    // is normalised against over 150 ms, whatever rate the model runs at.
+    // is normalised against over 150 ms, whatever rate the model runs at. A
+    // scene cut starts both again rather than smoothing across it.
     ctx->depthTauMs = DEPTH_TAU_DEFAULT_MS;
     ctx->rangeTauMs = DEPTH_RANGE_TAU_DEFAULT_MS;
+    ctx->depthCutLevel = 1;
     // 0.25 measured best on a captured frame: same 5 px edge as tighter
     // values with a tenth of the speckle
     ctx->upsampleSigmaR = 0.25f;

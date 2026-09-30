@@ -1,8 +1,8 @@
 
 // CPU filtering of the depth model output: the robust range the map is
 // normalised against, the low pass that splits it into overall shape and
-// local detail, and the averages over time. Plain arrays in and out, so it
-// builds anywhere.
+// local detail, the averages over time, and the scene cut detector on the
+// model input. Plain arrays in and out, so it builds anywhere.
 
 #ifndef XR_DEPTHMAP_H
 #define XR_DEPTHMAP_H
@@ -63,7 +63,8 @@ void depthTauBlend(float* avg, const float* v, int count, float alpha, int seed)
 // The range the map is normalised against, smoothed the same way. A relative
 // depth model re-normalises every frame, so without this the whole scene's
 // depth breathes with whatever happens to be nearest and furthest in shot,
-// which reads as the picture swelling and shrinking on a pan.
+// which reads as the picture swelling and shrinking on a pan. A confirmed cut
+// starts it again rather than waiting it out.
 typedef struct {
     float lo, hi;
     int valid;
@@ -77,5 +78,91 @@ void depthRangeStep(DepthRange* r, float lo, float hi, float dtSec, float tauSec
 // smoothed apart, and a span that rounds to nothing would make every texel of
 // the map NaN
 float depthRangeScale(const DepthRange* r);
+
+// Scene cuts, found on the model input before the model runs. Each capture is
+// boiled down to a grid of box averaged luma and a coarse luma histogram, and
+// compared with the captures before it.
+#define DEPTH_CUT_GRID 16
+#define DEPTH_CUT_BINS 16
+
+typedef struct {
+    float grid[DEPTH_CUT_GRID * DEPTH_CUT_GRID];
+    float hist[DEPTH_CUT_BINS];
+} DepthThumb;
+
+// From a w by h RGB float image, 0..1. An image smaller than the grid on
+// either side gives an empty thumb.
+void depthThumbMake(DepthThumb* t, const float* rgb, int w, int h);
+// Mean absolute difference of the two grids, 0..1
+float depthThumbDiff(const DepthThumb* a, const DepthThumb* b);
+// Half the L1 distance of the two histograms, 0 the same, 1 no overlap
+float depthThumbHistDiff(const DepthThumb* a, const DepthThumb* b);
+// Correlation of the two grids, -1..1, and 0 when either is flat, since a
+// flat grid has no layout to keep
+float depthThumbCorr(const DepthThumb* a, const DepthThumb* b);
+
+// Set from a Quest 3 log of an 81 s film reel with 31 cuts, each gate in the
+// middle of the gap between the cuts and the jumps that were not cuts.
+//
+// A jump is a grid step over 0.06 or a histogram distance over 0.5. Every cut
+// stepped the grid by 0.094 or more, and a jump that is not a cut only costs
+// one map without the average, so the gates below do the rejecting.
+#define DEPTH_CUT_JUMP_DIFF 0.06f
+#define DEPTH_CUT_JUMP_HIST 0.50f
+// The capture after a cut stays this close to it. A flash jumps back by as
+// much as it jumped, which is further.
+#define DEPTH_CUT_SAME_DIFF 0.06f
+#define DEPTH_CUT_SAME_HIST 0.20f
+// The jumps that were not cuts (an exposure pulse, fireworks, a fast zoom)
+// kept the layout, the grid correlating 0.725 or more with the one before
+// where no cut passed 0.505. They stood out from the steps either side 2.3
+// times at most where cuts did 5 times or more. And they carried on the
+// motion before them, landing at least 1.23 times as far from the capture two
+// back as from the last one, where a cut stays about as far from both.
+#define DEPTH_CUT_CORR_MAX 0.60f
+#define DEPTH_CUT_STAND_OUT 3.0f
+#define DEPTH_CUT_TWO_BACK 1.12f
+// A grid whose cells vary by less than this, as a variance, is flat
+#define DEPTH_CUT_FLAT 1e-5f
+
+typedef struct {
+    DepthThumb last;
+    // The capture before the last one
+    DepthThumb older;
+    // The capture ahead of a jump that waits on the next one to confirm it
+    DepthThumb before;
+    int haveLast;
+    int haveOlder;
+    int lastJumped;
+    int pending;
+    // The last step's grid difference, the step into the capture ahead of
+    // the waiting jump, the jump against the capture two back, and the jump
+    float lastDiff;
+    float settledDiff;
+    float twoBackDiff;
+    float jumpDiff;
+    float jumpHist;
+    // The last confirmed cut's correlation, for the log
+    float corr;
+} DepthCut;
+
+// A capture far from the last one: the per texel average starts again
+#define DEPTH_CUT_JUMP 1
+// The capture after a jump stayed with the new picture, and the jump changed
+// the layout, stood out from the steps around it and did not carry on the
+// motion before it: the range starts again as well
+#define DEPTH_CUT_CONFIRMED 2
+
+// Takes the next capture's thumb and says what it was, as the flags above.
+// On a confirmed cut diff and hist are the jump's, otherwise this step's.
+int depthCutStep(DepthCut* c, const DepthThumb* t, float* diff, float* hist);
+
+// Forgets every capture, so the next one only seeds the detector
+static inline void depthCutClear(DepthCut* c) {
+    c->haveLast = 0;
+    c->haveOlder = 0;
+    c->lastJumped = 0;
+    c->pending = 0;
+}
 
 #endif
