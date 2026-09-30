@@ -1,0 +1,26 @@
+KEMAR head related transfer function measurements, MIT Media Laboratory
+
+The 37 files H0e000a.wav to H0e180a.wav in this directory are the elevation 0
+files of the "compact" data set, copied unchanged from compact.zip (231,461 bytes,
+SHA-256 0bcd69f8e8760cf8eacff4a89594ceca7d44fb94f28ecf0bf19970003bbfb3e0) as
+downloaded on 2026-09-09 from
+https://sound.media.mit.edu/resources/KEMAR/compact.zip
+
+Authors: Bill Gardner and Keith Martin, MIT Media Lab, 1994.
+Documentation: https://sound.media.mit.edu/resources/KEMAR.html and
+https://sound.media.mit.edu/resources/KEMAR/hrtfdoc.txt
+
+From KEMAR.html:
+
+  This data is Copyright 1994 by the MIT Media Laboratory. It is provided free
+  with no restrictions on use, provided the authors are cited when the data is
+  used in any research or commercial application.
+
+From hrtfdoc.txt, "Usage restrictions":
+
+  This HRTF data is Copyright 1994 by the MIT Media Lab. It is provided without
+  any usage restrictions. We request that you cite the authors when using this
+  data for research or commercial applications.
+
+Citation: Bill Gardner and Keith Martin, "HRTF Measurements of a KEMAR Dummy-Head
+Microphone", MIT Media Lab Perceptual Computing Technical Report #280, May 1994.
