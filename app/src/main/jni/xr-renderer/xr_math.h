@@ -44,6 +44,10 @@ XrQuaternionf axisAngleQuat(Vec3 axis, float angle);
 Vec3 quatRotate(XrQuaternionf q, Vec3 v);
 XrQuaternionf quatFromBasis(Vec3 x, Vec3 y, Vec3 z);
 
+// How far the head has turned from the way the screen faces, in radians,
+// positive to the viewer's left, in (-pi, pi]
+float yawBetween(XrQuaternionf head, XrQuaternionf screen);
+
 float euroFilter(EuroState* s, float x, float dt, float minCutoff, float beta);
 XrQuaternionf euroFilterQuat(EuroQuatState* s, XrQuaternionf q, float dt,
                              float minCutoff, float beta);

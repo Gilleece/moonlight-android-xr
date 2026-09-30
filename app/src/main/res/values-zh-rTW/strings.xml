@@ -122,6 +122,8 @@
     <string name="category_audio_settings">音訊設定</string>
     <string name="title_audio_config_list">環場音效組態</string>
     <string name="summary_audio_config_list">為家庭電影院系統啟用 5.1 或 7.1 環場音效</string>
+    <string name="title_checkbox_vr_virtual_surround">頭戴裝置虛擬環場音效</string>
+    <string name="summary_checkbox_vr_virtual_surround">將 5.1 或 7.1 的每個聲道放置在您周圍並以立體聲輸出，轉頭時聲音會固定在螢幕方向。需要在上方選擇 5.1 或 7.1，且主機與遊戲需輸出環場音效。</string>
     <string name="category_input_settings">輸入設定</string>
     <string name="title_checkbox_touchscreen_trackpad">將觸控式螢幕作為觸控板使用</string>
     <string name="summary_checkbox_touchscreen_trackpad">如果啟用，則將觸控式螢幕作為觸控板使用。 如果停用，則觸控式螢幕直接控制滑鼠游標。</string>

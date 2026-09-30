@@ -124,6 +124,11 @@
             android:entryValues="@array/audio_config_values"
             android:defaultValue="2" />
         <CheckBoxPreference
+            android:key="checkbox_vr_virtual_surround"
+            android:title="@string/title_checkbox_vr_virtual_surround"
+            android:summary="@string/summary_checkbox_vr_virtual_surround"
+            android:defaultValue="false" />
+        <CheckBoxPreference
             android:key="checkbox_enable_audiofx"
             android:title="@string/title_checkbox_enable_audiofx"
             android:summary="@string/summary_checkbox_enable_audiofx"

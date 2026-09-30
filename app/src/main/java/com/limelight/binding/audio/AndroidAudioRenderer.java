@@ -8,21 +8,67 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.audiofx.AudioEffect;
 import android.os.Build;
+import android.os.SystemClock;
 
 import com.limelight.LimeLog;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.jni.MoonBridge;
 
+import java.io.IOException;
+import java.util.Locale;
+
 public class AndroidAudioRenderer implements AudioRenderer {
 
     private final Context context;
     private final boolean enableAudioFx;
+    private final boolean virtualSurround;
+    private final HeadYaw headYaw;
 
     private AudioTrack track;
+    // Set only while a 5.1 or 7.1 stream is being rendered to stereo
+    private VirtualSurround surround;
 
-    public AndroidAudioRenderer(Context context, boolean enableAudioFx) {
+    public AndroidAudioRenderer(Context context, boolean enableAudioFx, boolean virtualSurround,
+                                HeadYaw headYaw) {
         this.context = context;
         this.enableAudioFx = enableAudioFx;
+        this.virtualSurround = virtualSurround;
+        this.headYaw = headYaw;
+    }
+
+    /** Reads the KEMAR set out of the assets. */
+    static Hrtf.Loader assetLoader(Context context) {
+        final Context app = context.getApplicationContext();
+        return name -> app.getAssets().open(VirtualSurround.ASSET_DIR + name);
+    }
+
+    // Loads the filters and builds the renderer. A failure leaves the stream
+    // on the multichannel track it would have had with the setting off.
+    private VirtualSurround buildSurround(int channelCount, int sampleRate, int samplesPerFrame) {
+        long start = SystemClock.elapsedRealtime();
+        VirtualSurround built = null;
+        try {
+            float rearMs = DebugProps.getFloat(DebugProps.SURROUND_REAR_MS,
+                    BinauralRenderer.REAR_DELAY_MS);
+            built = VirtualSurround.create(channelCount, sampleRate, samplesPerFrame,
+                    assetLoader(context), headYaw, rearMs);
+            // The Java loop is only there for the host tests. On a headset
+            // it could not keep up with the stream.
+            if ("Java".equals(built.kernel())) {
+                throw new IOException("native convolution unavailable");
+            }
+            LimeLog.info(String.format(Locale.US,
+                    "Virtual surround: %d channels to stereo, %s kernel, %d taps, rear delay %.1f ms, built in %d ms",
+                    channelCount, built.kernel(), built.taps(), rearMs,
+                    SystemClock.elapsedRealtime() - start));
+            return built;
+        } catch (IOException | RuntimeException | LinkageError e) {
+            if (built != null) {
+                built.release();
+            }
+            LimeLog.warning("Virtual surround unavailable, playing "+channelCount+" channels as they come: "+e);
+            return null;
+        }
     }
 
     private AudioTrack createAudioTrack(int channelConfig, int sampleRate, int bufferSize, boolean lowLatency) {
@@ -91,9 +137,20 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 return -1;
         }
 
+        // Virtual surround renders 5.1 and 7.1 to two ears, so the track is
+        // stereo. With the setting off or a stereo stream nothing is built.
+        int trackChannels = audioConfiguration.channelCount;
+        if (VirtualSurround.appliesTo(virtualSurround, audioConfiguration.channelCount)) {
+            surround = buildSurround(audioConfiguration.channelCount, sampleRate, samplesPerFrame);
+            if (surround != null) {
+                channelConfig = AudioFormat.CHANNEL_OUT_STEREO;
+                trackChannels = 2;
+            }
+        }
+
         LimeLog.info("Audio channel config: "+String.format("0x%X", channelConfig));
 
-        bytesPerFrame = audioConfiguration.channelCount * samplesPerFrame * 2;
+        bytesPerFrame = trackChannels * samplesPerFrame * 2;
 
         // We're not supposed to request less than the minimum
         // buffer size for our buffer, but it appears that we can
@@ -179,6 +236,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
         if (track == null) {
             // Couldn't create any audio track for playback
+            if (surround != null) {
+                surround.release();
+                surround = null;
+            }
             return -2;
         }
 
@@ -192,7 +253,13 @@ public class AndroidAudioRenderer implements AudioRenderer {
             // This will block until the write is completed. That can cause a backlog
             // of pending audio data, so we do the above check to be able to bound
             // latency at 40 ms in that situation.
-            track.write(audioData, 0, audioData.length);
+            if (surround != null) {
+                short[] stereo = surround.render(audioData);
+                track.write(stereo, 0, stereo.length);
+            }
+            else {
+                track.write(audioData, 0, audioData.length);
+            }
         }
         else {
             LimeLog.info("Too much pending audio data: " + MoonBridge.getPendingAudioDuration() +" ms");
@@ -229,5 +296,10 @@ public class AndroidAudioRenderer implements AudioRenderer {
         track.flush();
 
         track.release();
+
+        if (surround != null) {
+            surround.release();
+            surround = null;
+        }
     }
 }

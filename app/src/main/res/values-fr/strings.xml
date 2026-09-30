@@ -133,6 +133,8 @@
     <string name="category_audio_settings">Paramètres audio</string>
     <string name="title_audio_config_list">Configuration son surround</string>
     <string name="summary_audio_config_list">Activer le son surround 5.1 ou 7.1 pour les systèmes home cinéma</string>
+    <string name="title_checkbox_vr_virtual_surround">Surround virtuel pour casques</string>
+    <string name="summary_checkbox_vr_virtual_surround">Place chaque haut-parleur 5.1 ou 7.1 autour de vous en son stéréo, fixé à l\'écran quand vous tournez la tête. Nécessite le 5.1 ou le 7.1 choisi ci-dessus, ainsi qu\'un hôte et un jeu qui produisent du son surround.</string>
     <string name="category_input_settings">Paramètres d\'entrée</string>
     <string name="title_checkbox_touchscreen_trackpad">Utiliser l\'écran tactile comme trackpad</string>
     <string name="summary_checkbox_touchscreen_trackpad">Si activé, l\'écran tactile agit comme un trackpad. Si désactivé, l\'écran tactile contrôle directement le curseur de la souris.</string>

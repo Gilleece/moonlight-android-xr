@@ -121,6 +121,8 @@
     <string name="category_audio_settings"> 音频设置 </string>
     <string name="title_audio_config_list"> 环绕声设置 </string>
     <string name="summary_audio_config_list"> 为家庭影院系统启用5.1或7.1环绕声 </string>
+    <string name="title_checkbox_vr_virtual_surround">头显虚拟环绕声</string>
+    <string name="summary_checkbox_vr_virtual_surround">将 5.1 或 7.1 的每个声道放置在您周围并以立体声输出，转头时声音保持与屏幕对齐。需要在上方选择 5.1 或 7.1，且主机和游戏需输出环绕声。</string>
     <string name="category_input_settings">输入设置</string>
     <string name="title_checkbox_touchscreen_trackpad">将触控屏作为触控板使用</string>
     <string name="summary_checkbox_touchscreen_trackpad">如果启用，则将触控屏作为触控板使用。 如果禁止，则触控屏直接控制鼠标光标。</string>

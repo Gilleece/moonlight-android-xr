@@ -921,6 +921,8 @@ typedef struct {
     XrVector3f headPos;
     XrQuaternionf screenOrientation;
     float beamWidth;
+    // The head's yaw against the screen as last located, for IN_HEAD_YAW
+    float audioYaw;
 
     // Where the screen actually is. Seeded from the distance and width
     // preferences and then owned by the grab, so moving it does not fight the
