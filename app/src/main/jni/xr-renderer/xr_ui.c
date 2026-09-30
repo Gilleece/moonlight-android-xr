@@ -3,49 +3,37 @@
 // on the settings panel.
 #include "xr_renderer.h"
 
-// Which affordance the ray is over. Corners are numbered 0 top left, 1 top
-// right, 2 bottom left, 3 bottom right, and are skipped where they are not
-// drawn so the ray falls through to what is behind them.
-int hoverTest(float u, float v, float width, float height, int cornersLive,
-                     int* corner) {
-    if (cornersLive) {
-        // Centred where the bracket is drawn, which is a half bracket outside
-        // the corner in both axes, with the same reach each way as before
-        float sideM = CORNER_FRAC * width;
-        float reachM = sideM * CORNER_HOVER * 0.5f;
-        float cu = reachM / width;
-        float cv = reachM / height;
-        float outU = sideM * 0.5f / width;
-        float outV = sideM * 0.5f / height;
+// Whether the furniture hangs against the stand in screen rather than the
+// picture, which it does whenever a room is up. The buttons along the bar, the
+// padlock, the picker, the settings panel, the keyboard and the exit prompt are
+// all placed and sized off it, and their hit tests are made on it too.
+int furnitureOnStandIn(XrCtx* ctx) {
+    return roomEffective(ctx) > 0;
+}
 
-        int left = fabsf(u + outU) < cu;
-        int right = fabsf(u - (1.0f + outU)) < cu;
-        int top = fabsf(v + outV) < cv;
-        int bottom = fabsf(v - (1.0f + outV)) < cv;
-        if ((left || right) && (top || bottom)) {
-            *corner = (top ? 0 : 2) + (right ? 1 : 0);
-            return HOVER_CORNER;
-        }
+// Where that screen is: the picture's own pose outside a room, and the stand
+// in's inside one
+XrPosef furniturePose(XrCtx* ctx) {
+    return furnitureOnStandIn(ctx) ? standInPose() : ctx->screenPose;
+}
+
+float furnitureWidth(XrCtx* ctx) {
+    return furnitureOnStandIn(ctx) ? STAND_IN_WIDTH_M : ctx->screenWidth;
+}
+
+// The same shape as the picture, so the furniture keeps the proportions it has
+// outside a room at the same size
+float furnitureHeight(XrCtx* ctx) {
+    return furnitureWidth(ctx) * (float)ctx->videoHeight / (float)ctx->videoWidth;
+}
+
+// How big the corner brackets are, in metres, and 0 where there are none. A
+// room hangs and sizes its own picture, so nothing there has a corner to drag.
+float cornerSide(XrCtx* ctx) {
+    if (roomEffective(ctx) > 0) {
+        return 0.0f;
     }
-
-    if (u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f) {
-        return HOVER_SCREEN;
-    }
-
-    // The move bar sits under the bottom edge, so v runs past 1 here
-    float barU = BAR_WIDTH_FRAC * BAR_HOVER * 0.5f;
-    float reach = (BAR_GAP_FRAC + BAR_HEIGHT_FRAC * 3.0f) * width / height;
-    if (v > 1.0f && v < 1.0f + reach && fabsf(u - 0.5f) < barU) {
-        return HOVER_BAR;
-    }
-
-    // Beyond the picture the ray still draws out to a margin, so it does not
-    // blink out on the way to the handles underneath
-    if (u > -HALO_FRAC && u < 1.0f + HALO_FRAC && v > -HALO_FRAC && v < 1.0f + HALO_FRAC) {
-        return HOVER_HALO;
-    }
-
-    return HOVER_NONE;
+    return CORNER_FRAC * ctx->screenWidth;
 }
 
 // The curve in force. The panel takes over from the preference the moment it
@@ -108,37 +96,40 @@ float screenRoll(XrCtx* ctx) {
 
 // The picker floats just in front of the screen, centred on it
 XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight) {
-    float width = ctx->screenWidth * PICKER_WIDTH_FRAC;
+    float width = furnitureWidth(ctx) * PICKER_WIDTH_FRAC;
     *outWidth = width;
     *outHeight = width * (float)PICKER_TEX_H / (float)PICKER_TEX_W;
 
+    XrPosef pose = furniturePose(ctx);
     Vec3 local = { 0.0f, 0.0f, 0.06f };
-    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
-    XrPosef pose = ctx->screenPose;
+    Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
     pose.position.y += offset.y;
     pose.position.z += offset.z;
     return pose;
 }
 
-// Button sits to the left of the move bar, at the same height
+// Button sits to the left of the move bar, at the same height. This and the
+// placements after it are in the furniture's own flat frame, and height is
+// that frame's.
 void envButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float side = ctx->screenWidth * ENV_BUTTON_FRAC;
-    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
-    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
-    outLocal->x = -(barW * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + side * 0.5f);
-    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    float width = furnitureWidth(ctx);
+    float side = width * ENV_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    outLocal->x = -(barW * 0.5f + width * ENV_GAP_FRAC + side * 0.5f);
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
     outLocal->z = 0.005f;
     *outSide = side;
 }
 
-// Whether a point on the picture is on a square button placed in the screen's
-// flat local frame. Back into uv, where the button reaches a little further
-// than it draws.
+// Whether a point on the furniture's frame is on a square button placed in
+// it. Back into uv, where the button reaches a little further than it draws.
 static int buttonHit(XrCtx* ctx, Vec3 local, float side, float u, float v, float height) {
-    float cu = 0.5f + local.x / ctx->screenWidth;
+    float width = furnitureWidth(ctx);
+    float cu = 0.5f + local.x / width;
     float cv = 0.5f - local.y / height;
-    float halfU = side * HOVER_MARGIN * 0.5f / ctx->screenWidth;
+    float halfU = side * HOVER_MARGIN * 0.5f / width;
     float halfV = side * HOVER_MARGIN * 0.5f / height;
     return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
 }
@@ -152,11 +143,12 @@ int envButtonHit(XrCtx* ctx, float u, float v, float height) {
 
 // The cog is the same button on the other side of the bar
 void cogButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float side = ctx->screenWidth * COG_BUTTON_FRAC;
-    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
-    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
-    outLocal->x = barW * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + side * 0.5f;
-    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    outLocal->x = barW * 0.5f + width * ENV_GAP_FRAC + side * 0.5f;
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
     outLocal->z = 0.005f;
     *outSide = side;
 }
@@ -174,25 +166,25 @@ int cogButtonHit(XrCtx* ctx, float u, float v, float height) {
 // slider moves the screen, and a panel that followed it would drag the thumb
 // out from under the ray halfway through a drag.
 XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
-    float width = ctx->screenWidth * COG_WIDTH_FRAC;
+    float frameWidth = furnitureWidth(ctx);
+    float width = frameWidth * COG_WIDTH_FRAC;
     float height = width * (float)COG_TEX_H / (float)COG_TEX_W;
     *outWidth = width;
     *outHeight = height;
 
     // The button hangs below the screen, so the panel is placed off it rather
     // than off the screen. Same height the other placements are given.
-    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     Vec3 button;
     float side;
-    cogButtonPlacement(ctx, screenHeight, &button, &side);
+    cogButtonPlacement(ctx, furnitureHeight(ctx), &button, &side);
 
     Vec3 local;
     local.x = button.x;
-    local.y = button.y + side * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + height * 0.5f;
+    local.y = button.y + side * 0.5f + frameWidth * ENV_GAP_FRAC + height * 0.5f;
     local.z = 0.05f;
 
-    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
-    XrPosef pose = ctx->screenPose;
+    XrPosef pose = furniturePose(ctx);
+    Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
     pose.position.y += offset.y;
     pose.position.z += offset.z;
@@ -202,12 +194,13 @@ XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 // The keyboard button is the same button again, one place further out along
 // the bar than the cog
 void kbButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float side = ctx->screenWidth * COG_BUTTON_FRAC;
-    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
-    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
-    float gap = ctx->screenWidth * ENV_GAP_FRAC;
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    float gap = width * ENV_GAP_FRAC;
     outLocal->x = barW * 0.5f + gap + side * 1.5f + gap;
-    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
     outLocal->z = 0.005f;
     *outSide = side;
 }
@@ -224,20 +217,20 @@ int kbButtonHit(XrCtx* ctx, float u, float v, float height) {
 // rather than a corner. Frozen while it is open, like the settings panel: the
 // screen stays draggable behind it and the keys must not move under the ray.
 XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
-    float width = ctx->screenWidth * KB_WIDTH_FRAC;
+    float frameWidth = furnitureWidth(ctx);
+    float width = frameWidth * KB_WIDTH_FRAC;
     float height = width * (float)KB_TEX_H / (float)KB_TEX_W;
     *outWidth = width;
     *outHeight = height;
 
-    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     Vec3 local;
     local.x = 0.0f;
     // Top edge the same distance under the picture that the bar sits at
-    local.y = -(screenHeight * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + height * 0.5f);
+    local.y = -(furnitureHeight(ctx) * 0.5f + frameWidth * BAR_GAP_FRAC + height * 0.5f);
     local.z = 0.05f;
 
-    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
-    XrPosef pose = ctx->screenPose;
+    XrPosef pose = furniturePose(ctx);
+    Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
     pose.position.y += offset.y;
     pose.position.z += offset.z;
@@ -262,12 +255,13 @@ int kbKeyAt(XrCtx* ctx, float u, float v) {
 // further out along the bar than the environment button, and past the left end
 // of the bar's own zone
 void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float side = ctx->screenWidth * COG_BUTTON_FRAC;
-    float barW = ctx->screenWidth * BAR_WIDTH_FRAC;
-    float barH = ctx->screenWidth * BAR_HEIGHT_FRAC;
-    float gap = ctx->screenWidth * ENV_GAP_FRAC;
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    float gap = width * ENV_GAP_FRAC;
     outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap);
-    outLocal->y = -(height * 0.5f + ctx->screenWidth * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
     outLocal->z = 0.005f;
     *outSide = side;
 }
@@ -284,23 +278,23 @@ int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
 // screen can still be dragged behind it, and the two buttons must not move out
 // from under the ray on the way to a press.
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight) {
-    float width = ctx->screenWidth * EXIT_WIDTH_FRAC;
+    float frameWidth = furnitureWidth(ctx);
+    float width = frameWidth * EXIT_WIDTH_FRAC;
     float height = width * (float)EXIT_TEX_H / (float)EXIT_TEX_W;
     *outWidth = width;
     *outHeight = height;
 
-    float screenHeight = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     Vec3 button;
     float side;
-    exitButtonPlacement(ctx, screenHeight, &button, &side);
+    exitButtonPlacement(ctx, furnitureHeight(ctx), &button, &side);
 
     Vec3 local;
     local.x = button.x;
-    local.y = button.y + side * 0.5f + ctx->screenWidth * ENV_GAP_FRAC + height * 0.5f;
+    local.y = button.y + side * 0.5f + frameWidth * ENV_GAP_FRAC + height * 0.5f;
     local.z = 0.05f;
 
-    Vec3 offset = quatRotate(ctx->screenPose.orientation, local);
-    XrPosef pose = ctx->screenPose;
+    XrPosef pose = furniturePose(ctx);
+    Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
     pose.position.y += offset.y;
     pose.position.z += offset.z;
@@ -622,13 +616,14 @@ int cogCellAt(float pu, int cells) {
     return cell;
 }
 
-// Padlock sits clear of the left edge, halfway up, in the screen's flat local
-// frame. Where the picture is curved the draw puts this on the surface, and
-// the arc length that comes out of it is the same x, so the hit test below
+// Padlock sits clear of the left edge, halfway up, in the furniture's flat
+// local frame. Where the picture is curved the draw puts this on the surface,
+// and the arc length that comes out of it is the same x, so the hit test below
 // still reads straight off these numbers.
 void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide) {
-    float side = ctx->screenWidth * LOCK_BUTTON_FRAC;
-    outLocal->x = -(ctx->screenWidth * (0.5f + LOCK_GAP_FRAC) + side * 0.5f);
+    float width = furnitureWidth(ctx);
+    float side = width * LOCK_BUTTON_FRAC;
+    outLocal->x = -(width * (0.5f + LOCK_GAP_FRAC) + side * 0.5f);
     outLocal->y = 0.0f;
     outLocal->z = 0.005f;
     *outSide = side;

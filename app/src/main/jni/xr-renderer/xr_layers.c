@@ -386,7 +386,7 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
                         + sizeH * 0.5f);
         }
         else {
-            sizeW = sizeH = view->screenWidth * CORNER_FRAC;
+            sizeW = sizeH = cornerSide(ctx);
             int right = ctx->hoverCorner == 1 || ctx->hoverCorner == 3;
             int bottom = ctx->hoverCorner >= 2;
             // Half a bracket outside the corner in both axes, so its inner
@@ -419,18 +419,19 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     }
 }
 
-// One of the buttons beside the move bar, wherever its placement puts it
+// One of the buttons beside the move bar, wherever its placement puts it. On
+// the furniture's frame, which in a room is the stand in rather than the wall.
 static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
                          XrCompositionLayerQuad* slot, XrSwapchain chain,
                          void (*placement)(XrCtx*, float, Vec3*, float*), int hot) {
     Vec3 local;
     float side;
-    placement(ctx, view->screenHeight, &local, &side);
+    placement(ctx, furnitureHeight(ctx), &local, &side);
     // Grows a little when the ray is on it, which is the only feedback
     // a quad layer can give without a second texture
     float scale = hot ? 1.18f : 1.0f;
     quadLayer(slot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
-              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(view->screenPose, local),
+              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(furniturePose(ctx), local),
               side * scale, side * scale);
     pushLayer(ctx, layers, slot);
 }
@@ -497,16 +498,18 @@ static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
         float lockYaw = 0.0f;
         lockButtonPlacement(ctx, &local, &side);
         // Hangs off the left edge, which on a curved screen is well in
-        // front of the flat plane the placement is measured in
+        // front of the flat plane the placement is measured in. A room's
+        // picture is never curved, and its furniture is on the stand in.
         curveLocal(&local, ctx->screenRadius, view->screenCurved, &lockYaw);
         Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
         float lockScale = ctx->lockHot ? 1.18f : 1.0f;
+        XrPosef frame = furniturePose(ctx);
 
         quadLayer(&layers->lock, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->handsLocked ? ctx->lockSwapchain : ctx->unlockSwapchain,
-                  LOCK_TEX, LOCK_TEX, view->space, poseOffset(view->screenPose, local),
+                  LOCK_TEX, LOCK_TEX, view->space, poseOffset(frame, local),
                   side * lockScale, side * lockScale);
-        layers->lock.pose.orientation = quatNorm(quatMul(view->screenPose.orientation,
+        layers->lock.pose.orientation = quatNorm(quatMul(frame.orientation,
                                                          axisAngleQuat(yawAxis, lockYaw)));
         pushLayer(ctx, layers, &layers->lock);
     }

@@ -701,10 +701,22 @@ static void swallowTrigger(XrCtx* ctx, int src) {
     }
 }
 
-// Where the ray lands on furniture rather than on the picture. The grid has a
-// plane of its own, everything else sits on the screen.
+// Whether a hover is one of the pieces hung against the furniture's frame
+// rather than the picture itself
+static int onFurniture(int hover) {
+    return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
+            || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK;
+}
+
+// Where the ray lands on furniture rather than on the picture. The grid and the
+// panels have planes of their own, and in a room the bar and its buttons sit
+// on the stand in. Everything else sits on the screen.
 static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef screenPose,
                            float height, float radius, int curved) {
+    if (furnitureOnStandIn(ctx) && onFurniture(hover)) {
+        return screenPoint(u, v, standInPose(), STAND_IN_WIDTH_M, furnitureHeight(ctx),
+                           0.0f, 0);
+    }
     if (hover == HOVER_PICKER) {
         float pickW, pickH;
         XrPosef pose = pickerPose(ctx, &pickW, &pickH);
@@ -755,6 +767,8 @@ typedef struct {
     int curved;
     float height;
     float radius;
+    // How big the picture's corner brackets are, 0 where it has none
+    float cornerSide;
     XrPosef screenPose;
     XrSpaceLocation headLoc;
     int headValid;
@@ -790,6 +804,88 @@ static void releaseInput(XrCtx* ctx, float* out) {
         // writes the value, since out is flushed on the way out.
         cogDragEnded(ctx, out);
     }
+}
+
+// The buttons along the bar and the padlock, claimed off what the hover test
+// said about the same point. u and v are on the furniture's frame, which is
+// the picture outside a room and the stand in inside one.
+static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, float v) {
+    float height = furnitureHeight(ctx);
+    // The button reaches past the left end of the bar's zone, so it is tested
+    // here rather than after a hand has been picked. Otherwise the part of it
+    // outside that zone belongs to no hand at all.
+    if ((hover == HOVER_NONE || hover == HOVER_BAR) && envButtonHit(ctx, u, v, height)) {
+        hover = HOVER_ENVBUTTON;
+    }
+    // The cog is the same button on the other side of the bar, so it is
+    // claimed the same way
+    if ((hover == HOVER_NONE || hover == HOVER_BAR) && cogButtonHit(ctx, u, v, height)) {
+        hover = HOVER_COGBUTTON;
+    }
+    // And the keyboard is one further out again, far enough out that it sits
+    // past the right end of the bar's zone entirely. That is halo ground, so
+    // like the padlock on the left it has to claim the halo back or the ray
+    // never reaches it.
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && kbButtonHit(ctx, u, v, height)) {
+        hover = HOVER_KBBUTTON;
+    }
+    // The exit button is the same distance out on the left, so it sits past
+    // that end of the bar's zone and has to claim the halo back the same way
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && exitButtonHit(ctx, u, v, height)) {
+        hover = HOVER_EXITBUTTON;
+    }
+    // Off the left edge, so the halo owns that ground until the padlock claims
+    // it back
+    if (ctx->handsEnabled && hover != HOVER_ENVBUTTON
+            && (hover == HOVER_NONE || hover == HOVER_HALO)
+            && lockButtonHit(ctx, u, v, height)) {
+        hover = HOVER_LOCK;
+        f->atLock[h] = 1;
+    }
+    return hover;
+}
+
+// In a room the picture and the furniture are on two different planes: the
+// picture on the room's wall, the bar and its buttons on the stand in in front
+// of the seat. The picture keeps what lands on it, the furniture takes what
+// lands on a piece of it, and anything else is the picture's margin or nothing.
+// The hit is left in the coordinates of whichever of the two claimed it.
+static void roomHover(XrCtx* ctx, InputFrame* f, int h) {
+    float pu = 0.0f, pv = 0.0f;
+    int picture = HOVER_NONE;
+    if (screenProject(f->aimPoses[h], f->screenPose, ctx->screenWidth, f->height,
+                      f->radius, f->curved, &pu, &pv)) {
+        picture = hoverTest(pu, pv, ctx->screenWidth, f->height, f->cornerSide,
+                            &f->corners[h]);
+    }
+    if (picture == HOVER_SCREEN || picture == HOVER_CORNER) {
+        f->hovers[h] = picture;
+        f->hitU[h] = pu;
+        f->hitV[h] = pv;
+        return;
+    }
+
+    float su, sv;
+    float standW = STAND_IN_WIDTH_M;
+    float standH = furnitureHeight(ctx);
+    if (screenProject(f->aimPoses[h], standInPose(), standW, standH, 0.0f, 0, &su, &sv)) {
+        int unused;
+        int stand = hoverTest(su, sv, standW, standH, 0.0f, &unused);
+        stand = furnitureHover(ctx, f, h, stand, su, sv);
+        if (onFurniture(stand)) {
+            f->hovers[h] = stand;
+            f->hitU[h] = su;
+            f->hitV[h] = sv;
+            return;
+        }
+    }
+
+    // The picture's own bar zone means nothing here, the stand in's does
+    f->hovers[h] = picture == HOVER_BAR ? HOVER_HALO : picture;
+    f->hitU[h] = pu;
+    f->hitV[h] = pv;
 }
 
 // Reads every source: the triggers, the aim poses and where each ray lands
@@ -889,49 +985,16 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             f->hitU[h] = kbU;
             f->hitV[h] = kbV;
         }
-        else if (screenProject(f->aimPoses[h], f->screenPose, ctx->screenWidth, f->height,
-                               f->radius, f->curved, &f->hitU[h], &f->hitV[h])) {
-            // No corner brackets in a room, so nothing there claims the ray
-            f->hovers[h] = hoverTest(f->hitU[h], f->hitV[h], ctx->screenWidth, f->height,
-                                     !f->roomOn, &f->corners[h]);
-            // The button reaches past the left end of the bar's zone, so it is
-            // tested here rather than after a hand has been picked. Otherwise
-            // the part of it outside that zone belongs to no hand at all.
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR)
-                    && envButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_ENVBUTTON;
+        else if (!f->roomOn) {
+            if (screenProject(f->aimPoses[h], f->screenPose, ctx->screenWidth, f->height,
+                              f->radius, f->curved, &f->hitU[h], &f->hitV[h])) {
+                int hover = hoverTest(f->hitU[h], f->hitV[h], ctx->screenWidth, f->height,
+                                      f->cornerSide, &f->corners[h]);
+                f->hovers[h] = furnitureHover(ctx, f, h, hover, f->hitU[h], f->hitV[h]);
             }
-            // The cog is the same button on the other side of the bar, so it
-            // is claimed the same way
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR)
-                    && cogButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_COGBUTTON;
-            }
-            // And the keyboard is one further out again, far enough out that
-            // it sits past the right end of the bar's zone entirely. That is
-            // halo ground, so like the padlock on the left it has to claim the
-            // halo back or the ray never reaches it.
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR
-                    || f->hovers[h] == HOVER_HALO)
-                    && kbButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_KBBUTTON;
-            }
-            // The exit button is the same distance out on the left, so it sits
-            // past that end of the bar's zone and has to claim the halo back
-            // the same way
-            if ((f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_BAR
-                    || f->hovers[h] == HOVER_HALO)
-                    && exitButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_EXITBUTTON;
-            }
-            // Off the left edge, so the halo owns that ground until the
-            // padlock claims it back
-            if (ctx->handsEnabled && f->hovers[h] != HOVER_ENVBUTTON
-                    && (f->hovers[h] == HOVER_NONE || f->hovers[h] == HOVER_HALO)
-                    && lockButtonHit(ctx, f->hitU[h], f->hitV[h], f->height)) {
-                f->hovers[h] = HOVER_LOCK;
-                f->atLock[h] = 1;
-            }
+        }
+        else {
+            roomHover(ctx, f, h);
         }
 
         if (ctx->poseSeen[h] && f->dt > 0.0f) {
@@ -1573,7 +1636,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
         else {
             // The bracket being held sits a half bracket outside the
             // corner, so the ray has to end out there with it
-            float side = ctx->screenWidth * CORNER_FRAC;
+            float side = cornerSide(ctx);
             local.x = (ctx->grabOppX > 0.0f ? -0.5f : 0.5f) * (ctx->screenWidth + side);
             local.y = (ctx->grabOppY > 0.0f ? -0.5f : 0.5f) * (f->height + side);
         }
@@ -1821,6 +1884,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     f.curved = !f.roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
     f.radius = ctx->screenRadius;
+    f.cornerSide = cornerSide(ctx);
     f.screenPose = ctx->screenPose;
 
     f.now = nowNs();

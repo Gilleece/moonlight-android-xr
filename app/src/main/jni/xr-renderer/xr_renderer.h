@@ -38,6 +38,7 @@
 #include "xr_shared.h"
 #include "xr_depthmap.h"
 #include "xr_roommesh.h"
+#include "xr_layout.h"
 
 #define TAG "moonlight-xr"
 
@@ -127,37 +128,12 @@ static inline long nowNs(void) {
 #define SCREEN_MIN_WIDTH 0.8f
 #define SCREEN_MAX_WIDTH 8.0f
 
-// What the ray is over. Handles only show while hovered, which is how spatial
-// panels usually behave: nothing visible until you go looking for it.
-#define HOVER_NONE   0
-#define HOVER_SCREEN 1
-#define HOVER_BAR    2
-#define HOVER_CORNER 3
+// What the ray is over, and the handles' sizes and hover zones, are in
+// xr_layout.h with the hover test that reads them
 
 #define GRAB_NONE   0
 #define GRAB_MOVE   1
 #define GRAB_RESIZE 2
-
-// All as a fraction of screen width, so the handles keep their proportions as
-// the screen is resized
-#define BAR_WIDTH_FRAC  0.14f
-// Height follows the art rather than being picked separately. The two used to
-// disagree by 2.5x, which stretched the rounded ends into a slab.
-#define BAR_HEIGHT_FRAC (BAR_WIDTH_FRAC * (float)BAR_TEX_H / (float)BAR_TEX_W)
-#define BAR_GAP_FRAC    0.035f
-#define CORNER_FRAC     0.075f
-// Hover zones are bigger than the art, since aiming at a thin bar is fussy
-#define HOVER_MARGIN 1.7f
-#define CORNER_HOVER 1.5f
-// The bar is small on purpose, so its hover zone is proportionally wider
-#define BAR_HOVER 2.0f
-
-// Handle art, one small swapchain each so there is no atlas offset convention
-// to get wrong
-#define BAR_TEX_W 256
-#define BAR_TEX_H 24
-#define CORNER_TEX_W 64
-#define CORNER_TEX_H 64
 
 // Widened along with the grid so a cell stays about the size it was at three
 // columns: five of them now
@@ -206,19 +182,6 @@ static inline long nowNs(void) {
 
 #define EXIT_WIDTH_FRAC 0.30f
 
-#define HOVER_ENVBUTTON 4
-#define HOVER_PICKER    5
-// Nothing under the ray, but close enough to the screen to keep drawing it
-#define HOVER_HALO      6
-#define HOVER_LOCK      7
-#define HOVER_COGBUTTON 8
-#define HOVER_COGPANEL  9
-#define HOVER_KBBUTTON  10
-#define HOVER_KBPANEL   11
-#define HOVER_EXITBUTTON 12
-#define HOVER_EXITPROMPT 13
-// How far past each edge that reaches, as a fraction of the screen
-#define HALO_FRAC 0.5f
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
 
@@ -1172,7 +1135,11 @@ void refreshInputSource(XrCtx* ctx);
 int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature);
 
 // xr_ui.c: where the furniture and the panels sit, and what the ray is over
-int hoverTest(float u, float v, float width, float height, int cornersLive, int* corner);
+int furnitureOnStandIn(XrCtx* ctx);
+XrPosef furniturePose(XrCtx* ctx);
+float furnitureWidth(XrCtx* ctx);
+float furnitureHeight(XrCtx* ctx);
+float cornerSide(XrCtx* ctx);
 float effectiveCurvature(XrCtx* ctx);
 int cogScreenLocked(XrCtx* ctx);
 float screenPitch(XrCtx* ctx);
