@@ -19,6 +19,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * A relative depth model on LiteRT: ZipDepth, or MiDaS v2.1 small on an XR2
@@ -136,6 +138,17 @@ public class MidasDepthSource implements DepthSource {
     /** The model a list_vr_depth_source value names, ZipDepth for anything but MiDaS. */
     public static Spec specFor(String value) {
         return MIDAS.key.equals(value) ? MIDAS : ZIPDEPTH;
+    }
+
+    /** The models a headset offers, in the order the settings list them. */
+    public static List<Spec> offeredSpecs(boolean gen1) {
+        List<Spec> offered = new ArrayList<>();
+        for (Spec spec : new Spec[] { ZIPDEPTH, MIDAS }) {
+            if (PreferenceConfiguration.isDepthSourceOffered(spec.key, gen1)) {
+                offered.add(spec);
+            }
+        }
+        return offered;
     }
 
     /**

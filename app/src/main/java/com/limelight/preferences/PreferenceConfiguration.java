@@ -159,8 +159,7 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_DISTANCE = 30;
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
-    // ZipDepth is the better map on every headset here and the only model a
-    // Gen 1 headset can run at all
+    // ZipDepth, the newer model and the only one a Gen 1 headset can run
     static final String DEFAULT_VR_DEPTH_SOURCE = VR_DEPTH_SOURCE_ZIPDEPTH;
     // Standard everywhere, which caps the room at a size every headset here can
     // hold. Gen 1 headsets are seeded onto low instead, see seedGen1PerfProfile.
