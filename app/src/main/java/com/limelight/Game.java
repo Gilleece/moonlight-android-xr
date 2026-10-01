@@ -566,11 +566,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " virtualSurround=" + prefConfig.vrVirtualSurround);
 
         // Look to point is dead without the eye tracking permission where the
-        // platform makes it a runtime one, so a VR session asks for it here.
-        // The session goes ahead either way, and the renderer lets the eyes
-        // point once the answer comes back granted.
+        // platform makes it a runtime one, so a VR session asks for it here,
+        // and for the hand joints where those are one too. The session goes
+        // ahead either way, and the renderer lets the eyes point once the
+        // answer comes back granted.
         EyeTrackingPermission.askOnce(this, prefConfig.enableVrMode
-                && !getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false), prefConfig.vrGaze);
+                && !getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false), prefConfig.vrGaze,
+                prefConfig.vrHandTracking);
 
         // Initialize the connection
         conn = new NvConnection(getApplicationContext(),

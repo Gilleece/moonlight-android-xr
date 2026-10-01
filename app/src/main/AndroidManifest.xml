@@ -93,6 +93,25 @@
         android:name="pvr.software.eyetracking"
         android:required="false"/>
     <uses-permission android:name="com.picovr.permission.EYE_TRACKING" />
+    <!-- Android XR. The OpenXR feature is optional here so Meta and Pico
+         installs are unaffected; 1.0 is the API version the instance asks
+         for. Hand joints and eye gaze are runtime permissions there, asked
+         for with the eye tracking one above -->
+    <uses-feature
+        android:name="android.software.xr.api.openxr"
+        android:version="0x00010000"
+        android:required="false"/>
+    <uses-feature
+        android:name="android.hardware.xr.input.controller"
+        android:required="false"/>
+    <uses-feature
+        android:name="android.hardware.xr.input.hand_tracking"
+        android:required="false"/>
+    <uses-feature
+        android:name="android.hardware.xr.input.eye_tracking"
+        android:required="false"/>
+    <uses-permission android:name="android.permission.HAND_TRACKING" />
+    <uses-permission android:name="android.permission.EYE_TRACKING_FINE" />
 
     <application
         android:name=".MoonlightApplication"
@@ -119,6 +138,12 @@
         <meta-data
             android:name="com.oculus.supportedDevices"
             android:value="quest2|questpro|quest3" />
+        <!-- Android XR's OpenXR runtime is a vendor library, which an app
+             targeting Android 12 or later may only load if it names it here.
+             Without this the loader finds no runtime at all -->
+        <uses-native-library
+            android:name="libopenxr.google.so"
+            android:required="false" />
 
         <provider
             android:name=".PosterContentProvider"
@@ -263,6 +288,12 @@
             <meta-data
                 android:name="pvr.app.type"
                 android:value="vr" />
+            <!-- Android XR's equivalent of the VR category: start in Full
+                 Space with the app drawing it through OpenXR. Only this
+                 activity, so the 2d ones stay panels -->
+            <property
+                android:name="android.window.PROPERTY_XR_ACTIVITY_START_MODE"
+                android:value="XR_ACTIVITY_START_MODE_FULL_SPACE_UNMANAGED" />
         </activity>
 
         <service

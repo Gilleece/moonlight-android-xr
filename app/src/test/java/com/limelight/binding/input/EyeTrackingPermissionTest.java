@@ -70,4 +70,36 @@ public class EyeTrackingPermissionTest {
         assertTrue(EyeTrackingPermission.declared(null).isEmpty());
         assertTrue(EyeTrackingPermission.declared(new String[] { "x" }).isEmpty());
     }
+
+    @Test
+    public void androidXrsEyeAndHandNamesAreKeptApart() {
+        String[] requested = {
+                HandTrackingPermission.ANDROID_XR, EyeTrackingPermission.ANDROID_XR,
+                EyeTrackingPermission.META
+        };
+        assertEquals(Arrays.asList(EyeTrackingPermission.META, EyeTrackingPermission.ANDROID_XR),
+                EyeTrackingPermission.declared(requested));
+        assertEquals(Collections.singletonList(HandTrackingPermission.ANDROID_XR),
+                EyeTrackingPermission.declared(requested, HandTrackingPermission.NAMES));
+    }
+
+    @Test
+    public void eachHalfOfAJointRequestIsAnsweredOnItsOwn() {
+        List<String> eyes = Collections.singletonList(EyeTrackingPermission.ANDROID_XR);
+        List<String> hands = Arrays.asList(HandTrackingPermission.NAMES);
+        String[] both = { EyeTrackingPermission.ANDROID_XR, HandTrackingPermission.ANDROID_XR };
+        int[] eyesRefused = { DENIED, GRANTED };
+
+        assertEquals(EyeTrackingPermission.ANSWER_DENIED,
+                EyeTrackingPermission.answer(both, eyesRefused, eyes));
+        assertEquals(EyeTrackingPermission.ANSWER_GRANTED,
+                EyeTrackingPermission.answer(both, eyesRefused, hands));
+
+        // A request that carried only the hands was not about the eyes
+        String[] handsOnly = { HandTrackingPermission.ANDROID_XR };
+        assertFalse(EyeTrackingPermission.asked(handsOnly, eyes));
+        assertTrue(EyeTrackingPermission.asked(handsOnly, hands));
+        assertTrue(EyeTrackingPermission.asked(both, eyes));
+        assertFalse(EyeTrackingPermission.asked(null, eyes));
+    }
 }
