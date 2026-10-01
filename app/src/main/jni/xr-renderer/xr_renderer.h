@@ -371,6 +371,15 @@ typedef struct XrCompositionLayerSettingsFB {
 // Hz to force the display to, 0 to hand it back to the stream's rate and the
 // frame budget. Read at session start and live.
 #define PROP_REFRESH "debug.moonlight.refresh"
+// The CPU and GPU levels asked of the runtime: 0 none, 1 sustained high as
+// shipped, 2 boost. Read at session start and live, though a level once asked
+// for cannot be taken back, so 0 only means nothing at the next session.
+#define PROP_PERF_LEVEL "debug.moonlight.perflevel"
+
+// What the session asks the runtime's performance levels for
+#define PERF_LEVEL_NONE 0
+#define PERF_LEVEL_SUSTAINED_HIGH 1
+#define PERF_LEVEL_BOOST 2
 
 // How long after the runtime moves the display off the rate asked for before
 // it is asked once more, how many times a session does that, and how long a
@@ -808,6 +817,14 @@ typedef struct {
     long frameBeganNs;
     XrTime lastDisplayTime;
     long displayPeriodNs;
+
+    // The CPU and GPU levels (XR_EXT_performance_settings). Decoding, the
+    // warp and the depth model all want the clocks to stay put rather than be
+    // renegotiated around every scene, so a sustained level is asked for once
+    // the session exists. A runtime without it carries on as it would have.
+    int perfSettingsSupported;
+    PFN_xrPerfSettingsSetPerformanceLevelEXT pfnPerfSettingsSetPerformanceLevel;
+    int perfLevel;
 
     // Probed and logged only. Ours is drawn here, but knowing which runtimes
     // offer one of their own is worth a line.
@@ -1320,9 +1337,12 @@ int uploadPointerArt(XrCtx* ctx);
 int roomStyleForCell(int cell);
 int roomCellForStyle(int style);
 
-// xr_display.c: the display refresh rate
+// xr_display.c: the display refresh rate and the performance levels
 void probeDisplayExtensions(XrCtx* ctx);
 void startDisplay(XrCtx* ctx);
+void startPerfLevels(XrCtx* ctx);
+void setPerfLevel(XrCtx* ctx, int level);
+void perfNotice(XrCtx* ctx, const XrEventDataPerfSettingsEXT* notice);
 void displaySessionBegun(XrCtx* ctx);
 void displayFocused(XrCtx* ctx);
 void displayRateChanged(XrCtx* ctx, float from, float to);

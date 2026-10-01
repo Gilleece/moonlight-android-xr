@@ -2,7 +2,9 @@
 // stream at the start, stepped down while the 3D warp runs if the frame loop's
 // own frame time does not fit the period, and asked for once more if the
 // runtime moves the display off it. Which rate is xr_rate.c's business; this
-// is the OpenXR side of it and the bookkeeping on the frame loop.
+// is the OpenXR side of it and the bookkeeping on the frame loop. And the
+// CPU and GPU levels the session asks for, the other half of what the
+// runtime is asked to do for the stream.
 #include "xr_renderer.h"
 
 // A rate as the log shows it: whole when it is whole, else to two places
@@ -44,12 +46,23 @@ void probeDisplayExtensions(XrCtx* ctx) {
     LOGEV("display refresh rate control %s", ctx->refreshRateSupported
           ? "available (XR_FB_display_refresh_rate)"
           : "not offered by this runtime, the display stays on the runtime's rate");
+
+    if (ctx->perfSettingsSupported) {
+        xrGetInstanceProcAddr(ctx->instance, "xrPerfSettingsSetPerformanceLevelEXT",
+                              (PFN_xrVoidFunction*)&ctx->pfnPerfSettingsSetPerformanceLevel);
+        if (ctx->pfnPerfSettingsSetPerformanceLevel == NULL) {
+            LOGW("performance settings offered but the entry point is missing");
+            ctx->perfSettingsSupported = 0;
+        }
+    }
+    LOGEV("performance levels %s", ctx->perfSettingsSupported
+          ? "available (XR_EXT_performance_settings)"
+          : "not offered by this runtime, the clocks are the runtime's to choose");
 }
 
 // What the display offers and what it is on. Session scoped, so it cannot be
 // asked any earlier than this.
 void startDisplay(XrCtx* ctx) {
-    readStartKnobs(ctx);
     if (!ctx->refreshRateSupported) {
         return;
     }
@@ -369,6 +382,86 @@ void setRefreshKnob(XrCtx* ctx, int hz) {
     if (ctx->sessionRunning) {
         applyRate(ctx, "knob changed");
     }
+}
+
+static const char* perfLevelName(XrPerfSettingsLevelEXT level) {
+    switch (level) {
+        case XR_PERF_SETTINGS_LEVEL_POWER_SAVINGS_EXT: return "power savings";
+        case XR_PERF_SETTINGS_LEVEL_SUSTAINED_LOW_EXT: return "sustained low";
+        case XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT: return "sustained high";
+        case XR_PERF_SETTINGS_LEVEL_BOOST_EXT: return "boost";
+        default: return "unknown";
+    }
+}
+
+static const char* perfResultName(XrResult res) {
+    return XR_SUCCEEDED(res) ? "ok" : "refused";
+}
+
+void setPerfLevel(XrCtx* ctx, int level) {
+    int was = ctx->perfLevel;
+    ctx->perfLevel = level;
+    if (!ctx->perfSettingsSupported || ctx->session == XR_NULL_HANDLE) {
+        return;
+    }
+    if (level == PERF_LEVEL_NONE) {
+        if (was != PERF_LEVEL_NONE) {
+            LOGEV("performance levels: nothing more asked for, the last ask stands until "
+                  "the session ends");
+        }
+        else {
+            LOGEV("performance levels: none asked for, the runtime chooses");
+        }
+        return;
+    }
+    XrPerfSettingsLevelEXT want = level >= PERF_LEVEL_BOOST
+            ? XR_PERF_SETTINGS_LEVEL_BOOST_EXT : XR_PERF_SETTINGS_LEVEL_SUSTAINED_HIGH_EXT;
+    XrResult cpu = ctx->pfnPerfSettingsSetPerformanceLevel(ctx->session,
+                                                           XR_PERF_SETTINGS_DOMAIN_CPU_EXT, want);
+    XrResult gpu = ctx->pfnPerfSettingsSetPerformanceLevel(ctx->session,
+                                                           XR_PERF_SETTINGS_DOMAIN_GPU_EXT, want);
+    LOGEV("performance levels asked for: cpu %s (%s), gpu %s (%s)", perfLevelName(want),
+          perfResultName(cpu), perfLevelName(want), perfResultName(gpu));
+    if (XR_FAILED(cpu) || XR_FAILED(gpu)) {
+        LOGW("performance level results: cpu %d, gpu %d", cpu, gpu);
+    }
+}
+
+// Once the session exists, which the levels belong to
+void startPerfLevels(XrCtx* ctx) {
+    setPerfLevel(ctx, ctx->perfLevel);
+}
+
+static const char* perfDomainName(XrPerfSettingsDomainEXT domain) {
+    return domain == XR_PERF_SETTINGS_DOMAIN_CPU_EXT ? "cpu"
+            : domain == XR_PERF_SETTINGS_DOMAIN_GPU_EXT ? "gpu" : "unknown domain";
+}
+
+static const char* perfSubDomainName(XrPerfSettingsSubDomainEXT sub) {
+    switch (sub) {
+        case XR_PERF_SETTINGS_SUB_DOMAIN_COMPOSITING_EXT: return "compositing";
+        case XR_PERF_SETTINGS_SUB_DOMAIN_RENDERING_EXT: return "rendering";
+        case XR_PERF_SETTINGS_SUB_DOMAIN_THERMAL_EXT: return "thermal";
+        default: return "unknown";
+    }
+}
+
+static const char* perfNoticeName(XrPerfSettingsNotificationLevelEXT level) {
+    switch (level) {
+        case XR_PERF_SETTINGS_NOTIF_LEVEL_NORMAL_EXT: return "normal";
+        case XR_PERF_SETTINGS_NOTIF_LEVEL_WARNING_EXT: return "warning";
+        case XR_PERF_SETTINGS_NOTIF_LEVEL_IMPAIRED_EXT: return "impaired";
+        default: return "unknown";
+    }
+}
+
+// The runtime throttling or letting go again, which is the only warning a
+// thermal drop ever gives
+void perfNotice(XrCtx* ctx, const XrEventDataPerfSettingsEXT* notice) {
+    (void)ctx;
+    LOGEV("performance notice: %s %s, %s to %s", perfDomainName(notice->domain),
+          perfSubDomainName(notice->subDomain), perfNoticeName(notice->fromLevel),
+          perfNoticeName(notice->toLevel));
 }
 
 // The rate the display is on for the stats: the runtime's word where it has

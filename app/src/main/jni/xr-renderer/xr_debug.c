@@ -65,6 +65,11 @@ void readStartKnobs(XrCtx* ctx) {
     if (ctx->refreshKnob > 0) {
         LOGEV("refresh knob %d Hz", ctx->refreshKnob);
     }
+    int perf = ctx->perfLevel;
+    propInt(PROP_PERF_LEVEL, &ctx->perfLevel, PERF_LEVEL_BOOST);
+    if (ctx->perfLevel != perf) {
+        LOGEV("performance level knob %d", ctx->perfLevel);
+    }
 }
 
 // Fires once each time the property is set to a value it has not seen. The
@@ -80,6 +85,12 @@ void pollCaptureRequest(XrCtx* ctx) {
     propInt(PROP_REFRESH, &refresh, RATE_KNOB_MAX);
     if (refresh != ctx->refreshKnob) {
         setRefreshKnob(ctx, refresh);
+    }
+    // 0 none, 1 sustained high, 2 boost
+    int perf = ctx->perfLevel;
+    propInt(PROP_PERF_LEVEL, &perf, PERF_LEVEL_BOOST);
+    if (perf != ctx->perfLevel) {
+        setPerfLevel(ctx, perf);
     }
 
     // Milliseconds, 0 for none. The stage thread reads them at its next map.

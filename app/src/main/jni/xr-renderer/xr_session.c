@@ -141,6 +141,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)) ctx->layerSettingsSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME)) ctx->virtualKeyboardSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME)) ctx->refreshRateSupported = 1;
+        if (!strcmp(exts[i].extensionName, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME)) ctx->perfSettingsSupported = 1;
     }
     free(exts);
 
@@ -188,6 +189,9 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->refreshRateSupported) {
         enableExt(enabledExts, &enabledCount, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    }
+    if (ctx->perfSettingsSupported) {
+        enableExt(enabledExts, &enabledCount, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
     }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -360,7 +364,9 @@ static int initXrSession(XrCtx* ctx) {
         return 0;
     }
 
+    readStartKnobs(ctx);
     startDisplay(ctx);
+    startPerfLevels(ctx);
     return 1;
 }
 
@@ -475,6 +481,9 @@ static void pollEvents(XrCtx* ctx) {
                 displayRateChanged(ctx, rate->fromDisplayRefreshRate, rate->toDisplayRefreshRate);
                 break;
             }
+            case XR_TYPE_EVENT_DATA_PERF_SETTINGS_EXT:
+                perfNotice(ctx, (XrEventDataPerfSettingsEXT*)&event);
+                break;
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 ctx->exitRequested = 1;
                 break;
@@ -632,6 +641,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->videoHeight = height;
     // The display is asked for a rate to match
     ctx->streamFps = fps;
+    ctx->perfLevel = PERF_LEVEL_SUSTAINED_HIGH;
     ctx->stereoMode = stereoMode;
     // Every session with stereo starts with it on, and the switch only lasts
     // the session
