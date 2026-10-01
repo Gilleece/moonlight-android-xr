@@ -479,6 +479,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetDisplayRate(JNIEnv* env, jo
     return ctx->displayPeriodNs > 0 ? (float)(1e9 / (double)ctx->displayPeriodNs) : 0.0f;
 }
 
+// Every rate the display offers, empty on a runtime that does not say
+JNIEXPORT jfloatArray JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetOfferedRates(JNIEnv* env, jobject thiz,
+                                                                  jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    jsize count = ctx != NULL && ctx->refreshRateSupported ? (jsize)ctx->displayRateCount : 0;
+    jfloatArray out = (*env)->NewFloatArray(env, count);
+    if (out != NULL && count > 0) {
+        (*env)->SetFloatArrayRegion(env, out, 0, count, ctx->displayRates);
+    }
+    return out;
+}
+
 // What the session last asked for, 0 when it has not asked
 JNIEXPORT jfloat JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeGetAskedRate(JNIEnv* env, jobject thiz,

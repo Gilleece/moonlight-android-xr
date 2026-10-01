@@ -18,6 +18,7 @@ import android.view.Surface;
 import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.preferences.PreferenceConfiguration;
+import com.limelight.preferences.XrDisplayRates;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -315,6 +316,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // when it has not asked
     private native float nativeGetDisplayRate(long ctx);
     private native float nativeGetAskedRate(long ctx);
+    // Every rate the display offers, empty where the runtime does not say
+    private native float[] nativeGetOfferedRates(long ctx);
     private native void nativeDestroy(long ctx);
 
     public boolean start(final Activity activity, final int videoWidth, final int videoHeight,
@@ -365,6 +368,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 }
 
                 prefsContext = activity.getApplicationContext();
+                // For the frame rate list, which can only ask the Android
+                // display otherwise
+                XrDisplayRates.remember(prefsContext, nativeGetOfferedRates(nativeCtx));
                 // Held on to rather than only read here: the stats toggle on
                 // the panel writes back to this same instance, which is the one
                 // the decoder's stats path checks
