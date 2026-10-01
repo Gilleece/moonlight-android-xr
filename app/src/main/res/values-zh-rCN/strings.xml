@@ -303,10 +303,14 @@
     <string name="suffix_seekbar_vr_meters">米</string>
     <string name="title_vr_pointer">使用手柄模拟鼠标</string>
     <string name="summary_vr_pointer">使用手柄指向屏幕以移动主机鼠标。扳机键为左键点击，A 或 X 键为右键点击，摇杆上下滚动。在需要原生鼠标控制的游戏中，可按下摇杆关闭指向功能。</string>
+    <string name="title_vr_pointer_sleep">手柄静止时暂停指针</string>
+    <string name="summary_vr_pointer_sleep">手柄静止几秒后指针会隐藏，移动手柄或推动摇杆时恢复。关闭此项可让指针保持激活，即使指针不在屏幕上，摇杆也能滚动。</string>
     <string name="title_vr_gaze">注视点瞄准 (Look to point)</string>
-    <string name="summary_vr_gaze">在支持眼动追踪的头显上，通过注视屏幕进行瞄准并捏合手指点击。当手柄或手势指向屏幕时将自动接管指针。</string>
+    <string name="summary_vr_gaze">在支持眼动追踪的头显上，通过注视屏幕进行瞄准，用任意一只手捏合手指点击。按下手柄上的按键后由手柄接管指针，直到将其放下；如果眼动追踪丢失 10 秒，将改由双手指向，直到恢复。</string>
     <string name="title_vr_hand_tracking">手势追踪</string>
-    <string name="summary_vr_hand_tracking">放下手柄时可通过手势指向和捏合操作。关闭此项可仅使用手柄。在串流会话中，点击屏幕左侧的锁形图标可锁定手势交互而无需退出游戏。</string>
+    <string name="summary_vr_hand_tracking">放下手柄时可通过手势指向和捏合操作。关闭此项可仅使用手柄。在串流会话中，用拇指触碰无名指半秒，或点击屏幕左侧的锁形图标，可锁定手势交互而无需退出游戏。</string>
+    <string name="title_vr_show_hand_lock">显示手势锁定图标</string>
+    <string name="summary_vr_show_hand_lock">在串流会话中于屏幕左侧显示锁形图标。无论是否显示，用拇指触碰无名指半秒即可锁定或解锁手势。</string>
     <string name="title_vr_reset_pose">重置屏幕位置</string>
     <string name="summary_vr_reset_pose">将屏幕恢复至上方设定的距离和宽度，撤销手柄拖拽或缩放操作</string>
     <string name="toast_vr_reset_pose">屏幕位置已重置</string>
@@ -393,4 +397,4 @@
     <string name="vr_file_log_off">关闭</string>
     <string name="vr_file_log_basic">仅警告与错误</string>
     <string name="vr_file_log_verbose">详细日志</string>
-</resources>
+</resources>

@@ -239,7 +239,34 @@ static void testThePresetAccent(void) {
     CHECK(cogPresetAt(separationUnits(0.0068f), zip) == -1);
 }
 
+// Every tab's rows fit inside the panel below the tab bar, with their hit
+// bands apart and every cell drawn inside its own band
+static void testTheRowsFit(void) {
+    int counts[COG_TAB_COUNT] = { COG_SLIDER_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT };
+    for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+        float half = cogRowHalf(tab);
+        CHECK(cogCellHalf(tab) < half);
+        CHECK(cogRowV(tab, 0) - half >= COG_TAB_BAR_B);
+        for (int row = 1; row < counts[tab]; row++) {
+            CHECK(cogRowV(tab, row) - half >= cogRowV(tab, row - 1) + half - 1e-6f);
+        }
+        float last = cogRowV(tab, counts[tab] - 1);
+        // The thumb on a track is 0.085 of the panel's height across
+        CHECK(last + 0.0425f < 1.0f - 0.03f);
+        CHECK(last + half <= 1.0f);
+    }
+    // The display tab's eight rows, the glow level track last
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.235, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.907, 1e-5);
+    // The other tabs keep the rows they always had
+    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, 5), COG_ROW_V0 + 5 * COG_ROW_STEP, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_3D, 3), COG_ROW_V0 + 3 * COG_ROW_STEP, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_COUNT, 2), COG_ROW_V0 + 2 * COG_ROW_STEP, 1e-6);
+    CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_CELL_HALF, 1e-6);
+}
+
 int main(void) {
+    testTheRowsFit();
     testCornersFollowTheirArt();
     testNoCornersWhereThereAreNone();
     testTheRestOfThePicture();

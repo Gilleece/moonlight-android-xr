@@ -669,6 +669,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_HEAD_LOCK) {
         return COG_HEAD_LOCK_CELLS;
     }
+    if (option == COG_OPTION_POINTER_SLEEP) {
+        return COG_POINTER_SLEEP_CELLS;
+    }
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
@@ -690,6 +693,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     }
     if (option == COG_OPTION_HEAD_LOCK) {
         return headLocked ? 1 : 0;
+    }
+    if (option == COG_OPTION_POINTER_SLEEP) {
+        return ctx->pointerSleepOn ? 1 : 0;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         // The switch in force, which in a room is the room's own
@@ -725,6 +731,13 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         // stays put whatever this says.
         LOGEV("head lock %s from the panel", cell != 0 ? "on" : "off");
         return SETTING_HEAD_LOCK;
+    }
+    if (option == COG_OPTION_POINTER_SLEEP) {
+        // Set here as well as handed to Java, which hands it back down with
+        // the next frame, so the ring moves on the press
+        ctx->pointerSleepOn = cell != 0;
+        LOGEV("pointer sleep %s from the panel", cell != 0 ? "on" : "off");
+        return SETTING_POINTER_SLEEP;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         // In a room this is the same switch the Room tab's glow row is, so the
@@ -832,6 +845,7 @@ void cogDragEnded(XrCtx* ctx, float* out) {
     ctx->cogDragSlider = -1;
     ctx->cogDragHand = -1;
     ctx->cogDragFace = -1;
+    ctx->cogDragByGaze = 0;
 
     if (slider < 0) {
         return;

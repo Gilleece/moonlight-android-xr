@@ -295,10 +295,14 @@
     <string name="suffix_seekbar_vr_meters">公尺</string>
     <string name="title_vr_pointer">使用控制器模擬滑鼠</string>
     <string name="summary_vr_pointer">使用控制器指向螢幕以移動主機滑鼠。扳機鍵為左鍵點擊，A 或 X 鍵為右鍵點擊，搖桿上下捲動。在需要原生滑鼠控制的遊戲中，可按下搖桿關閉指向功能。</string>
+    <string name="title_vr_pointer_sleep">控制器靜止時暫停游標</string>
+    <string name="summary_vr_pointer_sleep">控制器靜止幾秒後游標會隱藏，移動控制器或推動搖桿時恢復。關閉此項可讓游標保持啟用，即使游標不在螢幕上，搖桿也能捲動。</string>
     <string name="title_vr_gaze">注視瞄準 (Look to point)</string>
-    <string name="summary_vr_gaze">在支援眼球追蹤的頭戴裝置上，透過注視螢幕進行瞄準並捏合手指點擊。當控制器或手勢指向螢幕時將自動接管游標。</string>
+    <string name="summary_vr_gaze">在支援眼球追蹤的頭戴裝置上，透過注視螢幕進行瞄準，用任一隻手捏合手指點擊。按下控制器上的按鍵後由控制器接管游標，直到將其放下；若眼球追蹤遺失 10 秒，將改由雙手指向，直到恢復。</string>
     <string name="title_vr_hand_tracking">手勢追蹤</string>
-    <string name="summary_vr_hand_tracking">放下控制器時可透過手勢指向與捏合操作。關閉此項可僅使用控制器。在串流階段中，點擊螢幕左側的鎖定圖示可鎖定手勢互動而無需離開遊戲。</string>
+    <string name="summary_vr_hand_tracking">放下控制器時可透過手勢指向與捏合操作。關閉此項可僅使用控制器。在串流階段中，用拇指觸碰無名指半秒，或點擊螢幕左側的鎖定圖示，可鎖定手勢互動而無需離開遊戲。</string>
+    <string name="title_vr_show_hand_lock">顯示手勢鎖定圖示</string>
+    <string name="summary_vr_show_hand_lock">在串流階段中於螢幕左側顯示鎖定圖示。無論是否顯示，用拇指觸碰無名指半秒即可鎖定或解鎖手勢。</string>
     <string name="title_vr_reset_pose">重設螢幕位置</string>
     <string name="summary_vr_reset_pose">將螢幕恢復至上方設定的距離和寬度，復原使用控制器進行的移動或縮放操作</string>
     <string name="toast_vr_reset_pose">螢幕位置已重設</string>

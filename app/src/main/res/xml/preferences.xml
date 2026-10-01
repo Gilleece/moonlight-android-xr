@@ -15,6 +15,12 @@
             android:summary="@string/summary_vr_pointer"
             android:defaultValue="true"/>
         <CheckBoxPreference
+            android:key="checkbox_vr_pointer_sleep"
+            android:dependency="checkbox_vr_pointer"
+            android:title="@string/title_vr_pointer_sleep"
+            android:summary="@string/summary_vr_pointer_sleep"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
             android:key="checkbox_vr_gaze"
             android:title="@string/title_vr_gaze"
             android:summary="@string/summary_vr_gaze"
@@ -23,6 +29,12 @@
             android:key="checkbox_vr_hand_tracking"
             android:title="@string/title_vr_hand_tracking"
             android:summary="@string/summary_vr_hand_tracking"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_show_hand_lock"
+            android:dependency="checkbox_vr_hand_tracking"
+            android:title="@string/title_vr_show_hand_lock"
+            android:summary="@string/summary_vr_show_hand_lock"
             android:defaultValue="true"/>
         <CheckBoxPreference
             android:key="checkbox_vr_passthrough"

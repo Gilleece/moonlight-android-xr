@@ -78,6 +78,15 @@ int laneUnits(float t, int min, int max);
 float lanePlace(int units, int min, int max);
 int lanePercent(int units, int min, int max);
 
+// Where a row sits down the settings panel, as a fraction of its height, how
+// far either side of that the row's hit band reaches, and how tall a row of
+// cells is drawn, half of it. The display tab packs its rows closer than the
+// rest. tab is one of the COG_TAB_ values, or anything past them for a face
+// that is not a tab.
+float cogRowV(int tab, int row);
+float cogRowHalf(int tab);
+float cogCellHalf(int tab);
+
 // The 3D tab's depth track. A separation, as a fraction of frame width, in the
 // tenths of a percent the preference stores, which is also the step the track
 // moves in, and back.

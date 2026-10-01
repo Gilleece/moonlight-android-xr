@@ -8,9 +8,10 @@
 // tab and the move pill goes: three rings, three thumbs and the strip of
 // percents beside them come to 16 with the room, the glow and the stats all
 // up, which is the Pico's limit and no further. The display tab keeps its
-// rows in a room: its seven rings and the glow level thumb over the rest come
-// to 17 at its fullest, one past the Pico's sixteen, so a frame over the
-// runtime's limit sheds the hover ring (see nativeEndFrame). The 3D tab, with
+// rows in a room: its eight rings and the glow level thumb over the rest come
+// to 18 at its fullest, two past the Pico's sixteen, so a frame over the
+// runtime's limit sheds the hover ring and then the cog button (see
+// nativeEndFrame). The 3D tab, with
 // the ring on its preset, the ring on its switch, the hover ring and its two
 // thumbs, comes to 15 in a room. The panel is modal, and since the frame a
 // modal opens now sheds the bar furniture too, the two can no longer land in
@@ -511,9 +512,12 @@ static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // The padlock. Comes and goes like the rest of the furniture rather
     // than sitting there permanently, so it costs nothing to look at while
     // playing. Reaching for the bar shows it too, since that is where
-    // people go looking when they want to change something.
-    if (ctx->handsEnabled && ctx->lockArtReady
-            && (ctx->hoverKind == HOVER_LOCK || view->barArea)) {
+    // people go looking when they want to change something, and so does the
+    // ring finger gesture turning it, for a moment. A setting can hide it
+    // altogether, which leaves the gesture as the way to the lock.
+    int flashing = ctx->lockFlashNs != 0 && nowNs() - ctx->lockFlashNs < LOCK_FLASH_NS;
+    if (ctx->handsEnabled && ctx->lockIconShown && ctx->lockArtReady
+            && (ctx->hoverKind == HOVER_LOCK || view->barArea || flashing)) {
         Vec3 local;
         float side;
         float lockYaw = 0.0f;
@@ -587,16 +591,17 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
 // A ring over one cell of a row on the settings panel, the same trick the
 // picker uses to mark cells without an upload
 static void addCogRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
-                       XrCompositionLayerQuad* mark, int row, int cell, int cells, float scale) {
+                       XrCompositionLayerQuad* mark, int face, int row, int cell, int cells,
+                       float scale) {
     float span = (COG_TRACK_R - COG_TRACK_L) / cells;
     Vec3 local;
     local.x = (COG_TRACK_L + (cell + 0.5f) * span - 0.5f) * ctx->cogW;
-    local.y = (0.5f - (COG_ROW_V0 + row * COG_ROW_STEP)) * ctx->cogH;
+    local.y = (0.5f - cogRowV(face, row)) * ctx->cogH;
     local.z = 0.004f;
     quadLayer(mark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
               ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
               poseOffset(ctx->cogPose, local), span * ctx->cogW * scale,
-              2.0f * COG_CELL_HALF * ctx->cogH * scale);
+              2.0f * cogCellHalf(face) * ctx->cogH * scale);
     pushLayer(ctx, layers, mark);
 }
 
@@ -627,7 +632,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                 if (option < 0 || option >= COG_OPTION_COUNT || cell < 0) {
                     continue;
                 }
-                addCogRing(ctx, view, layers, &layers->cogMark[m], option, cell,
+                addCogRing(ctx, view, layers, &layers->cogMark[m], face, option, cell,
                            cogOptionCells(option), hoverMark ? 1.12f : 1.0f);
             }
         }
@@ -643,14 +648,14 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                 }
                 int cell = cogCellInForce(ctx, face, row);
                 if (cell >= 0) {
-                    addCogRing(ctx, view, layers, &layers->cogMark[marks++], row, cell,
+                    addCogRing(ctx, view, layers, &layers->cogMark[marks++], face, row, cell,
                                cogRowCells(face, row), 1.0f);
                 }
             }
             int hoverRow = ctx->cogHoverSlider;
             if (hoverRow >= 0 && !cogRowIsTrack(face, hoverRow) && ctx->cogHoverCell >= 0) {
-                addCogRing(ctx, view, layers, &layers->cogMark[COG_OPTION_COUNT], hoverRow,
-                           ctx->cogHoverCell, cogRowCells(face, hoverRow), 1.12f);
+                addCogRing(ctx, view, layers, &layers->cogMark[COG_OPTION_COUNT], face,
+                           hoverRow, ctx->cogHoverCell, cogRowCells(face, hoverRow), 1.12f);
             }
         }
 
@@ -688,7 +693,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                 float t = cogSliderValue(ctx, face, s);
                 Vec3 local;
                 local.x = (COG_TRACK_L + t * (COG_TRACK_R - COG_TRACK_L) - 0.5f) * ctx->cogW;
-                local.y = (0.5f - (COG_ROW_V0 + s * COG_ROW_STEP)) * ctx->cogH;
+                local.y = (0.5f - cogRowV(face, s)) * ctx->cogH;
                 local.z = 0.004f;
                 // Grows under the ray, the same feedback the buttons give
                 float grow = (ctx->cogHoverSlider == s || ctx->cogDragSlider == s)
@@ -946,12 +951,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     }
 
     // The display tab at its fullest, with a room, the glow, the stats and
-    // the ray all up, is one layer past the Pico's sixteen, and a frame over
-    // the limit is refused whole. Its hover ring is what goes, and the Room
-    // and 3D tabs' are the same slot: the cursor already shows where the ray
-    // is.
+    // the ray all up, is two layers past the Pico's sixteen, and a frame over
+    // the limit is refused whole. Its hover ring goes first, and the Room and
+    // 3D tabs' are the same slot: the cursor already shows where the ray is.
+    // The padlock shown for a moment after the ring finger gesture can land
+    // on top of that, and goes next. Then the cog button, which only says
+    // which panel is open while it is: a press off the panel closes it the
+    // way pressing the button would.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);
+    }
+    if (layers.count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(&layers, &layers.lock);
+    }
+    if (layers.count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(&layers, &layers.cogButton);
     }
 
     // Said once and only once, since a frame that crowds the limit is usually

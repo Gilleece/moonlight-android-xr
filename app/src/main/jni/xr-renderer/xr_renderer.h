@@ -40,6 +40,8 @@
 #include "xr_roommesh.h"
 #include "xr_layout.h"
 #include "xr_rate.h"
+#include "xr_gate.h"
+#include "xr_pinch.h"
 
 #define TAG "moonlight-xr"
 
@@ -151,6 +153,9 @@ static inline long nowNs(void) {
 // thing left to aim at, so it has to be findable without a ray to guide you.
 #define LOCK_BUTTON_FRAC 0.09f
 #define LOCK_GAP_FRAC 0.025f
+// How long the padlock shows after the ring finger gesture has turned it, so
+// the change can be seen without having to go looking for it
+#define LOCK_FLASH_NS 1500000000L
 
 #define COG_WIDTH_FRAC 0.36f
 // The button that opens it, sitting to the right of the move bar, the same
@@ -857,8 +862,13 @@ typedef struct {
     XrPath msftHandProfile;
     int handTracking;
     int handClickOk;
-    // Looking at something instead of pointing at it. Lowest priority of the
-    // three, so a controller or a hand always wins when one is aiming.
+    // The EXT profile bound its pinch value, which is the whole of a hand's
+    // press wherever that profile is the one on the hand, and which hands it
+    // is on. The runtime has decided by then, so its value is not held back.
+    int extHandClick;
+    int onExtHands[HAND_COUNT];
+    // Looking at something instead of pointing at it. While the eyes point,
+    // tracked hands only pinch, and a controller points once it is in use.
     int eyeGaze;
     int gazeEnabled;
     XrAction gazeAction;
@@ -867,7 +877,12 @@ typedef struct {
     // input. Thumb to fingertip is the whole of it.
     int jointTracking;
     XrHandTrackerEXT handTrackers[HAND_COUNT];
-    int jointPinch[HAND_COUNT];
+    // The pinch the joints read, close and closing fast, and since when a
+    // pinch has been wanted on each hand, which it has to be for
+    // PINCH_HOLD_NS before it is a press
+    PinchGate pinchGate[HAND_COUNT];
+    long pinchWantNs[HAND_COUNT];
+    // Where the pinch is, which is what a drag the eyes started follows
     Vec3 pinchPoint[HAND_COUNT];
     int pinchPointValid[HAND_COUNT];
     // A ray built out of the joints, for runtimes that track hands but do not
@@ -878,6 +893,21 @@ typedef struct {
     PFN_xrDestroyHandTrackerEXT pfnDestroyHandTracker;
     PFN_xrLocateHandJointsEXT pfnLocateHandJoints;
     int usingHands[SRC_COUNT];
+    // What the runtime has on each hand's path, a PROFILE_ value. Only a
+    // controller may take the pointing off the eyes: a hand whose tracking
+    // has dropped reports no profile at all, and must not read as one.
+    int profileKind[HAND_COUNT];
+    // A controller's aim tracked in position and orientation with its action
+    // live, read once a frame
+    int aimTracked[HAND_COUNT];
+    // Each controller's own rest clock, on the pointer's two times. The shared
+    // clock below is held on by the other hand and by the eyes.
+    ControllerClock aimClock[HAND_COUNT];
+    // A controller in use, settled at the top of the frame so every reader in
+    // it gets the same answer about who points
+    int controllerAwake;
+    // The hands pointing for eyes that have gone missing
+    GazeBridge gazeBridge;
     // A pinch that woke the pointer is not also a click, so it is swallowed
     // until the hand opens again
     int pinchSwallowed[SRC_COUNT];
@@ -891,6 +921,20 @@ typedef struct {
     // held would otherwise read as a press, because a locked hand has its
     // trigger cleared every frame and so arrives looking like a fresh edge.
     int lockArmed[SRC_COUNT];
+    // The thumb to ring finger gesture that turns the lock, per hand, read off
+    // the joints whether the hands are locked or not, since it is the way
+    // back. The tip gaps it is judged on, each tip to the thumb tip, and the
+    // refusal last said, so each is said once per closing.
+    RingGate ringGate[HAND_COUNT];
+    int ringTipsTracked[HAND_COUNT];
+    float ringGap[HAND_COUNT];
+    float indexGap[HAND_COUNT];
+    float middleGap[HAND_COUNT];
+    int ringRefusalSaid[HAND_COUNT];
+    // The padlock is shown at all, which a setting can turn off while the
+    // gesture still works, and when the gesture last turned the lock
+    int lockIconShown;
+    long lockFlashNs;
     XrSwapchain lockSwapchain;
     XrSwapchain unlockSwapchain;
     uint32_t lockImageCount;
@@ -975,6 +1019,9 @@ typedef struct {
     int pointerAwake;
     float pointerWake;
     float pointerSleep;
+    // Whether a still controller's pointer pauses at all, the setting the
+    // Display tab's row also writes. Arrives with every frame.
+    int pointerSleepOn;
 
     // Laser. Two tiny quad layers rather than a projection layer: the whole
     // renderer draws nothing per frame for this, the compositor places it
@@ -990,6 +1037,14 @@ typedef struct {
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
+    // How fast the head is turning in the world, degrees a second, and the
+    // orientation it was at last frame. A drag the eyes started holds still
+    // while this is high.
+    float headTurnRate;
+    XrQuaternionf headTurnLast;
+    int headTurnLastValid;
+    // A drag the eyes started is being held for it, so the log says so once
+    int dragHeldByHead;
     XrQuaternionf screenOrientation;
     float beamWidth;
     // The head's yaw against the screen as last located, for IN_HEAD_YAW
@@ -1030,6 +1085,12 @@ typedef struct {
     // slot free to carry it
     int grabRoomPercent;
     float grabRoomReach;
+    // A grab the eyes picked up and a hand is carrying: where that hand was
+    // when it pinched, how much its travel is geared up by, and the ramp
+    int grabByGaze;
+    Vec3 grabHandStart;
+    float grabScale;
+    DragRamp grabRamp;
     int roomScreenUnsaved;
     int poseDirty;
 
@@ -1092,6 +1153,13 @@ typedef struct {
     int cogDragSlider;
     int cogDragHand;
     int cogDragFace;
+    // The same for a slider the eyes picked: the hand runs the thumb along
+    // from where the press put it
+    int cogDragByGaze;
+    Vec3 cogDragHandStart;
+    float cogDragScale;
+    float cogDragStartU;
+    DragRamp cogDragRamp;
     // The strip of percents beside the Room tab's tracks, and the values it
     // was last drawn with, so it only shows once it says what the rows do
     XrSwapchain cogReadoutSwapchain;

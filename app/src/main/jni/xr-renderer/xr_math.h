@@ -44,6 +44,10 @@ XrQuaternionf axisAngleQuat(Vec3 axis, float angle);
 Vec3 quatRotate(XrQuaternionf q, Vec3 v);
 XrQuaternionf quatFromBasis(Vec3 x, Vec3 y, Vec3 z);
 
+// A pose given in some space, as seen from a frame placed in that same space:
+// the frame's own pose undone. The frame itself comes out at the origin.
+XrPosef poseInFrame(XrPosef frame, XrPosef pose);
+
 // How far the head has turned from the way the screen faces, in radians,
 // positive to the viewer's left, in (-pi, pi]
 float yawBetween(XrQuaternionf head, XrQuaternionf screen);

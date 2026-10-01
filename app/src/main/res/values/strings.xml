@@ -269,10 +269,14 @@
     <string name="suffix_seekbar_vr_meters">m</string>
     <string name="title_vr_pointer">Controllers as a mouse</string>
     <string name="title_vr_gaze">Look to point</string>
-    <string name="summary_vr_gaze">On a headset with eye tracking, point by looking at the screen and pinch to click. A controller or a hand takes over whenever one is aimed at the screen.</string>
+    <string name="summary_vr_gaze">On a headset with eye tracking, point by looking at the screen and pinch with either hand to click. Pressing a button on a controller hands it the pointer until it is put down, and if the eyes are lost for 10 seconds your hands point until they come back.</string>
     <string name="title_vr_hand_tracking">Hand tracking</string>
-    <string name="summary_vr_hand_tracking">Point and pinch with your hands when the controllers are down. Switch this off to use controllers only. Inside a session the padlock on the left of the screen locks your hands out without leaving the game.</string>
+    <string name="summary_vr_hand_tracking">Point and pinch with your hands when the controllers are down. Switch this off to use controllers only. Inside a session, touch your thumb to your ring finger for half a second, or press the padlock on the left of the screen, to lock your hands out without leaving the game.</string>
+    <string name="title_vr_show_hand_lock">Show the hand lock icon</string>
+    <string name="summary_vr_show_hand_lock">Show the padlock on the left of the screen in a session. Touching your thumb to your ring finger for half a second locks or unlocks your hands either way.</string>
     <string name="summary_vr_pointer">Point at the screen with a controller to move the host mouse. Trigger clicks, A or X right clicks, thumbstick scrolls. Click the thumbstick to switch pointing off in a game that needs the mouse itself.</string>
+    <string name="title_vr_pointer_sleep">Pause the pointer when the controller is still</string>
+    <string name="summary_vr_pointer_sleep">A controller\'s pointer goes away after a few seconds held still and comes back when it moves or its thumbstick is pushed. Switch this off to keep it on, so the thumbstick scrolls even with the pointer off the screen.</string>
     <string name="title_vr_reset_pose">Reset screen position</string>
     <string name="summary_vr_reset_pose">Put the screen back to the distance and width above, undoing any move or resize done with the controllers</string>
     <string name="toast_vr_reset_pose">Screen position reset</string>

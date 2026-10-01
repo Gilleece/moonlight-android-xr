@@ -17,6 +17,7 @@ import android.view.Surface;
 
 import com.limelight.FileLog;
 import com.limelight.LimeLog;
+import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
 
@@ -131,6 +132,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // can switch it off for the rest of the session, and while it is off the
     // model is not fed, so it sits idle until it comes back on.
     private volatile boolean stereoLive = true;
+    // The eye tracking permission is not refused, or not the platform's to
+    // grant. Look to point only works with it.
+    private volatile boolean gazeAllowed = true;
 
     // Controller pointer. The native side does the ray maths and hands back a
     // hit point and a button mask, this side turns that into host events. The
@@ -236,6 +240,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * Whether the eyes may point, which they may not while the eye tracking
+     * permission is refused. Read fresh each frame, so an answer that arrives
+     * mid session takes effect on the next. Any thread.
+     */
+    public void setGazeAllowed(boolean allowed) {
+        gazeAllowed = allowed;
+    }
+
+    /**
      * How far the head has turned from the screen, in radians, positive to
      * the left, as of the last frame. 0 with the screen locked to the head.
      * Any thread.
@@ -283,6 +296,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
                                           float curvature, boolean headLocked,
                                           boolean pointerEnabled, boolean gazeEnabled,
+                                          boolean lockIcon, boolean pointerSleep,
                                           float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     // The room's assets name the picker cell they belong to, which the native
@@ -368,6 +382,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 }
 
                 prefsContext = activity.getApplicationContext();
+                gazeAllowed = EyeTrackingPermission.gazeAllowed(prefsContext);
                 // For the frame rate list, which can only ask the Android
                 // display otherwise
                 XrDisplayRates.remember(prefsContext, nativeGetOfferedRates(nativeCtx));
@@ -780,8 +795,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             // the next one with no native state to keep in step.
             boolean headLocked = prefs.vrHeadLocked;
 
+            // The pointer sleep row on the panel writes back to this same
+            // object, so it is read fresh each frame like head lock
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
-                    pointer, gaze, inputState);
+                    pointer, gaze && gazeAllowed, prefs.vrShowHandLock, prefs.vrPointerSleep,
+                    inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateRoomReadout();
@@ -1308,6 +1326,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.VR_HEAD_LOCKED_PREF_STRING, on)
                     .apply();
+        }
+        else if (setting == SETTING_POINTER_SLEEP) {
+            boolean on = value != 0;
+            if (prefConfig != null) {
+                prefConfig.vrPointerSleep = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_POINTER_SLEEP_PREF_STRING, on)
+                    .apply();
+            FileLog.event("pointer sleep " + (on ? "on" : "off") + " saved");
         }
         else if (setting == SETTING_AMBI_LEVEL) {
             if (prefConfig != null) {

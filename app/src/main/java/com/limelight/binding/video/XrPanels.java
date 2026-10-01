@@ -66,16 +66,18 @@ final class XrPanels {
     // Under the size row where the room keeps its picture whole
     private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Head locked sits with the picture rows
-    // so the two light rows and the level track they belong with stay together
-    // at the bottom. Screen light is the wash the picture throws over a 3d
-    // room, which only shows in one, and head lock is ignored in one, but both
-    // stay live here like the rest: the picker can put a room up at any moment.
-    private static final String[] COG_OPTION_ROWS =
-            { "Sharpen", "Supersample", "Stats", "Head locked", "Glow", "Screen light" };
+    // the glow level track under them. Head locked and pointer sleep sit with
+    // the picture rows so the two light rows and the level track they belong
+    // with stay together at the bottom. Screen light is the wash the picture
+    // throws over a 3d room, which only shows in one, and head lock is ignored
+    // in one, but both stay live here like the rest: the picker can put a room
+    // up at any moment.
+    private static final String[] COG_OPTION_ROWS = { "Sharpen", "Supersample", "Stats",
+            "Head locked", "Pointer sleep", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
@@ -607,6 +609,16 @@ final class XrPanels {
         }
     }
 
+    // Where a row sits down the panel, as a fraction of its height: the same
+    // as cogRowV in xr_layout.c, which hit tests and rings what this draws.
+    // The display tab packs its eight rows closer than the other tabs.
+    static float cogRowV(int tab, int row) {
+        if (tab == COG_TAB_DISPLAY) {
+            return COG_DISPLAY_ROW_V0 + row * COG_DISPLAY_ROW_STEP;
+        }
+        return COG_ROW_V0 + row * COG_ROW_STEP;
+    }
+
     // One row of cells, one press wide each, as the display tab draws them
     private static void drawCogCells(Canvas canvas, String[] names, float y) {
         drawCogCells(canvas, names, y, true);
@@ -614,6 +626,12 @@ final class XrPanels {
 
     // The same, greyed like a dead track where the row can do nothing
     private static void drawCogCells(Canvas canvas, String[] names, float y, boolean live) {
+        drawCogCells(canvas, names, y, live, COG_CELL_HALF * COG_TEX_H);
+    }
+
+    // The same again at a height of its own, for the display tab's closer rows
+    private static void drawCogCells(Canvas canvas, String[] names, float y, boolean live,
+                                     float cellHalf) {
         Paint cellText = new Paint(Paint.ANTI_ALIAS_FLAG);
         cellText.setTextSize(19.0f);
         cellText.setTextAlign(Paint.Align.CENTER);
@@ -622,7 +640,6 @@ final class XrPanels {
         Paint cell = new Paint(Paint.ANTI_ALIAS_FLAG);
         final float trackL = COG_TRACK_L * COG_TEX_W;
         final float trackR = COG_TRACK_R * COG_TEX_W;
-        final float cellHalf = COG_CELL_HALF * COG_TEX_H;
         float span = (trackR - trackL) / names.length;
         for (int i = 0; i < names.length; i++) {
             // Inset so neighbours read as separate buttons rather than one
@@ -804,18 +821,18 @@ final class XrPanels {
 
         final float trackL = COG_TRACK_L * COG_TEX_W;
         final float trackR = COG_TRACK_R * COG_TEX_W;
-        final float cellHalf = COG_CELL_HALF * COG_TEX_H;
+        final float cellHalf = COG_DISPLAY_CELL_HALF * COG_TEX_H;
 
         for (int row = 0; row < COG_OPTION_ROWS.length; row++) {
-            float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
+            float y = cogRowV(COG_TAB_DISPLAY, row) * COG_TEX_H;
             canvas.drawText(COG_OPTION_ROWS[row], 0.06f * COG_TEX_W,
                     y - (label.ascent() + label.descent()) * 0.5f, label);
-            drawCogCells(canvas, COG_OPTION_CELLS[row], y);
+            drawCogCells(canvas, COG_OPTION_CELLS[row], y, true, cellHalf);
         }
 
         // How strong the glow is, a track under the cells and the only row on
         // this tab that is dragged rather than pressed
-        float y = (COG_ROW_V0 + COG_DISPLAY_SLIDER_ROW * COG_ROW_STEP) * COG_TEX_H;
+        float y = cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW) * COG_TEX_H;
         canvas.drawText("Glow level", 0.06f * COG_TEX_W,
                 y - (label.ascent() + label.descent()) * 0.5f, label);
 

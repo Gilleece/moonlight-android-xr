@@ -57,6 +57,19 @@ Vec3 quatRotate(XrQuaternionf q, Vec3 v) {
     return r;
 }
 
+XrPosef poseInFrame(XrPosef frame, XrPosef pose) {
+    XrQuaternionf undo = quatConj(frame.orientation);
+    Vec3 d = { pose.position.x - frame.position.x, pose.position.y - frame.position.y,
+               pose.position.z - frame.position.z };
+    Vec3 r = quatRotate(undo, d);
+    XrPosef out;
+    out.orientation = quatNorm(quatMul(undo, pose.orientation));
+    out.position.x = r.x;
+    out.position.y = r.y;
+    out.position.z = r.z;
+    return out;
+}
+
 // The virtual surround turns its speakers by this. Forward is -z, and a
 // positive turn about +y swings it toward -x, which is the viewer's left, so a
 // facing's heading is atan2(-x, -z). Only the heading is compared, so looking
