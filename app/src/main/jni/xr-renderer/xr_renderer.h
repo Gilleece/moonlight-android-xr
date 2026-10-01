@@ -41,6 +41,7 @@
 #include "xr_layout.h"
 #include "xr_rate.h"
 #include "xr_gate.h"
+#include "xr_pinch.h"
 
 #define TAG "moonlight-xr"
 
@@ -858,6 +859,11 @@ typedef struct {
     XrPath msftHandProfile;
     int handTracking;
     int handClickOk;
+    // The EXT profile bound its pinch value, which is the whole of a hand's
+    // press wherever that profile is the one on the hand, and which hands it
+    // is on. The runtime has decided by then, so its value is not held back.
+    int extHandClick;
+    int onExtHands[HAND_COUNT];
     // Looking at something instead of pointing at it. While the eyes point,
     // tracked hands only pinch, and a controller points once it is in use.
     int eyeGaze;
@@ -868,7 +874,12 @@ typedef struct {
     // input. Thumb to fingertip is the whole of it.
     int jointTracking;
     XrHandTrackerEXT handTrackers[HAND_COUNT];
-    int jointPinch[HAND_COUNT];
+    // The pinch the joints read, close and closing fast, and since when a
+    // pinch has been wanted on each hand, which it has to be for
+    // PINCH_HOLD_NS before it is a press
+    PinchGate pinchGate[HAND_COUNT];
+    long pinchWantNs[HAND_COUNT];
+    // Where the pinch is, which is what a drag the eyes started follows
     Vec3 pinchPoint[HAND_COUNT];
     int pinchPointValid[HAND_COUNT];
     // A ray built out of the joints, for runtimes that track hands but do not
@@ -1006,6 +1017,14 @@ typedef struct {
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
+    // How fast the head is turning in the world, degrees a second, and the
+    // orientation it was at last frame. A drag the eyes started holds still
+    // while this is high.
+    float headTurnRate;
+    XrQuaternionf headTurnLast;
+    int headTurnLastValid;
+    // A drag the eyes started is being held for it, so the log says so once
+    int dragHeldByHead;
     XrQuaternionf screenOrientation;
     float beamWidth;
     // The head's yaw against the screen as last located, for IN_HEAD_YAW
@@ -1046,6 +1065,12 @@ typedef struct {
     // slot free to carry it
     int grabRoomPercent;
     float grabRoomReach;
+    // A grab the eyes picked up and a hand is carrying: where that hand was
+    // when it pinched, how much its travel is geared up by, and the ramp
+    int grabByGaze;
+    Vec3 grabHandStart;
+    float grabScale;
+    DragRamp grabRamp;
     int roomScreenUnsaved;
     int poseDirty;
 
@@ -1108,6 +1133,13 @@ typedef struct {
     int cogDragSlider;
     int cogDragHand;
     int cogDragFace;
+    // The same for a slider the eyes picked: the hand runs the thumb along
+    // from where the press put it
+    int cogDragByGaze;
+    Vec3 cogDragHandStart;
+    float cogDragScale;
+    float cogDragStartU;
+    DragRamp cogDragRamp;
     // The strip of percents beside the Room tab's tracks, and the values it
     // was last drawn with, so it only shows once it says what the rows do
     XrSwapchain cogReadoutSwapchain;

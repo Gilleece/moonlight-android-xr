@@ -5,10 +5,7 @@
 
 // A pinch is how these headsets click, but it is not always offered as an
 // input to bind to. The joints always are, so it is measured here instead:
-// thumb tip to index tip, with a gap between the closing and opening distances
-// so a hand held near the threshold does not chatter.
-#define PINCH_ON_M  0.020f
-#define PINCH_OFF_M 0.032f
+// thumb tip to index tip, gated in xr_pinch.c so it has to be meant.
 
 static void initJointTracking(XrCtx* ctx) {
     if (!ctx->handTracking) {
@@ -58,6 +55,7 @@ void refreshInputSource(XrCtx* ctx) {
         // Without a pinch bound there is nothing to wake the pointer with, so
         // those hands stay on the movement gate rather than becoming unusable
         ctx->usingHands[h] = ctx->handClickOk && kind == PROFILE_HANDS;
+        ctx->onExtHands[h] = kind == PROFILE_HANDS && profile == ctx->handProfile;
         if (kind != ctx->profileKind[h]) {
             ctx->profileKind[h] = kind;
             // The rest clock belongs to whatever was on that hand, so a
@@ -298,8 +296,9 @@ int initXrInput(XrCtx* ctx) {
             "input/aim_activate_ext/value", "input/pinch_ext/value"
         };
         const char* profile = "/interaction_profiles/ext/hand_interaction_ext";
-        ctx->handClickOk |= suggestHandBindings(ctx, profile, "input/aim_ext/pose",
+        ctx->extHandClick = suggestHandBindings(ctx, profile, "input/aim_ext/pose",
                                                 clicks, 2, "input/grasp_ext/value");
+        ctx->handClickOk |= ctx->extHandClick;
         ctx->handProfile = toPath(ctx, profile);
     }
     // Older runtimes that predate the EXT profile. Same idea, fewer inputs.
@@ -347,6 +346,13 @@ int initXrInput(XrCtx* ctx) {
     LOGI("controller input ready (pico bindings %s, hand pinch %s)",
          ctx->picoInteraction ? "offered" : "not offered by this runtime",
          ctx->handClickOk ? "bound" : (ctx->jointTracking ? "from joints" : "unavailable"));
+    LOGEV("pinch: joints on %.0f mm, off %.0f mm, closing %.0f mm in %ld ms (untracked tips "
+          "%.0f / %.0f mm), hold %ld ms; runtime value on %.1f off %.1f, %s",
+          PINCH_ON_M * 1000.0f, PINCH_OFF_M * 1000.0f, PINCH_CLOSE_M * 1000.0f,
+          PINCH_CLOSE_WINDOW_NS / 1000000L, PINCH_LOOSE_ON_M * 1000.0f,
+          PINCH_LOOSE_OFF_M * 1000.0f, PINCH_HOLD_NS / 1000000L, PINCH_VALUE_ON,
+          PINCH_VALUE_OFF, ctx->extHandClick ? "the EXT profile's alone where it is on a hand"
+                                             : "or the joints, with the hold");
     return 1;
 }
 
@@ -461,7 +467,7 @@ static void buildHandRay(XrCtx* ctx, int hand, const XrPosef* head,
 }
 
 static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* head,
-                         int headValid) {
+                         int headValid, long nowNs) {
     if (!ctx->jointTracking || ctx->handTrackers[hand] == XR_NULL_HANDLE) {
         ctx->handRayValid[hand] = 0;
         return 0;
@@ -475,9 +481,10 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
     XrHandJointsLocateInfoEXT locate = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
     locate.baseSpace = space;
     locate.time = ctx->predictedDisplayTime;
+    float closed = 0.0f;
     if (XR_FAILED(ctx->pfnLocateHandJoints(ctx->handTrackers[hand], &locate, &locations))
             || !locations.isActive) {
-        ctx->jointPinch[hand] = 0;
+        pinchGateStep(&ctx->pinchGate[hand], 0, 0, 0.0f, nowNs, &closed);
         ctx->pinchPointValid[hand] = 0;
         ctx->handRayValid[hand] = 0;
         return 0;
@@ -486,12 +493,19 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
     if (headValid) {
         buildHandRay(ctx, hand, head, joints);
     }
+    else {
+        // No shoulder to cast from, and last frame's ray is stale
+        ctx->handRayValid[hand] = 0;
+    }
 
+    const XrSpaceLocationFlags tracked = XR_SPACE_LOCATION_POSITION_VALID_BIT
+            | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
     const XrHandJointLocationEXT* thumb = &joints[XR_HAND_JOINT_THUMB_TIP_EXT];
     const XrHandJointLocationEXT* index = &joints[XR_HAND_JOINT_INDEX_TIP_EXT];
-    if (!(thumb->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
-            || !(index->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
-        ctx->jointPinch[hand] = 0;
+    int valid = (thumb->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
+            && (index->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT);
+    if (!valid) {
+        pinchGateStep(&ctx->pinchGate[hand], 0, 0, 0.0f, nowNs, &closed);
         ctx->pinchPointValid[hand] = 0;
         return 0;
     }
@@ -507,8 +521,22 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
     ctx->pinchPoint[hand].z = (thumb->pose.position.z + index->pose.position.z) * 0.5f;
     ctx->pinchPointValid[hand] = 1;
 
-    ctx->jointPinch[hand] = gap < (ctx->jointPinch[hand] ? PINCH_OFF_M : PINCH_ON_M);
-    return ctx->jointPinch[hand];
+    // Tracked as well as valid takes the strict rule. A runtime estimating
+    // the tips gives nothing trustworthy to judge the closing by.
+    PinchGate* gate = &ctx->pinchGate[hand];
+    int both = (thumb->locationFlags & tracked) == tracked
+            && (index->locationFlags & tracked) == tracked;
+    int was = gate->down;
+    float lastGap = gate->count > 0 ? gate->gap[(gate->next + PINCH_RING - 1) % PINCH_RING]
+                                    : 1.0f;
+    int down = pinchGateStep(gate, 1, both, gap, nowNs, &closed);
+    // Said where the tips first come inside the on distance, so a refusal
+    // shows once per approach rather than every frame a hand rests closed
+    if (both && !was && gap < PINCH_ON_M && lastGap >= PINCH_ON_M) {
+        LOGI("hand %d joint pinch %s, tips closed %.0f mm in the last %ld ms", hand,
+             down ? "on" : "refused", closed * 1000.0f, PINCH_CLOSE_WINDOW_NS / 1000000L);
+    }
+    return down;
 }
 
 // The sliders place the screen, the grab moves it from there. Moving either
@@ -567,13 +595,84 @@ static void writeInputPose(XrCtx* ctx, float* out) {
 // the ray. Measuring from the far corner along the whole diagonal, as this did
 // when that corner was the anchor, would leave the bracket creeping out at half
 // the speed of the hand.
-static float diagonalReach(XrCtx* ctx, float u, float v) {
-    float px = (u - 0.5f) * ctx->grabWidth;
-    float py = (0.5f - v) * ctx->grabHeight;
+static float diagonalReachAt(XrCtx* ctx, float px, float py) {
     float halfX = -ctx->grabOppX;
     float halfY = -ctx->grabOppY;
     float halfLen = halfX * halfX + halfY * halfY;
     return halfLen > 0.0f ? (px * halfX + py * halfY) / halfLen : 1.0f;
+}
+
+static float diagonalReach(XrCtx* ctx, float u, float v) {
+    return diagonalReachAt(ctx, (u - 0.5f) * ctx->grabWidth, (0.5f - v) * ctx->grabHeight);
+}
+
+// Gaze clicks with a pinch, so the source that pointed says nothing about
+// which hand pressed. This is that hand: the one pinching now, right first.
+static int pinchingHand(XrCtx* ctx) {
+    if (ctx->triggerEdge[HAND_RIGHT]) {
+        return HAND_RIGHT;
+    }
+    if (ctx->triggerEdge[HAND_LEFT]) {
+        return HAND_LEFT;
+    }
+    if (ctx->triggerDown[HAND_RIGHT]) {
+        return HAND_RIGHT;
+    }
+    if (ctx->triggerDown[HAND_LEFT]) {
+        return HAND_LEFT;
+    }
+    return -1;
+}
+
+// Whether the joints are still giving a pinch to follow. Where the runtime's
+// value is the press, the pinch is whatever it says, and the joints only give
+// the point.
+static int pinchTracked(XrCtx* ctx, int hand) {
+    if (hand < 0 || hand >= HAND_COUNT || !ctx->pinchPointValid[hand]) {
+        return 0;
+    }
+    if (ctx->extHandClick && ctx->onExtHands[hand]) {
+        return ctx->triggerDown[hand];
+    }
+    return ctx->pinchGate[hand].down;
+}
+
+// Where the hand carrying a drag is: the pinch itself, since that is the part
+// the user feels moving, and the aim only where the joints give no pinch
+static Vec3 gazeHandPos(XrCtx* ctx, const XrPosef* aims, int hand) {
+    if (pinchTracked(ctx, hand)) {
+        return ctx->pinchPoint[hand];
+    }
+    Vec3 p = { aims[hand].position.x, aims[hand].position.y, aims[hand].position.z };
+    return p;
+}
+
+// The eyes chose the target, the hand that pinched moves it. Hands back that
+// hand, with where it started and how much the target is geared up by, or -1
+// if nothing is pinching.
+static int gazeDragHand(XrCtx* ctx, const XrPosef* aims, const int* valid, Vec3 target,
+                        Vec3* outStart, float* outScale) {
+    int hand = pinchingHand(ctx);
+    if (hand < 0 || (!valid[hand] && !pinchTracked(ctx, hand))) {
+        return -1;
+    }
+    Vec3 handPos = gazeHandPos(ctx, aims, hand);
+    Vec3 head = { ctx->headPos.x, ctx->headPos.y, ctx->headPos.z };
+    *outStart = handPos;
+    *outScale = dragScale(head, target, handPos);
+    return hand;
+}
+
+// How far the hand carrying a drag the eyes started has taken it, eased in
+// from the pinch and held while the head turns
+static Vec3 gazeDragCarry(XrCtx* ctx, DragRamp* ramp, Vec3 travel, long nowNs) {
+    int held = 0;
+    Vec3 carry = dragRampStep(ramp, travel, ctx->headTurnRate, nowNs, &held);
+    if (held && !ctx->dragHeldByHead) {
+        LOGI("drag held, head turning %.0f deg/s", ctx->headTurnRate);
+    }
+    ctx->dragHeldByHead = held;
+    return carry;
 }
 
 // Move and resize both work off the handle the ray was over when the grip
@@ -590,9 +689,14 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
     if (ctx->grabMode != GRAB_NONE) {
         int stillHeld = ctx->grabByTrigger ? ctx->triggerDown[ctx->grabHand]
                                            : ctx->grabDown[ctx->grabHand];
-        if (!stillHeld || !valid[ctx->grabHand]) {
+        // A grab the eyes started is carried by the pinch, which the joints
+        // keep reporting where the hand's own ray has dropped out
+        int stillThere = valid[ctx->grabHand]
+                || (ctx->grabByGaze && pinchTracked(ctx, ctx->grabHand));
+        if (!stillHeld || !stillThere) {
             // Persist where it ended up, not every frame of the drag
             ctx->grabMode = GRAB_NONE;
+            ctx->grabByGaze = 0;
             ctx->poseDirty = 1;
             return;
         }
@@ -622,8 +726,32 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         }
         ctx->grabByTrigger = !byGrip;
 
-        ctx->grabHand = hand;
-        ctx->grabAim = aims[hand];
+        // Eyes pick the handle up, a hand carries it. Run off the eye ray the
+        // picture would follow wherever the user looked next.
+        int mover = hand;
+        ctx->grabByGaze = hand == SRC_GAZE;
+        if (ctx->grabByGaze) {
+            float gu, gv;
+            if (!screenProject(aims[hand], ctx->screenPose, ctx->screenWidth, height,
+                               ctx->screenRadius, curved, &gu, &gv)) {
+                ctx->grabByGaze = 0;
+                return;
+            }
+            Vec3 target = screenPoint(gu, gv, ctx->screenPose, ctx->screenWidth, height,
+                                      ctx->screenRadius, curved);
+            mover = gazeDragHand(ctx, aims, valid, target, &ctx->grabHandStart,
+                                 &ctx->grabScale);
+            if (mover < 0) {
+                ctx->grabByGaze = 0;
+                return;
+            }
+            dragRampStart(&ctx->grabRamp, ctx->lastInputNs);
+            LOGI("gaze grab: %s by hand %d, scale %.2f", hover == HOVER_BAR ? "move" : "resize",
+                 mover, ctx->grabScale);
+        }
+
+        ctx->grabHand = mover;
+        ctx->grabAim = aims[mover];
         ctx->grabScreen = ctx->screenPose;
         ctx->grabWidth = ctx->screenWidth;
         ctx->grabHeight = height;
@@ -654,27 +782,40 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
         int bottom = (corner >= 2);
         ctx->grabOppX = (right ? -0.5f : 0.5f) * ctx->grabWidth;
         ctx->grabOppY = (bottom ? 0.5f : -0.5f) * ctx->grabHeight;
-        // A room's drag is measured from where the ray met that diagonal now
+        // A room's drag is measured from where the ray met that diagonal now.
+        // A hand carrying it starts from the corner itself.
         ctx->grabRoomPercent = roomStyle > 0 ? roomScreenPercent(ctx, roomStyle) : 0;
-        ctx->grabRoomReach = diagonalReach(ctx, u, v);
+        ctx->grabRoomReach = ctx->grabByGaze ? 1.0f : diagonalReach(ctx, u, v);
         ctx->grabMode = GRAB_RESIZE;
         return;
     }
 
     int h = ctx->grabHand;
     if (ctx->grabMode == GRAB_MOVE) {
-        // Where it goes is still the rigid attach: the offset from the hand is
-        // carried round by the full hand turn, so the screen swings with the
-        // same leverage it always did rather than sliding flat.
-        XrQuaternionf turn = quatMul(aims[h].orientation, quatConj(ctx->grabAim.orientation));
-        Vec3 offset = { ctx->grabScreen.position.x - ctx->grabAim.position.x,
-                        ctx->grabScreen.position.y - ctx->grabAim.position.y,
-                        ctx->grabScreen.position.z - ctx->grabAim.position.z };
-        Vec3 moved = quatRotate(turn, offset);
+        if (ctx->grabByGaze) {
+            // Nothing to attach to, since the eyes did the pointing. The
+            // picture slides by however far the hand has carried it.
+            Vec3 travel = vecSub(gazeHandPos(ctx, aims, h), ctx->grabHandStart);
+            Vec3 carry = gazeDragCarry(ctx, &ctx->grabRamp, travel, ctx->lastInputNs);
+            ctx->screenPose.position.x = ctx->grabScreen.position.x + carry.x * ctx->grabScale;
+            ctx->screenPose.position.y = ctx->grabScreen.position.y + carry.y * ctx->grabScale;
+            ctx->screenPose.position.z = ctx->grabScreen.position.z + carry.z * ctx->grabScale;
+        }
+        else {
+            // Where it goes is still the rigid attach: the offset from the
+            // hand is carried round by the full hand turn, so the screen swings
+            // with the same leverage it always did rather than sliding flat.
+            XrQuaternionf turn = quatMul(aims[h].orientation,
+                                         quatConj(ctx->grabAim.orientation));
+            Vec3 offset = { ctx->grabScreen.position.x - ctx->grabAim.position.x,
+                            ctx->grabScreen.position.y - ctx->grabAim.position.y,
+                            ctx->grabScreen.position.z - ctx->grabAim.position.z };
+            Vec3 moved = quatRotate(turn, offset);
 
-        ctx->screenPose.position.x = aims[h].position.x + moved.x;
-        ctx->screenPose.position.y = aims[h].position.y + moved.y;
-        ctx->screenPose.position.z = aims[h].position.z + moved.z;
+            ctx->screenPose.position.x = aims[h].position.x + moved.x;
+            ctx->screenPose.position.y = aims[h].position.y + moved.y;
+            ctx->screenPose.position.z = aims[h].position.z + moved.z;
+        }
 
         // Which way it faces does not. Inheriting the wrist tumbled the
         // picture on all three axes, so instead it keeps the tilt and roll it
@@ -693,13 +834,27 @@ static void applyGrab(XrCtx* ctx, XrPosef* aims, const int* valid, const float* 
 
     // Resize. Everything is measured against the pose the grab started from,
     // so growing the screen cannot feed back into where the ray lands on it.
-    float u, v;
-    if (!screenProject(aims[h], ctx->grabScreen, ctx->grabWidth, ctx->grabHeight,
-                       ctx->grabRadius, curved, &u, &v)) {
-        return;
+    float reach;
+    if (ctx->grabByGaze) {
+        // The hand runs the corner out from where it was, along the screen's
+        // own axes, rather than a ray landing on the plane
+        Vec3 travel = vecSub(gazeHandPos(ctx, aims, h), ctx->grabHandStart);
+        Vec3 carry = gazeDragCarry(ctx, &ctx->grabRamp, travel, ctx->lastInputNs);
+        Vec3 xAxis = { 1.0f, 0.0f, 0.0f };
+        Vec3 yAxis = { 0.0f, 1.0f, 0.0f };
+        Vec3 right = quatRotate(ctx->grabScreen.orientation, xAxis);
+        Vec3 up = quatRotate(ctx->grabScreen.orientation, yAxis);
+        reach = diagonalReachAt(ctx, -ctx->grabOppX + vecDot(carry, right) * ctx->grabScale,
+                                -ctx->grabOppY + vecDot(carry, up) * ctx->grabScale);
     }
-
-    float reach = diagonalReach(ctx, u, v);
+    else {
+        float u, v;
+        if (!screenProject(aims[h], ctx->grabScreen, ctx->grabWidth, ctx->grabHeight,
+                           ctx->grabRadius, curved, &u, &v)) {
+            return;
+        }
+        reach = diagonalReach(ctx, u, v);
+    }
     float scale = reach < 0.05f ? 0.05f : reach;
 
     int roomStyle = roomEffective(ctx);
@@ -869,8 +1024,9 @@ static int handInUse(XrCtx* ctx, int h) {
 
 // A drag the eyes started, which finishes as theirs
 static int gazeHoldingPress(XrCtx* ctx) {
-    return (ctx->grabMode != GRAB_NONE && ctx->grabHand == SRC_GAZE)
-            || (ctx->cogDragSlider >= 0 && ctx->cogDragHand == SRC_GAZE);
+    return (ctx->grabMode != GRAB_NONE && (ctx->grabByGaze || ctx->grabHand == SRC_GAZE))
+            || (ctx->cogDragSlider >= 0
+                && (ctx->cogDragByGaze || ctx->cogDragHand == SRC_GAZE));
 }
 
 // Who points, settled once at the top of the frame off the last frame's
@@ -957,6 +1113,7 @@ static void releaseInput(XrCtx* ctx, float* out) {
         // Dropping focus mid grab has to count as letting go, or the
         // anchor is stale when focus comes back and the screen jumps
         ctx->grabMode = 0;
+        ctx->grabByGaze = 0;
         ctx->poseDirty = 1;
     }
     if (ctx->cogDragSlider >= 0) {
@@ -1084,6 +1241,30 @@ static void hoverSource(XrCtx* ctx, InputFrame* f, int h) {
     }
 }
 
+// How fast the head is turning in the world, for the guard on a drag the eyes
+// started. Head locked, a still hand stays put in the room while the head
+// turns, so the world is the frame that matters either way.
+static void updateHeadTurn(XrCtx* ctx, InputFrame* f) {
+    XrSpaceLocation world = f->headLoc;
+    int valid = f->headValid;
+    if (f->space != ctx->localSpace) {
+        memset(&world, 0, sizeof(world));
+        world.type = XR_TYPE_SPACE_LOCATION;
+        valid = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, ctx->localSpace,
+                                           ctx->predictedDisplayTime, &world));
+    }
+    valid = valid && (world.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0;
+    if (!valid) {
+        ctx->headTurnLastValid = 0;
+        ctx->headTurnRate = 0.0f;
+        return;
+    }
+    ctx->headTurnRate = ctx->headTurnLastValid
+            ? turnRateDegS(world.pose.orientation, ctx->headTurnLast, f->dt) : 0.0f;
+    ctx->headTurnLast = world.pose.orientation;
+    ctx->headTurnLastValid = 1;
+}
+
 // Reads every source: the triggers, the aim poses and where each ray lands
 static void readSources(XrCtx* ctx, InputFrame* f) {
     int gazeSpace = ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
@@ -1099,11 +1280,30 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             f->stick[h] = actionVec2(ctx, ctx->scrollAction, h);
             int wasDown = ctx->triggerDown[h];
             float value = actionFloat(ctx, ctx->triggerAction, h);
-            // Either a bound trigger or a measured pinch will do. Runtimes
-            // that offer neither leave this at rest, which is what a headset
-            // with nothing in its hands should report.
-            ctx->triggerDown[h] = value > (wasDown ? PRESS_OFF : PRESS_ON)
-                    || jointPinching(ctx, h, f->space, &f->headLoc.pose, f->headValid);
+            // The joints are read whatever is on the hand, since the ray and
+            // the point a drag follows come out of them too
+            int joints = jointPinching(ctx, h, f->space, &f->headLoc.pose, f->headValid,
+                                       f->now);
+            // A hand's pinch, however the runtime reports how hard it is, has
+            // its own pair of thresholds rather than the trigger's
+            int byHand = ctx->profileKind[h] != PROFILE_CONTROLLER;
+            float on = byHand ? PINCH_VALUE_ON : PRESS_ON;
+            float off = byHand ? PINCH_VALUE_OFF : PRESS_OFF;
+            // Where the EXT profile's pinch value is bound and on the hand it
+            // is the press on its own, and the runtime has decided already.
+            // Otherwise a bound value or a measured pinch will do, held for
+            // PINCH_HOLD_NS first. Runtimes that offer neither leave this at
+            // rest, which is what a headset with nothing in its hands should
+            // report.
+            int byValue = byHand && ctx->extHandClick && ctx->onExtHands[h];
+            int want = pressHysteresis(value, wasDown, on, off) || (!byValue && joints);
+            if (byHand && !byValue) {
+                ctx->triggerDown[h] = pinchHoldStep(&ctx->pinchWantNs[h], want, wasDown, f->now);
+            }
+            else {
+                ctx->pinchWantNs[h] = 0;
+                ctx->triggerDown[h] = want;
+            }
             ctx->triggerEdge[h] = ctx->triggerDown[h] && !wasDown;
 
             // Diagnostics only. A press held from a pinch reads zero here, so
@@ -1530,6 +1730,39 @@ static void updatePicker(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// A press on a slider. The eyes only choose the row, so a gaze press hands the
+// drag to the hand that pinched and remembers where the thumb was put.
+static void cogStartDrag(XrCtx* ctx, InputFrame* f, int h, int face, int row, float pu,
+                         float pv) {
+    ctx->cogDragByGaze = 0;
+    ctx->cogDragHand = h;
+    if (h == SRC_GAZE) {
+        Vec3 target = screenPoint(pu, pv, ctx->cogPose, ctx->cogW, ctx->cogH, 0.0f, 0);
+        int hand = gazeDragHand(ctx, f->aimPoses, f->aimValid, target,
+                                &ctx->cogDragHandStart, &ctx->cogDragScale);
+        if (hand < 0) {
+            // No hand to carry it, so the press sets the value where it
+            // landed and the drag ends on the next frame, which is what
+            // writes the value
+            ctx->cogDragHand = -1;
+            ctx->cogDragSlider = row;
+            ctx->cogDragFace = face;
+            cogApplySlider(ctx, face, row, pu);
+            return;
+        }
+        ctx->cogDragByGaze = 1;
+        ctx->cogDragHand = hand;
+        ctx->cogDragStartU = pu;
+        dragRampStart(&ctx->cogDragRamp, f->now);
+        LOGI("gaze drag: slider %d by hand %d, scale %.2f", row, hand, ctx->cogDragScale);
+    }
+    ctx->cogDragSlider = row;
+    ctx->cogDragFace = face;
+    // Jumps to where the press landed rather than waiting for the first bit
+    // of movement
+    cogApplySlider(ctx, face, row, pu);
+}
+
 // Modal in the same way the grid is, and against the pose frozen when
 // it opened rather than wherever the screen has since been dragged to
 static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
@@ -1547,13 +1780,33 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
     }
     else if (ctx->cogDragSlider >= 0 && cogRowIsTrack(face, ctx->cogDragSlider)) {
         int h = ctx->cogDragHand;
-        float pu, pv;
-        if (h >= 0 && f->aimValid[h] && ctx->triggerDown[h]
-                && screenProject(f->aimPoses[h], ctx->cogPose, ctx->cogW, ctx->cogH,
-                                 0.0f, 0, &pu, &pv)) {
-            f->hand = h;
-            f->hitU[h] = pu;
-            f->hitV[h] = pv;
+        float pu = 0.0f, pv = 0.0f;
+        int held = h >= 0 && ctx->triggerDown[h]
+                && (f->aimValid[h] || (ctx->cogDragByGaze && pinchTracked(ctx, h)));
+        if (held && ctx->cogDragByGaze) {
+            // The eyes picked the row, the hand runs the thumb along it: its
+            // travel across the panel's own width, past a dead zone, since at
+            // the gearing a far panel asks for a shaking pinch would slide it
+            Vec3 travel = vecSub(gazeHandPos(ctx, f->aimPoses, h), ctx->cogDragHandStart);
+            Vec3 carry = gazeDragCarry(ctx, &ctx->cogDragRamp,
+                                       dragDeadZone(travel, GAZE_DRAG_DEAD_M), f->now);
+            Vec3 xAxis = { 1.0f, 0.0f, 0.0f };
+            Vec3 right = quatRotate(ctx->cogPose.orientation, xAxis);
+            pu = ctx->cogDragStartU + vecDot(carry, right) * ctx->cogDragScale / ctx->cogW;
+            if (pu < 0.0f) pu = 0.0f;
+            if (pu > 1.0f) pu = 1.0f;
+            pv = COG_ROW_V0 + ctx->cogDragSlider * COG_ROW_STEP;
+        }
+        else if (held) {
+            held = screenProject(f->aimPoses[h], ctx->cogPose, ctx->cogW, ctx->cogH,
+                                 0.0f, 0, &pu, &pv);
+        }
+        if (held) {
+            // Still the eyes' drag as far as the rest of the frame goes, so no
+            // ray is drawn out of the hand that happens to be carrying it
+            f->hand = ctx->cogDragByGaze ? SRC_GAZE : h;
+            f->hitU[f->hand] = pu;
+            f->hitV[f->hand] = pv;
             ctx->cogHoverSlider = ctx->cogDragSlider;
             cogApplySlider(ctx, face, ctx->cogDragSlider, pu);
         }
@@ -1588,6 +1841,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 ctx->cogDragSlider = -1;
                 ctx->cogDragHand = -1;
                 ctx->cogDragFace = -1;
+                ctx->cogDragByGaze = 0;
             }
             break;
         }
@@ -1654,12 +1908,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             LOGI("screen placement reset from the panel");
         }
         else if (row >= 0 && ctx->triggerEdge[h]) {
-            ctx->cogDragSlider = row;
-            ctx->cogDragHand = h;
-            ctx->cogDragFace = face;
-            // Jumps to where the press landed rather than waiting for the
-            // first bit of movement
-            cogApplySlider(ctx, face, row, pu);
+            cogStartDrag(ctx, f, h, face, row, pu, pv);
         }
     }
 
@@ -2195,6 +2444,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if (f.headValid) {
         ctx->headPos = f.headLoc.pose.position;
     }
+    updateHeadTurn(ctx, &f);
 
     readSources(ctx, &f);
     gazeBridgeTrack(&ctx->gazeBridge, f.gazeAsked, f.gazeUsable, f.now);
@@ -2245,7 +2495,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // Eyes aim by looking, so a ray out of the face would be nonsense, and a
     // cursor riding on them shakes too much to be anything but a distraction.
     // Gaze draws nothing: the handle lighting up is the feedback.
-    ctx->beamGaze = (ctx->grabMode != GRAB_NONE ? ctx->grabHand : f.hand) == SRC_GAZE;
+    // A grab the eyes started counts as theirs though a hand carries it
+    ctx->beamGaze = ctx->grabMode != GRAB_NONE
+            ? (ctx->grabByGaze || ctx->grabHand == SRC_GAZE) : f.hand == SRC_GAZE;
 
     if (ctx->grabMode != GRAB_NONE) {
         beamToHandle(ctx, &f);

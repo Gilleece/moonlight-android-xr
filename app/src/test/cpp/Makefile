@@ -11,7 +11,8 @@ INCLUDES := -Istubs -I$(SRC)
 OUT := build
 
 TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_roommesh \
-         $(OUT)/test_layout $(OUT)/test_audio $(OUT)/test_rate $(OUT)/test_gate
+         $(OUT)/test_layout $(OUT)/test_audio $(OUT)/test_rate $(OUT)/test_gate \
+         $(OUT)/test_pinch
 
 .PHONY: test clean
 
@@ -52,6 +53,12 @@ $(OUT)/test_rate: test_rate.c check.h $(SRC)/xr_rate.c $(SRC)/xr_rate.h
 $(OUT)/test_gate: test_gate.c check.h $(SRC)/xr_gate.c $(SRC)/xr_gate.h $(SRC)/xr_math.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_gate.c $(SRC)/xr_gate.c -lm
+
+# The pinch and its hold, and the drag the eyes start
+$(OUT)/test_pinch: test_pinch.c check.h $(SRC)/xr_pinch.c $(SRC)/xr_pinch.h $(SRC)/xr_math.c \
+                   $(SRC)/xr_math.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_pinch.c $(SRC)/xr_pinch.c $(SRC)/xr_math.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it

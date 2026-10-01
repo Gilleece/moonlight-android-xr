@@ -832,6 +832,7 @@ void cogDragEnded(XrCtx* ctx, float* out) {
     ctx->cogDragSlider = -1;
     ctx->cogDragHand = -1;
     ctx->cogDragFace = -1;
+    ctx->cogDragByGaze = 0;
 
     if (slider < 0) {
         return;
