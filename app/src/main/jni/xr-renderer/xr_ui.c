@@ -1194,6 +1194,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetShowRay(JNIEnv* env, jobjec
     LOGEV("ray %s at the start of the session", on ? "shown" : "hidden");
 }
 
+// Head aim's setting, which each session starts from, and its pixels a degree
+// and dead zone in degrees a second, each held to its lane. Handed down before
+// the first frame.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetHeadAim(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jboolean on,
+                                                             jint sensitivity, jint deadZone) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->headAimSetting = on ? 1 : 0;
+    ctx->headAimFlipped = 0;
+    ctx->headAimSensitivity = headAimSensitivityClamp(sensitivity);
+    ctx->headAimDeadZone = headAimDeadZoneClamp(deadZone);
+    LOGEV("head aim %s at the start of the session, %d px a degree, dead zone %d deg/s",
+          on ? "on" : "off", ctx->headAimSensitivity, ctx->headAimDeadZone);
+}
+
 // One row of the picture grade to a value in its own whole units, held to its
 // lane, with the grade worked out again. Off once every row is back at its
 // default, which is all the shaders look at before skipping it.

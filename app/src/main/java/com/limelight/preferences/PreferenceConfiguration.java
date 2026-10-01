@@ -78,6 +78,11 @@ public class PreferenceConfiguration {
     public static final String VR_CLICK_SOUND_PREF_STRING = "checkbox_vr_click_sound";
     public static final String VR_SHOW_RAY_PREF_STRING = "checkbox_vr_show_ray";
     public static final String VR_CONTROLLER_MODEL_PREF_STRING = "checkbox_vr_controller_model";
+    // Head aim, and its pixels a degree and dead zone in degrees a second, in
+    // the whole units of the HEAD_AIM_ lanes in XrShared
+    public static final String VR_HEAD_AIM_PREF_STRING = "checkbox_vr_head_aim";
+    public static final String VR_HEAD_AIM_SENSITIVITY_PREF_STRING = "seekbar_vr_head_aim_sensitivity";
+    public static final String VR_HEAD_AIM_DEADZONE_PREF_STRING = "seekbar_vr_head_aim_deadzone";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on. Legacy, and
@@ -213,6 +218,9 @@ public class PreferenceConfiguration {
     // A generic controller drawn in each hand, where the real one is. Off, as
     // every new drawing starts.
     static final boolean DEFAULT_VR_CONTROLLER_MODEL = false;
+    // Turning the head moves the host's mouse while the screen is locked to
+    // it. Off, since it takes the mouse over for a game that wants it.
+    static final boolean DEFAULT_VR_HEAD_AIM = false;
     private static final boolean DEFAULT_VR_POINTER = true;
     // MiDaS's separation, tenths of a percent of frame width. 5 measured
     // comfortable on device and 7 already strained, once the depth map started
@@ -331,6 +339,12 @@ public class PreferenceConfiguration {
     public boolean vrShowRay;
     // Whether the bundled controller model is drawn at each hand
     public boolean vrControllerModel;
+    // Whether a session starts with head aim on, how many pixels the mouse
+    // moves for a degree the head turns, and how slow a turn in degrees a
+    // second sends nothing
+    public boolean vrHeadAim;
+    public int vrHeadAimSensitivity;
+    public int vrHeadAimDeadZone;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -596,6 +610,26 @@ public class PreferenceConfiguration {
 
     static boolean controllerModelOn(SharedPreferences prefs) {
         return prefs.getBoolean(VR_CONTROLLER_MODEL_PREF_STRING, DEFAULT_VR_CONTROLLER_MODEL);
+    }
+
+    static boolean headAimOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_HEAD_AIM_PREF_STRING, DEFAULT_VR_HEAD_AIM);
+    }
+
+    /** Head aim's pixels a degree as stored, held to its lane. */
+    public static int headAimSensitivity(SharedPreferences prefs) {
+        int units = prefs.getInt(VR_HEAD_AIM_SENSITIVITY_PREF_STRING,
+                XrShared.HEAD_AIM_SENSITIVITY_DEFAULT);
+        return Math.max(XrShared.HEAD_AIM_SENSITIVITY_MIN,
+                Math.min(XrShared.HEAD_AIM_SENSITIVITY_MAX, units));
+    }
+
+    /** Head aim's dead zone in degrees a second as stored, held to its lane. */
+    public static int headAimDeadZone(SharedPreferences prefs) {
+        int units = prefs.getInt(VR_HEAD_AIM_DEADZONE_PREF_STRING,
+                XrShared.HEAD_AIM_DEADZONE_DEFAULT);
+        return Math.max(XrShared.HEAD_AIM_DEADZONE_MIN,
+                Math.min(XrShared.HEAD_AIM_DEADZONE_MAX, units));
     }
 
     /**
@@ -1267,6 +1301,9 @@ public class PreferenceConfiguration {
         config.vrClickSound = clickSoundOn(prefs);
         config.vrShowRay = rayShown(prefs);
         config.vrControllerModel = controllerModelOn(prefs);
+        config.vrHeadAim = headAimOn(prefs);
+        config.vrHeadAimSensitivity = headAimSensitivity(prefs);
+        config.vrHeadAimDeadZone = headAimDeadZone(prefs);
         config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

@@ -2916,6 +2916,21 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 (short)prefConfig.width, (short)prefConfig.height);
     }
 
+    // Head aim's turn, and the pointer's nudges while it is on, as relative
+    // motion, which is what a game's look control reads. The host cursor is no
+    // longer where the pointer last put it, so the next absolute move after
+    // head aim goes off is always sent, and a click here anchors nothing.
+    @Override
+    public void onVrMouseMove(int dx, int dy) {
+        if (!connected) {
+            return;
+        }
+        lastVrPointerX = -1;
+        lastVrPointerY = -1;
+        conn.sendMouseMove((short)Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, dx)),
+                (short)Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, dy)));
+    }
+
     @Override
     public void onVrButton(int button, boolean down) {
         if (!connected) {

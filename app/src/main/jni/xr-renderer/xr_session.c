@@ -658,6 +658,13 @@ static void pollEvents(XrCtx* ctx) {
                         (XrEventDataReferenceSpaceChangePending*)&event;
                 if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
                     recentreScreen(ctx);
+                    // The head jumps in the space when the change lands, which
+                    // head aim must not read as a turn. The change time can
+                    // come back as 0 or ahead of when it really lands, so a
+                    // tenth of a second past the last frame is waited out too.
+                    XrTime hold = ctx->predictedDisplayTime + HEAD_AIM_RECENTRE_HOLD_NS;
+                    ctx->headAimRecentring = 1;
+                    ctx->headAimRecentreAt = change->changeTime > hold ? change->changeTime : hold;
                 }
                 break;
             }
@@ -944,6 +951,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     // said about it yet
     ctx->raySetting = 1;
     ctx->rayDrawnSaid = -1;
+    // Head aim stays off until Java hands down the setting, at the defaults
+    ctx->headAimSensitivity = HEAD_AIM_SENSITIVITY_DEFAULT;
+    ctx->headAimDeadZone = HEAD_AIM_DEADZONE_DEFAULT;
+    headAimReset(&ctx->headAim);
+    pointerNudgeReset(&ctx->headAimNudge);
+    ctx->headAimSaid = -1;
     // Comfort comes from absolute disparity and depth comes from the steps
     // between objects, so the overall shape is pulled toward the screen plane
     // while the local detail is boosted. Measured on captured frames this is

@@ -2541,9 +2541,21 @@ static void sendPointer(XrCtx* ctx, InputFrame* f, int hit) {
                          ctx->pointerBeta);
     float v = euroFilter(&ctx->filterV, f->hitV[f->hand], f->dt, ctx->pointerMinCutoff,
                          ctx->pointerBeta);
-    f->out[IN_HIT] = 1.0f;
-    f->out[IN_U] = u;
-    f->out[IN_V] = v;
+    if (ctx->headAimActive) {
+        // The head is turning the host's mouse, so a position from the ray
+        // would fight it. The ray moves the cursor by how far its point moved
+        // instead, on top of the head's turn.
+        int dx, dy;
+        pointerNudge(&ctx->headAimNudge, f->hand, u, v, ctx->inputFrames, ctx->videoWidth,
+                     ctx->videoHeight, &dx, &dy);
+        f->out[IN_MOUSE_DX] += (float)dx;
+        f->out[IN_MOUSE_DY] += (float)dy;
+    }
+    else {
+        f->out[IN_HIT] = 1.0f;
+        f->out[IN_U] = u;
+        f->out[IN_V] = v;
+    }
 
     // The ray is only drawn when it lands on something, which is what
     // makes a laser readable rather than a light show
@@ -2679,6 +2691,103 @@ static void updateAudioYaw(XrCtx* ctx, int headLocked) {
     }
 }
 
+// What head aim is doing, as the log says it. A frame dropped for a jump or a
+// recentre, or one turning slower than the dead zone, is still head aim on.
+static int headAimDoing(int what) {
+    return what == HEAD_AIM_OFF || what == HEAD_AIM_PAUSED || what == HEAD_AIM_LOST
+            ? what : HEAD_AIM_SENT;
+}
+
+// Head aim: with the screen locked to the head, the head's turn since the last
+// frame goes to the host as relative mouse motion, in IN_MOUSE_DX and DY.
+// Measured off the head in the local space, since the screen turns with it.
+// Ahead of the early returns in the input pass, as it needs neither the
+// pointer nor the controllers, but paused while a panel is up, so the panel
+// can be looked at without turning the game, and while the session is not
+// focused or the splash is up.
+static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
+    int active = headAimSwitchOn(ctx->headAimSetting, ctx->headAimFlipped) && headLocked
+            && roomEffective(ctx) <= 0;
+    int paused = !ctx->sessionRunning || ctx->sessionState != XR_SESSION_STATE_FOCUSED
+            || ctx->splash.phase != SPLASH_GONE || !ctx->placementValid || panelUp(ctx);
+    int tracked = 0;
+    float yaw = 0.0f;
+    float pitch = 0.0f;
+    if (active && !paused) {
+        // A held orientation is not a tracked one, and turning from it to the
+        // real one when tracking comes back would read as a turn
+        const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT
+                | XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+        XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
+        tracked = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, ctx->localSpace,
+                                             ctx->predictedDisplayTime, &head))
+                && (head.locationFlags & needed) == needed;
+        if (tracked) {
+            headAimAngles(head.pose.orientation, &yaw, &pitch);
+        }
+    }
+    // Every frame up to the one shown once the recentre has landed is
+    // dropped, whether or not head aim is on to see it
+    int recentred = ctx->headAimRecentring;
+    if (recentred && ctx->predictedDisplayTime >= ctx->headAimRecentreAt) {
+        ctx->headAimRecentring = 0;
+    }
+
+    int dx = 0;
+    int dy = 0;
+    int what = headAimStep(&ctx->headAim, headAimBlocked(active, paused, tracked, recentred),
+                           yaw, pitch, ctx->predictedDisplayTime,
+                           (float)ctx->headAimSensitivity, (float)ctx->headAimDeadZone,
+                           &dx, &dy);
+    ctx->headAimActive = active;
+    out[IN_HEAD_AIM] = active ? 1.0f : 0.0f;
+    out[IN_MOUSE_DX] = (float)dx;
+    out[IN_MOUSE_DY] = (float)dy;
+
+    // On and off go in the file, the comings and goings in between only to
+    // logcat, since a panel opening pauses it every time
+    int doing = headAimDoing(what);
+    if (doing != ctx->headAimSaid) {
+        int wasOn = ctx->headAimSaid >= 0 && ctx->headAimSaid != HEAD_AIM_OFF;
+        if (doing == HEAD_AIM_OFF) {
+            if (wasOn) {
+                LOGEV("head aim off");
+            }
+        }
+        else {
+            if (!wasOn) {
+                LOGEV("head aim on: %d px a degree, dead zone %d deg/s",
+                      ctx->headAimSensitivity, ctx->headAimDeadZone);
+            }
+            LOGI("head aim %s", doing == HEAD_AIM_SENT ? "measuring the head"
+                                : doing == HEAD_AIM_PAUSED
+                                ? "paused while a panel is up or the session is not focused"
+                                : "waiting for the head to be tracked");
+        }
+        ctx->headAimSaid = doing;
+        ctx->headAimSentX = 0;
+        ctx->headAimSentY = 0;
+        ctx->headAimCountNs = ctx->predictedDisplayTime;
+    }
+    if (what == HEAD_AIM_JUMPED) {
+        LOGI("head aim dropped a frame turning faster than a head can");
+    }
+    if (doing == HEAD_AIM_SENT) {
+        ctx->headAimSentX += dx;
+        ctx->headAimSentY += dy;
+        if (ctx->predictedDisplayTime - ctx->headAimCountNs >= HEAD_AIM_COUNT_NS) {
+            if (ctx->headAimSentX != 0 || ctx->headAimSentY != 0) {
+                LOGI("head aim moved the mouse %ld, %ld px in %.0f s", ctx->headAimSentX,
+                     ctx->headAimSentY,
+                     (ctx->predictedDisplayTime - ctx->headAimCountNs) / 1e9);
+            }
+            ctx->headAimSentX = 0;
+            ctx->headAimSentY = 0;
+            ctx->headAimCountNs = ctx->predictedDisplayTime;
+        }
+    }
+}
+
 // A room's size left by a corner goes to the preference once the grab is over,
 // however it ended, on the first frame with the setting slot free. A room gone
 // from under it in the meantime leaves nothing to write it to.
@@ -2781,6 +2890,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         // sound follows the head with the pointer off or focus lost too
         updateAudioYaw(ctx, headLocked);
         out[IN_HEAD_YAW] = ctx->audioYaw;
+        // The same for head aim, which turns the game with the pointer off
+        ctx->inputFrames++;
+        updateHeadAim(ctx, headLocked, out);
     }
     // Zero is a real cell, so "nothing picked" has to be said explicitly. Every
     // early return below would otherwise read as a press on the first one. Same

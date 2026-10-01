@@ -153,7 +153,17 @@
 // rather than to the host.
 #define IN_REPORT   (IN_KB_SHEET + 1)
 #define IN_REPORT_ZONE (IN_REPORT + 1)
-#define IN_SLOTS    (IN_REPORT_ZONE + 1)
+// 1 while head aim is on and can act: switched on, with the screen locked to
+// the head and no room up. Every frame. Paused for a panel it still reads 1,
+// since the controller's pointer stays relative.
+#define IN_HEAD_AIM (IN_REPORT_ZONE + 1)
+// Whole pixels to move the host's mouse by this frame, right and down
+// positive: the head's turn while head aim is on, plus the controller's
+// pointer nudging it, since in that mode the ray moves the cursor by how far
+// its point moved rather than to it. 0 and 0 for none.
+#define IN_MOUSE_DX (IN_HEAD_AIM + 1)
+#define IN_MOUSE_DY (IN_MOUSE_DX + 1)
+#define IN_SLOTS    (IN_MOUSE_DY + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -240,6 +250,17 @@
 #define PICTURE_GAMMA 2
 #define PICTURE_SATURATION 3
 #define PICTURE_VALUES 4
+
+// Head aim, in the whole units its preferences hold: how far the mouse moves
+// for a degree the head turns, in pixels, and how slowly the head can turn,
+// in degrees a second, before nothing is sent, which swallows tracking
+// jitter while the head is held still
+#define HEAD_AIM_SENSITIVITY_MIN 1
+#define HEAD_AIM_SENSITIVITY_MAX 30
+#define HEAD_AIM_SENSITIVITY_DEFAULT 8
+#define HEAD_AIM_DEADZONE_MIN 0
+#define HEAD_AIM_DEADZONE_MAX 20
+#define HEAD_AIM_DEADZONE_DEFAULT 2
 
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0

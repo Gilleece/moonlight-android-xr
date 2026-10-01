@@ -294,6 +294,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
      */
     public interface InputListener {
         void onVrPointerMove(float u, float v);
+        // Relative mouse motion in host pixels, right and down positive: the
+        // head's turn while head aim is on, with the pointer's nudges added,
+        // since in that mode nothing moves the mouse to a position
+        void onVrMouseMove(int dx, int dy);
         void onVrButton(int button, boolean down);
         void onVrScroll(int clicks);
         // A key from the in world keyboard. Unicode with the shift already
@@ -468,6 +472,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Whether a session starts with the ray drawn, which the bar's ray button
     // and the Display tab's row then switch for the session
     private native void nativeSetShowRay(long ctx, boolean on);
+    // Whether a session starts with head aim on, its pixels a degree and its
+    // dead zone in degrees a second
+    private native void nativeSetHeadAim(long ctx, boolean on, int sensitivity, int deadZone);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -1197,6 +1204,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         Arrays.fill(marksDrawn, -2);
         nativeSetClickSound(nativeCtx, prefs.vrClickSound);
         nativeSetShowRay(nativeCtx, prefs.vrShowRay);
+        nativeSetHeadAim(nativeCtx, prefs.vrHeadAim, prefs.vrHeadAimSensitivity,
+                prefs.vrHeadAimDeadZone);
         nativeSetControllerModel(nativeCtx, prefs.vrControllerModel);
 
         final int startRoom = cell;
@@ -1424,6 +1433,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (inputListener != null) {
             if (inputState[IN_HIT] != 0.0f) {
                 inputListener.onVrPointerMove(inputState[IN_U], inputState[IN_V]);
+            }
+            // Head aim's turn and the pointer's nudges while it is on, as one
+            // relative move. The native side never sets a hit then.
+            int dx = (int)inputState[IN_MOUSE_DX];
+            int dy = (int)inputState[IN_MOUSE_DY];
+            if (dx != 0 || dy != 0) {
+                inputListener.onVrMouseMove(dx, dy);
             }
 
             int buttons = (int)inputState[IN_BUTTONS];
