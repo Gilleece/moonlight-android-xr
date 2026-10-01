@@ -466,6 +466,32 @@ static void buildHandRay(XrCtx* ctx, int hand, const XrPosef* head,
     ctx->handRayValid[hand] = 1;
 }
 
+// How a pose located in the local space is moved into the frame the screen is
+// in. Head locked, the screen hangs in the head's frame. Every locate is still
+// made against the local space, as it is with the screen in the room, and the
+// pose is moved into the head's frame here by undoing the head's own pose,
+// rather than asking the runtime for poses relative to the view space: the two
+// paths then make exactly the same runtime calls. The pointer went missing
+// head locked on the Pico 4 Ultra (#20), and locates relative to the view
+// space were the only calls that path made differently. With the head not
+// located nothing can be moved into its frame.
+typedef struct {
+    int toHead;
+    int ok;
+    XrPosef head;
+} FrameXform;
+
+static int intoFrame(const FrameXform* x, XrPosef* p) {
+    if (!x->toHead) {
+        return 1;
+    }
+    if (!x->ok) {
+        return 0;
+    }
+    *p = poseInFrame(x->head, *p);
+    return 1;
+}
+
 // How far one joint is from another, or -1 where either is not where the
 // runtime can say
 static float tipGap(const XrHandJointLocationEXT* a, const XrHandJointLocationEXT* b) {
@@ -496,7 +522,7 @@ static void readRingTips(XrCtx* ctx, int hand, const XrHandJointLocationEXT* joi
             && ctx->indexGap[hand] >= 0.0f && ctx->middleGap[hand] >= 0.0f;
 }
 
-static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* head,
+static int jointPinching(XrCtx* ctx, int hand, const FrameXform* xform, const XrPosef* head,
                          int headValid, long nowNs) {
     ctx->ringTipsTracked[hand] = 0;
     if (!ctx->jointTracking || ctx->handTrackers[hand] == XR_NULL_HANDLE) {
@@ -510,11 +536,18 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
     locations.jointLocations = joints;
 
     XrHandJointsLocateInfoEXT locate = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
-    locate.baseSpace = space;
+    locate.baseSpace = ctx->localSpace;
     locate.time = ctx->predictedDisplayTime;
     float closed = 0.0f;
-    if (XR_FAILED(ctx->pfnLocateHandJoints(ctx->handTrackers[hand], &locate, &locations))
-            || !locations.isActive) {
+    int located = XR_SUCCEEDED(ctx->pfnLocateHandJoints(ctx->handTrackers[hand], &locate,
+                                                         &locations))
+            && locations.isActive;
+    // Into the screen's frame, all of them, so the ray and the pinch point
+    // come out where the aim poses are
+    for (int j = 0; located && j < XR_HAND_JOINT_COUNT_EXT; j++) {
+        located = intoFrame(xform, &joints[j].pose);
+    }
+    if (!located) {
         pinchGateStep(&ctx->pinchGate[hand], 0, 0, 0.0f, nowNs, &closed);
         ctx->pinchPointValid[hand] = 0;
         ctx->handRayValid[hand] = 0;
@@ -1000,7 +1033,9 @@ typedef struct {
     float* out;
     long now;
     float dt;
-    XrSpace space;
+    // Into the frame the screen is in, which is the head's while it is head
+    // locked and the local space's otherwise
+    FrameXform xform;
     int roomOn;
     int curved;
     float height;
@@ -1008,7 +1043,8 @@ typedef struct {
     // How big the picture's corner brackets are, 0 where it has none
     float cornerSide;
     XrPosef screenPose;
-    XrSpaceLocation headLoc;
+    // The head in that frame, which head locked is where it always is
+    XrPosef headPose;
     int headValid;
     XrPosef aimPoses[SRC_COUNT];
     int aimValid[SRC_COUNT];
@@ -1277,23 +1313,14 @@ static void hoverSource(XrCtx* ctx, InputFrame* f, int h) {
 // started. Head locked, a still hand stays put in the room while the head
 // turns, so the world is the frame that matters either way.
 static void updateHeadTurn(XrCtx* ctx, InputFrame* f) {
-    XrSpaceLocation world = f->headLoc;
-    int valid = f->headValid;
-    if (f->space != ctx->localSpace) {
-        memset(&world, 0, sizeof(world));
-        world.type = XR_TYPE_SPACE_LOCATION;
-        valid = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, ctx->localSpace,
-                                           ctx->predictedDisplayTime, &world));
-    }
-    valid = valid && (world.locationFlags & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) != 0;
-    if (!valid) {
+    if (!f->xform.ok) {
         ctx->headTurnLastValid = 0;
         ctx->headTurnRate = 0.0f;
         return;
     }
     ctx->headTurnRate = ctx->headTurnLastValid
-            ? turnRateDegS(world.pose.orientation, ctx->headTurnLast, f->dt) : 0.0f;
-    ctx->headTurnLast = world.pose.orientation;
+            ? turnRateDegS(f->xform.head.orientation, ctx->headTurnLast, f->dt) : 0.0f;
+    ctx->headTurnLast = f->xform.head.orientation;
     ctx->headTurnLastValid = 1;
 }
 
@@ -1314,8 +1341,7 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             float value = actionFloat(ctx, ctx->triggerAction, h);
             // The joints are read whatever is on the hand, since the ray and
             // the point a drag follows come out of them too
-            int joints = jointPinching(ctx, h, f->space, &f->headLoc.pose, f->headValid,
-                                       f->now);
+            int joints = jointPinching(ctx, h, &f->xform, &f->headPose, f->headValid, f->now);
             // A hand's pinch, however the runtime reports how hard it is, has
             // its own pair of thresholds rather than the trigger's
             int byHand = ctx->profileKind[h] != PROFILE_CONTROLLER;
@@ -1371,8 +1397,9 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT
                 | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-        int ok = XR_SUCCEEDED(xrLocateSpace(ctx->aimSpaces[h], f->space,
-                                            ctx->predictedDisplayTime, &loc));
+        int ok = XR_SUCCEEDED(xrLocateSpace(ctx->aimSpaces[h], ctx->localSpace,
+                                            ctx->predictedDisplayTime, &loc))
+                && intoFrame(&f->xform, &loc.pose);
         int located = ok && (loc.locationFlags & needed) == needed;
         if (h == SRC_GAZE) {
             // Tracked as well as valid. Untracked takes the not located path
@@ -2524,7 +2551,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // somewhere other than where the picture is drawn. A room world locks it
     // and flattens it whatever the preference and the panel say.
     f.roomOn = roomEffective(ctx) > 0;
-    f.space = (headLocked && !f.roomOn) ? ctx->viewSpace : ctx->localSpace;
+    f.xform.toHead = headLocked && !f.roomOn;
     f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     f.curved = !f.roomOn && effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
     f.radius = ctx->screenRadius;
@@ -2538,12 +2565,27 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         f.dt = 0.1f;
     }
 
-    f.headLoc.type = XR_TYPE_SPACE_LOCATION;
-    f.headValid = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, f.space,
-                                             ctx->predictedDisplayTime, &f.headLoc))
-            && (f.headLoc.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+    // The head in the local space, the one locate every frame makes whether
+    // the screen is head locked or not
+    XrSpaceLocation head = { XR_TYPE_SPACE_LOCATION };
+    int headOk = XR_SUCCEEDED(xrLocateSpace(ctx->viewSpace, ctx->localSpace,
+                                            ctx->predictedDisplayTime, &head));
+    const XrSpaceLocationFlags placed = XR_SPACE_LOCATION_POSITION_VALID_BIT
+            | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
+    f.xform.ok = headOk && (head.locationFlags & placed) == placed;
+    f.xform.head = head.pose;
+    if (f.xform.toHead) {
+        // In its own frame the head is always at the origin looking down -z
+        memset(&f.headPose, 0, sizeof(f.headPose));
+        f.headPose.orientation.w = 1.0f;
+        f.headValid = f.xform.ok;
+    }
+    else {
+        f.headPose = head.pose;
+        f.headValid = headOk && (head.locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT) != 0;
+    }
     if (f.headValid) {
-        ctx->headPos = f.headLoc.pose.position;
+        ctx->headPos = f.headPose.position;
     }
     updateHeadTurn(ctx, &f);
 

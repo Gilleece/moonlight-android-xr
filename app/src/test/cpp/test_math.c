@@ -231,6 +231,54 @@ static void testYawBetween(void) {
     CHECK_NEAR(yawBetween(turned, identity()), 25.0f * DEG, 1e-4);
 }
 
+// A head locked screen's input is located in the local space and moved into
+// the head's frame: a controller held 40 cm in front of the head, turned and
+// raised in the room, comes out 40 cm straight ahead, and the head itself at
+// the origin
+static void testPoseInFrame(void) {
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 right = { 1.0f, 0.0f, 0.0f };
+    XrPosef head;
+    head.orientation = quatMul(axisAngleQuat(up, 1.2f), axisAngleQuat(right, -0.3f));
+    head.position.x = 0.5f;
+    head.position.y = 1.6f;
+    head.position.z = -0.2f;
+
+    // 40 cm along the head's own -z, aimed the way it looks
+    Vec3 ahead = { 0.0f, 0.0f, -0.4f };
+    Vec3 off = quatRotate(head.orientation, ahead);
+    XrPosef aim;
+    aim.orientation = head.orientation;
+    aim.position.x = head.position.x + off.x;
+    aim.position.y = head.position.y + off.y;
+    aim.position.z = head.position.z + off.z;
+
+    XrPosef seen = poseInFrame(head, aim);
+    CHECK_NEAR(seen.position.x, 0.0, 1e-5);
+    CHECK_NEAR(seen.position.y, 0.0, 1e-5);
+    CHECK_NEAR(seen.position.z, -0.4, 1e-5);
+    CHECK_NEAR(fabsf(seen.orientation.w), 1.0, 1e-5);
+
+    XrPosef self = poseInFrame(head, head);
+    CHECK_NEAR(self.position.x, 0.0, 1e-6);
+    CHECK_NEAR(self.position.z, 0.0, 1e-6);
+    CHECK_NEAR(fabsf(self.orientation.w), 1.0, 1e-6);
+
+    // An identity frame changes nothing
+    XrPosef origin = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, 0.0f } };
+    XrPosef same = poseInFrame(origin, aim);
+    CHECK_NEAR(same.position.x, aim.position.x, 1e-6);
+    CHECK_NEAR(same.position.y, aim.position.y, 1e-6);
+    CHECK_NEAR(same.orientation.y, aim.orientation.y, 1e-6);
+
+    // And a ray in the head's frame lands where the same ray in the room does
+    XrPosef screen = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -3.0f } };
+    float u = 0.0f, v = 0.0f;
+    CHECK(screenProject(seen, screen, 3.0f, 1.6875f, 0.0f, 0, &u, &v));
+    CHECK_NEAR(u, 0.5, 1e-5);
+    CHECK_NEAR(v, 0.5, 1e-5);
+}
+
 int main(void) {
     testVectors();
     testQuaternions();
@@ -240,5 +288,6 @@ int main(void) {
     testScreenRoundTrip(1);
     testCurveLocal();
     testYawBetween();
+    testPoseInFrame();
     return checksDone("xr_math");
 }
