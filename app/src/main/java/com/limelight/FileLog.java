@@ -6,6 +6,7 @@ import android.os.Environment;
 import android.util.Log;
 
 import com.limelight.binding.video.XrShared;
+import com.limelight.utils.HeadsetFeatures;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -239,6 +240,7 @@ public class FileLog {
                         + (BuildConfig.ROOT_BUILD ? " root" : ""),
                 "device " + Build.MANUFACTURER + " " + Build.MODEL + " (" + Build.DEVICE + ")",
                 "android " + Build.VERSION.RELEASE + " sdk " + Build.VERSION.SDK_INT,
+                HeadsetFeatures.line(context),
                 "log " + logPath
         };
     }

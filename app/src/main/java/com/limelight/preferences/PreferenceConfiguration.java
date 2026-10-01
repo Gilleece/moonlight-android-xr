@@ -478,10 +478,12 @@ public class PreferenceConfiguration {
 
     // Whether this is a headset at all, as against a phone or a TV that has
     // VR mode on because it is the default. Meta and Pico both declare the
-    // head tracking feature; the vendor check is there for a firmware that
-    // forgets to.
+    // head tracking feature, Android XR its OpenXR one; the vendor check is
+    // there for a firmware that forgets to.
     public static boolean isHeadset(Context context) {
-        if (context.getPackageManager().hasSystemFeature("android.hardware.vr.headtracking")) {
+        PackageManager pm = context.getPackageManager();
+        if (pm.hasSystemFeature("android.hardware.vr.headtracking")
+                || pm.hasSystemFeature("android.software.xr.api.openxr")) {
             return true;
         }
         String maker = Build.MANUFACTURER != null ? Build.MANUFACTURER : "";

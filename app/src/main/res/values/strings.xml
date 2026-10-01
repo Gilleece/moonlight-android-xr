@@ -311,6 +311,23 @@
     <string name="title_vr_eye_swap">Swap eyes</string>
     <string name="summary_vr_eye_swap">Swap the left and right eye images in stereo mode</string>
     <string name="vr_unavailable_flat">The headset\'s OpenXR runtime could not be reached, so the stream is showing on a flat panel. Update the headset software, or turn off Stream in VR.</string>
+    <!-- %1$s is one of the vr_fail lines below, which say why -->
+    <string name="vr_unavailable_flat_reason">%1$s\nThe stream is showing on a flat panel. Update the headset software, or turn off Stream in VR.</string>
+    <string name="vr_fail_no_runtime">No OpenXR runtime answered</string>
+    <!-- %1$s is the names of the missing OpenXR extensions -->
+    <string name="vr_fail_extensions">The OpenXR runtime does not offer %1$s</string>
+    <!-- %1$s in the vr_fail lines is what the runtime answered, like XR_ERROR_RUNTIME_FAILURE -->
+    <string name="vr_fail_instance">The runtime refused the instance (%1$s)</string>
+    <string name="vr_fail_system">The runtime found no headset ready (%1$s)</string>
+    <string name="vr_fail_graphics">The runtime refused OpenGL ES (%1$s)</string>
+    <string name="vr_fail_egl">The headset\'s graphics driver failed (%1$s)</string>
+    <string name="vr_fail_session">The runtime refused the session (%1$s)</string>
+    <string name="vr_fail_space">The runtime refused a tracking space (%1$s)</string>
+    <string name="vr_fail_swapchain">The runtime refused the video swapchain (%1$s)</string>
+    <string name="vr_fail_gl">The renderer\'s shaders did not build</string>
+    <!-- %1$s is a number of seconds -->
+    <string name="vr_fail_timeout">The runtime did not answer within %1$s seconds</string>
+    <string name="vr_fail_unknown">The VR session could not start</string>
     <string name="vr_toast_rate">Display %1$d Hz</string>
     <string name="vr_toast_hands_locked">Hands locked</string>
     <string name="vr_toast_hands_unlocked">Hands unlocked</string>

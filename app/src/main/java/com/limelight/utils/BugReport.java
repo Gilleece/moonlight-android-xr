@@ -86,6 +86,8 @@ public final class BugReport {
         public boolean headset;
         /** The OpenXR runtime the last session ran on, or null before there was one */
         public String runtime;
+        /** Where the last VR start stopped, if it did and none has started since, or null */
+        public String startFailure;
         /** The settings lines, each ending in a newline */
         public String settings = "";
         /** What the session in progress has up, or null outside one */
@@ -102,6 +104,8 @@ public final class BugReport {
     public static final String EMAIL_PREF = "bug_report_email";
     /** The runtime the last session ran on, as its log line gives it. */
     public static final String RUNTIME_PREF = "xr_last_runtime";
+    /** The block a failed VR start logged, until a start succeeds. */
+    public static final String START_FAILURE_PREF = "xr_start_failure";
 
     private static final String NAME_PREFIX = "moonlight-xr-report-";
     private static final int CONNECT_TIMEOUT_MS = 15000;
@@ -148,8 +152,9 @@ public final class BugReport {
     }
 
     /**
-     * The part of the report before the logs: the note, who it is from, then
-     * the app and the headset and the settings.
+     * The part of the report before the logs: the note, who it is from, why
+     * VR last failed to start if it did, then the app and the headset and the
+     * settings.
      */
     public static String compose(String message, String email, Details d) {
         String note = message == null ? "" : message.trim();
@@ -157,6 +162,12 @@ public final class BugReport {
         text.append("Moonlight XR bug report\n");
         text.append("From: ").append(email == null ? "" : email.trim()).append("\n\n");
         text.append(note.isEmpty() ? "(no message)" : note).append('\n');
+
+        // First, since on a headset where VR never starts it is the whole story
+        if (d.startFailure != null && !d.startFailure.trim().isEmpty()) {
+            text.append("\n----- last VR start -----\n");
+            text.append(d.startFailure.trim()).append('\n');
+        }
 
         text.append("\n----- app and device -----\n");
         text.append("moonlight ").append(d.version).append(' ').append(d.packageName)
@@ -405,6 +416,8 @@ public final class BugReport {
         d.headset = PreferenceConfiguration.isHeadset(context);
         d.runtime = PreferenceManager.getDefaultSharedPreferences(context)
                 .getString(RUNTIME_PREF, null);
+        d.startFailure = PreferenceManager.getDefaultSharedPreferences(context)
+                .getString(START_FAILURE_PREF, null);
         d.settings = settingsLines(PreferenceConfiguration.readPreferences(context));
         d.session = session;
         return d;

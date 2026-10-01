@@ -14,19 +14,23 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The eye tracking permission. The manifest declares Meta's and Pico's, but
- * declaring is not enough where the platform makes it a runtime permission:
- * without the grant the gaze pose never arrives, and Look to point is dead.
- * So a VR session with the setting on asks for it, once per run of the app,
- * and never waits for the answer. Only the names this platform knows as
- * runtime permissions are asked for or counted, so a headset that has neither
- * has nothing to ask and the other store's name is never taken for a refusal.
+ * The eye tracking permission. The manifest declares Meta's, Pico's and
+ * Android XR's, but declaring is not enough where the platform makes it a
+ * runtime permission: without the grant the gaze pose never arrives, and Look
+ * to point is dead. So a VR session with the setting on asks for it, once per
+ * run of the app, and never waits for the answer. Only the names this
+ * platform knows as runtime permissions are asked for or counted, so a
+ * headset that has none has nothing to ask and another store's name is never
+ * taken for a refusal. An activity can only have one request up at a time, so
+ * the hand tracking permission goes up in the same one.
  */
 public final class EyeTrackingPermission {
 
     public static final String META = "com.oculus.permission.EYE_TRACKING";
     public static final String PICO = "com.picovr.permission.EYE_TRACKING";
-    static final String[] NAMES = { META, PICO };
+    // Android XR's name for gaze as an input, the one XR_EXT_eye_gaze_interaction wants
+    public static final String ANDROID_XR = "android.permission.EYE_TRACKING_FINE";
+    static final String[] NAMES = { META, PICO, ANDROID_XR };
 
     /** The request code the answer comes back under. */
     public static final int REQUEST_CODE = 0x4559;
@@ -79,13 +83,31 @@ public final class EyeTrackingPermission {
         return answer;
     }
 
+    /** Whether any of names was in the request an answer is for. */
+    static boolean asked(String[] permissions, List<String> names) {
+        if (permissions == null) {
+            return false;
+        }
+        for (String p : permissions) {
+            if (names.contains(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** The eye tracking names among the ones the manifest asks for. */
     static List<String> declared(String[] requested) {
+        return declared(requested, NAMES);
+    }
+
+    /** Those of names the manifest asks for, in the order of names. */
+    static List<String> declared(String[] requested, String[] names) {
         List<String> out = new ArrayList<>();
         if (requested == null) {
             return out;
         }
-        for (String name : NAMES) {
+        for (String name : names) {
             for (String r : requested) {
                 if (name.equals(r)) {
                     out.add(name);
@@ -98,6 +120,11 @@ public final class EyeTrackingPermission {
 
     /** The declared names this platform defines as runtime permissions. */
     public static List<String> runtimeNames(Context context) {
+        return runtimeNames(context, NAMES);
+    }
+
+    /** Those of names the manifest declares and this platform defines as runtime permissions. */
+    static List<String> runtimeNames(Context context, String[] names) {
         List<String> out = new ArrayList<>();
         // Nothing is a runtime permission before Android 6
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
@@ -113,7 +140,7 @@ public final class EyeTrackingPermission {
         catch (PackageManager.NameNotFoundException e) {
             return out;
         }
-        for (String name : declared(requested)) {
+        for (String name : declared(requested, names)) {
             try {
                 PermissionInfo p = pm.getPermissionInfo(name, 0);
                 int base = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? p.getProtection()
@@ -148,32 +175,38 @@ public final class EyeTrackingPermission {
     }
 
     /**
-     * Asks if it should, and says why not in the log where it does not. The
-     * answer arrives in the activity's onRequestPermissionsResult, which hands
-     * it to onResult; nothing waits on it. True when the request went up.
+     * Asks if it should, for the eyes with Look to point on and the hands
+     * with hand tracking on, in one request, and says why not in the log
+     * where it does not. The answer arrives in the activity's
+     * onRequestPermissionsResult, which hands it to onResult; nothing waits on
+     * it. True when the request went up.
      */
-    public static boolean askOnce(Activity activity, boolean vr, boolean gazeOn) {
-        if (!vr || !gazeOn) {
+    public static boolean askOnce(Activity activity, boolean vr, boolean gazeOn, boolean handsOn) {
+        if (!vr) {
             return false;
         }
-        List<String> names = runtimeNames(activity);
-        boolean granted = anyGranted(activity, names);
-        if (!shouldAsk(true, true, !names.isEmpty(), granted, askedThisRun)) {
-            if (names.isEmpty()) {
+        List<String> ask = new ArrayList<>();
+        if (gazeOn) {
+            List<String> names = runtimeNames(activity);
+            boolean granted = anyGranted(activity, names);
+            if (shouldAsk(true, true, !names.isEmpty(), granted, askedThisRun)) {
+                askedThisRun = true;
+                ask.addAll(names);
+            }
+            else if (names.isEmpty()) {
                 FileLog.event("eye tracking permission not asked: not a runtime permission"
                         + " on this headset");
             }
             else if (granted) {
                 FileLog.event("eye tracking permission already granted");
             }
+        }
+        ask.addAll(HandTrackingPermission.toAsk(activity, handsOn));
+        if (ask.isEmpty() || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
             return false;
         }
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-            return false;
-        }
-        askedThisRun = true;
-        FileLog.event("eye tracking permission asked (" + TextUtils.join(", ", names) + ")");
-        activity.requestPermissions(names.toArray(new String[0]), REQUEST_CODE);
+        FileLog.event("headset permissions asked (" + TextUtils.join(", ", ask) + ")");
+        activity.requestPermissions(ask.toArray(new String[0]), REQUEST_CODE);
         return true;
     }
 
@@ -187,16 +220,20 @@ public final class EyeTrackingPermission {
             return null;
         }
         List<String> names = runtimeNames(context);
-        int answer = answer(permissions, results, names);
-        if (answer == ANSWER_GRANTED) {
-            FileLog.event("eye tracking permission granted");
+        // A request that carried only the hands has nothing to say about the eyes
+        if (asked(permissions, names) || permissions == null || permissions.length == 0) {
+            int answer = answer(permissions, results, names);
+            if (answer == ANSWER_GRANTED) {
+                FileLog.event("eye tracking permission granted");
+            }
+            else if (answer == ANSWER_DENIED) {
+                FileLog.event("eye tracking permission denied, Look to point stays off");
+            }
+            else {
+                FileLog.event("headset permission request cut short");
+            }
         }
-        else if (answer == ANSWER_DENIED) {
-            FileLog.event("eye tracking permission denied, Look to point stays off");
-        }
-        else {
-            FileLog.event("eye tracking permission request cut short");
-        }
+        HandTrackingPermission.onResult(context, permissions, results);
         return gazeAllowed(!names.isEmpty(), anyGranted(context, names));
     }
 }
