@@ -431,7 +431,8 @@ const char* const GLOW_FRAGMENT_SRC =
     "in vec2 v_plain;\n"
     "uniform sampler2D u_texture;\n"
     "uniform float u_intensity;\n"
-    // 1 takes the colour as a 3 by 3 of spline evaluations, 0 as the one
+    // 1 takes the colour through a spline widened by three texels, 0 through
+    // the spline alone
     "uniform float u_blur;\n"
     "out vec4 fragColor;\n"
     // 1.7 is GLOW_SCALE and 32.0 is AMBI_SAMPLE_TEX, both kept in step by hand
@@ -464,20 +465,50 @@ const char* const GLOW_FRAGMENT_SRC =
     "    vec3 c11 = texture(u_texture, vec2(h1.x, h1.y)).rgb;\n"
     "    return mix(mix(c11, c01, g0.x), mix(c10, c00, g0.x), g0.y);\n"
     "}\n"
+    // The average of nine spline evaluations one sample texel apart, so the
+    // picture's own detail stops reaching the rim and only its colour does.
+    // The spline averaged over three texels is one kernel six taps wide, and
+    // those pair up into three bilinear fetches an axis the way the spline's
+    // own four pair into two: nine fetches for what would otherwise be 36,
+    // the same numbers to rounding, clamped edges included.
+    "vec3 blurredSpline(vec2 fuv) {\n"
+    "    vec2 tc = fuv * size - 0.5;\n"
+    "    vec2 base = floor(tc);\n"
+    "    vec2 f = tc - base;\n"
+    "    vec2 f2 = f * f;\n"
+    "    vec2 f3 = f2 * f;\n"
+    // The spline's weights on base - 1 to base + 2, then the widened
+    // kernel's on base - 2 to base + 3
+    "    vec2 b0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;\n"
+    "    vec2 b1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;\n"
+    "    vec2 b2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;\n"
+    "    vec2 b3 = f3 / 6.0;\n"
+    "    vec2 wb = (b0 + b1) / 3.0;\n"
+    "    vec2 wd = (b1 + b2 + b3) / 3.0;\n"
+    "    vec2 wf = b3 / 3.0;\n"
+    "    vec2 g0 = (2.0 * b0 + b1) / 3.0;\n"
+    "    vec2 g1 = (b0 + 2.0 * b1 + 2.0 * b2 + b3) / 3.0;\n"
+    "    vec2 g2 = (b2 + 2.0 * b3) / 3.0;\n"
+    "    vec2 h0 = (base - 1.5 + wb / g0) / size;\n"
+    "    vec2 h1 = (base + 0.5 + wd / g1) / size;\n"
+    "    vec2 h2 = (base + 2.5 + wf / g2) / size;\n"
+    "    vec3 r0 = texture(u_texture, vec2(h0.x, h0.y)).rgb * g0.x\n"
+    "            + texture(u_texture, vec2(h1.x, h0.y)).rgb * g1.x\n"
+    "            + texture(u_texture, vec2(h2.x, h0.y)).rgb * g2.x;\n"
+    "    vec3 r1 = texture(u_texture, vec2(h0.x, h1.y)).rgb * g0.x\n"
+    "            + texture(u_texture, vec2(h1.x, h1.y)).rgb * g1.x\n"
+    "            + texture(u_texture, vec2(h2.x, h1.y)).rgb * g2.x;\n"
+    "    vec3 r2 = texture(u_texture, vec2(h0.x, h2.y)).rgb * g0.x\n"
+    "            + texture(u_texture, vec2(h1.x, h2.y)).rgb * g1.x\n"
+    "            + texture(u_texture, vec2(h2.x, h2.y)).rgb * g2.x;\n"
+    "    return r0 * g0.y + r1 * g1.y + r2 * g2.y;\n"
+    "}\n"
     "void main() {\n"
     "    vec2 uv = v_plain;\n"
     "    vec2 fuv = (uv - 0.5) * scale + 0.5;\n"
     "    vec3 color;\n"
-    // Nine evaluations one sample texel apart, so the picture's own detail
-    // stops reaching the rim and only its colour does
     "    if (u_blur > 0.5) {\n"
-    "        vec3 sum = vec3(0.0);\n"
-    "        for (int y = -1; y <= 1; y++) {\n"
-    "            for (int x = -1; x <= 1; x++) {\n"
-    "                sum += spline(fuv + vec2(float(x), float(y)) / size);\n"
-    "            }\n"
-    "        }\n"
-    "        color = sum * (1.0 / 9.0);\n"
+    "        color = blurredSpline(fuv);\n"
     "    }\n"
     "    else {\n"
     "        color = spline(fuv);\n"
