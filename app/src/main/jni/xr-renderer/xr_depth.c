@@ -373,6 +373,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthContext(JNIEnv* env
     unbindContext(ctx, &ctx->depthContext, &ctx->depthPbuffer);
 }
 
+// The model will make no map this session, so the splash stops waiting for
+// one. Any thread.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeDepthGaveUp(JNIEnv* env, jobject thiz,
+                                                              jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx != NULL) {
+        atomic_store_explicit(&ctx->depthGaveUp, 1, memory_order_relaxed);
+    }
+}
+
 // The same for the stage thread, called once from it before it touches GL
 JNIEXPORT jboolean JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeBindDepthStageContext(JNIEnv* env, jobject thiz,
@@ -540,6 +551,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     // loop can never see the new index without the fence that belongs to it
     atomic_store_explicit(&ctx->depthStagedIndex, writeIndex, memory_order_release);
     atomic_store_explicit(&ctx->depthLastPair, pair, memory_order_relaxed);
+    // Counted for the splash, which waits for the first
+    atomic_fetch_add_explicit(&ctx->depthMapsStaged, 1, memory_order_relaxed);
 
     // Always the next slot in the rotation, never a function of where the
     // frame loop currently is, which is what keeps this from landing on a slot

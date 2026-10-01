@@ -54,6 +54,31 @@
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512
 
+// The sheet the launch splash shows: the app's name over the loading word,
+// drawn once per number of dots, one under the other, so stepping the dots is
+// a different rectangle of the same image rather than an upload. The words sit
+// on nothing, and a strip of black under the last row, clear of it, is what
+// the quad that blacks out the view is cut from, so the two fade as one.
+#define SPLASH_TEX_W 768
+#define SPLASH_ROW_H 256
+#define SPLASH_ROWS 3
+#define SPLASH_BLACK_PX 16
+#define SPLASH_TEX_H (SPLASH_ROW_H * SPLASH_ROWS + SPLASH_BLACK_PX + 8)
+
+// The toast, a short notice hung off the eyes for a few seconds: one sheet,
+// drawn in Java whenever what it says changes. What a notice is about, which
+// the native side raises and Java turns into words. The rate's number is its
+// Hz, and a message of Java's own is a slot in Java's list of them.
+#define TOAST_TEX_W 1024
+#define TOAST_TEX_H 160
+#define TOAST_RATE 0
+#define TOAST_HANDS_LOCKED 1
+#define TOAST_HANDS_UNLOCKED 2
+#define TOAST_3D_OFF 3
+#define TOAST_3D_ON 4
+#define TOAST_TEXT 5
+#define TOAST_TEXT_SLOTS 4
+
 // Slots in the float array handed back to Java each frame
 #define IN_HIT      0
 #define IN_U        1
@@ -95,7 +120,23 @@
 // for the rest of the session, or in a session started without it. Every
 // frame, since it says whether the model is to be fed.
 #define IN_STEREO   (IN_READOUT + READOUT_VALUES)
-#define IN_SLOTS    (IN_STEREO + 1)
+// A notice for the toast to say, the frame it goes up: one of the TOAST_
+// kinds, or -1 for none, and its number
+#define IN_TOAST    (IN_STEREO + 1)
+#define IN_TOAST_ARG (IN_TOAST + 1)
+// 1 on the frame a press landed on a panel's cell, button, key or track, so
+// Java can tick
+#define IN_CLICK    (IN_TOAST_ARG + 1)
+// The display tab's cell in force on each of its option rows, in row order,
+// which Java draws the marks over them from, or -1 first while the tab is not
+// up. Every frame. As many as COG_OPTION_COUNT below, which the native side
+// checks when it builds.
+#define IN_MARKS    (IN_CLICK + 1)
+#define MARK_VALUES 8
+// 1 while the settings panel is up, fading out included, so Java keeps the
+// clock line over it up to the minute
+#define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
+#define IN_SLOTS    (IN_COG_OPEN + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -115,6 +156,8 @@
 #define SETTING_ROOM_SCREEN 13
 // Whether a still controller's pointer pauses, Off 0 or On 1
 #define SETTING_POINTER_SLEEP 14
+// Whether a press on the panels ticks, Off 0 or On 1
+#define SETTING_CLICK_SOUND 15
 
 // The lanes the Room tab's rows move along, in the units the preferences
 // hold. Brightness is the room's own in hundredths of the room as baked, from
@@ -191,6 +234,15 @@
 // Where the tabs, rows and tracks sit in the panel texture, as fractions of it
 #define COG_TRACK_L 0.42f
 #define COG_TRACK_R 0.93f
+// A step button at each end of every track, a press on one moving the value
+// a step that way. Each is this wide inside the track's ends, its hit zone
+// reaching a little further out, and the run the thumb travels stops this far
+// in from each end, so a thumb at either end of it clears the button.
+#define COG_CHEVRON_W 0.036f
+#define COG_CHEVRON_REACH 0.02f
+#define COG_RUN_INSET 0.075f
+#define COG_RUN_L (COG_TRACK_L + COG_RUN_INSET)
+#define COG_RUN_R (COG_TRACK_R - COG_RUN_INSET)
 // Anything above this is the tab bar, split evenly between the tabs
 #define COG_TAB_BAR_B 0.16f
 // Six rows on the screen tab, so they start a little higher and sit closer
@@ -287,29 +339,43 @@
 #define COG_OPTION_STATS   2
 #define COG_OPTION_HEAD_LOCK 3
 #define COG_OPTION_POINTER_SLEEP 4
-#define COG_OPTION_AMBILIGHT 5
-#define COG_OPTION_ROOM_LIGHT 6
-#define COG_OPTION_COUNT   7
+#define COG_OPTION_CLICK_SOUND 5
+#define COG_OPTION_AMBILIGHT 6
+#define COG_OPTION_ROOM_LIGHT 7
+#define COG_OPTION_COUNT   8
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_HEAD_LOCK_CELLS 2
 #define COG_POINTER_SLEEP_CELLS 2
+#define COG_CLICK_SOUND_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
 // This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 7
-// Eight rows on this tab, two more than the screen tab, so its rows start a
+#define COG_DISPLAY_SLIDER_ROW 8
+// Nine rows on this tab, three more than the screen tab, so its rows start a
 // little higher and sit closer together than the other tabs', with shallower
-// cells to keep a gap between them. The last is centred at 0.907 and its
-// thumb still clears the bottom edge. The hit band is half the pitch, so
-// neighbouring bands meet without overlapping.
-#define COG_DISPLAY_ROW_V0 0.235f
-#define COG_DISPLAY_ROW_STEP 0.096f
-#define COG_DISPLAY_ROW_HALF 0.048f
-#define COG_DISPLAY_CELL_HALF 0.040f
+// cells to keep a gap between them. The last is centred at 0.911 and its
+// thumb still clears the bottom edge, grown or not. The hit band is half the
+// pitch, so neighbouring bands meet without overlapping.
+#define COG_DISPLAY_ROW_V0 0.215f
+#define COG_DISPLAY_ROW_STEP 0.087f
+#define COG_DISPLAY_ROW_HALF 0.0435f
+#define COG_DISPLAY_CELL_HALF 0.036f
+// The marks on the display tab's cells, which of each row's cells is in
+// force, drawn in Java as one strip over the column of cells rather than a
+// ring each, so the tab costs one layer for them however many rows it has.
+// Redrawn when one changes. Where the strip sits, as fractions of the panel.
+#define COG_MARKS_TEX_W 408
+#define COG_MARKS_TEX_H 448
+#define COG_MARKS_L 0.41f
+#define COG_MARKS_T 0.17f
+// The time and the battery on a strip just over the panel's top edge, drawn
+// in Java when the minute or the battery moves. Half the panel's width.
+#define COG_CLOCK_TEX_W 384
+#define COG_CLOCK_TEX_H 48
 
 // In world keyboard, for the login boxes and chat windows that turn up mid
 // stream. One sheet of art per state, drawn in Java like the other panels, and

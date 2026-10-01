@@ -305,6 +305,8 @@
     <string name="summary_vr_pointer">使用手柄指向屏幕以移动主机鼠标。扳机键为左键点击，A 或 X 键为右键点击，摇杆上下滚动。在需要原生鼠标控制的游戏中，可按下摇杆关闭指向功能。</string>
     <string name="title_vr_pointer_sleep">手柄静止时暂停指针</string>
     <string name="summary_vr_pointer_sleep">手柄静止几秒后指针会隐藏，移动手柄或推动摇杆时恢复。关闭此项可让指针保持激活，即使指针不在屏幕上，摇杆也能滚动。</string>
+    <string name="title_vr_click_sound">按下面板时发出点击声</string>
+    <string name="summary_vr_click_sound">在头显中按下面板、按钮或按键时发出短促的点击声。它通过系统声音播放，与串流音频分开。</string>
     <string name="title_vr_gaze">注视点瞄准 (Look to point)</string>
     <string name="summary_vr_gaze">在支持眼动追踪的头显上，通过注视屏幕进行瞄准，用任意一只手捏合手指点击。按下手柄上的按键后由手柄接管指针，直到将其放下；如果眼动追踪丢失 10 秒，将改由双手指向，直到恢复。</string>
     <string name="title_vr_hand_tracking">手势追踪</string>
@@ -329,6 +331,12 @@
     <string name="title_vr_eye_swap">左右眼画面对调</string>
     <string name="summary_vr_eye_swap">在立体模式下对调左眼与右眼的图像</string>
     <string name="vr_unavailable_flat">未能连接到头显的 OpenXR 运行时，串流将以平面窗口显示。请更新头显系统软件，或在设置中关闭“以 VR 模式串流”。</string>
+    <string name="vr_toast_rate">显示刷新率 %1$d Hz</string>
+    <string name="vr_toast_hands_locked">手部已锁定</string>
+    <string name="vr_toast_hands_unlocked">手部已解锁</string>
+    <string name="vr_toast_3d_off">3D 已关闭</string>
+    <string name="vr_toast_3d_on">3D 已开启</string>
+    <string name="vr_battery">电量 %1$d%%</string>
 
     <!-- Bug Report strings -->
     <string name="title_bug_report">问题反馈与错误报告</string>

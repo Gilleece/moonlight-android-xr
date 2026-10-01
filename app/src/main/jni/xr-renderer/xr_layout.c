@@ -152,3 +152,67 @@ float cogRowHalf(int tab) {
 float cogCellHalf(int tab) {
     return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF : COG_CELL_HALF;
 }
+
+int cogTrackPart(float pu) {
+    if (pu >= COG_TRACK_L - COG_CHEVRON_REACH && pu <= COG_TRACK_L + COG_CHEVRON_W) {
+        return TRACK_PART_DOWN;
+    }
+    if (pu >= COG_TRACK_R - COG_CHEVRON_W && pu <= COG_TRACK_R + COG_CHEVRON_REACH) {
+        return TRACK_PART_UP;
+    }
+    if (pu > COG_TRACK_L + COG_CHEVRON_W && pu < COG_TRACK_R - COG_CHEVRON_W) {
+        return TRACK_PART_RUN;
+    }
+    return TRACK_PART_NONE;
+}
+
+float cogRunPlace(float pu) {
+    float t = (pu - COG_RUN_L) / (COG_RUN_R - COG_RUN_L);
+    return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+}
+
+float cogRunU(float t) {
+    return COG_RUN_L + t * (COG_RUN_R - COG_RUN_L);
+}
+
+// A thousandth of a step either way is still that step, since a place read
+// back from a pose or a float is rarely exactly on one
+int cogStepIndex(float t, int steps, int dir) {
+    if (steps <= 0) {
+        return 0;
+    }
+    float at = t * (float)steps;
+    int step = dir > 0 ? (int)floorf(at + 0.001f) + 1 : (int)ceilf(at - 0.001f) - 1;
+    return step < 0 ? 0 : (step > steps ? steps : step);
+}
+
+int cogTrackSteps(int tab, int row) {
+    if (tab == COG_TAB_SCREEN) {
+        // Tenths of a metre out, five centimetres up, two and a half degrees
+        // of tilt and six of roll, which both step clear of the snap to level
+        // either side of it, a twentieth of the curve, tenths of a metre wide
+        static const int SCREEN_STEPS[COG_SLIDER_COUNT] = { 78, 80, 32, 30, 20, 72 };
+        return row >= 0 && row < COG_SLIDER_COUNT ? SCREEN_STEPS[row] : 0;
+    }
+    if (tab == COG_TAB_DISPLAY) {
+        // The glow level's five percent steps
+        return row == COG_DISPLAY_SLIDER_ROW ? 20 : 0;
+    }
+    if (tab == COG_TAB_3D) {
+        // The tenths of a percent the depth is kept in, whole percent of
+        // convergence
+        return row == COG_ROW3D_SEPARATION ? COG_SEP_STEPS
+                : row == COG_ROW3D_CONVERGENCE ? 100 : 0;
+    }
+    // The Room tab's lanes in five unit steps, and the size in whole percent
+    if (row == COG_ROOM_ROW_BRIGHTNESS) {
+        return (ROOM_BRIGHTNESS_MAX - ROOM_BRIGHTNESS_MIN) / 5;
+    }
+    if (row == COG_ROOM_ROW_LIGHT_LEVEL) {
+        return (ROOM_LIGHT_MAX - ROOM_LIGHT_MIN) / 5;
+    }
+    if (row == COG_ROOM_ROW_SIZE) {
+        return ROOM_SCREEN_MAX - ROOM_SCREEN_MIN;
+    }
+    return 0;
+}

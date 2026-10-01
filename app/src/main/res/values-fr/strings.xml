@@ -312,6 +312,8 @@
     <string name="summary_vr_pointer">Pointez l\'écran avec une manette pour déplacer la souris de l\'hôte. La gâchette clique, A ou X fait un clic droit, le joystick fait défiler. Cliquez sur le joystick pour désactiver le pointage dans un jeu qui a besoin de la souris elle-même.</string>
     <string name="title_vr_pointer_sleep">Mettre le pointeur en pause quand la manette est immobile</string>
     <string name="summary_vr_pointer_sleep">Le pointeur d\'une manette disparaît après quelques secondes d\'immobilité et revient quand elle bouge ou que son joystick est poussé. Désactivez cette option pour le garder actif, afin que le joystick fasse défiler même quand le pointeur n\'est pas sur l\'écran.</string>
+    <string name="title_vr_click_sound">Clic à l\'appui sur un panneau</string>
+    <string name="summary_vr_click_sound">Un bref tic quand un appui dans le casque touche un panneau, un bouton ou une touche. Il est joué sur les sons système, à part de l\'audio du stream.</string>
     <string name="title_vr_gaze">Regarder pour pointer</string>
     <string name="summary_vr_gaze">Sur un casque avec suivi oculaire, pointez en regardant l\'écran et pincez avec l\'une ou l\'autre main pour cliquer. Appuyer sur un bouton d\'une manette lui donne le pointeur jusqu\'à ce qu\'elle soit posée, et si les yeux sont perdus pendant 10 secondes, vos mains pointent jusqu\'à leur retour.</string>
     <string name="title_vr_hand_tracking">Suivi des mains</string>
@@ -336,6 +338,12 @@
     <string name="title_vr_eye_swap">Inverser les yeux</string>
     <string name="summary_vr_eye_swap">Inverse les images de l\'œil gauche et de l\'œil droit en mode stéréo</string>
     <string name="vr_unavailable_flat">Le runtime OpenXR du casque n\'a pas pu être atteint, le stream s\'affiche donc sur un panneau plat. Mettez à jour le logiciel du casque, ou désactivez le streaming en VR.</string>
+    <string name="vr_toast_rate">Affichage à %1$d Hz</string>
+    <string name="vr_toast_hands_locked">Mains verrouillées</string>
+    <string name="vr_toast_hands_unlocked">Mains déverrouillées</string>
+    <string name="vr_toast_3d_off">3D désactivée</string>
+    <string name="vr_toast_3d_on">3D activée</string>
+    <string name="vr_battery">Batterie %1$d %%</string>
     <string name="title_vr_file_log">Enregistrer un fichier journal</string>
     <string name="summary_vr_file_log">Conserve un journal en texte brut dans Download/MoonlightXR, où le gestionnaire de fichiers du casque peut le trouver et où vous pouvez le joindre à un rapport de bug. À 5 Mo, il bascule dans moonlight.previous.log, donc les deux fichiers ensemble ne dépassent jamais 10 Mo. Redémarrez l\'application pour qu\'un changement prenne effet.</string>
     <string name="title_seekbar_vr_inference_cadence">Cadence du modèle de profondeur</string>

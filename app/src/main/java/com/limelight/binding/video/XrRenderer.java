@@ -10,6 +10,7 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.SurfaceTexture;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Process;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
@@ -17,6 +18,7 @@ import android.view.Surface;
 
 import com.limelight.FileLog;
 import com.limelight.LimeLog;
+import com.limelight.R;
 import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
@@ -27,6 +29,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -155,7 +159,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final String ROOM_DIR = "rooms";
 
     // Panel art on its way to the GPU. XrPanels draws it on the loader thread
-    // and it waits here for the frame loop, which owns the GL context.
+    // and it waits here for the frame loop, which owns the GL context. The
+    // splash is the exception, drawn before the frame loop starts so it is
+    // up from the first frame.
+    private final AtomicReference<ByteBuffer> pendingSplash = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingKbLower = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingKbUpper = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingKbSymbols = new AtomicReference<>();
@@ -181,6 +188,31 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private XrPanels.Readout roomReadout;
     private final int[] readoutDrawn = { -1, -1, -1 };
     private final int[] readoutWanted = new int[READOUT_VALUES];
+    // The toast's sheet, drawn on the frame loop when a notice goes up, and
+    // the words of the notices this side raises, each a line and the one
+    // under it: queued from any thread, then kept in slots the native side
+    // names them by
+    private XrPanels.Toast toast;
+    // The marks on the display tab's cells, drawn on the frame loop when one
+    // moves, and the cells they were last drawn for
+    private XrPanels.Marks cogMarks;
+    // The time and the battery, for the first line of the stats and the strip
+    // over the settings panel, and what the strip last said
+    private volatile XrClock clock;
+    private XrPanels.ClockStrip cogClock;
+    private String cogClockDrawn;
+    private final int[] marksDrawn = new int[MARK_VALUES];
+    private final int[] marksWanted = new int[MARK_VALUES];
+    // The tick a press on the panels makes, built once off the frame loop and
+    // fed from it, whether one is on its way, and whether the session is over,
+    // which a late one is let go for. Handed over under the lock.
+    private final Object clickLock = new Object();
+    private volatile XrClickSound clickSound;
+    private boolean clickSoundStarting;
+    private boolean clickSessionOver;
+    private final ConcurrentLinkedQueue<String[]> pendingNotices = new ConcurrentLinkedQueue<>();
+    private final String[][] noticeTexts = new String[TOAST_TEXT_SLOTS][];
+    private int noticeSlot;
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
     // The 3D switch's two faces, only drawn in a session with stereo to switch
@@ -258,6 +290,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * Says something on the toast inside the session, where a 2d toast or
+     * dialog is never seen: a line, and a quieter one under it or null. Any
+     * thread; it goes up once the frame loop next comes round.
+     */
+    public void showNotice(String text, String more) {
+        if (text != null) {
+            pendingNotices.add(new String[] { text, more });
+        }
+    }
+
+    /**
      * Told when a VR session could not be started at all, so the activity can
      * do something visible about it rather than stream into a window the
      * headset's shell never shows. Called off the main thread.
@@ -323,6 +366,18 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native boolean nativeGetCylinderSupported(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
+    private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
+    // The toast's words for a notice just gone up, and a notice of this
+    // side's own to be queued, a TOAST_TEXT under its slot
+    private native void nativeUploadToast(long ctx, ByteBuffer sheet, int kind, int arg);
+    private native void nativePushNotice(long ctx, int kind, int arg);
+    private native void nativeUploadCogMarks(long ctx, ByteBuffer strip);
+    private native void nativeUploadCogClock(long ctx, ByteBuffer strip);
+    // Whether a press ticks, which the display tab's row reads back
+    private native void nativeSetClickSound(long ctx, boolean on);
+    // The depth model will make no map this session, so the splash stops
+    // waiting for one. Any thread.
+    private native void nativeDepthGaveUp(long ctx);
     private native void nativeSetEnvironment(long ctx, int choice);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
     private native float nativeGetWarpGpuMs(long ctx);
@@ -395,6 +450,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         DepthPresets.values(depthSpec.defaultSeparation));
                 restoreScreenPose();
                 startEnvironment(prefs);
+                // A few milliseconds here, and the first frame has it
+                pendingSplash.set(panels.buildSplash());
 
                 File captureDir = activity.getExternalFilesDir(null);
                 if (captureDir != null) {
@@ -420,6 +477,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 runFrameLoop(prefs);
 
                 stopDepthThread();
+                XrClickSound click;
+                synchronized (clickLock) {
+                    clickSessionOver = true;
+                    click = clickSound;
+                    clickSound = null;
+                }
+                if (click != null) {
+                    click.release();
+                }
 
                 // Tear down on the same thread that owns the GL context, and
                 // under the lock so a stats report cannot land on a context
@@ -474,6 +540,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
 
                 if (!nativeBindDepthContext(nativeCtx)) {
+                    nativeDepthGaveUp(nativeCtx);
                     return;
                 }
 
@@ -486,6 +553,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         outputs[i] = nativeGetModelOutput(nativeCtx, i);
                         if (inputs[i] == null || outputs[i] == null) {
                             LimeLog.severe("Depth staging buffers missing");
+                            nativeDepthGaveUp(nativeCtx);
                             return;
                         }
                     }
@@ -497,6 +565,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         // initialized with, so zero disparity, and the
                         // stream stays watchable
                         LimeLog.severe("Depth source init failed, stereo will be flat");
+                        nativeDepthGaveUp(nativeCtx);
                         return;
                     }
                     depthLabel = spec.name+" "+route.size+" "+model.runtimeLabel();
@@ -535,6 +604,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
                 if (!nativeBindDepthStageContext(nativeCtx)) {
                     LimeLog.severe("Depth stage context would not bind, stereo will stay as it is");
+                    nativeDepthGaveUp(nativeCtx);
                     return;
                 }
                 try {
@@ -785,7 +855,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 break;
             }
             if (r == FRAME_IDLE) {
-                // Native side slept already while the session is not running
+                // Native side slept already while the session is not running.
+                // The click's track is kept fed regardless, so it is playing
+                // when the session comes back.
+                XrClickSound click = clickSound;
+                if (click != null) {
+                    click.feed();
+                }
                 continue;
             }
 
@@ -803,6 +879,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateRoomReadout();
+            updateCogMarks();
+            updateCogClock();
+            updateToast();
+            updateClickSound(prefs);
 
             // Switched off, the warp draws flat and the model is left idle.
             // Back on, it wants a map of what is showing now, so the frame in
@@ -851,6 +931,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // Nothing new from the decoder, so the frame still latched
                 startDepthCapture();
             }
+            ByteBuffer splash = pendingSplash.getAndSet(null);
+            if (splash != null) {
+                nativeUploadSplash(nativeCtx, splash);
+            }
+
             // Upload here rather than from the reporting thread, since this is
             // the thread that owns the GL context
             ByteBuffer overlay = pendingOverlay.getAndSet(null);
@@ -963,15 +1048,31 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     levels.light, levels.screen);
         }
         roomReadout = new XrPanels.Readout();
+        toast = new XrPanels.Toast();
+        cogMarks = new XrPanels.Marks();
+        cogClock = new XrPanels.ClockStrip();
+        clock = new XrClock(prefsContext);
+        // Nothing drawn yet, so the first look at the tab draws them
+        Arrays.fill(marksDrawn, -2);
+        nativeSetClickSound(nativeCtx, prefs.vrClickSound);
 
         final int startRoom = cell;
         final int roomTicketAtStart;
         synchronized (roomLock) {
             roomTicketAtStart = ++roomTicket;
         }
+        final boolean click = prefs.vrClickSound;
+        if (click) {
+            synchronized (clickLock) {
+                clickSoundStarting = true;
+            }
+        }
         Thread loader = new Thread() {
             @Override
             public void run() {
+                if (click) {
+                    startClickSound();
+                }
                 buildPanelArt();
                 loadRoomAssets(startRoom, roomTicketAtStart);
             }
@@ -1253,6 +1354,137 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         System.arraycopy(readoutWanted, 0, readoutDrawn, 0, READOUT_VALUES);
     }
 
+    // Redraws the display tab's marks when the frame says one has moved, and
+    // hands the strip straight up, since this is the thread with the GL context
+    private void updateCogMarks() {
+        if (inputState[IN_MARKS] < 0.0f || cogMarks == null) {
+            return;
+        }
+        boolean changed = false;
+        for (int i = 0; i < MARK_VALUES; i++) {
+            marksWanted[i] = (int)inputState[IN_MARKS + i];
+            changed |= marksWanted[i] != marksDrawn[i];
+        }
+        if (changed) {
+            nativeUploadCogMarks(nativeCtx, cogMarks.draw(marksWanted));
+            System.arraycopy(marksWanted, 0, marksDrawn, 0, MARK_VALUES);
+        }
+    }
+
+    // Keeps the clock line over the settings panel up to the minute while the
+    // panel is up, and draws it as it comes up if the minute moved while it
+    // was down
+    private void updateCogClock() {
+        XrClock now = clock;
+        if (inputState[IN_COG_OPEN] == 0.0f || now == null || cogClock == null) {
+            return;
+        }
+        String line = now.line(System.currentTimeMillis());
+        if (!line.equals(cogClockDrawn)) {
+            nativeUploadCogClock(nativeCtx, cogClock.draw(line));
+            cogClockDrawn = line;
+        }
+    }
+
+    // Keeps the click's track fed every frame and ticks for a press, while the
+    // setting is on. Switched on part way, the track is built off the frame
+    // loop and used from the frame it is ready.
+    private void updateClickSound(PreferenceConfiguration prefs) {
+        XrClickSound click = clickSound;
+        if (click == null) {
+            if (!prefs.vrClickSound) {
+                return;
+            }
+            synchronized (clickLock) {
+                if (clickSoundStarting) {
+                    return;
+                }
+                clickSoundStarting = true;
+            }
+            Thread starter = new Thread() {
+                @Override
+                public void run() {
+                    startClickSound();
+                }
+            };
+            starter.setName("Video - XR Click");
+            starter.start();
+            return;
+        }
+        click.feed();
+        if (inputState[IN_CLICK] != 0.0f && prefs.vrClickSound) {
+            click.click();
+        }
+    }
+
+    // Off the frame loop, once: the track talks to the audio system as it is
+    // built. A session already over by the time it is ready lets it go.
+    private void startClickSound() {
+        // The track's non blocking write arrived in M
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return;
+        }
+        XrClickSound click = XrClickSound.start();
+        if (click == null) {
+            return;
+        }
+        synchronized (clickLock) {
+            if (!clickSessionOver) {
+                clickSound = click;
+                return;
+            }
+        }
+        click.release();
+    }
+
+    // Queues the notices raised on this side since the last frame, then draws
+    // whichever notice the frame says has just gone up and hands it straight
+    // up, since this is the thread with the GL context
+    private void updateToast() {
+        String[] notice;
+        while ((notice = pendingNotices.poll()) != null) {
+            int slot = noticeSlot;
+            noticeSlot = (noticeSlot + 1) % TOAST_TEXT_SLOTS;
+            noticeTexts[slot] = notice;
+            nativePushNotice(nativeCtx, TOAST_TEXT, slot);
+        }
+        int kind = (int)inputState[IN_TOAST];
+        if (kind < 0 || toast == null || prefsContext == null) {
+            return;
+        }
+        int arg = (int)inputState[IN_TOAST_ARG];
+        String text;
+        String more = null;
+        switch (kind) {
+            case TOAST_RATE:
+                text = prefsContext.getString(R.string.vr_toast_rate, arg);
+                break;
+            case TOAST_HANDS_LOCKED:
+                text = prefsContext.getString(R.string.vr_toast_hands_locked);
+                break;
+            case TOAST_HANDS_UNLOCKED:
+                text = prefsContext.getString(R.string.vr_toast_hands_unlocked);
+                break;
+            case TOAST_3D_OFF:
+                text = prefsContext.getString(R.string.vr_toast_3d_off);
+                break;
+            case TOAST_3D_ON:
+                text = prefsContext.getString(R.string.vr_toast_3d_on);
+                break;
+            case TOAST_TEXT:
+                String[] words = arg >= 0 && arg < TOAST_TEXT_SLOTS ? noticeTexts[arg] : null;
+                if (words == null) {
+                    return;
+                }
+                text = words[0];
+                more = words[1];
+                break;
+            default:
+                return;
+        }
+        nativeUploadToast(nativeCtx, toast.draw(text, more), kind, arg);
+    }
+
     /**
      * A row on one of the panel's tabs was pressed or let go of. The native
      * side has already applied it to the running session, this end only has
@@ -1336,6 +1568,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     .putBoolean(PreferenceConfiguration.VR_POINTER_SLEEP_PREF_STRING, on)
                     .apply();
             FileLog.event("pointer sleep " + (on ? "on" : "off") + " saved");
+        }
+        else if (setting == SETTING_CLICK_SOUND) {
+            boolean on = value != 0;
+            // The frame loop reads this off the same configuration object
+            if (prefConfig != null) {
+                prefConfig.vrClickSound = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_CLICK_SOUND_PREF_STRING, on)
+                    .apply();
+            FileLog.event("click sound " + (on ? "on" : "off") + " saved");
         }
         else if (setting == SETTING_AMBI_LEVEL) {
             if (prefConfig != null) {
@@ -1534,7 +1777,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         overlayCanvas.translate(0.0f, OVERLAY_HEIGHT);
         overlayCanvas.scale(1.0f, -1.0f);
         float y = OVERLAY_LINE_HEIGHT;
-        for (String line : (text + '\n' + rendererStats()).split("\n")) {
+        // The time and the battery first, so a long session has both in view
+        XrClock now = clock;
+        String first = now != null ? now.line(System.currentTimeMillis()) + '\n' : "";
+        for (String line : (first + text + '\n' + rendererStats()).split("\n")) {
             overlayCanvas.drawText(line, 8.0f, y, overlayPaint);
             y += OVERLAY_LINE_HEIGHT;
             if (y > OVERLAY_HEIGHT) {

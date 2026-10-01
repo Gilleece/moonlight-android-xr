@@ -94,6 +94,10 @@ int createPointerSwapchain(XrCtx* ctx) {
     createArtSwapchain(ctx, COG_READOUT_TEX_W, COG_READOUT_TEX_H, "create cog readout swapchain",
                        &ctx->cogReadoutSwapchain, &ctx->cogReadoutImages,
                        &ctx->cogReadoutImageCount);
+    createArtSwapchain(ctx, COG_MARKS_TEX_W, COG_MARKS_TEX_H, "create cog marks swapchain",
+                       &ctx->cogMarksSwapchain, &ctx->cogMarksImages, &ctx->cogMarksImageCount);
+    createArtSwapchain(ctx, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H, "create cog clock swapchain",
+                       &ctx->cogClockSwapchain, &ctx->cogClockImages, &ctx->cogClockImageCount);
 
     for (int state = 0; state < KB_STATE_COUNT; state++) {
         createArtSwapchain(ctx, KB_TEX_W, KB_TEX_H, "create keyboard swapchain",
@@ -476,6 +480,32 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCogReadout(JNIEnv* env, 
     memcpy(ctx->cogReadoutDrawn, drawn, sizeof(drawn));
 }
 
+// The marks on the display tab's cells, drawn in Java the frame one of them
+// moved, so the strip is up to date by the time the frame that moved it ends
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadCogMarks(JNIEnv* env, jobject thiz,
+                                                                 jlong handle, jobject strip) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || strip == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, strip, ctx->cogMarksSwapchain, ctx->cogMarksImages, COG_MARKS_TEX_W,
+                COG_MARKS_TEX_H, &ctx->cogMarksReady);
+}
+
+// The clock line over the settings panel, drawn in Java when the panel comes
+// up and whenever the minute or the battery moves while it is
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadCogClock(JNIEnv* env, jobject thiz,
+                                                                 jlong handle, jobject strip) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || strip == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, strip, ctx->cogClockSwapchain, ctx->cogClockImages, COG_CLOCK_TEX_W,
+                COG_CLOCK_TEX_H, &ctx->cogClockReady);
+}
+
 // The keyboard: a sheet of art per state, the button that opens it, and the
 // layout itself. Drawing and layout both live in Java so they cannot disagree,
 // and this side keeps only the rectangles and the codes behind them.
@@ -551,11 +581,56 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobjec
                     &ctx->exitPromptReady[sheet]);
     }
 
+    // The last of the panels' art to arrive, so the splash has stopped waiting
+    // on them whatever made it up
+    ctx->panelArtArrived = 1;
     LOGI("exit button %s, prompt %s, %s and %s",
          ctx->exitButtonReady ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_NONE] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_EXIT] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_CANCEL] ? "ready" : "missing");
+}
+
+// The launch splash's sheet, every number of dots one under the other. Drawn
+// before the session's first frame, so it is up from that frame on.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadSplash(JNIEnv* env, jobject thiz,
+                                                               jlong handle, jobject sheet) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, sheet, ctx->splashSwapchain, ctx->splashImages, SPLASH_TEX_W,
+                SPLASH_TEX_H, &ctx->splashArtReady);
+    LOGI("splash art %s", ctx->splashArtReady ? "ready" : "missing");
+}
+
+// The toast's words for the notice up now, drawn in Java the frame it went up.
+// The layer only shows while the notice it was drawn for is the one up.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadToast(JNIEnv* env, jobject thiz,
+                                                              jlong handle, jobject sheet,
+                                                              jint kind, jint arg) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, sheet, ctx->toastSwapchain, ctx->toastImages, TOAST_TEX_W,
+                TOAST_TEX_H, &ctx->toastArtReady);
+    ctx->toastDrawnKind = kind;
+    ctx->toastDrawnArg = arg;
+    LOGEV("toast up: kind %d, %d", kind, arg);
+}
+
+// A notice Java has to say, its words kept on that side under the number.
+// Frame loop only, like everything else the board is touched from.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativePushNotice(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jint kind, jint arg) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx != NULL) {
+        noticePush(&ctx->notices, kind, arg);
+    }
 }
 
 // The 3D switch's two faces, off and on. Both or neither, like the padlocks.

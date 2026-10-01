@@ -87,6 +87,31 @@ float cogRowV(int tab, int row);
 float cogRowHalf(int tab);
 float cogCellHalf(int tab);
 
+// Which part of a track's row a point across the panel is on: the button at
+// the left end that steps down, the one at the right that steps up, the run
+// between them where a press jumps the thumb, or none of it
+#define TRACK_PART_NONE 0
+#define TRACK_PART_RUN 1
+#define TRACK_PART_DOWN 2
+#define TRACK_PART_UP 3
+int cogTrackPart(float pu);
+
+// A place along the run, 0 at its left end and 1 at its right, from a point
+// across the panel and back
+float cogRunPlace(float pu);
+float cogRunU(float t);
+
+// The step a press of a step button lands on, for a track of that many
+// steps with the thumb at t: the next whole step that way, so a thumb a drag
+// left between two goes to the nearer one in that direction. Held to the
+// track's ends.
+int cogStepIndex(float t, int steps, int dir);
+
+// How many steps a track has, each the unit its value is kept in or a sensible
+// share of a value kept as a float, or 0 for a row that is not a track. tab
+// is one of the COG_TAB_ values, or anything past them for the Room tab.
+int cogTrackSteps(int tab, int row);
+
 // The 3D tab's depth track. A separation, as a fraction of frame width, in the
 // tenths of a percent the preference stores, which is also the step the track
 // moves in, and back.

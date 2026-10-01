@@ -42,6 +42,7 @@
 #include "xr_rate.h"
 #include "xr_gate.h"
 #include "xr_pinch.h"
+#include "xr_notice.h"
 
 #define TAG "moonlight-xr"
 
@@ -153,9 +154,6 @@ static inline long nowNs(void) {
 // thing left to aim at, so it has to be findable without a ray to guide you.
 #define LOCK_BUTTON_FRAC 0.09f
 #define LOCK_GAP_FRAC 0.025f
-// How long the padlock shows after the ring finger gesture has turned it, so
-// the change can be seen without having to go looking for it
-#define LOCK_FLASH_NS 1500000000L
 
 #define COG_WIDTH_FRAC 0.36f
 // The button that opens it, sitting to the right of the move bar, the same
@@ -191,6 +189,31 @@ static inline long nowNs(void) {
 #define KB_MAX_KEYS 64
 
 #define EXIT_WIDTH_FRAC 0.30f
+
+// The panels that fade in and out, each with a fade of its own
+#define FADE_COG 0
+#define FADE_PICKER 1
+#define FADE_KB 2
+#define FADE_EXIT 3
+#define FADE_PANELS 4
+// And the layers a colour scale is chained onto: those four, then the splash
+// and the toast
+#define FADE_SLOT_SPLASH FADE_PANELS
+#define FADE_SLOT_TOAST (FADE_PANELS + 1)
+#define FADE_SLOTS (FADE_PANELS + 2)
+
+// The toast hangs off the eyes, ahead and a little below where they look,
+// in metres
+#define TOAST_W_M 0.56f
+#define TOAST_DISTANCE_M 0.80f
+#define TOAST_DROP_M 0.14f
+
+// The launch splash, locked to the head: a black quad wider than any view
+// with the sheet a little in front of it, in metres
+#define SPLASH_BLACK_M 6.0f
+#define SPLASH_BLACK_DISTANCE_M 1.5f
+#define SPLASH_SHEET_W_M 0.9f
+#define SPLASH_SHEET_DISTANCE_M 1.45f
 
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
@@ -380,6 +403,10 @@ typedef struct XrCompositionLayerSettingsFB {
 // shipped, 2 boost. Read at session start and live, though a level once asked
 // for cannot be taken back, so 0 only means nothing at the next session.
 #define PROP_PERF_LEVEL "debug.moonlight.perflevel"
+// Milliseconds a panel takes to fade, 0 for the shipped 150, and the splash
+// twice that. Long ones make a fade something a screenshot can catch.
+#define PROP_FADE_MS "debug.moonlight.fadems"
+#define FADE_KNOB_MAX_MS 10000
 
 // What the session asks the runtime's performance levels for
 #define PERF_LEVEL_NONE 0
@@ -777,9 +804,53 @@ typedef struct {
     // Frames submitted while focused. Passthrough waits for the first one, see
     // the blend mode choice in nativeEndFrame.
     int focusedFrames;
+    // The blend mode has gone over to passthrough once, which is said once
+    int passthroughBlendSaid;
 
     int cylinderSupported;
     int layerSettingsSupported;
+    // Layer colour scale (XR_KHR_composition_layer_color_scale_bias), which is
+    // what fades a layer without drawing anything. Without it the panels and
+    // the splash come and go at once, as they always did.
+    int colorScaleSupported;
+    // How long a panel's fade takes, which the splash's is twice
+    long fadeNs;
+    int fadeKnobMs;
+    // The settings panel, the picker, the keyboard and the exit prompt, each
+    // fading on its own, and whether one is still on its way out, which keeps
+    // the bar furniture down until it has gone
+    Fade panelFades[FADE_PANELS];
+    int panelFadingOut;
+
+    // The launch splash. Up from the session's first frame until the panels,
+    // the room and the depth model are ready, so their loading is not a black
+    // stall with nothing on it. When each was ready, in ms from the first
+    // frame, -1 while not yet, for the line that says why it went.
+    Splash splash;
+    int splashReadyMs[3];
+    XrSwapchain splashSwapchain;
+    uint32_t splashImageCount;
+    XrSwapchainImageOpenGLESKHR* splashImages;
+    int splashArtReady;
+    // The last of the panels' art reaching the frame loop, whether or not it
+    // uploaded, which is when the splash stops waiting on the panels
+    int panelArtArrived;
+    // Maps the stage thread has published, and the model giving up before it
+    // made one, which are the two ways the splash stops waiting on the depth
+    atomic_int depthMapsStaged;
+    atomic_int depthGaveUp;
+
+    // The toast: what is waiting to be said and what is up, raised here or
+    // handed down by Java, held back while the splash is up. Java draws the
+    // words into the sheet, which shows only while it says what is up now.
+    NoticeBoard notices;
+    XrSwapchain toastSwapchain;
+    uint32_t toastImageCount;
+    XrSwapchainImageOpenGLESKHR* toastImages;
+    int toastArtReady;
+    int toastDrawnKind;
+    int toastDrawnArg;
+    Fade toastFade;
 
     // The display refresh rate. The runtime keeps whatever rate it starts on
     // unless asked, so a stream faster than that loses frames before they are
@@ -932,9 +1003,8 @@ typedef struct {
     float middleGap[HAND_COUNT];
     int ringRefusalSaid[HAND_COUNT];
     // The padlock is shown at all, which a setting can turn off while the
-    // gesture still works, and when the gesture last turned the lock
+    // gesture still works. The toast says when the gesture turns the lock.
     int lockIconShown;
-    long lockFlashNs;
     XrSwapchain lockSwapchain;
     XrSwapchain unlockSwapchain;
     uint32_t lockImageCount;
@@ -1167,9 +1237,29 @@ typedef struct {
     XrSwapchainImageOpenGLESKHR* cogReadoutImages;
     int cogReadoutReady;
     int cogReadoutDrawn[READOUT_VALUES];
-    // The row under the ray, and on the display tab the cell within it
+    // The marks on the display tab's cells, one strip for all its rows,
+    // redrawn in Java whenever one of them moves
+    XrSwapchain cogMarksSwapchain;
+    uint32_t cogMarksImageCount;
+    XrSwapchainImageOpenGLESKHR* cogMarksImages;
+    int cogMarksReady;
+    // The clock line over the panel
+    XrSwapchain cogClockSwapchain;
+    uint32_t cogClockImageCount;
+    XrSwapchainImageOpenGLESKHR* cogClockImages;
+    int cogClockReady;
+    // Whether a press on a panel ticks, the setting the display tab's row
+    // also writes, and a press this frame for Java to tick for
+    int clickSoundOn;
+    int clickPending;
+    // The head lock preference as the last frame handed it down, for the
+    // display tab's marks
+    int headLockedPref;
+    // The row under the ray, and on the display tab the cell within it, and
+    // on a track which step button, -1 or 1, or 0 for the run or none
     int cogHoverSlider;
     int cogHoverCell;
+    int cogHoverStep;
     // Frozen when the panel opens rather than followed every frame. The
     // distance slider moves the screen, and a panel anchored to the screen
     // would drag the thumb out from under the ray mid drag.
@@ -1390,6 +1480,7 @@ void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 int cogCellInForce(XrCtx* ctx, int face, int row);
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
 void cogDragEnded(XrCtx* ctx, float* out);
+void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);
 int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);
 void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide);

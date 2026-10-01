@@ -25,7 +25,8 @@ import static com.limelight.binding.video.XrShared.*;
 /**
  * The flat panels reachable from inside the session: the environment picker,
  * the settings sheets, the keyboard and the exit prompt, and the buttons along
- * the bar that open them or switch the 3D. Java is the only place Android will lay out text, so their art
+ * the bar that open them or switch the 3D, with the splash the session opens
+ * on. Java is the only place Android will lay out text, so their art
  * is drawn to bitmaps here and handed back as pixels for the frame loop to
  * upload, since that thread owns the GL context. Nothing in here touches the
  * session, so it can run on whichever thread has the time.
@@ -66,17 +67,18 @@ final class XrPanels {
     // Under the size row where the room keeps its picture whole
     private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Head locked and pointer sleep sit with
-    // the picture rows so the two light rows and the level track they belong
-    // with stay together at the bottom. Screen light is the wash the picture
-    // throws over a 3d room, which only shows in one, and head lock is ignored
-    // in one, but both stay live here like the rest: the picker can put a room
-    // up at any moment.
+    // the glow level track under them. Head locked, pointer sleep and the
+    // click sit with the picture rows so the two light rows and the level
+    // track they belong with stay together at the bottom. Screen light is the
+    // wash the picture throws over a 3d room, which only shows in one, and
+    // head lock is ignored in one, but both stay live here like the rest: the
+    // picker can put a room up at any moment.
     private static final String[] COG_OPTION_ROWS = { "Sharpen", "Supersample", "Stats",
-            "Head locked", "Pointer sleep", "Glow", "Screen light" };
+            "Head locked", "Pointer sleep", "Click sound", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
@@ -166,6 +168,10 @@ final class XrPanels {
     // the native side rather than an upload. The sheet and where its buttons
     // sit on it are the EXIT_ values in XrShared.
     private static final String EXIT_QUESTION = "Exit the stream?";
+
+    // What the launch splash says while the session comes up
+    private static final String SPLASH_NAME = "Moonlight XR";
+    private static final String SPLASH_LOADING = "Loading";
 
     private final Context context;
 
@@ -525,12 +531,13 @@ final class XrPanels {
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
             track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
-            canvas.drawLine(COG_TRACK_L * COG_TEX_W, y, COG_TRACK_R * COG_TEX_W, y, track);
+            canvas.drawLine(COG_RUN_L * COG_TEX_W, y, COG_RUN_R * COG_TEX_W, y, track);
+            drawCogChevrons(canvas, y, live, COG_CELL_HALF * COG_TEX_H);
 
             if (row == COG_SLIDER_TILT || row == COG_SLIDER_ROTATE) {
                 // Marks level, which is where the middle of these two tracks
                 // snaps to. The rows that do not snap stay unmarked.
-                float midX = (COG_TRACK_L + COG_TRACK_R) * 0.5f * COG_TEX_W;
+                float midX = (COG_RUN_L + COG_RUN_R) * 0.5f * COG_TEX_W;
                 float tickHalf = COG_CELL_HALF * COG_TEX_H;
                 canvas.drawRect(midX - 2.0f, y - tickHalf, midX + 2.0f, y + tickHalf, tick);
             }
@@ -571,8 +578,8 @@ final class XrPanels {
         Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
         tick.setColor(0xCCFFFFFF);
 
-        final float trackL = COG_TRACK_L * COG_TEX_W;
-        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float trackL = COG_RUN_L * COG_TEX_W;
+        final float trackR = COG_RUN_R * COG_TEX_W;
         final float cellHalf = COG_CELL_HALF * COG_TEX_H;
 
         for (int row = 0; row < COG_ROOM_ROWS.length; row++) {
@@ -589,6 +596,7 @@ final class XrPanels {
 
             track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
             canvas.drawLine(trackL, y, trackR, y, track);
+            drawCogChevrons(canvas, y, live, cellHalf);
 
             if (row == COG_ROOM_ROW_LIGHT_LEVEL) {
                 float markX = trackL + (ROOM_LIGHT_DEFAULT - ROOM_LIGHT_MIN)
@@ -660,6 +668,42 @@ final class XrPanels {
         }
     }
 
+    // A step button at each end of a track, the size of a narrow cell with a
+    // chevron in it pointing the way it steps the row, drawn the way the bar
+    // and the corner brackets are: a rounded white stroke. Greyed with the
+    // row, where they do nothing.
+    private static void drawCogChevrons(Canvas canvas, float y, boolean live, float cellHalf) {
+        Paint box = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(4.0f);
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        stroke.setStrokeJoin(Paint.Join.ROUND);
+        stroke.setColor(live ? 0xEBFFFFFF : 0x30FFFFFF);
+        float width = COG_CHEVRON_W * COG_TEX_W;
+        float[] lefts = { COG_TRACK_L * COG_TEX_W, COG_TRACK_R * COG_TEX_W - width };
+        for (int side = 0; side < 2; side++) {
+            RectF cell = new RectF(lefts[side], y - cellHalf, lefts[side] + width, y + cellHalf);
+            box.setStyle(Paint.Style.FILL);
+            box.setColor(live ? 0x28FFFFFF : 0x10FFFFFF);
+            canvas.drawRoundRect(cell, 8.0f, 8.0f, box);
+            box.setStyle(Paint.Style.STROKE);
+            box.setStrokeWidth(2.0f);
+            box.setColor(live ? 0x50FFFFFF : 0x20FFFFFF);
+            canvas.drawRoundRect(cell, 8.0f, 8.0f, box);
+
+            // Points out of the track, left on the left and right on the right
+            float dir = side == 0 ? -1.0f : 1.0f;
+            float reach = width * 0.16f;
+            float rise = cellHalf * 0.42f;
+            Path chevron = new Path();
+            chevron.moveTo(cell.centerX() - dir * reach, y - rise);
+            chevron.lineTo(cell.centerX() + dir * reach, y);
+            chevron.lineTo(cell.centerX() - dir * reach, y + rise);
+            canvas.drawPath(chevron, stroke);
+        }
+    }
+
     /**
      * The strip of percents beside the Room tab's tracks. Redrawn on the frame
      * loop whenever one of them moves, into the one bitmap and buffer, which
@@ -704,6 +748,149 @@ final class XrPanels {
         }
     }
 
+    /**
+     * The marks on the display tab's cells: a ring round the cell in force on
+     * each row, all in one strip over the column of cells, so the tab costs
+     * one layer for them however many rows it has. Redrawn on the frame loop
+     * whenever one moves, into the one bitmap and buffer, which the upload has
+     * finished with by the time the next draw comes round. The ring under the
+     * ray stays the native side's own, since it moves with every frame.
+     */
+    static final class Marks {
+        private final Bitmap bitmap = Bitmap.createBitmap(COG_MARKS_TEX_W, COG_MARKS_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ByteBuffer pixels =
+                ByteBuffer.allocateDirect(COG_MARKS_TEX_W * COG_MARKS_TEX_H * 4);
+
+        Marks() {
+            ring.setStyle(Paint.Style.STROKE);
+            ring.setStrokeWidth(3.0f);
+            ring.setColor(Color.WHITE);
+        }
+
+        // One cell per row, by its place in the row, in COG_OPTION_ order. A
+        // row under zero has nothing in force and goes unmarked.
+        ByteBuffer draw(int[] cells) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            float left = COG_MARKS_L * COG_TEX_W;
+            float top = COG_MARKS_T * COG_TEX_H;
+            float trackL = COG_TRACK_L * COG_TEX_W;
+            float trackR = COG_TRACK_R * COG_TEX_W;
+            float half = COG_DISPLAY_CELL_HALF * COG_TEX_H;
+            for (int row = 0; row < COG_OPTION_COUNT && row < cells.length; row++) {
+                int count = COG_OPTION_CELLS[row].length;
+                if (cells[row] < 0 || cells[row] >= count) {
+                    continue;
+                }
+                float span = (trackR - trackL) / count;
+                float y = cogRowV(COG_TAB_DISPLAY, row) * COG_TEX_H - top;
+                // On the edge of the cell the sheet draws, inset the same way
+                float l = trackL + cells[row] * span + 3.0f - left;
+                canvas.drawRoundRect(new RectF(l + 1.5f, y - half + 1.5f, l + span - 6.0f - 1.5f,
+                        y + half - 1.5f), 10.0f, 10.0f, ring);
+            }
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
+    }
+
+    /**
+     * The clock line over the settings panel: the time and the battery on a
+     * small dark strip, drawn on the frame loop when the line changes, into
+     * the one bitmap and buffer like the toast's.
+     */
+    static final class ClockStrip {
+        private final Bitmap bitmap = Bitmap.createBitmap(COG_CLOCK_TEX_W, COG_CLOCK_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final Paint sheet = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ByteBuffer pixels =
+                ByteBuffer.allocateDirect(COG_CLOCK_TEX_W * COG_CLOCK_TEX_H * 4);
+
+        ClockStrip() {
+            sheet.setColor(0xF0141416);
+            text.setColor(0xD0FFFFFF);
+            text.setTextSize(26.0f);
+            text.setTextAlign(Paint.Align.CENTER);
+        }
+
+        ByteBuffer draw(String line) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            canvas.drawRoundRect(new RectF(1.0f, 1.0f, COG_CLOCK_TEX_W - 1.0f,
+                    COG_CLOCK_TEX_H - 1.0f), 20.0f, 20.0f, sheet);
+            canvas.drawText(line, COG_CLOCK_TEX_W * 0.5f,
+                    COG_CLOCK_TEX_H * 0.5f - (text.ascent() + text.descent()) * 0.5f, text);
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
+    }
+
+    /**
+     * The toast: a line, and a quieter one under it when there is more to
+     * say, on the same dark sheet the panels sit on. Redrawn on the frame loop
+     * whenever a notice goes up, into the one bitmap and buffer, which the
+     * upload has finished with by the time the next one comes round. Either
+     * line is cut short with an ellipsis rather than let run off the sheet.
+     */
+    static final class Toast {
+        private final Bitmap bitmap = Bitmap.createBitmap(TOAST_TEX_W, TOAST_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final Paint sheet = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint detail = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ByteBuffer pixels = ByteBuffer.allocateDirect(TOAST_TEX_W * TOAST_TEX_H * 4);
+
+        Toast() {
+            sheet.setColor(0xF0141416);
+            line.setColor(Color.WHITE);
+            line.setTextSize(44.0f);
+            line.setTextAlign(Paint.Align.CENTER);
+            detail.setColor(0xB0FFFFFF);
+            detail.setTextSize(32.0f);
+            detail.setTextAlign(Paint.Align.CENTER);
+        }
+
+        ByteBuffer draw(String text, String more) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            canvas.drawRoundRect(new RectF(1.0f, 1.0f, TOAST_TEX_W - 1.0f, TOAST_TEX_H - 1.0f),
+                    40.0f, 40.0f, sheet);
+            float room = TOAST_TEX_W - 80.0f;
+            float mid = TOAST_TEX_W * 0.5f;
+            if (more == null || more.isEmpty()) {
+                canvas.drawText(fit(text, line, room), mid,
+                        TOAST_TEX_H * 0.5f - (line.ascent() + line.descent()) * 0.5f, line);
+            }
+            else {
+                canvas.drawText(fit(text, line, room), mid, TOAST_TEX_H * 0.44f, line);
+                canvas.drawText(fit(more, detail, room), mid, TOAST_TEX_H * 0.78f, detail);
+            }
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
+
+        // Trimmed a character at a time until it fits with its ellipsis
+        private static String fit(String text, Paint paint, float width) {
+            if (paint.measureText(text) <= width) {
+                return text;
+            }
+            int end = text.length();
+            while (end > 0 && paint.measureText(text, 0, end) + paint.measureText("…") > width) {
+                end--;
+            }
+            return text.substring(0, end).trim() + "…";
+        }
+    }
+
     // 3D tab: three presets, then the two values worth reaching mid stream,
     // then the switch. Depth runs past the comfortable range on purpose, with
     // the far end marked, since where that range ends is a matter of eyes
@@ -726,8 +913,8 @@ final class XrPanels {
         Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
         tick.setColor(stereoOk ? 0xCCFFFFFF : 0x30FFFFFF);
 
-        final float trackL = COG_TRACK_L * COG_TEX_W;
-        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float trackL = COG_RUN_L * COG_TEX_W;
+        final float trackR = COG_RUN_R * COG_TEX_W;
         final float tickHalf = COG_CELL_HALF * COG_TEX_H;
 
         float presetY = (COG_ROW_V0 + COG_ROW3D_PRESET * COG_ROW_STEP) * COG_TEX_H;
@@ -775,6 +962,7 @@ final class XrPanels {
             }
 
             canvas.drawRect(markX - 2.0f, y - tickHalf, markX + 2.0f, y + tickHalf, tick);
+            drawCogChevrons(canvas, y, stereoOk, tickHalf);
         }
 
         // The switch, which only lasts the session, the same one the bar's
@@ -819,8 +1007,8 @@ final class XrPanels {
         label.setTextAlign(Paint.Align.LEFT);
         label.setColor(Color.WHITE);
 
-        final float trackL = COG_TRACK_L * COG_TEX_W;
-        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float trackL = COG_RUN_L * COG_TEX_W;
+        final float trackR = COG_RUN_R * COG_TEX_W;
         final float cellHalf = COG_DISPLAY_CELL_HALF * COG_TEX_H;
 
         for (int row = 0; row < COG_OPTION_ROWS.length; row++) {
@@ -842,6 +1030,7 @@ final class XrPanels {
         track.setStrokeCap(Paint.Cap.ROUND);
         track.setColor(0x66FFFFFF);
         canvas.drawLine(trackL, y, trackR, y, track);
+        drawCogChevrons(canvas, y, true, cellHalf);
 
         // Marks the default, halfway, the same way the 3D tab marks its two
         Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1185,6 +1374,48 @@ final class XrPanels {
         text.setTextSize(30.0f);
         canvas.drawText(label, box.centerX(),
                 box.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    /**
+     * The launch splash: the app's name over the loading word, once for each
+     * number of dots and one under the other, so the native side steps the
+     * dots by showing another row. The words sit on nothing: the black behind
+     * them is the quad that blacks out the view, cut from the strip of black
+     * under the rows, so the two fade together without a box showing.
+     */
+    ByteBuffer buildSplash() {
+        Bitmap bitmap = Bitmap.createBitmap(SPLASH_TEX_W, SPLASH_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        Paint black = new Paint();
+        black.setColor(Color.BLACK);
+        canvas.drawRect(0.0f, SPLASH_TEX_H - SPLASH_BLACK_PX, SPLASH_TEX_W, SPLASH_TEX_H, black);
+
+        Paint name = new Paint(Paint.ANTI_ALIAS_FLAG);
+        name.setColor(Color.WHITE);
+        name.setTextSize(64.0f);
+        name.setTextAlign(Paint.Align.CENTER);
+
+        // Dimmer than the name, and set from where the whole word with all its
+        // dots would start, so it does not shuffle along as they come and go
+        Paint word = new Paint(Paint.ANTI_ALIAS_FLAG);
+        word.setColor(0x99FFFFFF);
+        word.setTextSize(30.0f);
+        float wordLeft = (SPLASH_TEX_W - word.measureText(SPLASH_LOADING + "...")) * 0.5f;
+
+        for (int row = 0; row < SPLASH_ROWS; row++) {
+            float top = row * SPLASH_ROW_H;
+            canvas.drawText(SPLASH_NAME, SPLASH_TEX_W * 0.5f, top + SPLASH_ROW_H * 0.48f, name);
+            StringBuilder dots = new StringBuilder(SPLASH_LOADING);
+            for (int dot = 0; dot <= row; dot++) {
+                dots.append('.');
+            }
+            canvas.drawText(dots.toString(), wordLeft, top + SPLASH_ROW_H * 0.74f, word);
+        }
+
+        ByteBuffer pixels = toBuffer(bitmap);
+        bitmap.recycle();
+        return pixels;
     }
 
     static ByteBuffer toBuffer(Bitmap bitmap) {

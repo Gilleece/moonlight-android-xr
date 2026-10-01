@@ -345,6 +345,7 @@ public class BugReportActivity extends Activity {
                 + " hands " + prefs.vrHandTracking + " gaze " + prefs.vrGaze
                 + " " + PreferenceConfiguration.inputLabel(prefs.vrShowHandLock,
                         prefs.vrPointerSleep, " ")
+                + " clickSound " + prefs.vrClickSound
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"
                 + "fileLog " + prefs.fileLogLevel + "\n";
     }

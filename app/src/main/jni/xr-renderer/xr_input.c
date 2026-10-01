@@ -1548,7 +1548,10 @@ static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
         }
         if (fired) {
             setHandsLocked(ctx, !ctx->handsLocked, "the ring pinch");
-            ctx->lockFlashNs = f->now;
+            // Nothing in view moves when a gesture locks the hands, so the
+            // toast says so
+            noticePush(&ctx->notices, ctx->handsLocked ? TOAST_HANDS_LOCKED
+                                                       : TOAST_HANDS_UNLOCKED, 0);
         }
     }
 }
@@ -1789,6 +1792,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->cogButtonHot = 0;
     ctx->cogHoverSlider = -1;
     ctx->cogHoverCell = -1;
+    ctx->cogHoverStep = 0;
     ctx->lockHot = 0;
     ctx->pickerPick = -1;
     ctx->kbButtonHot = 0;
@@ -1846,6 +1850,7 @@ static void updatePicker(XrCtx* ctx, InputFrame* f) {
             ctx->pickerPick = ctx->pickerHover;
             ctx->pickerChoice = ctx->pickerHover;
             ctx->pickerOpen = 0;
+            ctx->clickPending = 1;
             swallowTrigger(ctx, h);
         }
         break;
@@ -1971,6 +1976,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 int t = (int)(pu * COG_TAB_COUNT);
                 if (t >= COG_TAB_COUNT) t = COG_TAB_COUNT - 1;
                 ctx->cogTab = t;
+                ctx->clickPending = 1;
                 ctx->cogDragSlider = -1;
                 ctx->cogDragHand = -1;
                 ctx->cogDragFace = -1;
@@ -2000,21 +2006,36 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
                 cogApplyCell(ctx, face, row, cell, f->out);
+                ctx->clickPending = 1;
             }
             break;
         }
 
-        // Sliders. The band reaches a little past both ends of the track,
-        // since the thumb hangs over them.
-        if (row >= 0 && (pu <= COG_TRACK_L - 0.04f || pu >= COG_TRACK_R + 0.04f)) {
+        // Sliders: a step button at each end, then the run between them,
+        // which stops where a button starts so a press on one is never a
+        // jump along the track
+        int part = row >= 0 ? cogTrackPart(pu) : TRACK_PART_NONE;
+        if (part == TRACK_PART_NONE) {
             row = -1;
         }
         ctx->cogHoverSlider = row;
+        if (part == TRACK_PART_DOWN || part == TRACK_PART_UP) {
+            int dir = part == TRACK_PART_UP ? 1 : -1;
+            ctx->cogHoverStep = dir;
+            if (ctx->triggerEdge[h]) {
+                cogStepTrack(ctx, face, row, dir, f->out);
+                ctx->clickPending = 1;
+            }
+            break;
+        }
 
         // Only the screen and 3D tabs have a reset button under their rows
         int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D)
                 && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
+        if (onReset && ctx->triggerEdge[h]) {
+            ctx->clickPending = 1;
+        }
         if (onReset && ctx->triggerEdge[h] && face == COG_TAB_3D) {
             // The running model's own pair, handed down when the session
             // started, so the button works the same way whatever the
@@ -2042,6 +2063,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         }
         else if (row >= 0 && ctx->triggerEdge[h]) {
             cogStartDrag(ctx, f, h, face, row, pu, pv);
+            ctx->clickPending = 1;
         }
     }
 
@@ -2083,6 +2105,10 @@ static void updateExitPrompt(XrCtx* ctx, InputFrame* f) {
         ctx->exitHoverZone = exitPromptZone(pu, pv);
 
         if (ctx->triggerEdge[h]) {
+            // The two buttons tick, and the rest of the sheet only closes it
+            if (ctx->exitHoverZone != EXIT_ZONE_NONE) {
+                ctx->clickPending = 1;
+            }
             if (ctx->exitHoverZone == EXIT_ZONE_EXIT) {
                 // Said once. Java takes the session down from here, and
                 // the prompt closes either way so a refused exit leaves
@@ -2108,8 +2134,18 @@ static void updateExitPrompt(XrCtx* ctx, InputFrame* f) {
     }
 }
 
-// Lights whichever piece of furniture the ray is on, and acts on a press there
+// Lights whichever piece of furniture the ray is on, and acts on a press there.
+// A press on any of them, a key included, ticks.
 static void updateFurniture(XrCtx* ctx, InputFrame* f) {
+    int pressed = f->hand >= 0 && ctx->triggerEdge[f->hand];
+    if (pressed && (f->hover == HOVER_ENVBUTTON || f->hover == HOVER_COGBUTTON
+            || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
+            || f->hover == HOVER_STEREOBUTTON
+            || (f->hover == HOVER_LOCK && ctx->lockArmed[f->hand])
+            || (f->hover == HOVER_KBPANEL
+                && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
+        ctx->clickPending = 1;
+    }
     if (f->hover == HOVER_ENVBUTTON) {
         ctx->envButtonHot = 1;
         if (ctx->triggerEdge[f->hand]) {
@@ -2156,6 +2192,9 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         ctx->stereoButtonHot = 1;
         if (ctx->triggerEdge[f->hand]) {
             setStereoLive(ctx, !ctx->stereoLive, "the bar button");
+            // The 3D tab rings its switch, but from the bar the only sign
+            // is the picture going flat, which is easy to miss
+            noticePush(&ctx->notices, ctx->stereoLive ? TOAST_3D_ON : TOAST_3D_OFF, 0);
         }
     }
     else if (f->hover == HOVER_KBPANEL) {
@@ -2460,7 +2499,29 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     int readouts[READOUT_VALUES] = { -1, -1, -1 };
     out[IN_SETTING_ROOM] = -1.0f;
     out[IN_STEREO] = 0.0f;
+    out[IN_TOAST] = -1.0f;
+    out[IN_TOAST_ARG] = 0.0f;
+    out[IN_CLICK] = 0.0f;
+    out[IN_MARKS] = -1.0f;
+    out[IN_COG_OPEN] = 0.0f;
     if (ctx != NULL) {
+        out[IN_CLICK] = ctx->clickPending ? 1.0f : 0.0f;
+        ctx->clickPending = 0;
+        // The display tab's choices while it is up, fading out included
+        int showing = ctx->cogOpen || ctx->panelFades[FADE_COG].level > 0.0f;
+        out[IN_COG_OPEN] = showing ? 1.0f : 0.0f;
+        if (showing && cogFace(ctx) == COG_TAB_DISPLAY) {
+            for (int m = 0; m < COG_OPTION_COUNT; m++) {
+                out[IN_MARKS + m] = (float)cogOptionValue(ctx, m, ctx->headLockedPref);
+            }
+        }
+        // The next notice goes up once its turn comes and the splash has
+        // gone, and Java draws it the same frame
+        Notice up;
+        if (noticeAdvance(&ctx->notices, nowNs(), ctx->splash.phase != SPLASH_GONE, &up)) {
+            out[IN_TOAST] = (float)up.kind;
+            out[IN_TOAST_ARG] = (float)up.arg;
+        }
         emitRoomScreen(ctx, out);
         // Every room keeps its own values, so a room setting says whose it is
         out[IN_SETTING_ROOM] = (float)roomCellForStyle(roomEffective(ctx));
@@ -2493,6 +2554,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         ctx->gazeEnabled = gazeEnabled;
         ctx->lockIconShown = lockIcon;
         ctx->pointerSleepOn = pointerSleep;
+        ctx->headLockedPref = headLocked;
         // Before anything asks who is pointing, off the last frame's clocks and
         // gaze, which are the only ones there are until the sources are read
         updateControllerAwake(ctx);
@@ -2513,9 +2575,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     out[IN_KEY] = -1.0f;
 
     // Anything held has to come back up when pointing stops, or the host is
-    // left with a stuck button
+    // left with a stuck button. Nothing is pointed at under the splash either:
+    // it hides everything a press could land on.
     if (ctx == NULL || !ctx->inputReady || !pointerEnabled || !ctx->placementValid
-            || ctx->sessionState != XR_SESSION_STATE_FOCUSED) {
+            || ctx->sessionState != XR_SESSION_STATE_FOCUSED
+            || ctx->splash.phase != SPLASH_GONE) {
         if (ctx != NULL) {
             releaseInput(ctx, out);
         }

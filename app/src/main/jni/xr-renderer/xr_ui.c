@@ -519,11 +519,10 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
-// Applies a point on the track to whatever the row controls
+// Applies a point on the track to whatever the row controls. The run the
+// thumb travels stops short of the track's ends, where the step buttons are.
 void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
-    float t = (pu - COG_TRACK_L) / (COG_TRACK_R - COG_TRACK_L);
-    if (t < 0.0f) t = 0.0f;
-    if (t > 1.0f) t = 1.0f;
+    float t = cogRunPlace(pu);
 
     if (face == COG_FACE_ROOM) {
         // Whole units, the ones each preference is stored in, so the thumb
@@ -672,6 +671,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_POINTER_SLEEP) {
         return COG_POINTER_SLEEP_CELLS;
     }
+    if (option == COG_OPTION_CLICK_SOUND) {
+        return COG_CLICK_SOUND_CELLS;
+    }
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
@@ -696,6 +698,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     }
     if (option == COG_OPTION_POINTER_SLEEP) {
         return ctx->pointerSleepOn ? 1 : 0;
+    }
+    if (option == COG_OPTION_CLICK_SOUND) {
+        return ctx->clickSoundOn ? 1 : 0;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         // The switch in force, which in a room is the room's own
@@ -738,6 +743,12 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         ctx->pointerSleepOn = cell != 0;
         LOGEV("pointer sleep %s from the panel", cell != 0 ? "on" : "off");
         return SETTING_POINTER_SLEEP;
+    }
+    if (option == COG_OPTION_CLICK_SOUND) {
+        // Java plays it, and takes the switch from the setting this hands it
+        ctx->clickSoundOn = cell != 0;
+        LOGEV("click sound %s from the panel", cell != 0 ? "on" : "off");
+        return SETTING_CLICK_SOUND;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         // In a room this is the same switch the Room tab's glow row is, so the
@@ -903,6 +914,26 @@ void cogDragEnded(XrCtx* ctx, float* out) {
     }
 }
 
+// A press on one of a track's step buttons: one step that way, applied at once
+// the way a drag is and written at once the way letting go of one is. Held
+// down it does not repeat.
+void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out) {
+    int steps = cogTrackSteps(face, row);
+    if (steps <= 0) {
+        return;
+    }
+    float before = cogSliderValue(ctx, face, row);
+    int step = cogStepIndex(before, steps, dir);
+    cogApplySlider(ctx, face, row, cogRunU((float)step / (float)steps));
+    float after = cogSliderValue(ctx, face, row);
+    LOGEV("track step %s: face %d row %d, step %.2f to %.2f of %d", dir > 0 ? "up" : "down",
+          face, row, before * steps, after * steps, steps);
+    ctx->cogDragSlider = row;
+    ctx->cogDragFace = face;
+    ctx->cogDragHand = -1;
+    cogDragEnded(ctx, out);
+}
+
 // Which cell of a row the ray is on, or -1 off the ends
 int cogCellAt(float pu, int cells) {
     if (pu < COG_TRACK_L || pu > COG_TRACK_R) {
@@ -919,7 +950,9 @@ int cogCellAt(float pu, int cells) {
 // that keeps its picture whole, where its row is greyed.
 void cogReadouts(XrCtx* ctx, int* values) {
     int style = roomFaceStyle(ctx);
-    if (!ctx->cogOpen || cogFace(ctx) != COG_FACE_ROOM || style == 0) {
+    // Still up while the panel fades out, so the strip goes with it
+    int showing = ctx->cogOpen || ctx->panelFades[FADE_COG].level > 0.0f;
+    if (!showing || cogFace(ctx) != COG_FACE_ROOM || style == 0) {
         values[0] = -1;
         values[1] = -1;
         values[2] = -1;
@@ -982,4 +1015,15 @@ int lockButtonHit(XrCtx* ctx, float u, float v, float height) {
     float side;
     lockButtonPlacement(ctx, &local, &side);
     return buttonHit(ctx, local, side, u, v, height);
+}
+
+// Whether a press ticks, which only the display tab's ring reads on this
+// side. Handed down before the first frame.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetClickSound(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jboolean on) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx != NULL) {
+        ctx->clickSoundOn = on;
+    }
 }

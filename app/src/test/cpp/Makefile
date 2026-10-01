@@ -12,7 +12,7 @@ OUT := build
 
 TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_roommesh \
          $(OUT)/test_layout $(OUT)/test_audio $(OUT)/test_rate $(OUT)/test_gate \
-         $(OUT)/test_pinch
+         $(OUT)/test_pinch $(OUT)/test_notice
 
 .PHONY: test clean
 
@@ -60,6 +60,11 @@ $(OUT)/test_pinch: test_pinch.c check.h $(SRC)/xr_pinch.c $(SRC)/xr_pinch.h $(SR
                    $(SRC)/xr_math.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_pinch.c $(SRC)/xr_pinch.c $(SRC)/xr_math.c -lm
+
+# The panels' fades and the splash's timing
+$(OUT)/test_notice: test_notice.c check.h $(SRC)/xr_notice.c $(SRC)/xr_notice.h $(SRC)/xr_shared.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_notice.c $(SRC)/xr_notice.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it
