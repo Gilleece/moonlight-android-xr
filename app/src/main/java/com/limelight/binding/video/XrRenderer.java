@@ -258,6 +258,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Head aim's switch's two faces, the same
     private final AtomicReference<ByteBuffer> pendingAimOff = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingAimOn = new AtomicReference<>();
+    // And gamepad mode's, pointer and gamepad
+    private final AtomicReference<ByteBuffer> pendingPadOff = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingPadOn = new AtomicReference<>();
     // A baked room on its way to the GPU, read off the frame loop like the art
     // above. The native side shows the void in its place until it has landed.
     // The mesh, the atlases and the cell they belong to travel as one, so a
@@ -477,6 +480,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadRayButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadAimButton(long ctx, ByteBuffer off, ByteBuffer on);
+    private native void nativeUploadPadButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
     // The toast's words for a notice just gone up, and a notice of this
     // side's own to be queued, a TOAST_TEXT under its slot
@@ -1153,6 +1157,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadAimButton(nativeCtx, aimOff, aimOn);
             }
 
+            ByteBuffer padOff = pendingPadOff.getAndSet(null);
+            ByteBuffer padOn = pendingPadOn.getAndSet(null);
+            if (padOff != null && padOn != null) {
+                nativeUploadPadButton(nativeCtx, padOff, padOn);
+            }
+
             ByteBuffer controller = pendingControllerModel.getAndSet(null);
             if (controller != null) {
                 nativeUploadControllerModel(nativeCtx, controller, controller.remaining());
@@ -1234,9 +1244,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         nativeSetShowRay(nativeCtx, prefs.vrShowRay);
         nativeSetHeadAim(nativeCtx, prefs.vrHeadAim, prefs.vrHeadAimSensitivity,
                 prefs.vrHeadAimDeadZone);
-        // The controllers start as the pointer; the switch on them makes them
-        // the pad
-        nativeSetGamepad(nativeCtx, false, prefs.deadzonePercentage);
+        nativeSetGamepad(nativeCtx, prefs.vrGamepadMode, prefs.deadzonePercentage);
         nativeSetControllerModel(nativeCtx, prefs.vrControllerModel);
 
         final int startRoom = cell;
@@ -1302,6 +1310,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         ByteBuffer[] aimFaces = panels.buildAimButtons();
         pendingAimOff.set(aimFaces[0]);
         pendingAimOn.set(aimFaces[1]);
+        ByteBuffer[] padFaces = panels.buildPadButtons();
+        pendingPadOff.set(padFaces[0]);
+        pendingPadOn.set(padFaces[1]);
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
         kbKeyRects = keyboard.keyRects;
@@ -1946,6 +1957,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             case TOAST_HEAD_AIM_ON:
                 text = prefsContext.getString(R.string.vr_toast_head_aim_on);
                 more = prefsContext.getString(R.string.vr_toast_head_aim_on_more);
+                break;
+            case TOAST_GAMEPAD_MODE:
+                text = prefsContext.getString(R.string.vr_toast_gamepad_mode);
+                more = prefsContext.getString(R.string.vr_toast_gamepad_mode_more);
+                break;
+            case TOAST_POINTER_MODE:
+                text = prefsContext.getString(R.string.vr_toast_pointer_mode);
                 break;
             case TOAST_TEXT:
                 NoticeWords words = arg >= 0 && arg < TOAST_TEXT_SLOTS ? noticeTexts[arg] : null;

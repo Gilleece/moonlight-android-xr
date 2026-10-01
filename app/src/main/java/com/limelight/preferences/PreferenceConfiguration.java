@@ -83,6 +83,11 @@ public class PreferenceConfiguration {
     public static final String VR_HEAD_AIM_PREF_STRING = "checkbox_vr_head_aim";
     public static final String VR_HEAD_AIM_SENSITIVITY_PREF_STRING = "seekbar_vr_head_aim_sensitivity";
     public static final String VR_HEAD_AIM_DEADZONE_PREF_STRING = "seekbar_vr_head_aim_deadzone";
+    // What the controllers are when a session starts: the pointer, or one
+    // gamepad on the host. The two values of that list.
+    public static final String VR_CONTROLLER_MODE_PREF_STRING = "list_vr_controller_mode";
+    public static final String VR_CONTROLLER_MODE_POINTER = "pointer";
+    public static final String VR_CONTROLLER_MODE_GAMEPAD = "gamepad";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on. Legacy, and
@@ -221,6 +226,8 @@ public class PreferenceConfiguration {
     // Turning the head moves the host's mouse while the screen is locked to
     // it. Off, since it takes the mouse over for a game that wants it.
     static final boolean DEFAULT_VR_HEAD_AIM = false;
+    // The controllers point, as they always have, until gamepad is chosen
+    static final String DEFAULT_VR_CONTROLLER_MODE = VR_CONTROLLER_MODE_POINTER;
     private static final boolean DEFAULT_VR_POINTER = true;
     // MiDaS's separation, tenths of a percent of frame width. 5 measured
     // comfortable on device and 7 already strained, once the depth map started
@@ -345,6 +352,10 @@ public class PreferenceConfiguration {
     public boolean vrHeadAim;
     public int vrHeadAimSensitivity;
     public int vrHeadAimDeadZone;
+    // Whether a session starts with the two controllers as one gamepad on the
+    // host rather than as the pointer, which the bar and the switch on the
+    // controllers then turn over for the session
+    public boolean vrGamepadMode;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -630,6 +641,24 @@ public class PreferenceConfiguration {
                 XrShared.HEAD_AIM_DEADZONE_DEFAULT);
         return Math.max(XrShared.HEAD_AIM_DEADZONE_MIN,
                 Math.min(XrShared.HEAD_AIM_DEADZONE_MAX, units));
+    }
+
+    /**
+     * Whether the controllers start as a gamepad. Anything but the gamepad
+     * value, an unknown one included, is the pointer.
+     */
+    static boolean gamepadAtStart(SharedPreferences prefs) {
+        return VR_CONTROLLER_MODE_GAMEPAD.equals(
+                prefs.getString(VR_CONTROLLER_MODE_PREF_STRING, DEFAULT_VR_CONTROLLER_MODE));
+    }
+
+    /**
+     * What the controllers start as, for a log line, joined the way that line
+     * joins its keys to their values
+     */
+    public static String controllerModeLabel(boolean gamepad, String join) {
+        return "controllerMode" + join + (gamepad ? VR_CONTROLLER_MODE_GAMEPAD
+                                                  : VR_CONTROLLER_MODE_POINTER);
     }
 
     /**
@@ -1313,6 +1342,7 @@ public class PreferenceConfiguration {
         config.vrHeadAim = headAimOn(prefs);
         config.vrHeadAimSensitivity = headAimSensitivity(prefs);
         config.vrHeadAimDeadZone = headAimDeadZone(prefs);
+        config.vrGamepadMode = gamepadAtStart(prefs);
         config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

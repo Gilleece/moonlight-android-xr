@@ -80,6 +80,8 @@
 #define TOAST_TEXT_SLOTS 4
 #define TOAST_HEAD_AIM_OFF 6
 #define TOAST_HEAD_AIM_ON 7
+#define TOAST_GAMEPAD_MODE 8
+#define TOAST_POINTER_MODE 9
 
 // Slots in the float array handed back to Java each frame
 #define IN_HIT      0
@@ -140,7 +142,7 @@
 // up, and -1 for a row greyed where it can do nothing. Every frame. As many as
 // COG_OPTION_COUNT below, which the native side checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
-#define MARK_VALUES 11
+#define MARK_VALUES 12
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
@@ -473,26 +475,30 @@
 #define COG_REPORT_B 0.72f
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
-// dragging a value. The head aim and ray rows are the bar's buttons for the
-// session, so they are not stored. Head aim's is greyed unless the screen is
-// locked to the head outside a room.
+// dragging a value. The head aim, gamepad and ray rows are the bar's buttons
+// for the session, so they are not stored. Head aim's is greyed unless the
+// screen is locked to the head outside a room. The gamepad row is Pointer or
+// Gamepad, what the controllers are; the controllers row is whether their
+// model is drawn.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_SUPERSAMPLE 1
 #define COG_OPTION_STATS   2
 #define COG_OPTION_HEAD_LOCK 3
 #define COG_OPTION_HEAD_AIM 4
-#define COG_OPTION_POINTER_SLEEP 5
-#define COG_OPTION_RAY 6
-#define COG_OPTION_CONTROLLERS 7
-#define COG_OPTION_CLICK_SOUND 8
-#define COG_OPTION_AMBILIGHT 9
-#define COG_OPTION_ROOM_LIGHT 10
-#define COG_OPTION_COUNT   11
+#define COG_OPTION_GAMEPAD 5
+#define COG_OPTION_POINTER_SLEEP 6
+#define COG_OPTION_RAY 7
+#define COG_OPTION_CONTROLLERS 8
+#define COG_OPTION_CLICK_SOUND 9
+#define COG_OPTION_AMBILIGHT 10
+#define COG_OPTION_ROOM_LIGHT 11
+#define COG_OPTION_COUNT   12
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_HEAD_LOCK_CELLS 2
 #define COG_HEAD_AIM_CELLS 2
+#define COG_GAMEPAD_CELLS 2
 #define COG_POINTER_SLEEP_CELLS 2
 #define COG_RAY_CELLS 2
 #define COG_CONTROLLERS_CELLS 2
@@ -502,16 +508,16 @@
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
 // This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 11
-// Twelve rows on this tab, so its rows start a little higher and sit closer
+#define COG_DISPLAY_SLIDER_ROW 12
+// Thirteen rows on this tab, so its rows start a little higher and sit closer
 // together than the other tabs', with shallower cells to keep a gap between
-// them. The last is centred at 0.926 and its thumb still clears the bottom
+// them. The last is centred at 0.917 and its thumb still clears the bottom
 // edge, grown or not. The hit band is half the pitch, so neighbouring bands
-// meet without overlapping.
-#define COG_DISPLAY_ROW_V0 0.2f
-#define COG_DISPLAY_ROW_STEP 0.066f
-#define COG_DISPLAY_ROW_HALF 0.033f
-#define COG_DISPLAY_CELL_HALF 0.027f
+// meet without overlapping, and the first starts just under the tab bar.
+#define COG_DISPLAY_ROW_V0 0.197f
+#define COG_DISPLAY_ROW_STEP 0.06f
+#define COG_DISPLAY_ROW_HALF 0.03f
+#define COG_DISPLAY_CELL_HALF 0.025f
 // The marks on the display tab's cells, which of each row's cells is in
 // force, drawn in Java as one strip over the column of cells rather than a
 // ring each, so the tab costs one layer for them however many rows it has.

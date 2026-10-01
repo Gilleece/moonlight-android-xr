@@ -90,6 +90,9 @@ int noticeGroup(int kind) {
         case TOAST_HEAD_AIM_OFF:
         case TOAST_HEAD_AIM_ON:
             return TOAST_HEAD_AIM_OFF;
+        case TOAST_GAMEPAD_MODE:
+        case TOAST_POINTER_MODE:
+            return TOAST_GAMEPAD_MODE;
         default:
             return kind;
     }

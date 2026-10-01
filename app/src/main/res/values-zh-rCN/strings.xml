@@ -317,6 +317,10 @@
     <string name="summary_seekbar_vr_head_aim_sensitivity">头部每转动一度时鼠标移动的距离。配合游戏自身的鼠标灵敏度调整，直到视角转动的幅度与头部一致。头显内设置面板的 Screen 标签页调整的是同一个数值。</string>
     <string name="title_seekbar_vr_head_aim_deadzone">头部控制死区</string>
     <string name="summary_seekbar_vr_head_aim_deadzone">头部转动慢于此速度时不发送任何移动，可避免头部静止时追踪抖动移动鼠标。设为 0 则发送所有移动。</string>
+    <string name="title_vr_controller_mode">手柄模式</string>
+    <string name="summary_vr_controller_mode">会话开始时手柄的用途。选择游戏手柄时，两个手柄合起来在电脑上作为一个 Xbox 手柄：摇杆、A、B、X、Y 键、扳机、握把作为肩键、摇杆按下，以及左手菜单键作为 Start。在头显中同时按住左手握把和左手菜单键半秒即可切换，也可以使用屏幕下方的游戏手柄按钮。</string>
+    <string name="vr_controller_mode_pointer">指针</string>
+    <string name="vr_controller_mode_gamepad">游戏手柄</string>
     <string name="title_vr_click_sound">按下面板时发出点击声</string>
     <string name="summary_vr_click_sound">在头显中按下面板、按钮或按键时发出短促的点击声。它通过系统声音播放，与串流音频分开。</string>
     <string name="title_vr_gaze">注视点瞄准 (Look to point)</string>
@@ -372,6 +376,9 @@
     <string name="vr_toast_head_aim_on">头部控制已开启</string>
     <string name="vr_toast_head_aim_on_more">转动头部即可移动鼠标</string>
     <string name="vr_toast_head_aim_off">头部控制已关闭</string>
+    <string name="vr_toast_gamepad_mode">游戏手柄模式</string>
+    <string name="vr_toast_gamepad_mode_more">按住左手握把和菜单键即可切换回来</string>
+    <string name="vr_toast_pointer_mode">指针模式</string>
     <string name="vr_report_note_hint">出现问题时您正在做什么？</string>
     <string name="vr_report_optional">选填</string>
     <string name="vr_report_email_bad">这看起来不像电子邮箱地址</string>

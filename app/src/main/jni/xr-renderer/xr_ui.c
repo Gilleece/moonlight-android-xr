@@ -329,15 +329,16 @@ int headAimCanAct(XrCtx* ctx) {
     return ctx->headLockedPref && roomEffective(ctx) <= 0;
 }
 
-// Head aim's switch is one place further out on the left, past the exit
-// button, so it comes and goes with head lock without moving any other
+// Head aim's switch is furthest out on the left, past gamepad mode's, so it
+// comes and goes with head lock without moving any other, as the 3D switch
+// does on the right
 void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
     float width = furnitureWidth(ctx);
     float side = width * COG_BUTTON_FRAC;
     float barW = width * BAR_WIDTH_FRAC;
     float barH = width * BAR_HEIGHT_FRAC;
     float gap = width * ENV_GAP_FRAC;
-    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap + side + gap);
+    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap + (side + gap) * 2.0f);
     outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
     outLocal->z = 0.005f;
     *outSide = side;
@@ -365,11 +366,13 @@ void setHeadAimOn(XrCtx* ctx, int on, const char* from) {
     LOGEV("head aim %s from %s", on ? "on" : "off", from);
 }
 
-// Gamepad mode on or off for the rest of the session. Nothing is stored: the
-// setting is what the next session starts from. Going on, the input pass puts
-// the panels away, since nothing on the controllers can reach one now. Going
-// off, a trigger still held is taken as already down and kept from the host,
-// so the pointer's first frame does not click wherever the ray happens to be.
+// Gamepad mode on or off for the rest of the session, from the switch on the
+// controllers, the bar or the Display tab, and the toast says which. Nothing is
+// stored: the setting is what the next session starts from. Going on, the
+// input pass puts the panels away, since nothing on the controllers can reach
+// one now. Going off, a trigger still held is taken as already down and kept
+// from the host, so the pointer's first frame does not click wherever the ray
+// happens to be.
 void setPadMode(XrCtx* ctx, int on, const char* from) {
     on = on ? 1 : 0;
     if (ctx->padMode == on) {
@@ -388,6 +391,32 @@ void setPadMode(XrCtx* ctx, int on, const char* from) {
         }
     }
     LOGEV("controllers: %s from %s", on ? "gamepad mode" : "pointer mode", from);
+    noticePush(&ctx->notices, on ? TOAST_GAMEPAD_MODE : TOAST_POINTER_MODE, 0);
+}
+
+// Gamepad mode's switch is one place out past the exit button on the left,
+// shown in every session, since a controller can be picked up at any time
+void padButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    float gap = width * ENV_GAP_FRAC;
+    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap + side + gap);
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+// Only where it is drawn, once its art has arrived
+int padButtonHit(XrCtx* ctx, float u, float v, float height) {
+    if (!ctx->padButtonReady) {
+        return 0;
+    }
+    Vec3 local;
+    float side;
+    padButtonPlacement(ctx, height, &local, &side);
+    return buttonHit(ctx, local, side, u, v, height);
 }
 
 // The ray's switch is one place further out on the right, past the keyboard
@@ -872,6 +901,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_HEAD_AIM) {
         return COG_HEAD_AIM_CELLS;
     }
+    if (option == COG_OPTION_GAMEPAD) {
+        return COG_GAMEPAD_CELLS;
+    }
     if (option == COG_OPTION_POINTER_SLEEP) {
         return COG_POINTER_SLEEP_CELLS;
     }
@@ -909,6 +941,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     if (option == COG_OPTION_HEAD_AIM) {
         // The switch as it stands, whether or not it can act just now
         return headAimSwitchOn(ctx->headAimSetting, ctx->headAimFlipped);
+    }
+    if (option == COG_OPTION_GAMEPAD) {
+        return ctx->padMode ? 1 : 0;
     }
     if (option == COG_OPTION_POINTER_SLEEP) {
         return ctx->pointerSleepOn ? 1 : 0;
@@ -963,6 +998,12 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         // The bar button's switch, for this session only, so nothing goes to
         // Java to store
         setHeadAimOn(ctx, cell != 0, "the Display tab");
+        return -1;
+    }
+    if (option == COG_OPTION_GAMEPAD) {
+        // The bar button's switch too. Gamepad puts the panel away with the
+        // others, since the controllers cannot reach it any more.
+        setPadMode(ctx, cell != 0, "the Display tab");
         return -1;
     }
     if (option == COG_OPTION_POINTER_SLEEP) {

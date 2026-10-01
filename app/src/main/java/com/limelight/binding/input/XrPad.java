@@ -36,4 +36,18 @@ public final class XrPad {
         }
         return -1;
     }
+
+    /**
+     * The gamepad mask a stream launches with when its VR session starts with
+     * the controllers as a pad: the pads counted already and the pad's own
+     * place, the number it will take when it plugs in. With multi-controller
+     * off every pad is player 1, which the mask already has.
+     */
+    public static int launchMask(int mask, boolean multiController) {
+        if (!multiController) {
+            return mask | 1;
+        }
+        int number = numberFor(mask);
+        return number < 0 ? mask : mask | (1 << number);
+    }
 }

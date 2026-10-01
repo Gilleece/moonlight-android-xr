@@ -261,12 +261,18 @@ static void testTheRowsFit(void) {
         CHECK(last + 0.0425f < 1.0f - 0.03f);
         CHECK(last + half <= 1.0f);
     }
-    // The display tab's twelve rows, head aim's after head locked, the glow
-    // level track last
-    CHECK(COG_DISPLAY_SLIDER_ROW == 11);
+    // The display tab's thirteen rows, head aim's after head locked and the
+    // controllers' pointer or gamepad after that, the glow level track last
+    CHECK(COG_DISPLAY_SLIDER_ROW == 12);
     CHECK(COG_OPTION_HEAD_AIM == COG_OPTION_HEAD_LOCK + 1);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.2, 1e-6);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.926, 1e-5);
+    CHECK(COG_OPTION_GAMEPAD == COG_OPTION_HEAD_AIM + 1);
+    CHECK(COG_OPTION_POINTER_SLEEP == COG_OPTION_GAMEPAD + 1);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.197, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.917, 1e-5);
+    // Its first band starts under the tab bar, and its cells are shallower
+    // than the rows are apart
+    CHECK(cogRowV(COG_TAB_DISPLAY, 0) - cogRowHalf(COG_TAB_DISPLAY) >= COG_TAB_BAR_B);
+    CHECK(2.0f * cogCellHalf(COG_TAB_DISPLAY) < COG_DISPLAY_ROW_STEP);
     // The screen tab's eight, head aim's two last, all clear of the reset
     // button, with chevrons and ticks shallower than the rows are apart
     CHECK(COG_SCREEN_ROW_COUNT == 8);

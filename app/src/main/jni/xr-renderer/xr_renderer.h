@@ -1474,6 +1474,13 @@ typedef struct {
     int aimButtonReady;
     int aimButtonHot;
 
+    // Gamepad mode's switch on the bar, pointer and gamepad, the same again
+    XrSwapchain padButtonSwapchains[2];
+    uint32_t padButtonImageCounts[2];
+    XrSwapchainImageOpenGLESKHR* padButtonImages[2];
+    int padButtonReady;
+    int padButtonHot;
+
     // The exit button and its prompt. One sheet per lit button, all filled at
     // startup, so hovering one costs a handle rather than an upload.
     XrSwapchain exitButtonSwapchain;
@@ -1665,6 +1672,8 @@ void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide
 int aimButtonHit(XrCtx* ctx, float u, float v, float height);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);
 void setPadMode(XrCtx* ctx, int on, const char* from);
+void padButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
+int padButtonHit(XrCtx* ctx, float u, float v, float height);
 void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);
