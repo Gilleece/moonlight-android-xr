@@ -59,6 +59,14 @@ static void propIntEvent(const char* name, int* target, long maxRaw, const char*
     }
 }
 
+// The knobs the session acts on as it starts, read once before it does
+void readStartKnobs(XrCtx* ctx) {
+    propInt(PROP_REFRESH, &ctx->refreshKnob, RATE_KNOB_MAX);
+    if (ctx->refreshKnob > 0) {
+        LOGEV("refresh knob %d Hz", ctx->refreshKnob);
+    }
+}
+
 // Fires once each time the property is set to a value it has not seen. The
 // value becomes the filename tag, so setprop 1, 2, 3 gives three captures.
 void pollCaptureRequest(XrCtx* ctx) {
@@ -66,6 +74,13 @@ void pollCaptureRequest(XrCtx* ctx) {
         return;
     }
     ctx->capturePollCounter = 0;
+
+    // Hz, 0 for the stream's rate and the frame budget
+    int refresh = ctx->refreshKnob;
+    propInt(PROP_REFRESH, &refresh, RATE_KNOB_MAX);
+    if (refresh != ctx->refreshKnob) {
+        setRefreshKnob(ctx, refresh);
+    }
 
     // Milliseconds, 0 for none. The stage thread reads them at its next map.
     propIntEvent(PROP_DEPTH_TAU, &ctx->depthTauMs, DEPTH_TAU_MAX_MS, "depth tau ms");
@@ -147,6 +162,10 @@ void pollCaptureRequest(XrCtx* ctx) {
 // A release build reads no properties at all. Every knob keeps the value the
 // panel or the preferences gave it, and a capture can only be taken from a
 // debug build.
+void readStartKnobs(XrCtx* ctx) {
+    (void)ctx;
+}
+
 void propFlag(const char* name, int* target) {
     (void)name;
     (void)target;

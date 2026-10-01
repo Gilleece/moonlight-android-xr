@@ -9,8 +9,10 @@ LOCAL_SRC_FILES := xr_log.c \
                    xr_atlas.c \
                    xr_roommesh.c \
                    xr_layout.c \
+                   xr_rate.c \
                    xr_shaders.c \
                    xr_session.c \
+                   xr_display.c \
                    xr_gl.c \
                    xr_depth.c \
                    xr_ambilight.c \

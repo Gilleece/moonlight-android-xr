@@ -635,6 +635,7 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                     ctx->gpuSamples++;
                     ctx->overlayGpuTotalNs += (long)elapsed;
                     ctx->overlayGpuSamples++;
+                    rateBudgetGpu(&ctx->rateBudget, (long)elapsed);
                     if ((long)elapsed > ctx->gpuMaxNs) {
                         ctx->gpuMaxNs = (long)elapsed;
                     }
@@ -704,6 +705,7 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                 if (elapsed > 0 && elapsed < 50000000ull) {
                     ctx->roomGpuTotalNs += (long)elapsed;
                     ctx->roomGpuSamples++;
+                    rateBudgetRoom(&ctx->rateBudget, (long)elapsed);
                 }
                 else {
                     ctx->roomGpuDropped++;

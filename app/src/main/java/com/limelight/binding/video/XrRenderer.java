@@ -254,9 +254,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     private static native void nativeSetFileLog(String path, int level);
     // envResTier is the EnvResTier the room renders at: 0 low, 1 standard,
-    // 2 high, 3 ultra
-    private native long nativeInit(Activity activity, int width, int height, int stereoMode,
-                                   int depthWidth, int depthHeight,
+    // 2 high, 3 ultra. fps is the stream's, which the display rate is matched to.
+    private native long nativeInit(Activity activity, int width, int height, int fps,
+                                   int stereoMode, int depthWidth, int depthHeight,
                                    boolean depthDebug, int convergence, int depthScale,
                                    boolean handTracking, int sharpenMode, int supersampleMode,
                                    boolean perfOverlay,
@@ -311,6 +311,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeSetEnvironment(long ctx, int choice);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
     private native float nativeGetWarpGpuMs(long ctx);
+    // The rate the display is on, and the one the session last asked for, 0
+    // when it has not asked
+    private native float nativeGetDisplayRate(long ctx);
+    private native float nativeGetAskedRate(long ctx);
     private native void nativeDestroy(long ctx);
 
     public boolean start(final Activity activity, final int videoWidth, final int videoHeight,
@@ -348,8 +352,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 MidasDepthSource.Route depthRoute =
                         depthSpec.route(PreferenceConfiguration.isXr2Gen1Headset());
                 DepthSize mapSize = depthRoute.size;
-                nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.vrDepthMode,
-                        mapSize.width, mapSize.height,
+                nativeCtx = nativeInit(activity, videoWidth, videoHeight, prefs.fps,
+                        prefs.vrDepthMode, mapSize.width, mapSize.height,
                         prefs.vrDepthDebug, prefs.vrConvergence, prefs.vrDepthScale,
                         prefs.vrHandTracking, prefs.vrSharpening, prefs.vrSupersampling,
                         prefs.enablePerfOverlay,
@@ -1514,14 +1518,24 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     private String rendererStats() {
-        float warpMs;
+        float warpMs, displayHz, askedHz;
         synchronized (nativeLock) {
             if (nativeCtx == 0) {
                 return "";
             }
             warpMs = nativeGetWarpGpuMs(nativeCtx);
+            displayHz = nativeGetDisplayRate(nativeCtx);
+            askedHz = nativeGetAskedRate(nativeCtx);
         }
         StringBuilder sb = new StringBuilder();
+        if (displayHz > 0.0f) {
+            sb.append("Display: ").append(Math.round(displayHz)).append(" Hz");
+            // Still on its way, or the runtime would not move
+            if (askedHz > 0.0f && Math.abs(askedHz - displayHz) > 0.5f) {
+                sb.append(", ").append(Math.round(askedHz)).append(" asked");
+            }
+            sb.append('\n');
+        }
         sb.append(String.format("Warp GPU: %.2f ms", warpMs));
         // Switched off from the bar or the 3D tab, the model's numbers are
         // the last ones it had and mean nothing, so they make way for saying so
