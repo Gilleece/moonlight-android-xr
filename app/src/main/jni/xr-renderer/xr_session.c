@@ -435,6 +435,14 @@ static int initXrInstance(XrCtx* ctx) {
         if (layerProps.graphicsProperties.maxLayerCount > 0) {
             ctx->maxLayerCount = (int)layerProps.graphicsProperties.maxLayerCount;
         }
+        // The Quest 3 says 32, yet its compositor refuses a frame of more than
+        // 16 once it has merged what it can, and the whole frame is lost. So
+        // the spec's 16, the Pico's own limit, is the ceiling everywhere.
+        if (ctx->maxLayerCount > XR_MIN_COMPOSITION_LAYERS_SUPPORTED) {
+            LOGI("runtime reports %d composition layers, %d used", ctx->maxLayerCount,
+                 XR_MIN_COMPOSITION_LAYERS_SUPPORTED);
+            ctx->maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
+        }
         // Worth having in a user's log, it is the one place an unknown headset
         // names itself
         LOGEV("system %s (vendor 0x%x)", layerProps.systemName, layerProps.vendorId);

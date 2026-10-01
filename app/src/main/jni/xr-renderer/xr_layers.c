@@ -3,10 +3,11 @@
 #include "xr_renderer.h"
 
 // What a frame carries at its fullest, counted against the Pico's sixteen, the
-// lowest limit of the headsets here (the Quests report 32). The settings panel
-// is modal, and the frame a modal opens sheds the bar furniture, so the two
-// never land in one frame together. With the panel open the clock strip over
-// it is always up, and a step button under the ray takes the hover ring a
+// lowest limit of the headsets here (the Quests report 32, but the Quest 3
+// refuses more than 16 all the same, so 16 is used everywhere). The settings
+// panel is modal, and the frame a modal opens sheds the bar furniture, so the
+// two never land in one frame together. With the panel open the clock strip
+// over it is always up, and a step button under the ray takes the hover ring a
 // cell would. The toast can land on any of these, one layer more.
 //   Screen tab: the glow, both eyes, the stats, the cog button, the panel,
 //     the clock, six thumbs, the hover ring, ray and cursor: 16. With the
