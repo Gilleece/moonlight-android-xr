@@ -42,6 +42,7 @@
 #include "xr_rate.h"
 #include "xr_gate.h"
 #include "xr_pinch.h"
+#include "xr_notice.h"
 
 #define TAG "moonlight-xr"
 
@@ -191,6 +192,23 @@ static inline long nowNs(void) {
 #define KB_MAX_KEYS 64
 
 #define EXIT_WIDTH_FRAC 0.30f
+
+// The panels that fade in and out, each with a fade of its own
+#define FADE_COG 0
+#define FADE_PICKER 1
+#define FADE_KB 2
+#define FADE_EXIT 3
+#define FADE_PANELS 4
+// And the layers a colour scale is chained onto: those four, then the splash
+#define FADE_SLOT_SPLASH FADE_PANELS
+#define FADE_SLOTS (FADE_PANELS + 1)
+
+// The launch splash, locked to the head: a black quad wider than any view
+// with the sheet a little in front of it, in metres
+#define SPLASH_BLACK_M 6.0f
+#define SPLASH_BLACK_DISTANCE_M 1.5f
+#define SPLASH_SHEET_W_M 0.9f
+#define SPLASH_SHEET_DISTANCE_M 1.45f
 
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
@@ -380,6 +398,10 @@ typedef struct XrCompositionLayerSettingsFB {
 // shipped, 2 boost. Read at session start and live, though a level once asked
 // for cannot be taken back, so 0 only means nothing at the next session.
 #define PROP_PERF_LEVEL "debug.moonlight.perflevel"
+// Milliseconds a panel takes to fade, 0 for the shipped 150, and the splash
+// twice that. Long ones make a fade something a screenshot can catch.
+#define PROP_FADE_MS "debug.moonlight.fadems"
+#define FADE_KNOB_MAX_MS 10000
 
 // What the session asks the runtime's performance levels for
 #define PERF_LEVEL_NONE 0
@@ -777,9 +799,41 @@ typedef struct {
     // Frames submitted while focused. Passthrough waits for the first one, see
     // the blend mode choice in nativeEndFrame.
     int focusedFrames;
+    // The blend mode has gone over to passthrough once, which is said once
+    int passthroughBlendSaid;
 
     int cylinderSupported;
     int layerSettingsSupported;
+    // Layer colour scale (XR_KHR_composition_layer_color_scale_bias), which is
+    // what fades a layer without drawing anything. Without it the panels and
+    // the splash come and go at once, as they always did.
+    int colorScaleSupported;
+    // How long a panel's fade takes, which the splash's is twice
+    long fadeNs;
+    int fadeKnobMs;
+    // The settings panel, the picker, the keyboard and the exit prompt, each
+    // fading on its own, and whether one is still on its way out, which keeps
+    // the bar furniture down until it has gone
+    Fade panelFades[FADE_PANELS];
+    int panelFadingOut;
+
+    // The launch splash. Up from the session's first frame until the panels,
+    // the room and the depth model are ready, so their loading is not a black
+    // stall with nothing on it. When each was ready, in ms from the first
+    // frame, -1 while not yet, for the line that says why it went.
+    Splash splash;
+    int splashReadyMs[3];
+    XrSwapchain splashSwapchain;
+    uint32_t splashImageCount;
+    XrSwapchainImageOpenGLESKHR* splashImages;
+    int splashArtReady;
+    // The last of the panels' art reaching the frame loop, whether or not it
+    // uploaded, which is when the splash stops waiting on the panels
+    int panelArtArrived;
+    // Maps the stage thread has published, and the model giving up before it
+    // made one, which are the two ways the splash stops waiting on the depth
+    atomic_int depthMapsStaged;
+    atomic_int depthGaveUp;
 
     // The display refresh rate. The runtime keeps whatever rate it starts on
     // unless asked, so a stream faster than that loses frames before they are

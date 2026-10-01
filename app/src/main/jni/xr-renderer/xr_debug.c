@@ -59,8 +59,21 @@ static void propIntEvent(const char* name, int* target, long maxRaw, const char*
     }
 }
 
+// Milliseconds a panel's fade takes, 0 for the shipped length
+static void readFadeKnob(XrCtx* ctx) {
+    int ms = ctx->fadeKnobMs;
+    propInt(PROP_FADE_MS, &ms, FADE_KNOB_MAX_MS);
+    if (ms != ctx->fadeKnobMs) {
+        ctx->fadeKnobMs = ms;
+        ctx->fadeNs = ms > 0 ? ms * 1000000L : FADE_NS;
+        LOGEV("fade knob %d ms", ms);
+    }
+}
+
 // The knobs the session acts on as it starts, read once before it does
 void readStartKnobs(XrCtx* ctx) {
+    // Before the first frame, so the splash fades at the length asked for
+    readFadeKnob(ctx);
     propInt(PROP_REFRESH, &ctx->refreshKnob, RATE_KNOB_MAX);
     if (ctx->refreshKnob > 0) {
         LOGEV("refresh knob %d Hz", ctx->refreshKnob);
@@ -93,6 +106,7 @@ void pollCaptureRequest(XrCtx* ctx) {
         setPerfLevel(ctx, perf);
     }
 
+    readFadeKnob(ctx);
     // Milliseconds, 0 for none. The stage thread reads them at its next map.
     propIntEvent(PROP_DEPTH_TAU, &ctx->depthTauMs, DEPTH_TAU_MAX_MS, "depth tau ms");
     propIntEvent(PROP_RANGE_TAU, &ctx->rangeTauMs, DEPTH_RANGE_TAU_MAX_MS, "depth range tau ms");

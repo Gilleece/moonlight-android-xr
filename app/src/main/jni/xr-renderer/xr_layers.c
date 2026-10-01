@@ -22,9 +22,14 @@
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the same furniture and adds only its panel and one
 // ring, so it comes to 9. The exit prompt sheds it too and adds its own
-// sheet and the button that opened it, so it comes to less again. Sized
-// well past that anyway: an overflow here is a smashed stack, and the
-// margin costs five pointers.
+// sheet and the button that opened it, so it comes to less again. A panel
+// fading out keeps the bar furniture down until it has gone, and one opening
+// cuts any other's fade short, so a fade never stacks two of these. The
+// launch splash is two layers and all the frame carries while it is fully up;
+// as it fades the room, the glow, the eyes and the stats come up under it,
+// six more, with no furniture, since no input is read until it has gone.
+// Sized well past all that anyway: an overflow here is a smashed stack, and
+// the margin costs five pointers.
 #define FRAME_MAX_LAYERS 20
 
 // Every composition layer a frame can carry, on nativeEndFrame's stack for as
@@ -58,13 +63,39 @@ typedef struct {
     XrCompositionLayerQuad kbMark;
     XrCompositionLayerQuad beam;
     XrCompositionLayerQuad dot;
+    XrCompositionLayerQuad splashBlack;
+    XrCompositionLayerQuad splashSheet;
     XrCompositionLayerSettingsFB settings;
     // NULL when sharpening and supersampling are both off or unsupported,
     // which leaves every chain untouched
     const void* settingsChain;
+    // The colour scale on whatever is part way through a fade, one per thing
+    // that fades, ahead of the settings chain on the layers that carry it and
+    // on its own on the rest
+    XrCompositionLayerColorScaleBiasKHR fades[FADE_SLOTS][2];
     const XrCompositionLayerBaseHeader* order[FRAME_MAX_LAYERS];
     uint32_t count;
 } FrameLayers;
+
+// What a layer chains on as it fades: the settings chain on the layers that
+// carry it, behind a colour scale while the fade is part way. At rest, or on a
+// runtime without the extension, the chain is what it always was. Every
+// channel is scaled, since the art's alpha is premultiplied.
+static const void* fadeNext(XrCtx* ctx, FrameLayers* layers, int slot, int sharp, float level) {
+    const void* next = sharp ? layers->settingsChain : NULL;
+    if (!ctx->colorScaleSupported || level >= 1.0f) {
+        return next;
+    }
+    XrCompositionLayerColorScaleBiasKHR* scale = &layers->fades[slot][sharp ? 1 : 0];
+    memset(scale, 0, sizeof(*scale));
+    scale->type = XR_TYPE_COMPOSITION_LAYER_COLOR_SCALE_BIAS_KHR;
+    scale->next = next;
+    scale->colorScale.r = level;
+    scale->colorScale.g = level;
+    scale->colorScale.b = level;
+    scale->colorScale.a = level;
+    return scale;
+}
 
 // What every layer builder reads about this frame, worked out once
 typedef struct {
@@ -437,34 +468,54 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
 // the furniture's frame, which in a room is the stand in rather than the wall.
 static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
                          XrCompositionLayerQuad* slot, XrSwapchain chain,
-                         void (*placement)(XrCtx*, float, Vec3*, float*), int hot) {
+                         void (*placement)(XrCtx*, float, Vec3*, float*), int hot,
+                         const void* next) {
     Vec3 local;
     float side;
     placement(ctx, furnitureHeight(ctx), &local, &side);
     // Grows a little when the ray is on it, which is the only feedback
     // a quad layer can give without a second texture
     float scale = hot ? 1.18f : 1.0f;
-    quadLayer(slot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
+    quadLayer(slot, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
               BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(furniturePose(ctx), local),
               side * scale, side * scale);
     pushLayer(ctx, layers, slot);
 }
 
+// Whether a button that stays up with its panel is up, and what it chains on:
+// nothing extra while the bar or the panel holds it up, and the panel's fade
+// while the panel is on its way out, so the two go together
+static int panelButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers, int panel,
+                       int open, const void** next) {
+    float level = ctx->panelFades[panel].level;
+    *next = NULL;
+    if (view->barArea || open) {
+        return 1;
+    }
+    if (level > 0.0f) {
+        *next = fadeNext(ctx, layers, panel, 0, level);
+        return 1;
+    }
+    return 0;
+}
+
 // The environment, settings, keyboard and exit buttons beside the move bar
 static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    const void* next = NULL;
     // The button that opens the environment grid, left of the move bar.
     // Stays up while the grid is open so it reads as the thing that
     // opened it.
-    if (ctx->envButtonReady && (view->barArea || ctx->pickerOpen)) {
+    if (ctx->envButtonReady
+            && panelButton(ctx, view, layers, FADE_PICKER, ctx->pickerOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->envButton, ctx->envButtonSwapchain,
-                     envButtonPlacement, ctx->envButtonHot);
+                     envButtonPlacement, ctx->envButtonHot, next);
     }
 
     // The cog that opens the settings panel, right of the move bar. Same
     // rules as the environment button on the other side.
-    if (ctx->cogButtonReady && (view->barArea || ctx->cogOpen)) {
+    if (ctx->cogButtonReady && panelButton(ctx, view, layers, FADE_COG, ctx->cogOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->cogButton, ctx->cogButtonSwapchain,
-                     cogButtonPlacement, ctx->cogButtonHot || ctx->cogOpen);
+                     cogButtonPlacement, ctx->cogButtonHot || ctx->cogOpen, next);
     }
 
     // The keyboard button, one place further out. Unlike the cog it goes
@@ -472,15 +523,16 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // the hide key is what puts it away.
     if (ctx->kbButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->kbButton, ctx->kbButtonSwapchain,
-                     kbButtonPlacement, ctx->kbButtonHot);
+                     kbButtonPlacement, ctx->kbButtonHot, NULL);
     }
 
     // The button that ends the stream, furthest out on the left. Stays up
     // while its prompt is open, like the environment button does, so it
     // reads as the thing that asked the question.
-    if (ctx->exitButtonReady && (view->barArea || ctx->exitConfirmOpen)) {
+    if (ctx->exitButtonReady
+            && panelButton(ctx, view, layers, FADE_EXIT, ctx->exitConfirmOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->exitButton, ctx->exitButtonSwapchain,
-                     exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen);
+                     exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
     }
 
     // The 3D switch, furthest out on the right, showing which way it is set.
@@ -488,7 +540,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     if (ctx->stereoButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->stereoButton,
                      ctx->stereoButtonSwapchains[ctx->stereoLive ? 1 : 0],
-                     stereoButtonPlacement, ctx->stereoButtonHot);
+                     stereoButtonPlacement, ctx->stereoButtonHot, NULL);
     }
 }
 
@@ -498,8 +550,9 @@ static void addExitPromptLayer(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // up is which of its buttons the ray is on, so lighting one costs a
     // handle rather than an upload. Sharpened like the grid, since what it
     // carries is text.
-    if (ctx->exitConfirmOpen && ctx->exitPromptReady[ctx->exitHoverZone]) {
-        quadLayer(&layers->exitPrompt, layers->settingsChain,
+    float level = ctx->panelFades[FADE_EXIT].level;
+    if (level > 0.0f && ctx->exitPromptReady[ctx->exitHoverZone]) {
+        quadLayer(&layers->exitPrompt, fadeNext(ctx, layers, FADE_EXIT, 1, level),
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->exitPromptSwapchains[ctx->exitHoverZone], EXIT_TEX_W, EXIT_TEX_H,
                   view->space, ctx->exitPose, ctx->exitW, ctx->exitH);
@@ -544,11 +597,12 @@ static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
 static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The environment grid, floating in front of the screen, with the
     // hovered and the chosen cell ringed
-    if (ctx->pickerOpen && ctx->pickerReady) {
+    float level = ctx->panelFades[FADE_PICKER].level;
+    if (level > 0.0f && ctx->pickerReady) {
         float pickW, pickH;
         XrPosef pickPose = pickerPose(ctx, &pickW, &pickH);
 
-        quadLayer(&layers->picker, layers->settingsChain,
+        quadLayer(&layers->picker, fadeNext(ctx, layers, FADE_PICKER, 1, level),
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->pickerSwapchain,
                   PICKER_TEX_W, PICKER_TEX_H, view->space, pickPose, pickW, pickH);
         pushLayer(ctx, layers, &layers->picker);
@@ -579,7 +633,8 @@ static void addPickerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* laye
                 local.z = 0.004f;
 
                 XrCompositionLayerQuad* mark = &layers->outline[m];
-                quadLayer(mark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                quadLayer(mark, fadeNext(ctx, layers, FADE_PICKER, 0, level),
+                          XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                           ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
                           poseOffset(pickPose, local), cellW * scales[m], cellH * scales[m]);
                 pushLayer(ctx, layers, mark);
@@ -598,7 +653,8 @@ static void addCogRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
     local.x = (COG_TRACK_L + (cell + 0.5f) * span - 0.5f) * ctx->cogW;
     local.y = (0.5f - cogRowV(face, row)) * ctx->cogH;
     local.z = 0.004f;
-    quadLayer(mark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+    quadLayer(mark, fadeNext(ctx, layers, FADE_COG, 0, ctx->panelFades[FADE_COG].level),
+              XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
               ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
               poseOffset(ctx->cogPose, local), span * ctx->cogW * scale,
               2.0f * cogCellHalf(face) * ctx->cogH * scale);
@@ -613,8 +669,9 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // own sheets. Sharpened: it carries text.
     int art = cogArt(ctx);
     int face = cogFace(ctx);
-    if (ctx->cogOpen && ctx->cogPanelReady[art]) {
-        quadLayer(&layers->cogPanel, layers->settingsChain,
+    float level = ctx->panelFades[FADE_COG].level;
+    if (level > 0.0f && ctx->cogPanelReady[art]) {
+        quadLayer(&layers->cogPanel, fadeNext(ctx, layers, FADE_COG, 1, level),
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->cogPanelSwapchains[art], COG_TEX_W, COG_TEX_H, view->space,
                   ctx->cogPose, ctx->cogW, ctx->cogH);
@@ -672,7 +729,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                 local.x = (COG_READOUT_L + stripW * 0.5f - 0.5f) * ctx->cogW;
                 local.y = (0.5f - (COG_READOUT_T + stripH * 0.5f)) * ctx->cogH;
                 local.z = 0.003f;
-                quadLayer(&layers->cogReadout, layers->settingsChain,
+                quadLayer(&layers->cogReadout, fadeNext(ctx, layers, FADE_COG, 1, level),
                           XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                           ctx->cogReadoutSwapchain, COG_READOUT_TEX_W, COG_READOUT_TEX_H,
                           view->space, poseOffset(ctx->cogPose, local), stripW * ctx->cogW,
@@ -700,7 +757,8 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                         ? 1.25f : 1.0f;
 
                 XrCompositionLayerQuad* thumb = &layers->cogThumb[s];
-                quadLayer(thumb, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                quadLayer(thumb, fadeNext(ctx, layers, FADE_COG, 0, level),
+                          XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                           ctx->cogThumbSwapchain, COG_THUMB_TEX, COG_THUMB_TEX, view->space,
                           poseOffset(ctx->cogPose, local), thumbSize * grow, thumbSize * grow);
                 pushLayer(ctx, layers, thumb);
@@ -715,9 +773,9 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     // ray ringed. Sharpened, since it is all text. It stands down while a
     // modal is up rather than stacking under one: the two together would
     // crowd the runtime's layer ceiling, and the modal has the ray anyway.
-    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
-            && ctx->kbPanelReady[ctx->kbState]) {
-        quadLayer(&layers->kbPanel, layers->settingsChain,
+    float level = ctx->panelFades[FADE_KB].level;
+    if (level > 0.0f && ctx->kbPanelReady[ctx->kbState]) {
+        quadLayer(&layers->kbPanel, fadeNext(ctx, layers, FADE_KB, 1, level),
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->kbPanelSwapchains[ctx->kbState], KB_TEX_W, KB_TEX_H, view->space,
                   ctx->kbPose, ctx->kbW, ctx->kbH);
@@ -734,7 +792,8 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
             // feedback a quad layer can give
             float grow = ctx->kbKeyDown ? 1.12f : 1.0f;
 
-            quadLayer(&layers->kbMark, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+            quadLayer(&layers->kbMark, fadeNext(ctx, layers, FADE_KB, 0, level),
+                      XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                       ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
                       poseOffset(ctx->kbPose, local), (r[2] - r[0]) * ctx->kbW * grow,
                       (r[3] - r[1]) * ctx->kbH * grow);
@@ -810,6 +869,150 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             pushLayer(ctx, layers, &layers->dot);
         }
     }
+}
+
+// Steps each panel's fade toward whether it is showing. A panel opening takes
+// any other still on its way out away at once, so two are never up together,
+// and the keyboard stands down at once for a modal the way it always has.
+static void stepPanelFades(XrCtx* ctx, long now) {
+    static const char* const NAMES[FADE_PANELS] = {
+        "settings panel", "picker", "keyboard", "exit prompt"
+    };
+    int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen;
+    int shown[FADE_PANELS];
+    shown[FADE_COG] = ctx->cogOpen;
+    shown[FADE_PICKER] = ctx->pickerOpen;
+    shown[FADE_KB] = ctx->kbOpen && !modal;
+    shown[FADE_EXIT] = ctx->exitConfirmOpen;
+    ctx->panelFadingOut = 0;
+    for (int p = 0; p < FADE_PANELS; p++) {
+        Fade* fade = &ctx->panelFades[p];
+        if (modal && !shown[p]) {
+            fade->level = 0.0f;
+            fade->running = 0;
+        }
+        int landed = fadeStep(fade, shown[p], now, ctx->fadeNs, ctx->colorScaleSupported);
+        if (landed != FADE_NONE) {
+            LOGI("%s faded %s over %ld ms, %d frames", NAMES[p],
+                 landed == FADE_IN_DONE ? "in" : "out", (long)((now - fade->fromNs) / 1000000L),
+                 fade->frames);
+        }
+        if (!shown[p] && fade->level > 0.0f) {
+            ctx->panelFadingOut = 1;
+        }
+    }
+}
+
+// What the splash is still waiting on: the panels' art, the room the picker
+// is on built and drawn, and the depth model's first map, each only where it
+// is wanted at all. A room that failed or a model that gave up is not waited
+// on, since nothing more is coming from either.
+static int splashWaiting(XrCtx* ctx) {
+    int waiting = 0;
+    if (!ctx->panelArtArrived) {
+        waiting |= SPLASH_WAIT_PANELS;
+    }
+    int style = roomEffective(ctx);
+    if (style > 0 && !ctx->roomFailed
+            && !(ctx->roomRendered && ctx->roomBuiltStyle == style)) {
+        waiting |= SPLASH_WAIT_ROOM;
+    }
+    if (ctx->stereoMode == DEPTH_MODE_MODEL
+            && atomic_load_explicit(&ctx->depthMapsStaged, memory_order_relaxed) == 0
+            && !atomic_load_explicit(&ctx->depthGaveUp, memory_order_relaxed)) {
+        waiting |= SPLASH_WAIT_DEPTH;
+    }
+    return waiting;
+}
+
+// The line that says when the splash went and why: the floor, everything
+// being ready, or the ceiling with whatever it was still waiting on
+static void logSplashLift(XrCtx* ctx) {
+    static const char* const NAMES[3] = { "panels", "room", "depth model" };
+    long upMs = (long)((ctx->splash.liftNs - ctx->splash.firstNs) / 1000000L);
+    char parts[160];
+    parts[0] = '\0';
+    for (int i = 0; i < 3; i++) {
+        int wanted = i == 0 || (i == 1 && roomEffective(ctx) > 0)
+                || (i == 2 && ctx->stereoMode == DEPTH_MODE_MODEL);
+        if (!wanted) {
+            continue;
+        }
+        size_t used = strlen(parts);
+        if (ctx->splashReadyMs[i] >= 0) {
+            snprintf(parts + used, sizeof(parts) - used, "%s%s at %d ms", used > 0 ? ", " : "",
+                     NAMES[i], ctx->splashReadyMs[i]);
+        }
+        else {
+            snprintf(parts + used, sizeof(parts) - used, "%s%s not ready", used > 0 ? ", " : "",
+                     NAMES[i]);
+        }
+    }
+    const char* why = ctx->splash.waitingAtLift != 0 ? "the ceiling"
+            : upMs <= SPLASH_FLOOR_NS / 1000000L + 50 ? "the floor" : "ready";
+    LOGEV("splash lifted after %ld ms (%s): %s, %s", upMs, why, parts,
+          ctx->colorScaleSupported ? "fading" : "cut");
+}
+
+// One frame of the splash: what has become ready since the last, and whether
+// it lifts now
+static void stepSplash(XrCtx* ctx, long now) {
+    if (ctx->splash.phase == SPLASH_GONE) {
+        return;
+    }
+    int waiting = splashWaiting(ctx);
+    if (ctx->splash.firstNs != 0) {
+        int bits[3] = { SPLASH_WAIT_PANELS, SPLASH_WAIT_ROOM, SPLASH_WAIT_DEPTH };
+        for (int i = 0; i < 3; i++) {
+            if (ctx->splashReadyMs[i] < 0 && !(waiting & bits[i])) {
+                ctx->splashReadyMs[i] = (int)((now - ctx->splash.firstNs) / 1000000L);
+            }
+        }
+    }
+    long fadeNs = ctx->colorScaleSupported ? 2 * ctx->fadeNs : 0;
+    int phase = ctx->splash.phase;
+    if (splashStep(&ctx->splash, now, waiting, fadeNs)) {
+        logSplashLift(ctx);
+    }
+    if (phase == SPLASH_FADING && ctx->splash.phase == SPLASH_GONE) {
+        LOGI("splash gone, faded over %ld ms", (long)((now - ctx->splash.liftNs) / 1000000L));
+    }
+}
+
+// The splash, locked to the head and in front of everything: a black quad
+// wider than any view, cut from the black strip under the sheet's rows, and
+// the sheet itself on the row for the dots it is up to. While it is fully up
+// it is all the frame carries.
+static void addSplashLayers(XrCtx* ctx, FrameLayers* layers, long now) {
+    if (ctx->splash.phase == SPLASH_GONE || !ctx->splashArtReady) {
+        return;
+    }
+    float level = splashLevel(&ctx->splash, now, 2 * ctx->fadeNs);
+    const void* next = fadeNext(ctx, layers, FADE_SLOT_SPLASH, 0, level);
+    XrPosef pose;
+    memset(&pose, 0, sizeof(pose));
+    pose.orientation.w = 1.0f;
+
+    pose.position.z = -SPLASH_BLACK_DISTANCE_M;
+    quadLayer(&layers->splashBlack, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+              ctx->splashSwapchain, SPLASH_TEX_W, SPLASH_TEX_H, ctx->viewSpace, pose,
+              SPLASH_BLACK_M, SPLASH_BLACK_M);
+    // Well inside the black strip, which arrives as the bottom rows of the
+    // image, so filtering never reaches past it
+    layers->splashBlack.subImage.imageRect.offset.x = 8;
+    layers->splashBlack.subImage.imageRect.offset.y = 4;
+    layers->splashBlack.subImage.imageRect.extent.width = 8;
+    layers->splashBlack.subImage.imageRect.extent.height = SPLASH_BLACK_PX - 8;
+    pushLayer(ctx, layers, &layers->splashBlack);
+
+    // The rows were drawn top down and arrive bottom up
+    int row = splashRow(&ctx->splash, now, SPLASH_ROWS);
+    pose.position.z = -SPLASH_SHEET_DISTANCE_M;
+    quadLayer(&layers->splashSheet, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+              ctx->splashSwapchain, SPLASH_TEX_W, SPLASH_ROW_H, ctx->viewSpace, pose,
+              SPLASH_SHEET_W_M, SPLASH_SHEET_W_M * SPLASH_ROW_H / SPLASH_TEX_W);
+    layers->splashSheet.subImage.imageRect.offset.y = SPLASH_TEX_H - (row + 1) * SPLASH_ROW_H;
+    pushLayer(ctx, layers, &layers->splashSheet);
 }
 
 JNIEXPORT void JNICALL
@@ -905,8 +1108,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // The same test the picture's own layer makes below, so the furniture that
     // is pinned to the picture sits on whichever surface actually goes up
     view.screenCurved = view.curve > 0.01f && ctx->cylinderSupported;
+    // A panel on its way out keeps the furniture down until it has gone, the
+    // way an open one does, so the two never stack up in one frame
+    long frameNs = nowNs();
+    stepPanelFades(ctx, frameNs);
+    stepSplash(ctx, frameNs);
+    int splashUp = ctx->splash.phase == SPLASH_UP;
     view.barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
-            && !ctx->exitConfirmOpen
+            && !ctx->exitConfirmOpen && !ctx->panelFadingOut
             && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                 || ctx->hoverKind == HOVER_COGBUTTON
                 || ctx->hoverKind == HOVER_KBBUTTON
@@ -920,24 +1129,32 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // first frame leaves them off for the whole session. Submitting the first
     // focused frame opaque gives every runtime the transition it wants. Later
     // switches from the picker are long past this point.
+    // The splash is opaque black for as long as it is fully up, so the cameras
+    // wait for it to start going, which is also after the first focused frame
     int wantPassthrough = ctx->passthrough && ctx->alphaBlendSupported;
-    endInfo.environmentBlendMode = (wantPassthrough && ctx->focusedFrames > 0)
+    int blendNow = wantPassthrough && ctx->focusedFrames > 0 && !splashUp;
+    endInfo.environmentBlendMode = blendNow
             ? XR_ENVIRONMENT_BLEND_MODE_ALPHA_BLEND : XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    if (blendNow && !ctx->passthroughBlendSaid) {
+        ctx->passthroughBlendSaid = 1;
+        LOGI("passthrough blend enabled after %d focused frames", ctx->focusedFrames);
+        LOGEV("passthrough blend enabled after %d focused frames", ctx->focusedFrames);
+    }
     if (ctx->sessionState == XR_SESSION_STATE_FOCUSED) {
         ctx->focusedFrames++;
-        if (wantPassthrough && ctx->focusedFrames == 1) {
-            LOGI("passthrough blend enabled after first focused frame");
-            LOGEV("passthrough blend enabled after first focused frame");
-        }
     }
 
     FrameLayers layers;
     layers.count = 0;
     setLayerSettings(ctx, &layers);
 
-    addRoomLayer(ctx, &view, &layers);
-    addGlowLayer(ctx, &view, &layers);
-    if (ctx->everRendered && ctx->shouldRender) {
+    // Behind the splash while it is fully up there is nothing to see, so
+    // nothing else goes up with it
+    if (!splashUp) {
+        addRoomLayer(ctx, &view, &layers);
+        addGlowLayer(ctx, &view, &layers);
+    }
+    if (!splashUp && ctx->everRendered && ctx->shouldRender) {
         addVideoLayers(ctx, &view, &layers);
         addOverlayLayer(ctx, &view, &layers);
         addHandleLayer(ctx, &view, &layers);
@@ -949,6 +1166,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addKeyboardLayers(ctx, &view, &layers);
         addPointerLayers(ctx, &view, &layers);
     }
+    // Last, so it is in front of everything
+    addSplashLayers(ctx, &layers, frameNs);
 
     // The display tab at its fullest, with a room, the glow, the stats and
     // the ray all up, is two layers past the Pico's sixteen, and a frame over

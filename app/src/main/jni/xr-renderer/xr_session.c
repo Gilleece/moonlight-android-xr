@@ -142,6 +142,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME)) ctx->virtualKeyboardSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME)) ctx->refreshRateSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME)) ctx->perfSettingsSupported = 1;
+        if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME)) ctx->colorScaleSupported = 1;
     }
     free(exts);
 
@@ -192,6 +193,9 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->perfSettingsSupported) {
         enableExt(enabledExts, &enabledCount, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+    }
+    if (ctx->colorScaleSupported) {
+        enableExt(enabledExts, &enabledCount, XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME);
     }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
@@ -253,6 +257,9 @@ static int initXrInstance(XrCtx* ctx) {
           ? "available (XR_FB_composition_layer_settings)" : "not offered by this runtime");
     LOGEV("virtual keyboard extension %s", ctx->virtualKeyboardSupported
           ? "available (XR_META_virtual_keyboard)" : "not offered by this runtime");
+    LOGEV("layer colour scale %s", ctx->colorScaleSupported
+          ? "available (XR_KHR_composition_layer_color_scale_bias), the panels and the splash fade"
+          : "not offered by this runtime, the panels and the splash cut");
 
     // How many layers a frame may carry. The furniture, the panel and the glow
     // all come and go on their own, so the ceiling is worth knowing rather than
@@ -407,6 +414,9 @@ static int initSwapchain(XrCtx* ctx) {
     // The stream is worth more than the stats, so carry on without it
     createArtSwapchain(ctx, OVERLAY_WIDTH, OVERLAY_HEIGHT, "create overlay swapchain",
                        &ctx->overlaySwapchain, &ctx->overlayImages, &ctx->overlayImageCount);
+    // Or the splash, whose black still goes up without its sheet
+    createArtSwapchain(ctx, SPLASH_TEX_W, SPLASH_TEX_H, "create splash swapchain",
+                       &ctx->splashSwapchain, &ctx->splashImages, &ctx->splashImageCount);
 
     return 1;
 }
@@ -579,6 +589,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyArtSwapchain(&ctx->outlineSwapchain, &ctx->outlineImages);
     destroyArtSwapchain(&ctx->glowSwapchain, &ctx->glowImages);
     destroyArtSwapchain(&ctx->roomSwapchain, &ctx->roomImages);
+    destroyArtSwapchain(&ctx->splashSwapchain, &ctx->splashImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -705,6 +716,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->cogDragHand = -1;
     ctx->cogDragFace = -1;
     ctx->cogHoverSlider = -1;
+    // Nothing the splash waits on is ready yet, and no map has been made
+    ctx->fadeNs = FADE_NS;
+    for (int i = 0; i < 3; i++) {
+        ctx->splashReadyMs[i] = -1;
+    }
+    atomic_init(&ctx->depthMapsStaged, 0);
+    atomic_init(&ctx->depthGaveUp, 0);
     // No key under the ray, and zero is a real key
     ctx->kbHoverKey = -1;
     ctx->pointerMinCutoff = POINTER_MIN_CUTOFF;

@@ -54,6 +54,17 @@
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512
 
+// The sheet the launch splash shows: the app's name over the loading word,
+// drawn once per number of dots, one under the other, so stepping the dots is
+// a different rectangle of the same image rather than an upload. The words sit
+// on nothing, and a strip of black under the last row, clear of it, is what
+// the quad that blacks out the view is cut from, so the two fade as one.
+#define SPLASH_TEX_W 768
+#define SPLASH_ROW_H 256
+#define SPLASH_ROWS 3
+#define SPLASH_BLACK_PX 16
+#define SPLASH_TEX_H (SPLASH_ROW_H * SPLASH_ROWS + SPLASH_BLACK_PX + 8)
+
 // Slots in the float array handed back to Java each frame
 #define IN_HIT      0
 #define IN_U        1

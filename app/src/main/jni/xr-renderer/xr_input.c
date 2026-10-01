@@ -2513,9 +2513,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     out[IN_KEY] = -1.0f;
 
     // Anything held has to come back up when pointing stops, or the host is
-    // left with a stuck button
+    // left with a stuck button. Nothing is pointed at under the splash either:
+    // it hides everything a press could land on.
     if (ctx == NULL || !ctx->inputReady || !pointerEnabled || !ctx->placementValid
-            || ctx->sessionState != XR_SESSION_STATE_FOCUSED) {
+            || ctx->sessionState != XR_SESSION_STATE_FOCUSED
+            || ctx->splash.phase != SPLASH_GONE) {
         if (ctx != NULL) {
             releaseInput(ctx, out);
         }

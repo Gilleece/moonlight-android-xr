@@ -155,7 +155,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final String ROOM_DIR = "rooms";
 
     // Panel art on its way to the GPU. XrPanels draws it on the loader thread
-    // and it waits here for the frame loop, which owns the GL context.
+    // and it waits here for the frame loop, which owns the GL context. The
+    // splash is the exception, drawn before the frame loop starts so it is
+    // up from the first frame.
+    private final AtomicReference<ByteBuffer> pendingSplash = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingKbLower = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingKbUpper = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingKbSymbols = new AtomicReference<>();
@@ -323,6 +326,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native boolean nativeGetCylinderSupported(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
+    private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
+    // The depth model will make no map this session, so the splash stops
+    // waiting for one. Any thread.
+    private native void nativeDepthGaveUp(long ctx);
     private native void nativeSetEnvironment(long ctx, int choice);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
     private native float nativeGetWarpGpuMs(long ctx);
@@ -395,6 +402,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         DepthPresets.values(depthSpec.defaultSeparation));
                 restoreScreenPose();
                 startEnvironment(prefs);
+                // A few milliseconds here, and the first frame has it
+                pendingSplash.set(panels.buildSplash());
 
                 File captureDir = activity.getExternalFilesDir(null);
                 if (captureDir != null) {
@@ -474,6 +483,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
 
                 if (!nativeBindDepthContext(nativeCtx)) {
+                    nativeDepthGaveUp(nativeCtx);
                     return;
                 }
 
@@ -486,6 +496,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         outputs[i] = nativeGetModelOutput(nativeCtx, i);
                         if (inputs[i] == null || outputs[i] == null) {
                             LimeLog.severe("Depth staging buffers missing");
+                            nativeDepthGaveUp(nativeCtx);
                             return;
                         }
                     }
@@ -497,6 +508,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         // initialized with, so zero disparity, and the
                         // stream stays watchable
                         LimeLog.severe("Depth source init failed, stereo will be flat");
+                        nativeDepthGaveUp(nativeCtx);
                         return;
                     }
                     depthLabel = spec.name+" "+route.size+" "+model.runtimeLabel();
@@ -535,6 +547,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
                 if (!nativeBindDepthStageContext(nativeCtx)) {
                     LimeLog.severe("Depth stage context would not bind, stereo will stay as it is");
+                    nativeDepthGaveUp(nativeCtx);
                     return;
                 }
                 try {
@@ -851,6 +864,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // Nothing new from the decoder, so the frame still latched
                 startDepthCapture();
             }
+            ByteBuffer splash = pendingSplash.getAndSet(null);
+            if (splash != null) {
+                nativeUploadSplash(nativeCtx, splash);
+            }
+
             // Upload here rather than from the reporting thread, since this is
             // the thread that owns the GL context
             ByteBuffer overlay = pendingOverlay.getAndSet(null);

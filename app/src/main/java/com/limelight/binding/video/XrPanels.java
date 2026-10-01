@@ -25,7 +25,8 @@ import static com.limelight.binding.video.XrShared.*;
 /**
  * The flat panels reachable from inside the session: the environment picker,
  * the settings sheets, the keyboard and the exit prompt, and the buttons along
- * the bar that open them or switch the 3D. Java is the only place Android will lay out text, so their art
+ * the bar that open them or switch the 3D, with the splash the session opens
+ * on. Java is the only place Android will lay out text, so their art
  * is drawn to bitmaps here and handed back as pixels for the frame loop to
  * upload, since that thread owns the GL context. Nothing in here touches the
  * session, so it can run on whichever thread has the time.
@@ -166,6 +167,10 @@ final class XrPanels {
     // the native side rather than an upload. The sheet and where its buttons
     // sit on it are the EXIT_ values in XrShared.
     private static final String EXIT_QUESTION = "Exit the stream?";
+
+    // What the launch splash says while the session comes up
+    private static final String SPLASH_NAME = "Moonlight XR";
+    private static final String SPLASH_LOADING = "Loading";
 
     private final Context context;
 
@@ -1185,6 +1190,48 @@ final class XrPanels {
         text.setTextSize(30.0f);
         canvas.drawText(label, box.centerX(),
                 box.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    /**
+     * The launch splash: the app's name over the loading word, once for each
+     * number of dots and one under the other, so the native side steps the
+     * dots by showing another row. The words sit on nothing: the black behind
+     * them is the quad that blacks out the view, cut from the strip of black
+     * under the rows, so the two fade together without a box showing.
+     */
+    ByteBuffer buildSplash() {
+        Bitmap bitmap = Bitmap.createBitmap(SPLASH_TEX_W, SPLASH_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        Paint black = new Paint();
+        black.setColor(Color.BLACK);
+        canvas.drawRect(0.0f, SPLASH_TEX_H - SPLASH_BLACK_PX, SPLASH_TEX_W, SPLASH_TEX_H, black);
+
+        Paint name = new Paint(Paint.ANTI_ALIAS_FLAG);
+        name.setColor(Color.WHITE);
+        name.setTextSize(64.0f);
+        name.setTextAlign(Paint.Align.CENTER);
+
+        // Dimmer than the name, and set from where the whole word with all its
+        // dots would start, so it does not shuffle along as they come and go
+        Paint word = new Paint(Paint.ANTI_ALIAS_FLAG);
+        word.setColor(0x99FFFFFF);
+        word.setTextSize(30.0f);
+        float wordLeft = (SPLASH_TEX_W - word.measureText(SPLASH_LOADING + "...")) * 0.5f;
+
+        for (int row = 0; row < SPLASH_ROWS; row++) {
+            float top = row * SPLASH_ROW_H;
+            canvas.drawText(SPLASH_NAME, SPLASH_TEX_W * 0.5f, top + SPLASH_ROW_H * 0.48f, name);
+            StringBuilder dots = new StringBuilder(SPLASH_LOADING);
+            for (int dot = 0; dot <= row; dot++) {
+                dots.append('.');
+            }
+            canvas.drawText(dots.toString(), wordLeft, top + SPLASH_ROW_H * 0.74f, word);
+        }
+
+        ByteBuffer pixels = toBuffer(bitmap);
+        bitmap.recycle();
+        return pixels;
     }
 
     static ByteBuffer toBuffer(Bitmap bitmap) {

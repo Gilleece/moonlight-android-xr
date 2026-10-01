@@ -919,7 +919,9 @@ int cogCellAt(float pu, int cells) {
 // that keeps its picture whole, where its row is greyed.
 void cogReadouts(XrCtx* ctx, int* values) {
     int style = roomFaceStyle(ctx);
-    if (!ctx->cogOpen || cogFace(ctx) != COG_FACE_ROOM || style == 0) {
+    // Still up while the panel fades out, so the strip goes with it
+    int showing = ctx->cogOpen || ctx->panelFades[FADE_COG].level > 0.0f;
+    if (!showing || cogFace(ctx) != COG_FACE_ROOM || style == 0) {
         values[0] = -1;
         values[1] = -1;
         values[2] = -1;

@@ -551,11 +551,28 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobjec
                     &ctx->exitPromptReady[sheet]);
     }
 
+    // The last of the panels' art to arrive, so the splash has stopped waiting
+    // on them whatever made it up
+    ctx->panelArtArrived = 1;
     LOGI("exit button %s, prompt %s, %s and %s",
          ctx->exitButtonReady ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_NONE] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_EXIT] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_CANCEL] ? "ready" : "missing");
+}
+
+// The launch splash's sheet, every number of dots one under the other. Drawn
+// before the session's first frame, so it is up from that frame on.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadSplash(JNIEnv* env, jobject thiz,
+                                                               jlong handle, jobject sheet) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, sheet, ctx->splashSwapchain, ctx->splashImages, SPLASH_TEX_W,
+                SPLASH_TEX_H, &ctx->splashArtReady);
+    LOGI("splash art %s", ctx->splashArtReady ? "ready" : "missing");
 }
 
 // The 3D switch's two faces, off and on. Both or neither, like the padlocks.
