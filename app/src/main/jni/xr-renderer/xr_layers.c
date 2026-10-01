@@ -31,6 +31,11 @@
 //     cursor: 14, and 14 in a room, where the pill gives way to the room's
 //     own layer. 15 with the toast. With the ray switched off it is one
 //     fewer, since the bar is not a panel and brings no beam back.
+//   The controller models draw into the room's layer and add nothing in a
+//     room. In the void that layer goes up for them alone, the room's place
+//     in the counts above, so every tab there comes to its count in a room,
+//     and the two cases with no room in them grow by one: the bar to 15, 16
+//     with the toast, and the screen tab to 17, one past.
 // So a frame over the runtime's limit sheds, in this order, the toast, the
 // hover ring, the cog button and the clock strip (see nativeEndFrame), which
 // brings every case above to 16 or under with the toast up.
@@ -293,11 +298,15 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
     }
 }
 
-// The 3d room, drawn per eye into the one projection layer
+// The 3d room, drawn per eye into the one projection layer, with the
+// controller models in it
 static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
-    // The environment, when it is a room. Passthrough wants the real room
-    // instead, so the two never go up together.
-    if (view->roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough) {
+    // The environment, when it is a room, and in the void whenever a
+    // controller model is shown, which is all that layer then carries.
+    // Passthrough wants the real room instead, so the two never go up
+    // together, and its own controllers are in view.
+    if ((view->roomOn || ctx->modelsShowing) && ctx->roomRendered && ctx->roomViewsValid
+            && !ctx->passthrough) {
         XrCompositionLayerProjection* room = &layers->room;
         memset(room, 0, sizeof(*room));
         memset(layers->roomViews, 0, sizeof(layers->roomViews));
@@ -1237,6 +1246,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         LOGI("3d warping again after %.0f ms", (nowNs() - ctx->stereoWaitNs) / 1e6);
     }
 
+    // Where the controllers are this frame, before anything draws them
+    updateControllerModels(ctx);
+
     // A switch of the 3D redraws the frame already latched, since the decoder
     // sends nothing while the picture stands still
     int redraw = ctx->warpRedraw && ctx->everRendered;
@@ -1252,6 +1264,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         ctx->statTotalNs += elapsed;
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
         logWarpStats(ctx);
+    }
+    else if (ctx->shouldRender && ctx->everRendered) {
+        // No new picture, but a controller model still has to follow its hand
+        renderWorldBetweenFrames(ctx);
     }
 
     FrameView view;
@@ -1353,8 +1369,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     // The Room tab at its fullest, with a room, the glow, the stats and the
     // ray all up, is a layer past the Pico's sixteen, two with the toast, and
-    // a frame over the limit is refused whole (the count is in the comment at
-    // the top). The toast goes first: it is only ever a few seconds of words,
+    // so is the screen tab in the void with a controller model shown. A frame
+    // over the limit is refused whole (the count is in the comment at the
+    // top). The toast goes first: it is only ever a few seconds of words,
     // and what it says is still true without it. Then the hover ring, which
     // every tab and the step buttons share: the cursor already shows where the
     // ray is. Then the cog button, which only says which panel is open while

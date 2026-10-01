@@ -771,6 +771,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_RAY) {
         return COG_RAY_CELLS;
     }
+    if (option == COG_OPTION_CONTROLLERS) {
+        return COG_CONTROLLERS_CELLS;
+    }
     if (option == COG_OPTION_CLICK_SOUND) {
         return COG_CLICK_SOUND_CELLS;
     }
@@ -803,6 +806,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
         // The switch as it stands, with no regard for the panel that is up
         // and bringing the beam back while it is
         return raySwitchOn(ctx->raySetting, ctx->rayFlipped);
+    }
+    if (option == COG_OPTION_CONTROLLERS) {
+        return ctx->modelOn ? 1 : 0;
     }
     if (option == COG_OPTION_CLICK_SOUND) {
         return ctx->clickSoundOn ? 1 : 0;
@@ -854,6 +860,12 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         // Java to store
         setRayOn(ctx, cell != 0, "the Display tab");
         return -1;
+    }
+    if (option == COG_OPTION_CONTROLLERS) {
+        // Drawn from the next frame, and stored like the rows around it
+        ctx->modelOn = cell != 0;
+        LOGEV("controller model %s from the panel", cell != 0 ? "on" : "off");
+        return SETTING_CONTROLLER_MODEL;
     }
     if (option == COG_OPTION_CLICK_SOUND) {
         // Java plays it, and takes the switch from the setting this hands it

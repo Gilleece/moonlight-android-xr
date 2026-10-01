@@ -1152,6 +1152,31 @@ typedef struct {
     // Whether the beam went up last frame, -1 before the first, for the line
     // that says when that changes
     int rayDrawnSaid;
+    // The bundled controller model, drawn into the world pass at each hand's
+    // grip: whether it is wanted, the setting the Display tab's row also
+    // writes, its buffers once Java has handed it over, and the program it
+    // draws with, built the first time it is drawn
+    int modelOn;
+    int modelReady;
+    GLuint modelVertexBuffer;
+    GLuint modelIndexBuffer;
+    int modelIndexCount;
+    GLuint modelProgram;
+    GLint modelViewProjUniform;
+    GLint modelMatrixUniform;
+    int modelProgramFailed;
+    // Each hand's grip this frame where its model shows, whether any does,
+    // how many the world pass last drew, and what the log last said
+    XrAction gripAction;
+    XrSpace gripSpaces[HAND_COUNT];
+    int modelShown[HAND_COUNT];
+    XrPosef modelGrip[HAND_COUNT];
+    int modelsShowing;
+    int modelsDrawn;
+    int modelsSaid;
+    // The input pass synced the actions this frame, which the grips are read
+    // through, so they are not synced twice
+    int actionsSynced;
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
@@ -1507,6 +1532,13 @@ int roomGlowOn(XrCtx* ctx, int style);
 void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded);
 void prepareRoom(XrCtx* ctx);
 void renderRoom(XrCtx* ctx);
+void collectRoomTimer(XrCtx* ctx);
+int worldPassWanted(XrCtx* ctx);
+void renderWorldBetweenFrames(XrCtx* ctx);
+
+// xr_model.c: the bundled controller model
+void updateControllerModels(XrCtx* ctx);
+void drawControllerModels(XrCtx* ctx);
 
 // xr_input.c: actions, hands, the ray and the per frame input pass
 int initXrInput(XrCtx* ctx);

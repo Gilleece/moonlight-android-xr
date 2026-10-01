@@ -567,6 +567,11 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     if (ctx->roomProgram != 0) {
         glDeleteProgram(ctx->roomProgram);
     }
+    glDeleteBuffers(1, &ctx->modelVertexBuffer);
+    glDeleteBuffers(1, &ctx->modelIndexBuffer);
+    if (ctx->modelProgram != 0) {
+        glDeleteProgram(ctx->modelProgram);
+    }
     free(ctx->roomModelVerts);
     free(ctx->roomModelIndices);
 

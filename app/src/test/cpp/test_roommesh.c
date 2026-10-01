@@ -7,6 +7,7 @@
 #include "xr_roommesh.h"
 
 #define ASSETS "../../main/assets/rooms/"
+#define MODELS "../../main/assets/models/"
 
 typedef struct {
     uint32_t count;
@@ -250,12 +251,12 @@ static unsigned char* readFile(const char* path, size_t* size) {
 }
 
 // A mesh that ships, as the bake wrote it
-static void checkShipped(const char* name, uint32_t vertices, uint32_t triangles,
-                         uint32_t parts, int painted, uint32_t atlases) {
+static void checkShippedIn(const char* dir, const char* name, uint32_t vertices,
+                           uint32_t triangles, uint32_t parts, int painted, uint32_t atlases) {
     RoomMeshInfo info;
     size_t size = 0;
     char path[256];
-    snprintf(path, sizeof(path), ASSETS "%s", name);
+    snprintf(path, sizeof(path), "%s%s", dir, name);
     unsigned char* data = readFile(path, &size);
     CHECK(data != NULL);
     if (data == NULL) {
@@ -270,11 +271,20 @@ static void checkShipped(const char* name, uint32_t vertices, uint32_t triangles
     free(data);
 }
 
+static void checkShipped(const char* name, uint32_t vertices, uint32_t triangles,
+                         uint32_t parts, int painted, uint32_t atlases) {
+    checkShippedIn(ASSETS, name, vertices, triangles, parts, painted, atlases);
+}
+
 static void testShipped(void) {
     checkShipped("home_theater.room", 16821, 5876, 1, 0, 1);
     checkShipped("grand_cinema.room", 43670, 17790, 1, 0, 1);
     // The sofa off the atlas, and the rest painted from its colours
     checkShipped("synthwave.room", 26169, 12958, 2, 1, 1);
+    // The controller model, one part painted from its colours with no atlas,
+    // which is the only kind the renderer draws it as, and under the 2,000
+    // triangles a pair of them may cost
+    checkShippedIn(MODELS, "controller.room", 890, 1592, 1, 1, 0);
 }
 
 int main(void) {

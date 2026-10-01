@@ -400,9 +400,11 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
 
     // Before the query opens, since creating the room's swapchain and buffers
     // inside the window wedges every sample after it. Only the CPU and buffer
-    // work: the room's own draw is at the end of this function.
+    // work: the room's own draw is at the end of this function. The same
+    // pass carries the controller models, with or without a room.
     int roomOn = roomEffective(ctx) > 0;
-    if (roomOn) {
+    int worldOn = worldPassWanted(ctx);
+    if (worldOn) {
         prepareRoom(ctx);
     }
 
@@ -698,41 +700,14 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     // the compositor covers that by reprojecting the image it already has.
     // The two timer pairs stay disjoint: the main one is ended just above, and
     // renderRoom opens its own once it has its swapchain image.
-    if (roomOn) {
+    if (worldOn) {
         renderRoom(ctx);
     }
 
     // The room's pair is opened just above, but collected down here, on every
-    // frame rather than only the ones it drew: a query from the last frame it
-    // rendered still has to be picked up after it goes away.
+    // frame rather than only the ones it drew
     if (timing) {
-        int roomOther = ctx->roomTimerSlot;
-        if (ctx->roomTimerPending[roomOther]) {
-            GLuint ready = 0;
-            pfnGetQueryObjectuiv(ctx->roomTimerQueries[roomOther], GL_QUERY_RESULT_AVAILABLE_EXT,
-                                 &ready);
-            if (ready) {
-                GLuint64 elapsed = 0;
-                pfnGetQueryObjectui64v(ctx->roomTimerQueries[roomOther], GL_QUERY_RESULT_EXT,
-                                       &elapsed);
-                ctx->roomTimerPending[roomOther] = 0;
-                ctx->roomTimerPendingFrames[roomOther] = 0;
-                // Same plausibility filter as the warp's, for the same reason
-                if (elapsed > 0 && elapsed < 50000000ull) {
-                    ctx->roomGpuTotalNs += (long)elapsed;
-                    ctx->roomGpuSamples++;
-                    rateBudgetRoom(&ctx->rateBudget, (long)elapsed);
-                }
-                else {
-                    ctx->roomGpuDropped++;
-                }
-            }
-            else if (++ctx->roomTimerPendingFrames[roomOther] > 90) {
-                ctx->roomTimerPending[roomOther] = 0;
-                ctx->roomTimerPendingFrames[roomOther] = 0;
-                LOGW("room: gave up on a GPU timer query that never landed");
-            }
-        }
+        collectRoomTimer(ctx);
     }
 
     ctx->everRendered = 1;

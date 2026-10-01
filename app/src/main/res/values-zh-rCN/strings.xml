@@ -309,6 +309,8 @@
     <string name="summary_vr_pointer_sleep">手柄静止几秒后指针会隐藏，移动手柄或推动摇杆时恢复。关闭此项可让指针保持激活，即使指针不在屏幕上，摇杆也能滚动。</string>
     <string name="title_vr_show_ray">显示手柄射线</string>
     <string name="summary_vr_show_ray">从手柄射向屏幕的光束。玩光枪游戏时可将其关闭：落点处的光点仍会保留，按键照常生效；打开面板时射线会重新出现，屏幕下方的射线按钮可在本次会话中切换它。</string>
+    <string name="title_vr_controller_model">显示手柄</string>
+    <string name="summary_vr_controller_model">在每只手中真实手柄的位置绘制一个简单的手柄模型。透视模式下不显示，因为此时可以看到真实手柄；改用手势追踪时也不显示。</string>
     <string name="title_vr_click_sound">按下面板时发出点击声</string>
     <string name="summary_vr_click_sound">在头显中按下面板、按钮或按键时发出短促的点击声。它通过系统声音播放，与串流音频分开。</string>
     <string name="title_vr_gaze">注视点瞄准 (Look to point)</string>

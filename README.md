@@ -67,6 +67,9 @@ The controllers work as a mouse. Point at the screen and a laser appears, the
 trigger is left click, the thumbstick scrolls. It wakes on deliberate movement
 rather than on any nudge, and retires itself after five seconds of stillness.
 The thumbstick click turns the whole thing off if you would rather not have it.
+For lightgun games the ray button on the bar hides the beam and keeps the dot
+where it lands, and "Show the controllers" in the settings draws a simple
+controller in each hand.
 
 The screen itself can be moved and resized in place. Hover under it and a bar
 appears to drag it around in 6DOF, hover any corner and a bracket appears to
@@ -209,6 +212,7 @@ module per concern:
 | `xr_assets.c` | The art swapchains and the uploads from Java that fill them |
 | `xr_ambilight.c`, `xr_glow.c` | The frame colour sample, letterbox detection and the glow |
 | `xr_room.c` | The 3d rooms |
+| `xr_controller.c`, `xr_model.c` | When the ray and the controller model show, and the model drawn at each grip |
 | `xr_math.c` | Vectors, quaternions, the one euro filter and projection |
 | `xr_shaders.c` | The GLSL |
 | `xr_log.c`, `xr_debug.c` | The file log, the setprop tuning knobs and frame capture |
@@ -239,6 +243,12 @@ are borrowed from it here. Their meshes are baked by `tools/bake_room.py` and th
 compressed to ASTC by `tools/atlas_astc.py`, which runs ARM's
 [astc-encoder](https://github.com/ARM-software/astc-encoder) (Apache 2.0) at build time only; the
 commands are in each room's `NOTE.txt` under `tools/rooms/`.
+
+The controller model drawn when "Show the controllers" is on is this repository's own work,
+Copyright (c) 2026 Sean Gilleece / Woodford XR, licensed under
+[Creative Commons Attribution 4.0](http://creativecommons.org/licenses/by/4.0/) with attribution to
+Sean Gilleece / Woodford XR. It is made in code by `tools/make_controller.py` and baked by
+`tools/bake_room.py`, as `tools/models/controller/NOTE.txt` describes.
 
 ---
 

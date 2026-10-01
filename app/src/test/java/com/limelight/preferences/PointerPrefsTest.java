@@ -43,12 +43,12 @@ public class PointerPrefsTest {
 
     @Test
     public void theLogLinesNameThemTheWayTheyJoinTheRest() {
-        assertEquals("handLockIcon=true pointerSleep=true showRay=true",
-                PreferenceConfiguration.inputLabel(true, true, true, "="));
-        assertEquals("handLockIcon false pointerSleep false showRay false",
-                PreferenceConfiguration.inputLabel(false, false, false, " "));
-        assertEquals("handLockIcon=false pointerSleep=true showRay=false",
-                PreferenceConfiguration.inputLabel(false, true, false, "="));
+        assertEquals("handLockIcon=true pointerSleep=true showRay=true controllerModel=false",
+                PreferenceConfiguration.inputLabel(true, true, true, false, "="));
+        assertEquals("handLockIcon false pointerSleep false showRay false controllerModel false",
+                PreferenceConfiguration.inputLabel(false, false, false, false, " "));
+        assertEquals("handLockIcon=false pointerSleep=true showRay=false controllerModel=true",
+                PreferenceConfiguration.inputLabel(false, true, false, true, "="));
     }
 
     private static final class FakePrefs implements SharedPreferences, SharedPreferences.Editor {

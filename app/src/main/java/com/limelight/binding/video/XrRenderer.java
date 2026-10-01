@@ -161,6 +161,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // named by the picker cell that shows them in roomMeshFile and
     // roomAtlasFiles below
     private static final String ROOM_DIR = "rooms";
+    // The controller drawn at each hand when the setting is on, baked the way
+    // the rooms are and painted from its vertex colours
+    private static final String CONTROLLER_MODEL = "models/controller.room";
 
     // Panel art on its way to the GPU. XrPanels draws it on the loader thread
     // and it waits here for the frame loop, which owns the GL context. The
@@ -265,6 +268,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     private final AtomicReference<RoomAssets> pendingRoom = new AtomicReference<>();
+    // The controller model, read once a session off the frame loop, small
+    // enough to read whether or not it is shown so the Display tab's row can
+    // bring it up at once
+    private final AtomicReference<ByteBuffer> pendingControllerModel = new AtomicReference<>();
     // Only the room on screen is resident. Every pick takes a new ticket, so a
     // room still being read for an earlier pick is never parked over the one
     // chosen since, and the cell last parked is not read again while it stands.
@@ -405,6 +412,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // side turns into its own room style
     private native void nativeUploadRoomModel(long ctx, ByteBuffer mesh, int length, int cell);
     private native void nativeUploadRoomAtlas(long ctx, ByteBuffer atlas, int cell, int slot);
+    // The controller model's .room file, whole
+    private native void nativeUploadControllerModel(long ctx, ByteBuffer mesh, int length);
+    // Whether the controller model is drawn, which the Display tab's row
+    // then writes back
+    private native void nativeSetControllerModel(long ctx, boolean on);
     private native void nativeUploadPicker(long ctx, ByteBuffer grid, ByteBuffer button, int cells);
     private native void nativeUploadCog(long ctx, ByteBuffer[] sheets, ByteBuffer button);
     private native void nativeUploadCogReadout(long ctx, ByteBuffer strip, int[] values);
@@ -1071,6 +1083,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadRayButton(nativeCtx, rayOff, rayOn);
             }
 
+            ByteBuffer controller = pendingControllerModel.getAndSet(null);
+            if (controller != null) {
+                nativeUploadControllerModel(nativeCtx, controller, controller.remaining());
+            }
+
             RoomAssets room = pendingRoom.getAndSet(null);
             if (room != null) {
                 nativeUploadRoomModel(nativeCtx, room.mesh, room.meshBytes, room.cell);
@@ -1145,6 +1162,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         Arrays.fill(marksDrawn, -2);
         nativeSetClickSound(nativeCtx, prefs.vrClickSound);
         nativeSetShowRay(nativeCtx, prefs.vrShowRay);
+        nativeSetControllerModel(nativeCtx, prefs.vrControllerModel);
 
         final int startRoom = cell;
         final int roomTicketAtStart;
@@ -1164,6 +1182,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     startClickSound();
                 }
                 buildPanelArt();
+                pendingControllerModel.set(readAsset(CONTROLLER_MODEL));
                 loadRoomAssets(startRoom, roomTicketAtStart);
             }
         };
@@ -1904,6 +1923,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     .putBoolean(PreferenceConfiguration.VR_CLICK_SOUND_PREF_STRING, on)
                     .apply();
             FileLog.event("click sound " + (on ? "on" : "off") + " saved");
+        }
+        else if (setting == SETTING_CONTROLLER_MODEL) {
+            boolean on = value != 0;
+            if (prefConfig != null) {
+                prefConfig.vrControllerModel = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_CONTROLLER_MODEL_PREF_STRING, on)
+                    .apply();
+            FileLog.event("controller model " + (on ? "on" : "off") + " saved");
         }
         else if (setting == SETTING_AMBI_LEVEL) {
             if (prefConfig != null) {

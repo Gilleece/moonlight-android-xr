@@ -84,10 +84,12 @@ $(OUT)/test_keys: test_keys.c check.h $(SRC)/xr_keys.c $(SRC)/xr_keys.h $(SRC)/x
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_keys.c $(SRC)/xr_keys.c -lm
 
-# When the ray's beam is drawn
-$(OUT)/test_controller: test_controller.c check.h $(SRC)/xr_controller.c $(SRC)/xr_controller.h
+# When the ray's beam is drawn, when a controller's model is, and where the
+# model goes
+$(OUT)/test_controller: test_controller.c check.h $(SRC)/xr_controller.c $(SRC)/xr_controller.h \
+                        $(SRC)/xr_math.c $(SRC)/xr_math.h $(SRC)/xr_gate.h
 	@mkdir -p $(OUT)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_controller.c $(SRC)/xr_controller.c -lm
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_controller.c $(SRC)/xr_controller.c $(SRC)/xr_math.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it

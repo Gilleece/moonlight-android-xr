@@ -22,7 +22,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
-/** How the controllers are drawn: the ray's switch, its key, where it starts, where it sits. */
+/**
+ * How the controllers are drawn: the ray's switch and the controller model's,
+ * their keys, where they start, where they sit and how the log lines say them.
+ */
 public class ControllerPrefsTest {
 
     private static final String ANDROID = "http://schemas.android.com/apk/res/android";
@@ -76,11 +79,38 @@ public class ControllerPrefsTest {
     }
 
     @Test
-    public void theLogLinesSayWhetherTheRayShows() {
-        assertTrue(PreferenceConfiguration.inputLabel(true, true, false, "=")
-                .endsWith(" showRay=false"));
-        assertTrue(PreferenceConfiguration.inputLabel(true, true, true, " ")
-                .endsWith(" showRay true"));
+    public void theModelIsOffUntilSwitchedOn() {
+        assertEquals("checkbox_vr_controller_model",
+                PreferenceConfiguration.VR_CONTROLLER_MODEL_PREF_STRING);
+        assertFalse(PreferenceConfiguration.DEFAULT_VR_CONTROLLER_MODEL);
+
+        FakePrefs prefs = new FakePrefs();
+        assertFalse(PreferenceConfiguration.controllerModelOn(prefs));
+        prefs.putBoolean(PreferenceConfiguration.VR_CONTROLLER_MODEL_PREF_STRING, true);
+        assertTrue(PreferenceConfiguration.controllerModelOn(prefs));
+        // And the ray is its own switch either way
+        assertTrue(PreferenceConfiguration.rayShown(prefs));
+        prefs.putBoolean(PreferenceConfiguration.VR_SHOW_RAY_PREF_STRING, false);
+        assertTrue(PreferenceConfiguration.controllerModelOn(prefs));
+    }
+
+    @Test
+    public void theModelSitsBesideTheRayWithNothingAbove() throws Exception {
+        Element box = checkbox(PreferenceConfiguration.VR_CONTROLLER_MODEL_PREF_STRING);
+        assertNotNull(box);
+        assertEquals("false", box.getAttributeNS(ANDROID, "defaultValue"));
+        // The controllers show whether or not they move the mouse
+        assertEquals("", box.getAttributeNS(ANDROID, "dependency"));
+        Element category = (Element) box.getParentNode();
+        assertEquals("category_vr_settings", category.getAttributeNS(ANDROID, "key"));
+    }
+
+    @Test
+    public void theLogLinesSayHowTheControllersAreDrawn() {
+        assertTrue(PreferenceConfiguration.inputLabel(true, true, false, true, "=")
+                .endsWith(" showRay=false controllerModel=true"));
+        assertTrue(PreferenceConfiguration.inputLabel(true, true, true, false, " ")
+                .endsWith(" showRay true controllerModel false"));
     }
 
     @Test
@@ -88,7 +118,8 @@ public class ControllerPrefsTest {
         for (String dir : new String[] { "values", "values-fr", "values-zh-rCN", "values-zh-rTW" }) {
             String strings = new String(Files.readAllBytes(res(dir + "/strings.xml").toPath()),
                     StandardCharsets.UTF_8);
-            for (String key : new String[] { "title_vr_show_ray", "summary_vr_show_ray" }) {
+            for (String key : new String[] { "title_vr_show_ray", "summary_vr_show_ray",
+                    "title_vr_controller_model", "summary_vr_controller_model" }) {
                 Matcher m = Pattern.compile("name=\"" + key + "\">([^<]+)<").matcher(strings);
                 assertTrue(dir + " " + key, m.find());
             }
