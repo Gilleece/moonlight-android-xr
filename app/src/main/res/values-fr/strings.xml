@@ -353,6 +353,15 @@
     <string name="vr_toast_hands_unlocked">Mains déverrouillées</string>
     <string name="vr_toast_3d_off">3D désactivée</string>
     <string name="vr_toast_3d_on">3D activée</string>
+    <string name="vr_report_note_hint">Que faisiez-vous quand le problème est survenu ?</string>
+    <string name="vr_report_optional">Facultatif</string>
+    <string name="vr_report_email_bad">Cela ne ressemble pas à une adresse e-mail</string>
+    <string name="vr_report_sends">Envoie votre message, les détails du casque et de la version, vos paramètres et le journal de l\'application, qui peut contenir le nom et l\'adresse de votre PC sur votre réseau. Rien n\'est envoyé avant que vous n\'appuyiez sur Envoyer.</string>
+    <string name="vr_report_saves">Enregistre votre message, les détails du casque et de la version, vos paramètres et le journal de l\'application, qui peut contenir le nom et l\'adresse de votre PC sur votre réseau, dans un fichier sur ce casque.</string>
+    <string name="vr_report_not_sent">Le rapport n\'a pas pu être envoyé</string>
+    <string name="vr_report_saved">Rapport enregistré</string>
+    <string name="vr_report_saved_at">Enregistré dans %1$s</string>
+    <string name="vr_report_not_written">Le rapport n\'a pas pu être enregistré</string>
     <string name="vr_battery">Batterie %1$d %%</string>
     <string name="title_vr_file_log">Enregistrer un fichier journal</string>
     <string name="summary_vr_file_log">Conserve un journal en texte brut dans Download/MoonlightXR, où le gestionnaire de fichiers du casque peut le trouver et où vous pouvez le joindre à un rapport de bug. À 5 Mo, il bascule dans moonlight.previous.log, donc les deux fichiers ensemble ne dépassent jamais 10 Mo. Redémarrez l\'application pour qu\'un changement prenne effet.</string>

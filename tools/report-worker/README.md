@@ -1,6 +1,7 @@
 # Report collector
 
-The Cloudflare Worker the app's "Report a problem" screen sends to. It takes
+The Cloudflare Worker the app's "Report a problem" screens send to, the one in
+the settings and the sheet on the About tab inside a session. It takes
 the gzipped report and emails it on through Resend as an attachment, with the
 user's message in the body and their address as the reply-to. Both services
 have free tiers that stop rather than bill when exceeded, which at any volume
@@ -38,7 +39,7 @@ file. The `moonlightReportUrl` and `moonlightReportToken` keys in the tracked
 `gradle.properties` are only a fallback, for passing a test collector with
 `-PmoonlightReportUrl=...` on the command line, and stay empty there.
 
-A build without these keeps the report screen's local behaviour: the report
+A build without these keeps the report screens' local behaviour: the report
 is saved beside the log and the user is told where it is.
 
 ## Trying it

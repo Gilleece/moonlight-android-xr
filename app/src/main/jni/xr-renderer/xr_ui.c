@@ -74,6 +74,9 @@ int cogArt(XrCtx* ctx) {
     if (ctx->cogTab == COG_TAB_PICTURE) {
         return COG_ART_ROOM_PICTURE;
     }
+    if (ctx->cogTab == COG_TAB_ABOUT) {
+        return COG_ART_ROOM_ABOUT;
+    }
     return roomResizable(style) ? COG_ART_ROOM : COG_ART_ROOM_FIXED;
 }
 
@@ -386,6 +389,29 @@ XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     return pose;
 }
 
+// The report sheet stands over the middle of the picture's bottom edge, just
+// clear of it, so the keyboard hanging under the picture is right below it
+// and the two read as one form. Frozen while it is up, like the prompt.
+XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float frameWidth = furnitureWidth(ctx);
+    float width = frameWidth * REPORT_WIDTH_FRAC;
+    float height = width * (float)REPORT_TEX_H / (float)REPORT_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    Vec3 local;
+    local.x = 0.0f;
+    local.y = -furnitureHeight(ctx) * 0.5f + height * 0.5f + frameWidth * 0.01f;
+    local.z = 0.06f;
+
+    XrPosef pose = furniturePose(ctx);
+    Vec3 offset = quatRotate(pose.orientation, local);
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
 // Which of the prompt's two buttons a point is on, in the sheet's own
 // coordinates. Everything else on it is a question and a background.
 int exitPromptZone(float u, float v) {
@@ -414,6 +440,9 @@ int cogTabRowCount(int face) {
     }
     if (face == COG_TAB_PICTURE) {
         return PICTURE_VALUES;
+    }
+    if (face == COG_TAB_ABOUT) {
+        return 0;
     }
     // The option rows, then the glow level track under them
     return COG_DISPLAY_SLIDER_ROW + 1;

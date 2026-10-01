@@ -1038,6 +1038,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     if (hover == HOVER_EXITPROMPT) {
         return screenPoint(u, v, ctx->exitPose, ctx->exitW, ctx->exitH, 0.0f, 0);
     }
+    if (hover == HOVER_REPORT) {
+        return screenPoint(u, v, ctx->reportPose, ctx->reportW, ctx->reportH, 0.0f, 0);
+    }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
 
@@ -1837,6 +1840,8 @@ static void clearHotState(XrCtx* ctx) {
     ctx->exitButtonHot = 0;
     ctx->exitHoverZone = EXIT_ZONE_NONE;
     ctx->stereoButtonHot = 0;
+    ctx->reportHoverZone = REPORT_ZONE_NONE;
+    ctx->cogReportHot = 0;
 }
 
 // The picker is modal: while it is open the ray belongs to it and nothing
@@ -1902,6 +1907,77 @@ static void updatePicker(XrCtx* ctx, InputFrame* f) {
             }
         }
     }
+}
+
+// Puts the settings panel away for the report sheet, with the keyboard up
+// under it on its letters and nothing held. The sheet shows once Java has
+// drawn it for this opening, which the event says to do.
+static void openReport(XrCtx* ctx, InputFrame* f) {
+    ctx->cogOpen = 0;
+    ctx->reportOpen = 1;
+    ctx->reportReady = 0;
+    ctx->reportSendReady = 0;
+    ctx->reportHoverZone = REPORT_ZONE_NONE;
+    ctx->reportPose = reportSheetPose(ctx, &ctx->reportW, &ctx->reportH);
+    ctx->kbOpen = 1;
+    ctx->kbState = KB_STATE_LOWER;
+    ctx->kbMods = 0;
+    ctx->kbPose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
+    f->out[IN_REPORT] = (float)REPORT_OPENED;
+    LOGEV("report sheet open");
+}
+
+// A press on a key: the sheet it leaves showing and what it types, one key a
+// frame, which is as fast as anyone presses them. Into the report sheet
+// nothing is held, since nothing there would act on Ctrl, Alt or Win and the
+// host must not be left holding one.
+static void pressKey(XrCtx* ctx, InputFrame* f, int key, int intoReport) {
+    int code = ctx->kbCodes[ctx->kbState][key];
+    KbPress press = kbPress(ctx->kbState, intoReport ? 0 : ctx->kbMods, code);
+    if (intoReport) {
+        press.mods = 0;
+        press.codeMods = 0;
+    }
+    if (press.code > 0) {
+        f->out[IN_KEY] = (float)press.code;
+        f->out[IN_KEY_MODS] = (float)press.codeMods;
+    }
+    if (press.mods != ctx->kbMods) {
+        LOGI("keyboard modifiers %d -> %d%s", ctx->kbMods, press.mods,
+             press.code > 0 ? ", let go after the key" : "");
+    }
+    ctx->kbState = press.sheet;
+    ctx->kbMods = press.mods;
+    if (press.hide) {
+        ctx->kbOpen = 0;
+        LOGI("keyboard closed");
+    }
+}
+
+// A press on a part of the report sheet. A field takes the keys, bringing
+// the keyboard back if it was hidden. Send goes only once Java has said the
+// note and the address will do, and closes the sheet along with Cancel.
+static void pressReport(XrCtx* ctx, InputFrame* f, int zone) {
+    if (zone == REPORT_ZONE_NONE || (zone == REPORT_ZONE_SEND && !ctx->reportSendReady)) {
+        if (zone == REPORT_ZONE_SEND) {
+            LOGI("report send pressed before the note will do");
+        }
+        return;
+    }
+    ctx->clickPending = 1;
+    f->out[IN_REPORT] = (float)zone;
+    if (zone == REPORT_ZONE_NOTE || zone == REPORT_ZONE_EMAIL) {
+        if (!ctx->kbOpen) {
+            ctx->kbOpen = 1;
+            ctx->kbState = KB_STATE_LOWER;
+            ctx->kbPose = kbPanelPose(ctx, &ctx->kbW, &ctx->kbH);
+        }
+        LOGI("report field %s takes the keys", zone == REPORT_ZONE_NOTE ? "note" : "address");
+        return;
+    }
+    ctx->reportOpen = 0;
+    ctx->kbOpen = 0;
+    LOGEV("report sheet %s", zone == REPORT_ZONE_SEND ? "sent" : "cancelled");
 }
 
 // A press on a slider. The eyes only choose the row, so a gaze press hands the
@@ -2065,6 +2141,18 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             break;
         }
 
+        // The About tab has no rows, only the button that opens the report
+        // sheet in the panel's place
+        if (face == COG_TAB_ABOUT) {
+            ctx->cogReportHot = cogReportButtonAt(pu, pv);
+            if (ctx->cogReportHot && ctx->triggerEdge[h]) {
+                ctx->clickPending = 1;
+                openReport(ctx, f);
+                swallowTrigger(ctx, h);
+            }
+            break;
+        }
+
         // The screen, 3D and Picture tabs have a reset button under their
         // rows
         int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D || face == COG_TAB_PICTURE)
@@ -2177,6 +2265,59 @@ static void updateExitPrompt(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// Modal like the prompt, but with the keyboard under it reachable too, since
+// that is what fills it in. Keys go to Java in the key slot as ever, and Java
+// puts them in the field that has them rather than sending them to the host.
+// Losing a typed note to a stray press would be worse than the other panels'
+// way of closing on one, so only Cancel and Send put it away.
+static void updateReport(XrCtx* ctx, InputFrame* f) {
+    f->hover = HOVER_REPORT;
+    f->hand = -1;
+
+    for (int h = 0; h < SRC_COUNT; h++) {
+        float pu, pv;
+        if (!canPoint(ctx, f, h)) {
+            continue;
+        }
+        if (screenProject(f->aimPoses[h], ctx->reportPose, ctx->reportW, ctx->reportH,
+                          0.0f, 0, &pu, &pv)
+                && pu >= 0.0f && pu <= 1.0f && pv >= 0.0f && pv <= 1.0f) {
+            f->hand = h;
+            f->hitU[h] = pu;
+            f->hitV[h] = pv;
+            ctx->reportHoverZone = reportZone(pu, pv);
+            if (ctx->triggerEdge[h]) {
+                pressReport(ctx, f, ctx->reportHoverZone);
+                swallowTrigger(ctx, h);
+            }
+            break;
+        }
+        // The keyboard under it, which this source's hover already found
+        if (ctx->kbOpen && f->hovers[h] == HOVER_KBPANEL) {
+            f->hand = h;
+            f->hover = HOVER_KBPANEL;
+            int key = kbKeyAt(ctx, f->hitU[h], f->hitV[h]);
+            ctx->kbHoverKey = key;
+            ctx->kbKeyDown = key >= 0 && ctx->triggerDown[h];
+            if (key >= 0 && ctx->triggerEdge[h]) {
+                ctx->clickPending = 1;
+                pressKey(ctx, f, key, 1);
+                swallowTrigger(ctx, h);
+            }
+            break;
+        }
+    }
+
+    // Anywhere else a press does nothing, and reaches nothing behind
+    if (f->hand < 0) {
+        for (int h = 0; h < SRC_COUNT; h++) {
+            if (ctx->triggerEdge[h]) {
+                swallowTrigger(ctx, h);
+            }
+        }
+    }
+}
+
 // Lights whichever piece of furniture the ray is on, and acts on a press there.
 // A press on any of them, a key included, ticks.
 static void updateFurniture(XrCtx* ctx, InputFrame* f) {
@@ -2245,23 +2386,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         ctx->kbHoverKey = key;
         ctx->kbKeyDown = key >= 0 && ctx->triggerDown[f->hand];
         if (key >= 0 && ctx->triggerEdge[f->hand]) {
-            int code = ctx->kbCodes[ctx->kbState][key];
-            KbPress press = kbPress(ctx->kbState, ctx->kbMods, code);
-            if (press.code > 0) {
-                // One key a frame, which is as fast as anyone presses them
-                f->out[IN_KEY] = (float)press.code;
-                f->out[IN_KEY_MODS] = (float)press.codeMods;
-            }
-            if (press.mods != ctx->kbMods) {
-                LOGI("keyboard modifiers %d -> %d%s", ctx->kbMods, press.mods,
-                     press.code > 0 ? ", let go after the key" : "");
-            }
-            ctx->kbState = press.sheet;
-            ctx->kbMods = press.mods;
-            if (press.hide) {
-                ctx->kbOpen = 0;
-                LOGI("keyboard closed");
-            }
+            pressKey(ctx, f, key, 0);
         }
     }
     else if (f->hover == HOVER_LOCK) {
@@ -2280,7 +2405,8 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
 // is checked rather than the one doing the pointing, so a second hand can
 // dismiss it while the first is still on the screen.
 static void dismissKeyboard(XrCtx* ctx, InputFrame* f) {
-    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen) {
+    if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
+            && !ctx->reportOpen) {
         for (int h = 0; h < SRC_COUNT; h++) {
             if (!canPoint(ctx, f, h) || !ctx->triggerEdge[h]) {
                 continue;
@@ -2545,7 +2671,9 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     out[IN_COG_OPEN] = 0.0f;
     out[IN_KB_MODS] = 0.0f;
     out[IN_KB_SHEET] = -1.0f;
+    out[IN_REPORT_ZONE] = -1.0f;
     if (ctx != NULL) {
+        out[IN_REPORT_ZONE] = ctx->reportOpen ? (float)ctx->reportHoverZone : -1.0f;
         // However the keyboard went away, it lets go of what it held
         if (!ctx->kbOpen && ctx->kbMods != 0) {
             LOGI("keyboard modifiers %d -> 0, keyboard closed", ctx->kbMods);
@@ -2621,6 +2749,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     out[IN_SETTING] = -1.0f;
     // Backspace is 8, so a zeroed slot would type one every frame
     out[IN_KEY] = -1.0f;
+    out[IN_REPORT] = -1.0f;
 
     // Anything held has to come back up when pointing stops, or the host is
     // left with a stuck button. Nothing is pointed at under the splash either:
@@ -2717,6 +2846,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     else if (ctx->exitConfirmOpen) {
         updateExitPrompt(ctx, &f);
     }
+    else if (ctx->reportOpen) {
+        updateReport(ctx, &f);
+    }
     else {
         updateFurniture(ctx, &f);
     }
@@ -2781,7 +2913,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             || f.hover == HOVER_LOCK || f.hover == HOVER_HALO || f.hover == HOVER_COGBUTTON
             || f.hover == HOVER_COGPANEL || f.hover == HOVER_KBBUTTON
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_EXITBUTTON
-            || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON)
+            || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
+            || f.hover == HOVER_REPORT)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }

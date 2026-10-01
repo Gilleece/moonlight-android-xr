@@ -23,6 +23,9 @@
 //   Picture tab in a room: the room, the glow, both eyes, the stats, the cog
 //     button, the panel, the clock, the strip of values, four thumbs, the
 //     hover ring, ray and cursor: 16.
+//   About tab in a room: no rows, so the room, the glow, both eyes, the
+//     stats, the cog button, the panel, the clock, the ring on its button,
+//     ray and cursor: 11.
 //   The bar: the pill, all five buttons and the padlock over the glow, both
 //     eyes, the stats, ray and cursor: 13, and 13 in a room, where the pill
 //     gives way to the room's own layer.
@@ -31,8 +34,10 @@
 // brings every case above to 16 or under with the toast up.
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the bar furniture and adds only its panel and one ring,
-// so it comes to 9. The exit prompt sheds it too and adds its own sheet and
-// the button that opened it, so it comes to less again. A panel fading out
+// so it comes to 9. The report sheet puts the settings panel away and brings
+// the keyboard up under it, so it is the keyboard's 9 and its own sheet: 10.
+// The exit prompt sheds the furniture too and adds its own sheet and the
+// button that opened it, so it comes to less again. A panel fading out
 // keeps the bar furniture down until it has gone, and one opening cuts any
 // other's fade short, so a fade never stacks two of these. The launch splash
 // is two layers and all the frame carries while it is fully up; as it fades
@@ -64,6 +69,7 @@ typedef struct {
     XrCompositionLayerQuad exitButton;
     XrCompositionLayerQuad stereoButton;
     XrCompositionLayerQuad exitPrompt;
+    XrCompositionLayerQuad report;
     XrCompositionLayerQuad lock;
     XrCompositionLayerQuad picker;
     XrCompositionLayerQuad outline[2];
@@ -606,6 +612,19 @@ static void addExitPromptLayer(XrCtx* ctx, const FrameView* view, FrameLayers* l
     }
 }
 
+// The report sheet, on the pose frozen when it opened, once Java has drawn it
+// for this opening. Sharpened, since it is all text.
+static void addReportLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_REPORT].level;
+    if (level > 0.0f && ctx->reportReady) {
+        quadLayer(&layers->report, fadeNext(ctx, layers, FADE_REPORT, 1, level),
+                  XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                  ctx->reportSwapchain, REPORT_TEX_W, REPORT_TEX_H, view->space,
+                  ctx->reportPose, ctx->reportW, ctx->reportH);
+        pushLayer(ctx, layers, &layers->report);
+    }
+}
+
 // The padlock on the left edge
 static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The padlock. Comes and goes like the rest of the furniture rather
@@ -784,6 +803,23 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             }
         }
 
+        // The About tab's button gets the hover ring the cells do, in the
+        // same slot
+        if (face == COG_TAB_ABOUT && ctx->cogReportHot && ctx->outlineReady) {
+            Vec3 local;
+            local.x = ((COG_REPORT_L + COG_REPORT_R) * 0.5f - 0.5f) * ctx->cogW;
+            local.y = (0.5f - (COG_REPORT_T + COG_REPORT_B) * 0.5f) * ctx->cogH;
+            local.z = 0.004f;
+            XrCompositionLayerQuad* mark = &layers->cogMark[COG_OPTION_COUNT];
+            quadLayer(mark, fadeNext(ctx, layers, FADE_COG, 0, level),
+                      XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                      ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
+                      poseOffset(ctx->cogPose, local),
+                      (COG_REPORT_R - COG_REPORT_L) * ctx->cogW * 1.04f,
+                      (COG_REPORT_B - COG_REPORT_T) * ctx->cogH * 1.12f);
+            pushLayer(ctx, layers, mark);
+        }
+
         // A step button under the ray gets the same hover ring a cell does,
         // in the slot the cells' hover uses, since the ray is on one or the
         // other
@@ -864,6 +900,7 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     // ray ringed. Sharpened, since it is all text. It stands down while a
     // modal is up rather than stacking under one: the two together would
     // crowd the runtime's layer ceiling, and the modal has the ray anyway.
+    // The report sheet is the exception, being what it types into.
     float level = ctx->panelFades[FADE_KB].level;
     if (level > 0.0f && ctx->kbPanelReady[ctx->kbState]) {
         quadLayer(&layers->kbPanel, fadeNext(ctx, layers, FADE_KB, 1, level),
@@ -992,14 +1029,16 @@ static void addToastLayer(XrCtx* ctx, FrameLayers* layers, long now) {
 // and the keyboard stands down at once for a modal the way it always has.
 static void stepPanelFades(XrCtx* ctx, long now) {
     static const char* const NAMES[FADE_PANELS] = {
-        "settings panel", "picker", "keyboard", "exit prompt"
+        "settings panel", "picker", "keyboard", "exit prompt", "report sheet"
     };
-    int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen;
+    int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen || ctx->reportOpen;
     int shown[FADE_PANELS];
     shown[FADE_COG] = ctx->cogOpen;
     shown[FADE_PICKER] = ctx->pickerOpen;
-    shown[FADE_KB] = ctx->kbOpen && !modal;
+    // Up under the report sheet, which is what it types into
+    shown[FADE_KB] = ctx->kbOpen && (!modal || ctx->reportOpen);
     shown[FADE_EXIT] = ctx->exitConfirmOpen;
+    shown[FADE_REPORT] = ctx->reportOpen;
     ctx->panelFadingOut = 0;
     for (int p = 0; p < FADE_PANELS; p++) {
         Fade* fade = &ctx->panelFades[p];
@@ -1231,7 +1270,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     stepSplash(ctx, frameNs);
     int splashUp = ctx->splash.phase == SPLASH_UP;
     view.barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
-            && !ctx->exitConfirmOpen && !ctx->panelFadingOut
+            && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->panelFadingOut
             && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                 || ctx->hoverKind == HOVER_COGBUTTON
                 || ctx->hoverKind == HOVER_KBBUTTON
@@ -1279,6 +1318,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addLockLayer(ctx, &view, &layers);
         addPickerLayers(ctx, &view, &layers);
         addCogLayers(ctx, &view, &layers);
+        addReportLayer(ctx, &view, &layers);
         addKeyboardLayers(ctx, &view, &layers);
         addPointerLayers(ctx, &view, &layers);
     }

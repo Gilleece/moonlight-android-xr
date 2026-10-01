@@ -147,7 +147,13 @@
 #define IN_KEY_MODS (IN_COG_OPEN + 1)
 #define IN_KB_MODS  (IN_KEY_MODS + 1)
 #define IN_KB_SHEET (IN_KB_MODS + 1)
-#define IN_SLOTS    (IN_KB_SHEET + 1)
+// The report sheet: what a press on it did this frame, one of the REPORT_
+// zones or REPORT_OPENED, or -1, and every frame the zone under the ray, or
+// -1 while the sheet is down. While it is up the keyboard types into it
+// rather than to the host.
+#define IN_REPORT   (IN_KB_SHEET + 1)
+#define IN_REPORT_ZONE (IN_REPORT + 1)
+#define IN_SLOTS    (IN_REPORT_ZONE + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -309,16 +315,18 @@
 #define COG_TAB_DISPLAY 1
 #define COG_TAB_3D      2
 #define COG_TAB_PICTURE 3
-#define COG_TAB_COUNT   4
+#define COG_TAB_ABOUT   4
+#define COG_TAB_COUNT   5
 // And the sheets a room shows instead. While one is up the first tab is the
 // Room tab, whose size row is live or greyed as the room allows, and the other
 // tabs are drawn again with that name over the first slot.
-#define COG_ART_ROOM         4
-#define COG_ART_ROOM_FIXED   5
-#define COG_ART_ROOM_DISPLAY 6
-#define COG_ART_ROOM_3D      7
-#define COG_ART_ROOM_PICTURE 8
-#define COG_ART_COUNT        9
+#define COG_ART_ROOM         5
+#define COG_ART_ROOM_FIXED   6
+#define COG_ART_ROOM_DISPLAY 7
+#define COG_ART_ROOM_3D      8
+#define COG_ART_ROOM_PICTURE 9
+#define COG_ART_ROOM_ABOUT   10
+#define COG_ART_COUNT        11
 
 // Screen tab rows, in the order they are drawn
 #define COG_SLIDER_DISTANCE 0
@@ -381,6 +389,13 @@
 // Picture tab rows are the four PICTURE_ values in their order, each a track
 // with a tick at the picture as streamed, over the reset button. Live in
 // every session and every room, since the grade only changes colours.
+
+// About tab: the app and its version, and no rows, only the button that puts
+// the panel away for the report sheet. Where the button sits on the panel.
+#define COG_REPORT_L 0.25f
+#define COG_REPORT_R 0.75f
+#define COG_REPORT_T 0.60f
+#define COG_REPORT_B 0.72f
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
 // dragging a value.
@@ -457,6 +472,34 @@
 #define KB_MOD_CTRL 2
 #define KB_MOD_ALT  4
 #define KB_MOD_WIN  8
+
+// Report a problem, the sheet the About tab's button opens over the picture
+// with the keyboard under it: a note, an address to answer, a line saying
+// what goes, and Cancel and Send. Unlike the other panels it is drawn again
+// in Java whenever what it shows changes, the words in its fields above all,
+// so it is one sheet. Where its parts sit, as fractions of it.
+#define REPORT_TEX_W 1024
+#define REPORT_TEX_H 640
+#define REPORT_FIELD_L 0.05f
+#define REPORT_FIELD_R 0.95f
+#define REPORT_NOTE_T 0.175f
+#define REPORT_NOTE_B 0.425f
+#define REPORT_EMAIL_T 0.50f
+#define REPORT_EMAIL_B 0.5875f
+#define REPORT_BTN_T 0.8125f
+#define REPORT_BTN_B 0.9375f
+#define REPORT_CANCEL_L 0.05f
+#define REPORT_CANCEL_R 0.47f
+#define REPORT_SEND_L 0.53f
+#define REPORT_SEND_R 0.95f
+// The parts a press can land on, which is also what IN_REPORT says was
+// pressed, and the sheet having just come up
+#define REPORT_ZONE_NONE 0
+#define REPORT_ZONE_NOTE 1
+#define REPORT_ZONE_EMAIL 2
+#define REPORT_ZONE_CANCEL 3
+#define REPORT_ZONE_SEND 4
+#define REPORT_OPENED 5
 
 // The button that ends the stream and the prompt it opens. The sheet is drawn
 // in Java like the other panels, one per lit button, so hovering one is

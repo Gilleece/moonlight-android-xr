@@ -593,6 +593,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         destroyArtSwapchain(&ctx->exitPromptSwapchains[sheet], &ctx->exitPromptImages[sheet]);
     }
     destroyArtSwapchain(&ctx->exitButtonSwapchain, &ctx->exitButtonImages);
+    destroyArtSwapchain(&ctx->reportSwapchain, &ctx->reportImages);
     for (int state = 0; state < 2; state++) {
         destroyArtSwapchain(&ctx->stereoButtonSwapchains[state], &ctx->stereoButtonImages[state]);
     }
