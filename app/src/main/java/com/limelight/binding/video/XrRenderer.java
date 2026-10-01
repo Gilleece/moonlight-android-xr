@@ -176,6 +176,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final int[] kbSheetMods = new int[KB_STATE_COUNT];
     private boolean kbArtUp;
     private int heldKbMods;
+    // One sheet at a time is drawn again off the frame loop, and waits here
+    private final AtomicReference<KbSheet> pendingKbSheet = new AtomicReference<>();
+    private boolean kbSheetDrawing;
 
     private final AtomicReference<ByteBuffer> pendingExitButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingExitPlain = new AtomicReference<>();
@@ -1403,23 +1406,63 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     // Draws the keyboard sheet showing again when the modifiers lit on the
-    // keyboard are not the ones it was drawn with, and hands it straight up,
-    // since this is the thread with the GL context. A press changes them, so
-    // this is once a press at most.
+    // keyboard are not the ones it was drawn with. A sheet took up to 44 ms to
+    // draw on a Quest 2 while the code was cold, a few frames, so it is drawn
+    // on a thread of its own and goes up from here, the thread with the GL
+    // context, once it is done. A press changes them, so this is once a press
+    // at most.
     private void updateKeyboardSheet() {
-        int sheet = (int)inputState[IN_KB_SHEET];
-        if (!kbArtUp || panels == null || sheet < 0 || sheet >= KB_STATE_COUNT) {
+        KbSheet drawn = pendingKbSheet.getAndSet(null);
+        if (drawn != null) {
+            nativeUploadKeyboardSheet(nativeCtx, drawn.state, drawn.pixels);
+            kbSheetMods[drawn.state] = drawn.mods;
+            kbSheetDrawing = false;
+            LimeLog.info("Keyboard sheet " + drawn.state + " drawn with modifiers " + drawn.mods
+                    + " in " + drawn.ms + " ms, off the frame loop");
+        }
+        final int sheet = (int)inputState[IN_KB_SHEET];
+        final XrPanels art = panels;
+        if (!kbArtUp || kbSheetDrawing || art == null || sheet < 0 || sheet >= KB_STATE_COUNT) {
             return;
         }
-        int mods = (int)inputState[IN_KB_MODS];
+        final int mods = (int)inputState[IN_KB_MODS];
         if (mods == kbSheetMods[sheet]) {
             return;
         }
-        long start = System.nanoTime();
-        nativeUploadKeyboardSheet(nativeCtx, sheet, panels.buildKeyboardSheet(sheet, mods));
-        kbSheetMods[sheet] = mods;
-        LimeLog.info("Keyboard sheet " + sheet + " drawn with modifiers " + mods + " in "
-                + msPer(System.nanoTime() - start, 1) + " ms");
+        kbSheetDrawing = true;
+        Thread draw = new Thread() {
+            @Override
+            public void run() {
+                long start = System.nanoTime();
+                ByteBuffer pixels = null;
+                try {
+                    pixels = art.buildKeyboardSheet(sheet, mods);
+                } catch (RuntimeException | OutOfMemoryError e) {
+                    // The sheet stays as it was rather than the keyboard
+                    // waiting on a drawing that will never come
+                    LimeLog.warning("Keyboard sheet " + sheet + " failed to draw: " + e);
+                }
+                pendingKbSheet.set(new KbSheet(sheet, mods, pixels,
+                        msPer(System.nanoTime() - start, 1)));
+            }
+        };
+        draw.setName("Video - XR Keyboard");
+        draw.start();
+    }
+
+    // A keyboard sheet drawn off the frame loop, waiting to go up
+    private static final class KbSheet {
+        final int state;
+        final int mods;
+        final ByteBuffer pixels;
+        final String ms;
+
+        KbSheet(int state, int mods, ByteBuffer pixels, String ms) {
+            this.state = state;
+            this.mods = mods;
+            this.pixels = pixels;
+            this.ms = ms;
+        }
     }
 
     // Keeps the clock line over the settings panel up to the minute while the
