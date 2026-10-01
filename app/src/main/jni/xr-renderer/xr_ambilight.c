@@ -72,15 +72,52 @@ int initAmbilight(XrCtx* ctx) {
         return 0;
     }
     ctx->glowIntensityUniform = glGetUniformLocation(ctx->glowProgram, "u_intensity");
+    ctx->glowBlurUniform = glGetUniformLocation(ctx->glowProgram, "u_blur");
     glUseProgram(ctx->glowProgram);
     glUniform1i(glGetUniformLocation(ctx->glowProgram, "u_texture"), 0);
+
+    // The lifted and rolled off copy the glow is drawn from, filtered and
+    // clamped the way the sample texture is, since the glow's spline relies on
+    // both. Its constants never change, so they go in once.
+    if (!linkProgram(&ctx->glowEdgeProgram, GLOW_EDGE_FRAGMENT_SRC, "glow edge")) {
+        return 0;
+    }
+    glUseProgram(ctx->glowEdgeProgram);
+    glUniform1i(glGetUniformLocation(ctx->glowEdgeProgram, "u_texture"), 0);
+    glUniform3f(glGetUniformLocation(ctx->glowEdgeProgram, "u_luma"),
+                GLOW_LUMA_TARGET, GLOW_LUMA_FLOOR, GLOW_LUMA_FULL);
+    glUniform2f(glGetUniformLocation(ctx->glowEdgeProgram, "u_lit"), GLOW_LIT_LO, GLOW_LIT_HI);
+    glUniform1f(glGetUniformLocation(ctx->glowEdgeProgram, "u_reach"), glowReachTexels());
+    glUniform1i(glGetUniformLocation(ctx->glowEdgeProgram, "u_steps"), glowInwardSteps());
+
+    glGenTextures(1, &ctx->glowEdgeTexture);
+    glBindTexture(GL_TEXTURE_2D, ctx->glowEdgeTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    glGenFramebuffers(1, &ctx->glowEdgeFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->glowEdgeFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                           ctx->glowEdgeTexture, 0);
+    status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("glow edge framebuffer incomplete: 0x%x", status);
+        return 0;
+    }
 
     // Nothing attached yet: the target is whichever swapchain image the frame
     // acquires
     glGenFramebuffers(1, &ctx->glowFbo);
 
-    LOGI("ambilight ready, sampling %dx%d into a %dx%d glow",
-         AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, GLOW_TEX, GLOW_TEX);
+    LOGI("ambilight ready, sampling %dx%d into a %dx%d glow, luma %.2f from %.2f to %.2f, "
+         "edge reach %.1f texels, inward %d",
+         AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX, GLOW_TEX, GLOW_TEX, GLOW_LUMA_TARGET,
+         GLOW_LUMA_FLOOR, GLOW_LUMA_FULL, glowReachTexels(), glowInwardSteps());
     return 1;
 }
 
@@ -329,11 +366,40 @@ void runFrameColorSample(XrCtx* ctx, const float* texMatrix) {
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
+// Lifts the sample to a steady luma and rolls its dark edges off, into the
+// glow's copy of it. A 32 square draw where only the 124 ring texels do much
+// work, each reading the ring GLOW_ROLLOFF_REACH either side: at a third that
+// is 21 taps of 3 fetches, under 8000 fetches of a 4 KB texture a glow.
+static void runGlowEdge(XrCtx* ctx) {
+    glBindFramebuffer(GL_FRAMEBUFFER, ctx->glowEdgeFbo);
+    glViewport(0, 0, AMBI_SAMPLE_TEX, AMBI_SAMPLE_TEX);
+    if (ctx->srgbWriteControl) {
+        glDisable(GL_FRAMEBUFFER_SRGB_EXT);
+    }
+    glDisable(GL_BLEND);
+
+    glUseProgram(ctx->glowEdgeProgram);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
+
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
+    glEnableVertexAttribArray(1);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
 // Spreads those colours over the glow quad, into an image the compositor then
 // places behind the screen
 void runGlowRender(XrCtx* ctx) {
     if (ctx->glowSwapchain == XR_NULL_HANDLE) {
         return;
+    }
+    // Read once, so the copy and the draw agree on which way this glow goes
+    int norm = ctx->glowNorm;
+    if (norm) {
+        runGlowEdge(ctx);
     }
 
     uint32_t index = 0;
@@ -360,8 +426,9 @@ void runGlowRender(XrCtx* ctx) {
 
     glUseProgram(ctx->glowProgram);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, ctx->ambiTexture);
+    glBindTexture(GL_TEXTURE_2D, norm ? ctx->glowEdgeTexture : ctx->ambiTexture);
     glUniform1f(ctx->glowIntensityUniform, level);
+    glUniform1f(ctx->glowBlurUniform, norm ? 1.0f : 0.0f);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
     glEnableVertexAttribArray(0);

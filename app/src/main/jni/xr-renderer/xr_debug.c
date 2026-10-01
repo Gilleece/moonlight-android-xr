@@ -153,6 +153,9 @@ void pollCaptureRequest(XrCtx* ctx) {
     // sample to the picture inside them. Same trap again: one left at 0 from an
     // earlier session quietly turns the detection off.
     propFlag(PROP_LETTERBOX, &ctx->ambiBarDetect);
+    // 1 lifts the glow to a steady luma and rolls a dark edge off, as shipped,
+    // 0 draws it straight from the sample. Said in the log when it moves.
+    propIntEvent(PROP_GLOW_NORM, &ctx->glowNorm, 1, "glow normalisation");
     // 0 forces the room off, a room's style forces that room (1 the home
     // theater, 2 the grand cinema, 3 synthwave), and unset leaves the picker
     // in charge. A room only comes up if it is the one resident, which is the

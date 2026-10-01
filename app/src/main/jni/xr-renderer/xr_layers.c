@@ -320,13 +320,13 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     float glowLevel;
     ambiEffective(ctx, &glowOn, &glowLevel);
     if (glowOn && ctx->glowRendered && ctx->everRendered && ctx->shouldRender) {
-        // Local +z is behind the picture, the same direction the cylinder puts
-        // its axis. Far enough back that the two never z fight, near enough
-        // that the glow reads as coming off the screen.
-        Vec3 behindLocal = { 0.0f, 0.0f, GLOW_BEHIND_M };
+        // Local +z is toward the viewer, the side the cylinder puts its axis,
+        // so this sits just proud of the picture. The layer order is what
+        // keeps it under the picture, not the depth.
+        Vec3 proudLocal = { 0.0f, 0.0f, GLOW_PROUD_M };
         quadLayer(&layers->glow, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->glowSwapchain, GLOW_TEX, GLOW_TEX, view->space,
-                  poseOffset(view->screenPose, behindLocal),
+                  poseOffset(view->screenPose, proudLocal),
                   view->screenWidth * GLOW_SCALE, view->screenHeight * GLOW_SCALE);
         pushLayer(ctx, layers, &layers->glow);
     }

@@ -43,6 +43,7 @@
 #include "xr_gate.h"
 #include "xr_pinch.h"
 #include "xr_notice.h"
+#include "xr_glow.h"
 
 #define TAG "moonlight-xr"
 
@@ -220,13 +221,8 @@ static inline long nowNs(void) {
 
 // Ambilight. The frame is boiled down to a tiny colour texture once a frame,
 // and a soft quad behind the screen is filled from it, so whatever the picture
-// is sitting in front of picks up the colours on it.
-#define AMBI_SAMPLE_TEX 32
-#define GLOW_TEX 256
-// How much larger than the screen the glow quad is, and how far behind it
-// sits in metres
-#define GLOW_SCALE 1.7f
-#define GLOW_BEHIND_M 0.05f
+// is sitting in front of picks up the colours on it. The sizes, the glow's
+// shape and its colour arithmetic are in xr_glow.h.
 
 // Letterbox and pillarbox. A movie arrives with black bars baked into the
 // frame, and sampling the frame's true edges then washes the room in black.
@@ -376,6 +372,9 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_AMBILIGHT "debug.moonlight.ambilight"
 #define PROP_AMBI_SMOOTH "debug.moonlight.ambismooth"
 #define PROP_LETTERBOX "debug.moonlight.letterbox"
+// 1 lifts the glow's colours to a steady luma and rolls a dark edge off, as
+// shipped, and 0 draws the glow straight from the sample the way it was before
+#define PROP_GLOW_NORM "debug.moonlight.glownorm"
 #define PROP_ROOM "debug.moonlight.room"
 #define PROP_ROOM_SCALE "debug.moonlight.roomscale"
 #define PROP_ROOM_DIM "debug.moonlight.roomdim"
@@ -650,7 +649,16 @@ typedef struct {
     float ambiCrop[4];
     GLuint glowProgram;
     GLint glowIntensityUniform;
+    GLint glowBlurUniform;
     GLuint glowFbo;
+    // The glow's own copy of the sample, lifted to a steady luma with a dark
+    // edge rolled off, which the glow is drawn from rather than the sample
+    // itself. The room's light keeps reading the sample as it is.
+    GLuint glowEdgeProgram;
+    GLuint glowEdgeTexture;
+    GLuint glowEdgeFbo;
+    // 1 draws the glow from that copy, 0 from the sample, the way it was
+    int glowNorm;
     XrSwapchain glowSwapchain;
     uint32_t glowImageCount;
     XrSwapchainImageOpenGLESKHR* glowImages;
