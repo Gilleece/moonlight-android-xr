@@ -167,7 +167,35 @@
 // its point moved rather than to it. 0 and 0 for none.
 #define IN_MOUSE_DX (IN_HEAD_AIM + 1)
 #define IN_MOUSE_DY (IN_MOUSE_DX + 1)
-#define IN_SLOTS    (IN_MOUSE_DY + 1)
+// Gamepad mode's pad: 1 while it is plugged in on the host, which is gamepad
+// mode with a controller in either hand, else 0. Then what it reads, every
+// frame: PAD_ bits, each trigger 0 to 255 and each stick -32766 to 32766,
+// right and up positive, all at rest while a panel is up or the session is
+// not focused.
+#define IN_PAD      (IN_MOUSE_DY + 1)
+#define IN_PAD_BUTTONS (IN_PAD + 1)
+#define IN_PAD_LT   (IN_PAD_BUTTONS + 1)
+#define IN_PAD_RT   (IN_PAD_LT + 1)
+#define IN_PAD_LX   (IN_PAD_RT + 1)
+#define IN_PAD_LY   (IN_PAD_LX + 1)
+#define IN_PAD_RX   (IN_PAD_LY + 1)
+#define IN_PAD_RY   (IN_PAD_RX + 1)
+#define IN_SLOTS    (IN_PAD_RY + 1)
+
+// Gamepad mode's buttons, in the bits Moonlight's controller packet carries
+// them in, which are ControllerPacket's flags: the four face buttons, the
+// bumpers, the stick clicks and Start, which is everything two controllers
+// have for an app. There is no Back, guide button or d-pad.
+#define PAD_START   0x0010
+#define PAD_LS_CLICK 0x0040
+#define PAD_RS_CLICK 0x0080
+#define PAD_LB      0x0100
+#define PAD_RB      0x0200
+#define PAD_A       0x1000
+#define PAD_B       0x2000
+#define PAD_X       0x4000
+#define PAD_Y       0x8000
+#define PAD_BUTTONS (PAD_START + PAD_LS_CLICK + PAD_RS_CLICK + PAD_LB + PAD_RB + PAD_A + PAD_B + PAD_X + PAD_Y)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0

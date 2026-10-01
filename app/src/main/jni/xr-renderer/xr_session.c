@@ -958,6 +958,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     headAimReset(&ctx->headAim);
     pointerNudgeReset(&ctx->headAimNudge);
     ctx->headAimSaid = -1;
+    // Pointer mode until Java says otherwise, and the pad resting, so the
+    // first frame it is live holds back whatever is already down
+    ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
+    padToggleReset(&ctx->padToggle);
+    padRest(&ctx->pad);
+    ctx->padResting = 1;
     // Comfort comes from absolute disparity and depth comes from the steps
     // between objects, so the overall shape is pulled toward the screen plane
     // while the local detail is boosted. Measured on captured frames this is

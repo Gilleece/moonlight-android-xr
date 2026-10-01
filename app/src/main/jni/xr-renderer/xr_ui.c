@@ -365,6 +365,31 @@ void setHeadAimOn(XrCtx* ctx, int on, const char* from) {
     LOGEV("head aim %s from %s", on ? "on" : "off", from);
 }
 
+// Gamepad mode on or off for the rest of the session. Nothing is stored: the
+// setting is what the next session starts from. Going on, the input pass puts
+// the panels away, since nothing on the controllers can reach one now. Going
+// off, a trigger still held is taken as already down and kept from the host,
+// so the pointer's first frame does not click wherever the ray happens to be.
+void setPadMode(XrCtx* ctx, int on, const char* from) {
+    on = on ? 1 : 0;
+    if (ctx->padMode == on) {
+        return;
+    }
+    ctx->padMode = on;
+    if (on) {
+        ctx->padPutAway = 1;
+    }
+    else {
+        for (int h = 0; h < HAND_COUNT; h++) {
+            if (ctx->profileKind[h] == PROFILE_CONTROLLER && ctx->padRead[h].trigger >= PRESS_ON) {
+                ctx->triggerDown[h] = 1;
+                ctx->triggerSwallowed[h] = 1;
+            }
+        }
+    }
+    LOGEV("controllers: %s from %s", on ? "gamepad mode" : "pointer mode", from);
+}
+
 // The ray's switch is one place further out on the right, past the keyboard
 void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
     float width = furnitureWidth(ctx);
@@ -1323,6 +1348,23 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetHeadAim(JNIEnv* env, jobjec
     ctx->headAimDeadZone = headAimDeadZoneClamp(deadZone);
     LOGEV("head aim %s at the start of the session, %d px a degree, dead zone %d deg/s",
           on ? "on" : "off", ctx->headAimSensitivity, ctx->headAimDeadZone);
+}
+
+// Gamepad mode, whether a session starts in it and the sticks' dead zone in
+// the whole percent the settings keep for a real pad. Handed down before the
+// first frame.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetGamepad(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jboolean on,
+                                                             jint deadzonePercent) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->padMode = on ? 1 : 0;
+    ctx->padDeadzone = padDeadzoneFromPercent(deadzonePercent);
+    LOGEV("controllers start in %s mode, stick dead zone %.0f%%",
+          ctx->padMode ? "gamepad" : "pointer", ctx->padDeadzone * 100.0f);
 }
 
 // One row of the picture grade to a value in its own whole units, held to its

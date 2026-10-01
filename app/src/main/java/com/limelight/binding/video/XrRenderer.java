@@ -154,6 +154,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // SETTING_ values in XrShared, so both sides read them off the same file.
     private final float[] inputState = new float[IN_SLOTS];
     private int heldButtons;
+    // Gamepad mode's pad as the listener was last told it: plugged in or not,
+    // then its buttons, triggers and sticks in the IN_PAD_ order. Frame loop
+    // only.
+    private boolean padPlugged;
+    private final int[] padSent = new int[IN_PAD_RY - IN_PAD_BUTTONS + 1];
     // The head's yaw against the screen, for the virtual surround. Written by
     // the frame loop and read by the audio thread once a block.
     private volatile float headYaw;
@@ -303,6 +308,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         void onVrMouseMove(int dx, int dy);
         void onVrButton(int button, boolean down);
         void onVrScroll(int clicks);
+        // Gamepad mode's pad, the two controllers as one Xbox pad: plugged in
+        // or out on the host, then each time it changes what it reads, PAD_
+        // button bits, triggers 0 to 255 and sticks -32766 to 32766, up
+        // positive. Always plugged in before its first state and let go of
+        // before it comes out.
+        void onVrGamepadPlugged(boolean plugged);
+        void onVrGamepadState(int buttons, int leftTrigger, int rightTrigger,
+                              int leftX, int leftY, int rightX, int rightY);
         // A key from the in world keyboard. Unicode with the shift already
         // applied, backspace, tab, enter and space as their control codes, or
         // a virtual key code over KB_CODE_VK. The modifiers, KB_MOD_ bits, are
@@ -479,6 +492,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Whether a session starts with head aim on, its pixels a degree and its
     // dead zone in degrees a second
     private native void nativeSetHeadAim(long ctx, boolean on, int sensitivity, int deadZone);
+    // Whether a session starts in gamepad mode, and the sticks' dead zone in
+    // the whole percent the settings keep for a real pad
+    private native void nativeSetGamepad(long ctx, boolean on, int deadzonePercent);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -590,6 +606,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 initLatch.countDown();
 
                 runFrameLoop(prefs);
+                // The session is over, so the pad comes out with it
+                unplugPad();
 
                 stopDepthThread();
                 XrClickSound click;
@@ -1216,6 +1234,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         nativeSetShowRay(nativeCtx, prefs.vrShowRay);
         nativeSetHeadAim(nativeCtx, prefs.vrHeadAim, prefs.vrHeadAimSensitivity,
                 prefs.vrHeadAimDeadZone);
+        // The controllers start as the pointer; the switch on them makes them
+        // the pad
+        nativeSetGamepad(nativeCtx, false, prefs.deadzonePercentage);
         nativeSetControllerModel(nativeCtx, prefs.vrControllerModel);
 
         final int startRoom = cell;
@@ -1472,6 +1493,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 inputListener.onVrScroll(clicks);
             }
 
+            dispatchPad();
+
             // Every real code is 8 or more, so anything at zero or above is a
             // key rather than the sentinel. It goes before the modifiers are
             // let go of, since it was typed with them held. While the report
@@ -1520,6 +1543,45 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (setting >= 0) {
             applySetting(setting, (int)inputState[IN_SETTING_VALUE],
                     (int)inputState[IN_SETTING_ROOM]);
+        }
+    }
+
+    // The pad plugged in, its state each time it changes, and the pad taken
+    // out, in that order, and only on a change, since the native side fills
+    // the slots every frame
+    private void dispatchPad() {
+        boolean plugged = inputState[IN_PAD] != 0.0f;
+        if (plugged && !padPlugged) {
+            padPlugged = true;
+            inputListener.onVrGamepadPlugged(true);
+            // Nothing sent yet, so the first state always goes
+            Arrays.fill(padSent, Integer.MIN_VALUE);
+        }
+        if (!plugged) {
+            unplugPad();
+            return;
+        }
+        boolean changed = false;
+        for (int i = 0; i < padSent.length; i++) {
+            int value = (int)inputState[IN_PAD_BUTTONS + i];
+            if (value != padSent[i]) {
+                padSent[i] = value;
+                changed = true;
+            }
+        }
+        if (changed) {
+            inputListener.onVrGamepadState(padSent[0], padSent[1], padSent[2], padSent[3],
+                    padSent[4], padSent[5], padSent[6]);
+        }
+    }
+
+    // The pad out, if it was in. Frame loop only.
+    private void unplugPad() {
+        if (padPlugged) {
+            padPlugged = false;
+            if (inputListener != null) {
+                inputListener.onVrGamepadPlugged(false);
+            }
         }
     }
 

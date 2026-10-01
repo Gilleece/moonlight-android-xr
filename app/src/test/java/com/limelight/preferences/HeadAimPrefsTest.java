@@ -106,11 +106,12 @@ public class HeadAimPrefsTest {
     }
 
     @Test
-    public void theMotionComesBackInTheLastSlots() {
+    public void theMotionComesBackAfterTheReportsSlots() {
         assertEquals(XrShared.IN_REPORT_ZONE + 1, XrShared.IN_HEAD_AIM);
         assertEquals(XrShared.IN_HEAD_AIM + 1, XrShared.IN_MOUSE_DX);
         assertEquals(XrShared.IN_MOUSE_DX + 1, XrShared.IN_MOUSE_DY);
-        assertEquals(XrShared.IN_MOUSE_DY + 1, XrShared.IN_SLOTS);
+        // Gamepad mode's pad comes after
+        assertEquals(XrShared.IN_MOUSE_DY + 1, XrShared.IN_PAD);
     }
 
     @Test

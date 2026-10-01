@@ -3001,6 +3001,38 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         conn.sendMouseHighResScroll((short)(clicks * 120));
     }
 
+    // Gamepad mode's pad, off the renderer's frame loop. The controller
+    // handler keeps every pad on the main thread, so this one goes there too,
+    // in the order it came. Not held back for the connection: a pad plugged
+    // in before it is up is heard of with its first state, as a real one is.
+    @Override
+    public void onVrGamepadPlugged(final boolean plugged) {
+        final ControllerHandler handler = controllerHandler;
+        if (handler == null) {
+            return;
+        }
+        runOnUiThread(() -> {
+            if (plugged) {
+                handler.attachXrPad();
+            }
+            else {
+                handler.detachXrPad();
+            }
+        });
+    }
+
+    @Override
+    public void onVrGamepadState(final int buttons, final int leftTrigger, final int rightTrigger,
+                                 final int leftX, final int leftY, final int rightX,
+                                 final int rightY) {
+        final ControllerHandler handler = controllerHandler;
+        if (handler == null) {
+            return;
+        }
+        runOnUiThread(() -> handler.reportXrPad(buttons, (byte)leftTrigger, (byte)rightTrigger,
+                (short)leftX, (short)leftY, (short)rightX, (short)rightY));
+    }
+
     /**
      * A key pressed on the in world keyboard. The code is Unicode with the
      * shift already applied, and the digits, the capitals and the four control
