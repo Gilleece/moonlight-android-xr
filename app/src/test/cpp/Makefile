@@ -11,7 +11,7 @@ INCLUDES := -Istubs -I$(SRC)
 OUT := build
 
 TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_roommesh \
-         $(OUT)/test_layout $(OUT)/test_audio $(OUT)/test_rate
+         $(OUT)/test_layout $(OUT)/test_audio $(OUT)/test_rate $(OUT)/test_gate
 
 .PHONY: test clean
 
@@ -47,6 +47,11 @@ $(OUT)/test_layout: test_layout.c check.h $(SRC)/xr_layout.c $(SRC)/xr_layout.h 
 $(OUT)/test_rate: test_rate.c check.h $(SRC)/xr_rate.c $(SRC)/xr_rate.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_rate.c $(SRC)/xr_rate.c -lm
+
+# Who may point, the controllers' own clocks and the gaze bridge
+$(OUT)/test_gate: test_gate.c check.h $(SRC)/xr_gate.c $(SRC)/xr_gate.h $(SRC)/xr_math.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_gate.c $(SRC)/xr_gate.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it

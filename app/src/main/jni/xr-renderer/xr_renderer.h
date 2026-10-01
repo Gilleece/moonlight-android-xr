@@ -40,6 +40,7 @@
 #include "xr_roommesh.h"
 #include "xr_layout.h"
 #include "xr_rate.h"
+#include "xr_gate.h"
 
 #define TAG "moonlight-xr"
 
@@ -857,8 +858,8 @@ typedef struct {
     XrPath msftHandProfile;
     int handTracking;
     int handClickOk;
-    // Looking at something instead of pointing at it. Lowest priority of the
-    // three, so a controller or a hand always wins when one is aiming.
+    // Looking at something instead of pointing at it. While the eyes point,
+    // tracked hands only pinch, and a controller points once it is in use.
     int eyeGaze;
     int gazeEnabled;
     XrAction gazeAction;
@@ -878,6 +879,21 @@ typedef struct {
     PFN_xrDestroyHandTrackerEXT pfnDestroyHandTracker;
     PFN_xrLocateHandJointsEXT pfnLocateHandJoints;
     int usingHands[SRC_COUNT];
+    // What the runtime has on each hand's path, a PROFILE_ value. Only a
+    // controller may take the pointing off the eyes: a hand whose tracking
+    // has dropped reports no profile at all, and must not read as one.
+    int profileKind[HAND_COUNT];
+    // A controller's aim tracked in position and orientation with its action
+    // live, read once a frame
+    int aimTracked[HAND_COUNT];
+    // Each controller's own rest clock, on the pointer's two times. The shared
+    // clock below is held on by the other hand and by the eyes.
+    ControllerClock aimClock[HAND_COUNT];
+    // A controller in use, settled at the top of the frame so every reader in
+    // it gets the same answer about who points
+    int controllerAwake;
+    // The hands pointing for eyes that have gone missing
+    GazeBridge gazeBridge;
     // A pinch that woke the pointer is not also a click, so it is swallowed
     // until the hand opens again
     int pinchSwallowed[SRC_COUNT];
