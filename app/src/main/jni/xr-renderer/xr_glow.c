@@ -1,5 +1,6 @@
-// The ambilight glow's colour arithmetic. No GL and no context, so the host
-// tests reach all of it. GLOW_EDGE_FRAGMENT_SRC does the same on the GPU.
+// The ambilight glow's colour arithmetic and its shape around a curved
+// picture. No GL and no context, so the host tests reach all of it.
+// GLOW_EDGE_FRAGMENT_SRC does the same colour sums on the GPU.
 #include <math.h>
 
 #include "xr_glow.h"
@@ -88,4 +89,27 @@ int glowRingIndex(int x, int y) {
         return GLOW_RING - y;
     }
     return -1;
+}
+
+int glowCylinderFor(float screenWidth, float screenHeight, float screenRadius,
+                    GlowCylinder* out) {
+    if (screenRadius <= 1e-3f || screenWidth <= 0.0f || screenHeight <= 0.0f) {
+        return 0;
+    }
+    float wanted = GLOW_SCALE * screenWidth / screenRadius;
+    int columns = GLOW_TEX;
+    if (wanted > GLOW_MAX_ANGLE) {
+        // Even, so the columns left out are the same either side
+        columns = (int)(GLOW_TEX * GLOW_MAX_ANGLE / wanted) & ~1;
+        if (columns < 2) {
+            columns = 2;
+        }
+    }
+    out->rectWidth = columns;
+    out->rectX = (GLOW_TEX - columns) / 2;
+    // From the whole columns, so a cut glow is exactly as wide as what it shows
+    out->centralAngle = wanted * columns / GLOW_TEX;
+    out->radius = screenRadius > 2.0f * GLOW_PROUD_M ? screenRadius - GLOW_PROUD_M : screenRadius;
+    out->aspectRatio = out->radius * out->centralAngle / (GLOW_SCALE * screenHeight);
+    return 1;
 }

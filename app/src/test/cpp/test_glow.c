@@ -396,6 +396,153 @@ static void testDarkFrameGlowsLikeBright(void) {
     CHECK(worst < 1e-4f);
 }
 
+// The glow round a curved picture. The viewer is at the origin looking down
+// -z with the picture's centre straight ahead at distance d, which is where
+// the sliders put it, and the radius the curvature slider gives: d at full
+// curve, four times d at none.
+#define PI_F 3.14159265f
+#define DEG (180.0f / PI_F)
+
+static float radiusFor(float d, float curve) {
+    return d * (1.0f + 3.0f * (1.0f - curve));
+}
+
+// How far round to the right a point a radians round a cylinder of radius r
+// is, seen from the viewer, when the cylinder's axis is axisZ along z
+static float azimuthOnCylinder(float a, float r, float axisZ) {
+    return atan2f(r * sinf(a), r * cosf(a) - axisZ) * DEG;
+}
+
+// How high a point h above the middle is, seen from the viewer, at a radians
+// round the same cylinder
+static float elevationOnCylinder(float a, float r, float axisZ, float h) {
+    float x = r * sinf(a);
+    float z = axisZ - r * cosf(a);
+    return atan2f(h, sqrtf(x * x + z * z)) * DEG;
+}
+
+// Halfway out through the fade, as a fraction of the glow image from its
+// middle: the screen ends at 0.5 / GLOW_SCALE and the rim is at 0.5
+#define HALF_FADE (0.5f / GLOW_SCALE + 0.5f * (0.5f - 0.5f / GLOW_SCALE))
+
+static void testFlatGlowHidesBehindACloseCurve(void) {
+    // Issue 9's case: a 3 m picture 1 m away at full curve. The flat glow sits
+    // in a plane at the picture's centre, the cylinder's sides come round
+    // past where the quad ends, so nothing of it shows at the sides.
+    float d = 1.0f, w = 3.0f;
+    float r = radiusFor(d, 1.0f);
+    float edge = azimuthOnCylinder(0.5f * w / r, r, r - d);
+    float flatRim = atan2f(0.5f * GLOW_SCALE * w, d - GLOW_PROUD_M) * DEG;
+    CHECK_NEAR(edge, 85.9, 0.1);
+    CHECK(flatRim < edge);
+
+    // The cylinder glow reaches well past it, halfway through its fade
+    GlowCylinder g;
+    CHECK(glowCylinderFor(w, w * 9.0f / 16.0f, r, &g));
+    float half = HALF_FADE * g.centralAngle * GLOW_TEX / g.rectWidth;
+    CHECK(azimuthOnCylinder(half, g.radius, r - d) > edge + 20.0f);
+
+    // Halfway in, at a gentler curve, the flat glow's fade is still covered
+    r = radiusFor(d, 0.5f);
+    edge = azimuthOnCylinder(0.5f * w / r, r, r - d);
+    float flatHalf = atan2f(HALF_FADE * GLOW_SCALE * w, d - GLOW_PROUD_M) * DEG;
+    CHECK(flatHalf < edge);
+}
+
+static void testCylinderFollowsTheScreen(void) {
+    // Every distance the panel's track reaches, the widths a resize allows
+    // and curves from barely to fully, 16:9
+    const float distances[] = { 0.2f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f };
+    const float widths[] = { 0.8f, 1.5f, 3.0f, 5.0f, 8.0f };
+    const float curves[] = { 0.02f, 0.1f, 0.25f, 0.5f, 0.75f, 1.0f };
+    int whole = 0, cut = 0, bad = 0, sides = 0, ends = 0;
+    for (int i = 0; i < (int)(sizeof(distances) / sizeof(distances[0])); i++) {
+        for (int j = 0; j < (int)(sizeof(widths) / sizeof(widths[0])); j++) {
+            for (int k = 0; k < (int)(sizeof(curves) / sizeof(curves[0])); k++) {
+                float d = distances[i], w = widths[j];
+                float h = w * 9.0f / 16.0f;
+                float r = radiusFor(d, curves[k]);
+                float screenAngle = w / r;
+                GlowCylinder g;
+                if (!glowCylinderFor(w, h, r, &g)) {
+                    bad++;
+                    continue;
+                }
+                // Always inside the picture's radius by the same few cm, and
+                // as tall as the flat glow
+                if (fabsf(g.radius - (r - GLOW_PROUD_M)) > 1e-5f) bad++;
+                float height = g.radius * g.centralAngle / g.aspectRatio;
+                if (fabsf(height - GLOW_SCALE * h) > 1e-4f * h) bad++;
+                // The picture covers the middle 1 / GLOW_SCALE of the image's
+                // full width, whichever columns are shown
+                float perColumn = g.centralAngle / g.rectWidth;
+                if (fabsf(perColumn * GLOW_TEX / GLOW_SCALE - screenAngle) > 1e-4f * screenAngle) {
+                    bad++;
+                }
+                if (g.rectWidth % 2 != 0 || g.rectX * 2 + g.rectWidth != GLOW_TEX) bad++;
+                if (g.centralAngle > GLOW_MAX_ANGLE || g.centralAngle >= 2.0f * PI_F) bad++;
+                if (g.rectWidth == GLOW_TEX) {
+                    whole++;
+                    if (fabsf(g.centralAngle - GLOW_SCALE * screenAngle) > 1e-5f) bad++;
+                }
+                else {
+                    cut++;
+                    // Only cut where the whole would close the circle
+                    if (GLOW_SCALE * screenAngle <= GLOW_MAX_ANGLE) bad++;
+                }
+                if (screenAngle >= GLOW_MAX_ANGLE) {
+                    continue;
+                }
+                // Past the picture's side edge as the viewer sees it, halfway
+                // through the fade or, where it is cut, at the cut
+                float axisZ = r - d;
+                float edge = azimuthOnCylinder(0.5f * screenAngle, r, axisZ);
+                float fullAngle = g.centralAngle * GLOW_TEX / g.rectWidth;
+                float out = fminf(HALF_FADE * fullAngle, 0.5f * g.centralAngle);
+                if (azimuthOnCylinder(out, g.radius, axisZ) <= edge) {
+                    sides++;
+                }
+                // And above the picture's top edge at that edge's column,
+                // halfway through the vertical fade
+                float top = elevationOnCylinder(0.5f * screenAngle, r, axisZ, 0.5f * h);
+                float glowTop = elevationOnCylinder(0.5f * screenAngle, g.radius, axisZ,
+                                                    HALF_FADE * GLOW_SCALE * h);
+                if (glowTop <= top) {
+                    ends++;
+                }
+            }
+        }
+    }
+    CHECK(bad == 0);
+    CHECK(sides == 0);
+    CHECK(ends == 0);
+    // Both kinds turn up in that sweep
+    CHECK(whole > 100);
+    CHECK(cut > 10);
+}
+
+static void testCylinderEdgeCases(void) {
+    GlowCylinder g;
+    g.rectWidth = -7;
+    CHECK(!glowCylinderFor(3.0f, 1.7f, 0.0f, &g));
+    CHECK(!glowCylinderFor(0.0f, 1.7f, 3.0f, &g));
+    CHECK(!glowCylinderFor(3.0f, 0.0f, 3.0f, &g));
+    CHECK(g.rectWidth == -7);
+    // A picture already wrapped all the way round leaves a sliver, never
+    // nothing and never more than a cylinder can take
+    CHECK(glowCylinderFor(8.0f, 4.5f, 0.2f, &g));
+    CHECK(g.rectWidth >= 2);
+    CHECK(g.centralAngle <= GLOW_MAX_ANGLE);
+    // A radius too small to come in by the offset keeps its own
+    CHECK(glowCylinderFor(0.08f, 0.045f, 0.08f, &g));
+    CHECK_NEAR(g.radius, 0.08, 1e-6);
+    // The default screen at full curve, 3 m off: 1 rad of picture, 1.7 of glow
+    CHECK(glowCylinderFor(3.0f, 3.0f * 9.0f / 16.0f, 3.0f, &g));
+    CHECK_NEAR(g.centralAngle, 1.7, 1e-5);
+    CHECK_NEAR(g.radius, 2.95, 1e-5);
+    CHECK(g.rectX == 0 && g.rectWidth == GLOW_TEX);
+}
+
 int main(void) {
     testSteadyLuma();
     testBlackStaysDark();
@@ -408,5 +555,8 @@ int main(void) {
     testLetterboxRollsOff();
     testLitRunRampsDown();
     testDarkFrameGlowsLikeBright();
+    testFlatGlowHidesBehindACloseCurve();
+    testCylinderFollowsTheScreen();
+    testCylinderEdgeCases();
     return checksDone("xr_glow");
 }

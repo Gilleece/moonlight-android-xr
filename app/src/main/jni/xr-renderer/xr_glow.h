@@ -47,6 +47,33 @@
 // of AMBI_SAMPLE_TEX - 1 texels each
 #define GLOW_RING (4 * (AMBI_SAMPLE_TEX - 1))
 
+// The widest the glow's cylinder goes, in radians, short of the full turn a
+// cylinder layer may not reach
+#define GLOW_MAX_ANGLE 6.0f
+
+// The glow around a curved picture. A flat quad behind a cylinder only shows
+// above and below it, since the cylinder's sides come round toward the viewer
+// and cover the quad's. So the glow is a cylinder too, about the picture's own
+// axis, GLOW_SCALE times its angle and its height, which keeps the picture on
+// the middle of the glow image the way the flat quad does.
+typedef struct {
+    // A little inside the picture's, so it sits proud of it as the quad does
+    float radius;
+    float centralAngle;
+    // Arc length over height, the way the cylinder layer takes it
+    float aspectRatio;
+    // The columns of the glow image it shows. All of them, unless the
+    // picture wraps so far round that the glow would close the circle: then
+    // the middle ones, so the picture still lands where it should and the
+    // fade is cut short behind the viewer.
+    int rectX;
+    int rectWidth;
+} GlowCylinder;
+
+// 0, and nothing written, when there is no cylinder to be had
+int glowCylinderFor(float screenWidth, float screenHeight, float screenRadius,
+                    GlowCylinder* out);
+
 // Rec. 709 luma
 float glowLuma(const float rgb[3]);
 
