@@ -1152,27 +1152,48 @@ typedef struct {
     // Whether the beam went up last frame, -1 before the first, for the line
     // that says when that changes
     int rayDrawnSaid;
-    // The bundled controller model, drawn into the world pass at each hand's
-    // grip: whether it is wanted, the setting the Display tab's row also
-    // writes, its buffers once Java has handed it over, and the program it
-    // draws with, built the first time it is drawn
+    // The bundled controller model, drawn at each hand's grip into a
+    // projection layer of its own over the picture: whether it is wanted, the
+    // setting the Display tab's row also writes, and its buffers once Java has
+    // handed it over
     int modelOn;
     int modelReady;
     GLuint modelVertexBuffer;
     GLuint modelIndexBuffer;
     int modelIndexCount;
+    // What its pass draws with, made the first time a model shows: the
+    // program, a side by side swapchain cleared to nothing round the models,
+    // a depth buffer so the two hands hide each other properly, and the eyes
+    // the image was last drawn from. One failure is enough to stop trying.
     GLuint modelProgram;
     GLint modelViewProjUniform;
     GLint modelMatrixUniform;
-    int modelProgramFailed;
+    XrSwapchain modelSwapchain;
+    uint32_t modelImageCount;
+    XrSwapchainImageOpenGLESKHR* modelImages;
+    GLuint modelFbo;
+    GLuint modelDepthBuffer;
+    int modelEyeWidth;
+    int modelEyeHeight;
+    int modelPassReady;
+    int modelPassFailed;
+    XrView modelViews[ROOM_EYES];
+    int modelRendered;
+    // Its own pair of timer queries, as the room has
+    GLuint modelTimerQueries[2];
+    int modelTimerSlot;
+    int modelTimerPending[2];
+    int modelTimerPendingFrames[2];
+    long modelGpuTotalNs;
+    long modelGpuSamples;
+    long modelGpuDropped;
     // Each hand's grip this frame where its model shows, whether any does,
-    // how many the world pass last drew, and what the log last said
+    // and what the log last said
     XrAction gripAction;
     XrSpace gripSpaces[HAND_COUNT];
     int modelShown[HAND_COUNT];
     XrPosef modelGrip[HAND_COUNT];
     int modelsShowing;
-    int modelsDrawn;
     int modelsSaid;
     // The input pass synced the actions this frame, which the grips are read
     // through, so they are not synced twice
@@ -1532,13 +1553,11 @@ int roomGlowOn(XrCtx* ctx, int style);
 void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded);
 void prepareRoom(XrCtx* ctx);
 void renderRoom(XrCtx* ctx);
-void collectRoomTimer(XrCtx* ctx);
-int worldPassWanted(XrCtx* ctx);
-void renderWorldBetweenFrames(XrCtx* ctx);
+void worldEyeSize(XrCtx* ctx, int* outW, int* outH);
 
 // xr_model.c: the bundled controller model
 void updateControllerModels(XrCtx* ctx);
-void drawControllerModels(XrCtx* ctx);
+void renderControllerModels(XrCtx* ctx);
 
 // xr_input.c: actions, hands, the ray and the per frame input pass
 int initXrInput(XrCtx* ctx);

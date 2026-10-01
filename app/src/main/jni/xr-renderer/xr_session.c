@@ -567,8 +567,11 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     if (ctx->roomProgram != 0) {
         glDeleteProgram(ctx->roomProgram);
     }
+    // And the controller models', which exist once one has shown
     glDeleteBuffers(1, &ctx->modelVertexBuffer);
     glDeleteBuffers(1, &ctx->modelIndexBuffer);
+    glDeleteFramebuffers(1, &ctx->modelFbo);
+    glDeleteRenderbuffers(1, &ctx->modelDepthBuffer);
     if (ctx->modelProgram != 0) {
         glDeleteProgram(ctx->modelProgram);
     }
@@ -608,6 +611,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyArtSwapchain(&ctx->outlineSwapchain, &ctx->outlineImages);
     destroyArtSwapchain(&ctx->glowSwapchain, &ctx->glowImages);
     destroyArtSwapchain(&ctx->roomSwapchain, &ctx->roomImages);
+    destroyArtSwapchain(&ctx->modelSwapchain, &ctx->modelImages);
     destroyArtSwapchain(&ctx->splashSwapchain, &ctx->splashImages);
     destroyArtSwapchain(&ctx->toastSwapchain, &ctx->toastImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
@@ -626,6 +630,9 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     if (ctx->timerSupported) {
         pfnDeleteQueries(2, ctx->timerQueries);
         pfnDeleteQueries(2, ctx->roomTimerQueries);
+        if (ctx->modelPassReady) {
+            pfnDeleteQueries(2, ctx->modelTimerQueries);
+        }
     }
 
     if (ctx->eglDisplay != EGL_NO_DISPLAY) {

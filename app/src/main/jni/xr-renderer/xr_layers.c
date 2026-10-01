@@ -31,18 +31,20 @@
 //     cursor: 14, and 14 in a room, where the pill gives way to the room's
 //     own layer. 15 with the toast. With the ray switched off it is one
 //     fewer, since the bar is not a panel and brings no beam back.
-//   The controller models draw into the room's layer and add nothing in a
-//     room. In the void that layer goes up for them alone, the room's place
-//     in the counts above, so every tab there comes to its count in a room,
-//     and the two cases with no room in them grow by one: the bar to 15, 16
-//     with the toast, and the screen tab to 17, one past.
+//   The controller models are a projection layer of their own, over the
+//     picture and the panels and under the beam, one more on any of these
+//     while a model shows: the bar to 15, 16 with the toast, the Display tab
+//     to 15 and the About tab to 12, and the screen, 3D and Picture tabs to
+//     17 and the Room tab to 18, which go over.
 // So a frame over the runtime's limit sheds, in this order, the toast, the
-// hover ring, the cog button and the clock strip (see nativeEndFrame), which
-// brings every case above to 16 or under with the toast up.
+// controller models, the hover ring, the cog button and the clock strip (see
+// nativeEndFrame), which brings every case above to 16 or under with the
+// toast up.
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the bar furniture and adds only its panel and one ring,
 // so it comes to 9. The report sheet puts the settings panel away and brings
 // the keyboard up under it, so it is the keyboard's 9 and its own sheet: 10.
+// Each is one more with the controller models up.
 // The exit prompt sheds the furniture too and adds its own sheet and the
 // button that opened it, so it comes to less again. A panel fading out
 // keeps the bar furniture down until it has gone, and one opening cuts any
@@ -95,6 +97,10 @@ typedef struct {
     XrCompositionLayerQuad kbMark;
     XrCompositionLayerQuad beam;
     XrCompositionLayerQuad dot;
+    // The controller models, over the picture and the panels and under the
+    // beam and the dot
+    XrCompositionLayerProjection models;
+    XrCompositionLayerProjectionView modelViews[ROOM_EYES];
     XrCompositionLayerQuad toast;
     XrCompositionLayerQuad splashBlack;
     XrCompositionLayerQuad splashSheet;
@@ -217,7 +223,7 @@ static void logWarpStats(XrCtx* ctx) {
         // The room is timed separately, so it is reported separately: kept
         // of harvested, since only a fraction of its queries come back with
         // anything usable in them. Nothing is said when it is not on.
-        char roomLine[64];
+        char roomLine[128];
         roomLine[0] = '\0';
         if (ctx->roomGpuSamples > 0) {
             snprintf(roomLine, sizeof(roomLine), ", room avg %.2f ms (%ld of %ld)",
@@ -227,6 +233,15 @@ static void logWarpStats(XrCtx* ctx) {
         else if (ctx->roomGpuDropped > 0) {
             snprintf(roomLine, sizeof(roomLine), ", room timer starved (%ld dropped)",
                      ctx->roomGpuDropped);
+        }
+        // The controller models' pass the same way, once a display frame
+        // while one shows
+        if (ctx->modelGpuSamples > 0) {
+            size_t used = strlen(roomLine);
+            snprintf(roomLine + used, sizeof(roomLine) - used,
+                     ", models avg %.2f ms (%ld of %ld)",
+                     ctx->modelGpuTotalNs / (double)ctx->modelGpuSamples / 1e6,
+                     ctx->modelGpuSamples, ctx->modelGpuSamples + ctx->modelGpuDropped);
         }
         // Submit is the wall clock around the draw calls, which is only
         // how long the driver took to queue them. GPU is the real cost.
@@ -255,6 +270,9 @@ static void logWarpStats(XrCtx* ctx) {
         ctx->roomGpuTotalNs = 0;
         ctx->roomGpuSamples = 0;
         ctx->roomGpuDropped = 0;
+        ctx->modelGpuTotalNs = 0;
+        ctx->modelGpuSamples = 0;
+        ctx->modelGpuDropped = 0;
     }
 }
 
@@ -298,15 +316,11 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
     }
 }
 
-// The 3d room, drawn per eye into the one projection layer, with the
-// controller models in it
+// The 3d room, drawn per eye into the one projection layer
 static void addRoomLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
-    // The environment, when it is a room, and in the void whenever a
-    // controller model is shown, which is all that layer then carries.
-    // Passthrough wants the real room instead, so the two never go up
-    // together, and its own controllers are in view.
-    if ((view->roomOn || ctx->modelsShowing) && ctx->roomRendered && ctx->roomViewsValid
-            && !ctx->passthrough) {
+    // The environment, when it is a room. Passthrough wants the real room
+    // instead, so the two never go up together.
+    if (view->roomOn && ctx->roomRendered && ctx->roomViewsValid && !ctx->passthrough) {
         XrCompositionLayerProjection* room = &layers->room;
         memset(room, 0, sizeof(*room));
         memset(layers->roomViews, 0, sizeof(layers->roomViews));
@@ -949,6 +963,37 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     }
 }
 
+// The controller models' own projection layer, alpha blended over everything
+// in the room before it: a controller is nearer than the picture and the
+// panels, so it is drawn over them wherever the two cross. World locked, with
+// the poses its image was drawn from.
+static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
+    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough) {
+        return;
+    }
+    XrCompositionLayerProjection* models = &layers->models;
+    memset(models, 0, sizeof(*models));
+    memset(layers->modelViews, 0, sizeof(layers->modelViews));
+    models->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    models->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    models->space = ctx->localSpace;
+    models->viewCount = ROOM_EYES;
+    models->views = layers->modelViews;
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        XrCompositionLayerProjectionView* projView = &layers->modelViews[eye];
+        projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        projView->pose = ctx->modelViews[eye].pose;
+        projView->fov = ctx->modelViews[eye].fov;
+        projView->subImage.swapchain = ctx->modelSwapchain;
+        projView->subImage.imageRect.offset.x = eye * ctx->modelEyeWidth;
+        projView->subImage.imageRect.offset.y = 0;
+        projView->subImage.imageRect.extent.width = ctx->modelEyeWidth;
+        projView->subImage.imageRect.extent.height = ctx->modelEyeHeight;
+        projView->subImage.imageArrayIndex = 0;
+    }
+    pushLayer(ctx, layers, models);
+}
+
 // The laser and the cursor at the end of it
 static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The beam goes when the ray is switched off, the hands' as well, unless
@@ -1265,9 +1310,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
         logWarpStats(ctx);
     }
-    else if (ctx->shouldRender && ctx->everRendered) {
-        // No new picture, but a controller model still has to follow its hand
-        renderWorldBetweenFrames(ctx);
+    // The controller models on every frame, a new picture or not, since a
+    // controller moves on its own. After the warp, so the picture never
+    // waits on them.
+    if (ctx->shouldRender && ctx->everRendered) {
+        renderControllerModels(ctx);
     }
 
     FrameView view;
@@ -1359,6 +1406,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addCogLayers(ctx, &view, &layers);
         addReportLayer(ctx, &view, &layers);
         addKeyboardLayers(ctx, &view, &layers);
+        addModelLayer(ctx, &layers);
         addPointerLayers(ctx, &view, &layers);
     }
     // Over everything in the scene, since it hangs off the eyes, but under
@@ -1369,16 +1417,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     // The Room tab at its fullest, with a room, the glow, the stats and the
     // ray all up, is a layer past the Pico's sixteen, two with the toast, and
-    // so is the screen tab in the void with a controller model shown. A frame
-    // over the limit is refused whole (the count is in the comment at the
-    // top). The toast goes first: it is only ever a few seconds of words,
-    // and what it says is still true without it. Then the hover ring, which
+    // the controller models put three more of the tabs past it. A frame over
+    // the limit is refused whole (the count is in the comment at the top).
+    // The toast goes first: it is only ever a few seconds of words, and what
+    // it says is still true without it. Then the controller models: a hand
+    // that goes unseen while a full tab is up still points, and the beam and
+    // the dot are still there to show where. Then the hover ring, which
     // every tab and the step buttons share: the cursor already shows where the
     // ray is. Then the cog button, which only says which panel is open while
     // it is: a press off the panel closes it the way pressing the button
     // would. Then the clock over the panel, which the stats can show as well.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.toast);
+    }
+    if (layers.count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(&layers, &layers.models);
     }
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);

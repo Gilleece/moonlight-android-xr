@@ -585,25 +585,13 @@ static int buildableRoomStyle(XrCtx* ctx, int style) {
     return roomAssetsReady(ctx, style) ? style : 0;
 }
 
-// Brings up everything the room draws with, the first frame that asks for it.
-// A swapchain made mid session, the way the panels' art arrives.
-static int initRoom(XrCtx* ctx) {
-    if (ctx->roomReady) {
-        return 1;
-    }
-    if (ctx->roomFailed || ctx->session == XR_NULL_HANDLE) {
-        return 0;
-    }
-    ctx->roomFailed = 1;
-
-    // What the runtime recommends per eye, capped by the chosen tier, so the
-    // room's edges are as sharp as the video layer sitting in front of them.
-    // That is a couple of hundred megabytes between the side by side colour
-    // swapchain and the depth buffer, which is the reason none of it exists
-    // until a room is picked. A runtime that will not say what it wants gets a
-    // modest guess. Ultra takes a fixed size instead and only asks the runtime
-    // for its ceiling, since a recommendation is the one number it is trying to
-    // ignore.
+// How big each eye of the room's pass is drawn: what the runtime recommends per
+// eye, capped by the chosen tier, so the room's edges are as sharp as the
+// video layer sitting in front of them. A runtime that will not say what it
+// wants gets a modest guess. Ultra takes a fixed size instead and only asks
+// the runtime for its ceiling, since a recommendation is the one number it is
+// trying to ignore. The controller models draw at the same size.
+void worldEyeSize(XrCtx* ctx, int* outW, int* outH) {
     int tier = ctx->envResTier;
     int eyeW;
     int eyeH;
@@ -634,6 +622,28 @@ static int initRoom(XrCtx* ctx) {
             eyeH = maxEye;
         }
     }
+    *outW = eyeW;
+    *outH = eyeH;
+}
+
+// Brings up everything the room draws with, the first frame that asks for it.
+// A swapchain made mid session, the way the panels' art arrives.
+static int initRoom(XrCtx* ctx) {
+    if (ctx->roomReady) {
+        return 1;
+    }
+    if (ctx->roomFailed || ctx->session == XR_NULL_HANDLE) {
+        return 0;
+    }
+    ctx->roomFailed = 1;
+
+    // The side by side colour swapchain and the depth buffer come to a couple
+    // of hundred megabytes, which is the reason none of it exists until a room
+    // is picked
+    int tier = ctx->envResTier;
+    int eyeW;
+    int eyeH;
+    worldEyeSize(ctx, &eyeW, &eyeH);
 
     // Side by side, the same arrangement the video swapchain uses in stereo
     if (!createArtSwapchain(ctx, eyeW * ROOM_EYES, eyeH, "create room swapchain",
@@ -922,9 +932,6 @@ void renderRoom(XrCtx* ctx) {
     if (ctx->roomIndexCount > 0) {
         drawRoomEyes(ctx);
     }
-    // The controllers after the room, inside its depth and its timer. With no
-    // room up they are all the pass draws, over the void's black.
-    drawControllerModels(ctx);
 
     if (roomTiming) {
         pfnEndQuery(GL_TIME_ELAPSED_EXT);
@@ -946,61 +953,6 @@ void renderRoom(XrCtx* ctx) {
     XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(ctx->roomSwapchain, &release);
     ctx->roomRendered = 1;
-}
-
-// Picks up whichever of the room pass's timer queries has landed. Every frame
-// the pass could have run on, not only the ones it drew: a query from the last
-// frame it rendered still has to be collected after it goes away.
-void collectRoomTimer(XrCtx* ctx) {
-    int roomOther = ctx->roomTimerSlot;
-    if (!ctx->roomTimerPending[roomOther]) {
-        return;
-    }
-    GLuint ready = 0;
-    pfnGetQueryObjectuiv(ctx->roomTimerQueries[roomOther], GL_QUERY_RESULT_AVAILABLE_EXT, &ready);
-    if (ready) {
-        GLuint64 elapsed = 0;
-        pfnGetQueryObjectui64v(ctx->roomTimerQueries[roomOther], GL_QUERY_RESULT_EXT, &elapsed);
-        ctx->roomTimerPending[roomOther] = 0;
-        ctx->roomTimerPendingFrames[roomOther] = 0;
-        // Same plausibility filter as the warp's, for the same reason
-        if (elapsed > 0 && elapsed < 50000000ull) {
-            ctx->roomGpuTotalNs += (long)elapsed;
-            ctx->roomGpuSamples++;
-            rateBudgetRoom(&ctx->rateBudget, (long)elapsed);
-        }
-        else {
-            ctx->roomGpuDropped++;
-        }
-    }
-    else if (++ctx->roomTimerPendingFrames[roomOther] > 90) {
-        ctx->roomTimerPending[roomOther] = 0;
-        ctx->roomTimerPendingFrames[roomOther] = 0;
-        LOGW("room: gave up on a GPU timer query that never landed");
-    }
-}
-
-// Whether the world pass runs at all: a room is up, or a controller model is
-// shown, which the void has no other pass for
-int worldPassWanted(XrCtx* ctx) {
-    return roomEffective(ctx) > 0 || ctx->modelsShowing;
-}
-
-// The world pass on a display frame that brought no new picture. A room
-// standing still has nothing to redraw then, and the compositor moves the
-// image it has with the head, but a controller moves on its own and its model
-// has to follow it every frame. Once the last model goes, a room is drawn
-// once more without it.
-void renderWorldBetweenFrames(XrCtx* ctx) {
-    int roomOn = roomEffective(ctx) > 0;
-    if (!ctx->modelsShowing && !(ctx->modelsDrawn > 0 && roomOn)) {
-        return;
-    }
-    prepareRoom(ctx);
-    renderRoom(ctx);
-    if (ctx->timerSupported) {
-        collectRoomTimer(ctx);
-    }
 }
 
 // One atlas slot, dropped. Every upload makes a fresh texture, so nothing of
