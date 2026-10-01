@@ -4,6 +4,7 @@ package com.limelight;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.input.ControllerHandler;
+import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.XrClickAnchor;
 import com.limelight.binding.input.capture.InputCaptureManager;
@@ -545,6 +546,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " hands=" + prefConfig.vrHandTracking
                 + " audio=" + prefConfig.audioConfiguration.channelCount
                 + " virtualSurround=" + prefConfig.vrVirtualSurround);
+
+        // Look to point is dead without the eye tracking permission where the
+        // platform makes it a runtime one, so a VR session asks for it here.
+        // The session goes ahead either way, and the renderer lets the eyes
+        // point once the answer comes back granted.
+        EyeTrackingPermission.askOnce(this, prefConfig.enableVrMode
+                && !getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false), prefConfig.vrGaze);
 
         // Initialize the connection
         conn = new NvConnection(getApplicationContext(),
@@ -2905,6 +2913,21 @@ public class Game extends Activity implements SurfaceHolder.Callback,
      * show, with a word about why. A phone or a TV shows the flat surface as
      * it is, so nothing has to move there.
      */
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        Boolean gazeAllowed = EyeTrackingPermission.onResult(this, requestCode, permissions,
+                grantResults);
+        if (gazeAllowed != null && decoderRenderer != null) {
+            // A renderer not started yet reads the answer for itself
+            XrRenderer xrRenderer = decoderRenderer.getXrRenderer();
+            if (xrRenderer != null) {
+                xrRenderer.setGazeAllowed(gazeAllowed);
+            }
+        }
+    }
+
     @Override
     public void onVrUnavailable() {
         runOnUiThread(new Runnable() {

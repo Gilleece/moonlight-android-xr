@@ -17,6 +17,7 @@ import android.view.Surface;
 
 import com.limelight.FileLog;
 import com.limelight.LimeLog;
+import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
 
@@ -131,6 +132,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // can switch it off for the rest of the session, and while it is off the
     // model is not fed, so it sits idle until it comes back on.
     private volatile boolean stereoLive = true;
+    // The eye tracking permission is not refused, or not the platform's to
+    // grant. Look to point only works with it.
+    private volatile boolean gazeAllowed = true;
 
     // Controller pointer. The native side does the ray maths and hands back a
     // hit point and a button mask, this side turns that into host events. The
@@ -233,6 +237,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     public void setInputListener(InputListener listener) {
         this.inputListener = listener;
+    }
+
+    /**
+     * Whether the eyes may point, which they may not while the eye tracking
+     * permission is refused. Read fresh each frame, so an answer that arrives
+     * mid session takes effect on the next. Any thread.
+     */
+    public void setGazeAllowed(boolean allowed) {
+        gazeAllowed = allowed;
     }
 
     /**
@@ -368,6 +381,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 }
 
                 prefsContext = activity.getApplicationContext();
+                gazeAllowed = EyeTrackingPermission.gazeAllowed(prefsContext);
                 // For the frame rate list, which can only ask the Android
                 // display otherwise
                 XrDisplayRates.remember(prefsContext, nativeGetOfferedRates(nativeCtx));
@@ -781,7 +795,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             boolean headLocked = prefs.vrHeadLocked;
 
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
-                    pointer, gaze, inputState);
+                    pointer, gaze && gazeAllowed, inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateRoomReadout();
