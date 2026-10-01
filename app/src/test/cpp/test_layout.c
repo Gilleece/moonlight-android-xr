@@ -265,6 +265,104 @@ static void testTheRowsFit(void) {
     CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_CELL_HALF, 1e-6);
 }
 
+// The step buttons at each end of a track, the run between them, and where a
+// press of one lands
+static void testTheTrackParts(void) {
+    float mid = (COG_TRACK_L + COG_TRACK_R) * 0.5f;
+    CHECK(cogTrackPart(mid) == TRACK_PART_RUN);
+    CHECK(cogTrackPart(COG_TRACK_L + COG_CHEVRON_W * 0.5f) == TRACK_PART_DOWN);
+    CHECK(cogTrackPart(COG_TRACK_R - COG_CHEVRON_W * 0.5f) == TRACK_PART_UP);
+    // The buttons reach a little past the track's ends, and no further
+    CHECK(cogTrackPart(COG_TRACK_L - COG_CHEVRON_REACH * 0.9f) == TRACK_PART_DOWN);
+    CHECK(cogTrackPart(COG_TRACK_R + COG_CHEVRON_REACH * 0.9f) == TRACK_PART_UP);
+    CHECK(cogTrackPart(COG_TRACK_L - COG_CHEVRON_REACH * 1.1f) == TRACK_PART_NONE);
+    CHECK(cogTrackPart(COG_TRACK_R + COG_CHEVRON_REACH * 1.1f) == TRACK_PART_NONE);
+    // The run's zone stops where a button starts, so a press on a button is
+    // never a jump along the track
+    CHECK(cogTrackPart(COG_TRACK_L + COG_CHEVRON_W * 1.01f) == TRACK_PART_RUN);
+    CHECK(cogTrackPart(COG_TRACK_R - COG_CHEVRON_W * 1.01f) == TRACK_PART_RUN);
+    CHECK(cogTrackPart(0.1f) == TRACK_PART_NONE);
+    CHECK(cogTrackPart(0.99f) == TRACK_PART_NONE);
+
+    // The run sits inside the buttons with room for a thumb at either end
+    float thumbHalfU = 0.085f * 0.5f * (float)COG_TEX_H / (float)COG_TEX_W;
+    CHECK(COG_RUN_L - thumbHalfU > COG_TRACK_L + COG_CHEVRON_W);
+    CHECK(COG_RUN_R + thumbHalfU < COG_TRACK_R - COG_CHEVRON_W);
+    CHECK_NEAR(cogRunPlace(COG_RUN_L), 0.0, 1e-6);
+    CHECK_NEAR(cogRunPlace(COG_RUN_R), 1.0, 1e-6);
+    CHECK_NEAR(cogRunPlace(COG_TRACK_L), 0.0, 1e-6);
+    CHECK_NEAR(cogRunPlace(COG_TRACK_R), 1.0, 1e-6);
+    CHECK_NEAR(cogRunPlace(cogRunU(0.37f)), 0.37, 1e-6);
+}
+
+static void testTheStepsLandOnTheGrid(void) {
+    // On a step, one either way
+    CHECK(cogStepIndex(5.0f / 20.0f, 20, 1) == 6);
+    CHECK(cogStepIndex(5.0f / 20.0f, 20, -1) == 4);
+    // Read back a hair off it, still that step
+    CHECK(cogStepIndex(5.0f / 20.0f - 1e-6f, 20, 1) == 6);
+    CHECK(cogStepIndex(5.0f / 20.0f + 1e-6f, 20, -1) == 4);
+    // Between two, the nearer one that way
+    CHECK(cogStepIndex(5.4f / 20.0f, 20, 1) == 6);
+    CHECK(cogStepIndex(5.4f / 20.0f, 20, -1) == 5);
+    CHECK(cogStepIndex(5.6f / 20.0f, 20, 1) == 6);
+    CHECK(cogStepIndex(5.6f / 20.0f, 20, -1) == 5);
+    // Held to the ends
+    CHECK(cogStepIndex(0.0f, 20, -1) == 0);
+    CHECK(cogStepIndex(1.0f, 20, 1) == 20);
+    CHECK(cogStepIndex(0.5f, 0, 1) == 0);
+}
+
+static void testEveryTrackHasItsSteps(void) {
+    for (int row = 0; row < COG_SLIDER_COUNT; row++) {
+        CHECK(cogTrackSteps(COG_TAB_SCREEN, row) > 0);
+    }
+    CHECK(cogTrackSteps(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW) == 20);
+    CHECK(cogTrackSteps(COG_TAB_DISPLAY, COG_OPTION_STATS) == 0);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_SEPARATION) == COG_SEP_STEPS);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_CONVERGENCE) == 100);
+    CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_PRESET) == 0);
+    CHECK(cogTrackSteps(COG_TAB_COUNT, COG_ROOM_ROW_GLOW) == 0);
+    CHECK(cogTrackSteps(COG_TAB_COUNT, COG_ROOM_ROW_SIZE) == 75);
+
+    // A Room lane's steps land on whole units, so a press always moves the
+    // stored value by the same number of them, from wherever a drag left it
+    int lanes[2][3] = {
+        { COG_ROOM_ROW_BRIGHTNESS, ROOM_BRIGHTNESS_MIN, ROOM_BRIGHTNESS_MAX },
+        { COG_ROOM_ROW_LIGHT_LEVEL, ROOM_LIGHT_MIN, ROOM_LIGHT_MAX }
+    };
+    for (int l = 0; l < 2; l++) {
+        int steps = cogTrackSteps(COG_TAB_COUNT, lanes[l][0]);
+        int min = lanes[l][1];
+        int max = lanes[l][2];
+        CHECK((max - min) % steps == 0);
+        int stride = (max - min) / steps;
+        int units = min;
+        int presses = 0;
+        while (units < max && presses < 1000) {
+            int step = cogStepIndex(lanePlace(units, min, max), steps, 1);
+            int next = laneUnits((float)step / (float)steps, min, max);
+            CHECK(next - units == stride);
+            units = next;
+            presses++;
+        }
+        CHECK(presses == steps);
+        // From off the grid, down to the step below
+        int off = min + stride * 3 + 1;
+        int step = cogStepIndex(lanePlace(off, min, max), steps, -1);
+        CHECK(laneUnits((float)step / (float)steps, min, max) == min + stride * 3);
+    }
+
+    // The tilt and roll steps clear the snap to level either side of it
+    float tiltStep = 2.0f * 40.0f / (float)cogTrackSteps(COG_TAB_SCREEN, COG_SLIDER_TILT);
+    float rollStep = 2.0f * 90.0f / (float)cogTrackSteps(COG_TAB_SCREEN, COG_SLIDER_ROTATE);
+    CHECK(tiltStep * 3.14159265f / 180.0f > 0.0388f);
+    CHECK(rollStep * 3.14159265f / 180.0f > 0.0873f);
+    // And level is a step of each
+    CHECK(cogTrackSteps(COG_TAB_SCREEN, COG_SLIDER_TILT) % 2 == 0);
+    CHECK(cogTrackSteps(COG_TAB_SCREEN, COG_SLIDER_ROTATE) % 2 == 0);
+}
+
 int main(void) {
     testTheRowsFit();
     testCornersFollowTheirArt();
@@ -277,5 +375,8 @@ int main(void) {
     testTheCornerDrag();
     testTheDepthTrack();
     testThePresetAccent();
+    testTheTrackParts();
+    testTheStepsLandOnTheGrid();
+    testEveryTrackHasItsSteps();
     return checksDone("xr_layout");
 }

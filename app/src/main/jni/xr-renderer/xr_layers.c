@@ -2,35 +2,43 @@
 // assembled in draw order and handed to the compositor.
 #include "xr_renderer.h"
 
-// Worst case reachable is a tab with six rows open: the glow, both eyes,
-// stats, the cog button, the panel, six thumbs, ray and cursor, which is 14.
-// A room adds its own layer, but in one the screen tab gives way to the Room
-// tab and the move pill goes: three rings, three thumbs and the strip of
-// percents beside them come to 16 with the room, the glow and the stats all
-// up, which is the Pico's limit and no further. The display tab keeps its
-// rows in a room: its eight rings and the glow level thumb over the rest come
-// to 18 at its fullest, two past the Pico's sixteen, so a frame over the
-// runtime's limit sheds the hover ring and then the cog button (see
-// nativeEndFrame). The 3D tab, with
-// the ring on its preset, the ring on its switch, the hover ring and its two
-// thumbs, comes to 15 in a room. The panel is modal, and since the frame a
-// modal opens now sheds the bar furniture too, the two can no longer land in
-// one frame together.
-// The bar itself, with the pill, all five buttons including the 3D switch and
-// the padlock up over the glow, both eyes, the stats, ray and cursor, comes to
-// 13, and to 13 in a room, where the pill gives way to the room's own layer.
+// What a frame carries at its fullest, counted against the Pico's sixteen, the
+// lowest limit of the headsets here (the Quests report 32). The settings panel
+// is modal, and the frame a modal opens sheds the bar furniture, so the two
+// never land in one frame together. With the panel open the clock strip over
+// it is always up, and a step button under the ray takes the hover ring a
+// cell would. The toast can land on any of these, one layer more.
+//   Screen tab: the glow, both eyes, the stats, the cog button, the panel,
+//     the clock, six thumbs, the hover ring, ray and cursor: 16.
+//   Room tab, in a room where it takes the screen tab's place: the room, the
+//     glow, both eyes, the stats, the cog button, the panel, the clock, the
+//     strip of percents, two rings on its rows of cells and the hover ring,
+//     three thumbs, ray and cursor: 17, one past.
+//   Display tab in a room: its choices are one strip rather than a ring a
+//     row, so the room, the glow, both eyes, the stats, the cog button, the
+//     panel, the clock, the marks, the hover ring, the glow level's thumb,
+//     ray and cursor: 14.
+//   3D tab in a room: the rings on its preset and its switch, the hover ring
+//     and two thumbs over the same: 16.
+//   The bar: the pill, all five buttons and the padlock over the glow, both
+//     eyes, the stats, ray and cursor: 13, and 13 in a room, where the pill
+//     gives way to the room's own layer.
+// So a frame over the runtime's limit sheds, in this order, the toast, the
+// hover ring, the cog button and the clock strip (see nativeEndFrame), which
+// brings every case above to 16 or under with the toast up.
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
-// The keyboard sheds the same furniture and adds only its panel and one
-// ring, so it comes to 9. The exit prompt sheds it too and adds its own
-// sheet and the button that opened it, so it comes to less again. A panel
-// fading out keeps the bar furniture down until it has gone, and one opening
-// cuts any other's fade short, so a fade never stacks two of these. The
-// launch splash is two layers and all the frame carries while it is fully up;
-// as it fades the room, the glow, the eyes and the stats come up under it,
-// six more, with no furniture, since no input is read until it has gone.
+// The keyboard sheds the bar furniture and adds only its panel and one ring,
+// so it comes to 9. The exit prompt sheds it too and adds its own sheet and
+// the button that opened it, so it comes to less again. A panel fading out
+// keeps the bar furniture down until it has gone, and one opening cuts any
+// other's fade short, so a fade never stacks two of these. The launch splash
+// is two layers and all the frame carries while it is fully up; as it fades
+// the room, the glow, the eyes and the stats come up under it, five more,
+// with no furniture and no toast, since neither input nor notices move until
+// it has gone.
 // Sized well past all that anyway: an overflow here is a smashed stack, and
-// the margin costs five pointers.
-#define FRAME_MAX_LAYERS 20
+// the margin costs a few pointers.
+#define FRAME_MAX_LAYERS 24
 
 // The display tab's marks go back to Java one value a row
 _Static_assert(MARK_VALUES == COG_OPTION_COUNT, "a mark for every display tab row");
@@ -744,6 +752,27 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             }
         }
 
+        // A step button under the ray gets the same hover ring a cell does,
+        // in the slot the cells' hover uses, since the ray is on one or the
+        // other
+        int stepRow = ctx->cogHoverSlider;
+        if (ctx->outlineReady && ctx->cogHoverStep != 0 && stepRow >= 0
+                && cogRowIsTrack(face, stepRow)) {
+            float centre = ctx->cogHoverStep > 0 ? COG_TRACK_R - COG_CHEVRON_W * 0.5f
+                                                 : COG_TRACK_L + COG_CHEVRON_W * 0.5f;
+            Vec3 local;
+            local.x = (centre - 0.5f) * ctx->cogW;
+            local.y = (0.5f - cogRowV(face, stepRow)) * ctx->cogH;
+            local.z = 0.004f;
+            XrCompositionLayerQuad* mark = &layers->cogMark[COG_OPTION_COUNT];
+            quadLayer(mark, fadeNext(ctx, layers, FADE_COG, 0, level),
+                      XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                      ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
+                      poseOffset(ctx->cogPose, local), COG_CHEVRON_W * ctx->cogW * 1.12f,
+                      2.0f * cogCellHalf(face) * ctx->cogH * 1.12f);
+            pushLayer(ctx, layers, mark);
+        }
+
         // The Room tab's percents, once the strip says what the rows do now.
         // A strip still showing another room's values, or a value a drag has
         // just moved past, stays down until Java has drawn it again.
@@ -777,12 +806,13 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                 }
                 float t = cogSliderValue(ctx, face, s);
                 Vec3 local;
-                local.x = (COG_TRACK_L + t * (COG_TRACK_R - COG_TRACK_L) - 0.5f) * ctx->cogW;
+                local.x = (cogRunU(t) - 0.5f) * ctx->cogW;
                 local.y = (0.5f - cogRowV(face, s)) * ctx->cogH;
                 local.z = 0.004f;
-                // Grows under the ray, the same feedback the buttons give
-                float grow = (ctx->cogHoverSlider == s || ctx->cogDragSlider == s)
-                        ? 1.25f : 1.0f;
+                // Grows under the ray, the same feedback the buttons give,
+                // though not while the ray is on a step button instead
+                float grow = ((ctx->cogHoverSlider == s && ctx->cogHoverStep == 0)
+                              || ctx->cogDragSlider == s) ? 1.25f : 1.0f;
 
                 XrCompositionLayerQuad* thumb = &layers->cogThumb[s];
                 quadLayer(thumb, fadeNext(ctx, layers, FADE_COG, 0, level),
@@ -1225,14 +1255,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // Last, so it is in front of everything
     addSplashLayers(ctx, &layers, frameNs);
 
-    // The display tab at its fullest, with a room, the glow, the stats and
-    // the ray all up, is two layers past the Pico's sixteen, and a frame over
-    // the limit is refused whole. The toast goes first: it is only ever a few
-    // seconds of words, and what it says is still true without it. Then the
-    // hover ring, and the Room and 3D tabs' are the same slot: the cursor
-    // already shows where the ray is. Then the cog button, which only says
-    // which panel is open while it is: a press off the panel closes it the
-    // way pressing the button would.
+    // The Room tab at its fullest, with a room, the glow, the stats and the
+    // ray all up, is a layer past the Pico's sixteen, two with the toast, and
+    // a frame over the limit is refused whole (the count is in the comment at
+    // the top). The toast goes first: it is only ever a few seconds of words,
+    // and what it says is still true without it. Then the hover ring, which
+    // every tab and the step buttons share: the cursor already shows where the
+    // ray is. Then the cog button, which only says which panel is open while
+    // it is: a press off the panel closes it the way pressing the button
+    // would. Then the clock over the panel, which the stats can show as well.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.toast);
     }

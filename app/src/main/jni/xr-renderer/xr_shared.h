@@ -234,6 +234,15 @@
 // Where the tabs, rows and tracks sit in the panel texture, as fractions of it
 #define COG_TRACK_L 0.42f
 #define COG_TRACK_R 0.93f
+// A step button at each end of every track, a press on one moving the value
+// a step that way. Each is this wide inside the track's ends, its hit zone
+// reaching a little further out, and the run the thumb travels stops this far
+// in from each end, so a thumb at either end of it clears the button.
+#define COG_CHEVRON_W 0.036f
+#define COG_CHEVRON_REACH 0.02f
+#define COG_RUN_INSET 0.075f
+#define COG_RUN_L (COG_TRACK_L + COG_RUN_INSET)
+#define COG_RUN_R (COG_TRACK_R - COG_RUN_INSET)
 // Anything above this is the tab bar, split evenly between the tabs
 #define COG_TAB_BAR_B 0.16f
 // Six rows on the screen tab, so they start a little higher and sit closer

@@ -1792,6 +1792,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->cogButtonHot = 0;
     ctx->cogHoverSlider = -1;
     ctx->cogHoverCell = -1;
+    ctx->cogHoverStep = 0;
     ctx->lockHot = 0;
     ctx->pickerPick = -1;
     ctx->kbButtonHot = 0;
@@ -2010,12 +2011,23 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             break;
         }
 
-        // Sliders. The band reaches a little past both ends of the track,
-        // since the thumb hangs over them.
-        if (row >= 0 && (pu <= COG_TRACK_L - 0.04f || pu >= COG_TRACK_R + 0.04f)) {
+        // Sliders: a step button at each end, then the run between them,
+        // which stops where a button starts so a press on one is never a
+        // jump along the track
+        int part = row >= 0 ? cogTrackPart(pu) : TRACK_PART_NONE;
+        if (part == TRACK_PART_NONE) {
             row = -1;
         }
         ctx->cogHoverSlider = row;
+        if (part == TRACK_PART_DOWN || part == TRACK_PART_UP) {
+            int dir = part == TRACK_PART_UP ? 1 : -1;
+            ctx->cogHoverStep = dir;
+            if (ctx->triggerEdge[h]) {
+                cogStepTrack(ctx, face, row, dir, f->out);
+                ctx->clickPending = 1;
+            }
+            break;
+        }
 
         // Only the screen and 3D tabs have a reset button under their rows
         int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D)

@@ -1255,9 +1255,11 @@ typedef struct {
     // The head lock preference as the last frame handed it down, for the
     // display tab's marks
     int headLockedPref;
-    // The row under the ray, and on the display tab the cell within it
+    // The row under the ray, and on the display tab the cell within it, and
+    // on a track which step button, -1 or 1, or 0 for the run or none
     int cogHoverSlider;
     int cogHoverCell;
+    int cogHoverStep;
     // Frozen when the panel opens rather than followed every frame. The
     // distance slider moves the screen, and a panel anchored to the screen
     // would drag the thumb out from under the ray mid drag.
@@ -1478,6 +1480,7 @@ void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out);
 int cogCellInForce(XrCtx* ctx, int face, int row);
 void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out);
 void cogDragEnded(XrCtx* ctx, float* out);
+void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);
 int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);
 void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide);

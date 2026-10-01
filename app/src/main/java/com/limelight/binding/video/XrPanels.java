@@ -531,12 +531,13 @@ final class XrPanels {
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
             track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
-            canvas.drawLine(COG_TRACK_L * COG_TEX_W, y, COG_TRACK_R * COG_TEX_W, y, track);
+            canvas.drawLine(COG_RUN_L * COG_TEX_W, y, COG_RUN_R * COG_TEX_W, y, track);
+            drawCogChevrons(canvas, y, live, COG_CELL_HALF * COG_TEX_H);
 
             if (row == COG_SLIDER_TILT || row == COG_SLIDER_ROTATE) {
                 // Marks level, which is where the middle of these two tracks
                 // snaps to. The rows that do not snap stay unmarked.
-                float midX = (COG_TRACK_L + COG_TRACK_R) * 0.5f * COG_TEX_W;
+                float midX = (COG_RUN_L + COG_RUN_R) * 0.5f * COG_TEX_W;
                 float tickHalf = COG_CELL_HALF * COG_TEX_H;
                 canvas.drawRect(midX - 2.0f, y - tickHalf, midX + 2.0f, y + tickHalf, tick);
             }
@@ -577,8 +578,8 @@ final class XrPanels {
         Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
         tick.setColor(0xCCFFFFFF);
 
-        final float trackL = COG_TRACK_L * COG_TEX_W;
-        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float trackL = COG_RUN_L * COG_TEX_W;
+        final float trackR = COG_RUN_R * COG_TEX_W;
         final float cellHalf = COG_CELL_HALF * COG_TEX_H;
 
         for (int row = 0; row < COG_ROOM_ROWS.length; row++) {
@@ -595,6 +596,7 @@ final class XrPanels {
 
             track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
             canvas.drawLine(trackL, y, trackR, y, track);
+            drawCogChevrons(canvas, y, live, cellHalf);
 
             if (row == COG_ROOM_ROW_LIGHT_LEVEL) {
                 float markX = trackL + (ROOM_LIGHT_DEFAULT - ROOM_LIGHT_MIN)
@@ -663,6 +665,42 @@ final class XrPanels {
 
             canvas.drawText(names[i], box.centerX(),
                     box.centerY() - (cellText.ascent() + cellText.descent()) * 0.5f, cellText);
+        }
+    }
+
+    // A step button at each end of a track, the size of a narrow cell with a
+    // chevron in it pointing the way it steps the row, drawn the way the bar
+    // and the corner brackets are: a rounded white stroke. Greyed with the
+    // row, where they do nothing.
+    private static void drawCogChevrons(Canvas canvas, float y, boolean live, float cellHalf) {
+        Paint box = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        stroke.setStyle(Paint.Style.STROKE);
+        stroke.setStrokeWidth(4.0f);
+        stroke.setStrokeCap(Paint.Cap.ROUND);
+        stroke.setStrokeJoin(Paint.Join.ROUND);
+        stroke.setColor(live ? 0xEBFFFFFF : 0x30FFFFFF);
+        float width = COG_CHEVRON_W * COG_TEX_W;
+        float[] lefts = { COG_TRACK_L * COG_TEX_W, COG_TRACK_R * COG_TEX_W - width };
+        for (int side = 0; side < 2; side++) {
+            RectF cell = new RectF(lefts[side], y - cellHalf, lefts[side] + width, y + cellHalf);
+            box.setStyle(Paint.Style.FILL);
+            box.setColor(live ? 0x28FFFFFF : 0x10FFFFFF);
+            canvas.drawRoundRect(cell, 8.0f, 8.0f, box);
+            box.setStyle(Paint.Style.STROKE);
+            box.setStrokeWidth(2.0f);
+            box.setColor(live ? 0x50FFFFFF : 0x20FFFFFF);
+            canvas.drawRoundRect(cell, 8.0f, 8.0f, box);
+
+            // Points out of the track, left on the left and right on the right
+            float dir = side == 0 ? -1.0f : 1.0f;
+            float reach = width * 0.16f;
+            float rise = cellHalf * 0.42f;
+            Path chevron = new Path();
+            chevron.moveTo(cell.centerX() - dir * reach, y - rise);
+            chevron.lineTo(cell.centerX() + dir * reach, y);
+            chevron.lineTo(cell.centerX() - dir * reach, y + rise);
+            canvas.drawPath(chevron, stroke);
         }
     }
 
@@ -875,8 +913,8 @@ final class XrPanels {
         Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
         tick.setColor(stereoOk ? 0xCCFFFFFF : 0x30FFFFFF);
 
-        final float trackL = COG_TRACK_L * COG_TEX_W;
-        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float trackL = COG_RUN_L * COG_TEX_W;
+        final float trackR = COG_RUN_R * COG_TEX_W;
         final float tickHalf = COG_CELL_HALF * COG_TEX_H;
 
         float presetY = (COG_ROW_V0 + COG_ROW3D_PRESET * COG_ROW_STEP) * COG_TEX_H;
@@ -924,6 +962,7 @@ final class XrPanels {
             }
 
             canvas.drawRect(markX - 2.0f, y - tickHalf, markX + 2.0f, y + tickHalf, tick);
+            drawCogChevrons(canvas, y, stereoOk, tickHalf);
         }
 
         // The switch, which only lasts the session, the same one the bar's
@@ -968,8 +1007,8 @@ final class XrPanels {
         label.setTextAlign(Paint.Align.LEFT);
         label.setColor(Color.WHITE);
 
-        final float trackL = COG_TRACK_L * COG_TEX_W;
-        final float trackR = COG_TRACK_R * COG_TEX_W;
+        final float trackL = COG_RUN_L * COG_TEX_W;
+        final float trackR = COG_RUN_R * COG_TEX_W;
         final float cellHalf = COG_DISPLAY_CELL_HALF * COG_TEX_H;
 
         for (int row = 0; row < COG_OPTION_ROWS.length; row++) {
@@ -991,6 +1030,7 @@ final class XrPanels {
         track.setStrokeCap(Paint.Cap.ROUND);
         track.setColor(0x66FFFFFF);
         canvas.drawLine(trackL, y, trackR, y, track);
+        drawCogChevrons(canvas, y, true, cellHalf);
 
         // Marks the default, halfway, the same way the 3D tab marks its two
         Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);

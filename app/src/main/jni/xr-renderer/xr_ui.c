@@ -519,11 +519,10 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
 
-// Applies a point on the track to whatever the row controls
+// Applies a point on the track to whatever the row controls. The run the
+// thumb travels stops short of the track's ends, where the step buttons are.
 void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
-    float t = (pu - COG_TRACK_L) / (COG_TRACK_R - COG_TRACK_L);
-    if (t < 0.0f) t = 0.0f;
-    if (t > 1.0f) t = 1.0f;
+    float t = cogRunPlace(pu);
 
     if (face == COG_FACE_ROOM) {
         // Whole units, the ones each preference is stored in, so the thumb
@@ -913,6 +912,26 @@ void cogDragEnded(XrCtx* ctx, float* out) {
         // Whole percent, the preference's units
         out[IN_SETTING_VALUE] = roundf(ctx->ambiIntensity * 100.0f);
     }
+}
+
+// A press on one of a track's step buttons: one step that way, applied at once
+// the way a drag is and written at once the way letting go of one is. Held
+// down it does not repeat.
+void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out) {
+    int steps = cogTrackSteps(face, row);
+    if (steps <= 0) {
+        return;
+    }
+    float before = cogSliderValue(ctx, face, row);
+    int step = cogStepIndex(before, steps, dir);
+    cogApplySlider(ctx, face, row, cogRunU((float)step / (float)steps));
+    float after = cogSliderValue(ctx, face, row);
+    LOGEV("track step %s: face %d row %d, step %.2f to %.2f of %d", dir > 0 ? "up" : "down",
+          face, row, before * steps, after * steps, steps);
+    ctx->cogDragSlider = row;
+    ctx->cogDragFace = face;
+    ctx->cogDragHand = -1;
+    cogDragEnded(ctx, out);
 }
 
 // Which cell of a row the ray is on, or -1 off the ends
