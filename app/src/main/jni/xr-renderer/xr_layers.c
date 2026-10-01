@@ -49,6 +49,8 @@ typedef struct {
     XrCompositionLayerProjection room;
     XrCompositionLayerProjectionView roomViews[ROOM_EYES];
     XrCompositionLayerQuad glow;
+    // The glow's shape round a curved picture, in the quad's place
+    XrCompositionLayerCylinderKHR glowCylinder;
     XrCompositionLayerQuad video[2];
     XrCompositionLayerCylinderKHR cylinder[2];
     XrCompositionLayerQuad overlay;
@@ -320,13 +322,40 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     float glowLevel;
     ambiEffective(ctx, &glowOn, &glowLevel);
     if (glowOn && ctx->glowRendered && ctx->everRendered && ctx->shouldRender) {
-        // Local +z is behind the picture, the same direction the cylinder puts
-        // its axis. Far enough back that the two never z fight, near enough
-        // that the glow reads as coming off the screen.
-        Vec3 behindLocal = { 0.0f, 0.0f, GLOW_BEHIND_M };
+        // A curved picture's sides come round toward the viewer and would
+        // cover a flat glow's, leaving it only above and below, so the glow
+        // curves with it: the same axis, a little inside the same radius
+        GlowCylinder shape;
+        if (view->screenCurved
+                && glowCylinderFor(view->screenWidth, view->screenHeight, ctx->screenRadius,
+                                   &shape)) {
+            XrCompositionLayerCylinderKHR* cyl = &layers->glowCylinder;
+            memset(cyl, 0, sizeof(*cyl));
+            cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
+            cyl->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            cyl->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            cyl->subImage.swapchain = ctx->glowSwapchain;
+            cyl->subImage.imageRect.offset.x = shape.rectX;
+            cyl->subImage.imageRect.offset.y = 0;
+            cyl->subImage.imageRect.extent.width = shape.rectWidth;
+            cyl->subImage.imageRect.extent.height = GLOW_TEX;
+            cyl->subImage.imageArrayIndex = 0;
+            cyl->space = view->space;
+            Vec3 axisLocal = { 0.0f, 0.0f, ctx->screenRadius };
+            cyl->pose = poseOffset(view->screenPose, axisLocal);
+            cyl->radius = shape.radius;
+            cyl->centralAngle = shape.centralAngle;
+            cyl->aspectRatio = shape.aspectRatio;
+            pushLayer(ctx, layers, cyl);
+            return;
+        }
+        // Local +z is toward the viewer, the side the cylinder puts its axis,
+        // so this sits just proud of the picture. The layer order is what
+        // keeps it under the picture, not the depth.
+        Vec3 proudLocal = { 0.0f, 0.0f, GLOW_PROUD_M };
         quadLayer(&layers->glow, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                   ctx->glowSwapchain, GLOW_TEX, GLOW_TEX, view->space,
-                  poseOffset(view->screenPose, behindLocal),
+                  poseOffset(view->screenPose, proudLocal),
                   view->screenWidth * GLOW_SCALE, view->screenHeight * GLOW_SCALE);
         pushLayer(ctx, layers, &layers->glow);
     }

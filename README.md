@@ -207,7 +207,7 @@ module per concern:
 | `xr_ui.c` | Where the furniture and the panels sit and what the ray is over |
 | `xr_layers.c` | The composition layers of a frame, in draw order |
 | `xr_assets.c` | The art swapchains and the uploads from Java that fill them |
-| `xr_ambilight.c` | The frame colour sample, letterbox detection and the glow |
+| `xr_ambilight.c`, `xr_glow.c` | The frame colour sample, letterbox detection and the glow |
 | `xr_room.c` | The 3d rooms |
 | `xr_math.c` | Vectors, quaternions, the one euro filter and projection |
 | `xr_shaders.c` | The GLSL |

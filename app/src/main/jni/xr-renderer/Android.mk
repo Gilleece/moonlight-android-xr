@@ -13,6 +13,7 @@ LOCAL_SRC_FILES := xr_log.c \
                    xr_gate.c \
                    xr_pinch.c \
                    xr_notice.c \
+                   xr_glow.c \
                    xr_shaders.c \
                    xr_session.c \
                    xr_display.c \

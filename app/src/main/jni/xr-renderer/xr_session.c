@@ -540,13 +540,18 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     glDeleteFramebuffers(1, &ctx->ambiFbo);
     glDeleteFramebuffers(1, &ctx->ambiDetectFbo);
     glDeleteFramebuffers(1, &ctx->glowFbo);
+    glDeleteFramebuffers(1, &ctx->glowEdgeFbo);
     glDeleteTextures(1, &ctx->ambiTexture);
     glDeleteTextures(1, &ctx->ambiDetectTexture);
+    glDeleteTextures(1, &ctx->glowEdgeTexture);
     if (ctx->ambiProgram != 0) {
         glDeleteProgram(ctx->ambiProgram);
     }
     if (ctx->glowProgram != 0) {
         glDeleteProgram(ctx->glowProgram);
+    }
+    if (ctx->glowEdgeProgram != 0) {
+        glDeleteProgram(ctx->glowEdgeProgram);
     }
 
     // Same for the room, whose resources only exist at all if a frame ever ran
@@ -771,6 +776,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     // Roughly ten frames to cross a scene cut, which reads as the glow
     // following the picture rather than flashing with it
     ctx->ambiSmooth = 0.08f;
+    // The glow's colours lifted to a steady luma, with a dark edge rolled off
+    ctx->glowNorm = 1;
     // Letterbox detection on, with nothing found yet, so the sample pass starts
     // on the whole frame
     ctx->ambiBarDetect = 1;

@@ -330,6 +330,97 @@ const char* const AMBI_FRAGMENT_SRC =
     "    fragColor = vec4(sum * (1.0 / 16.0), 1.0);\n"
     "}\n";
 
+// The glow's copy of the sample texture: every texel lifted to a steady luma,
+// so the glow takes its hue from the picture and its brightness from the glow
+// level, and the ring of edge texels rolled off where the picture goes dark.
+// Only the ring and the texels just inside it reach the glow's border. An edge
+// texel that is dark first looks a little way into the picture, so a thin dark
+// border does not take the colour with it. One still dark then takes the
+// colour of the lit texels near it along the ring, weighted by how lit they
+// are and falling smoothly with distance, at as much brightness as the nearest
+// of them carries that far. A lit run then ramps down into a dark one instead
+// of stopping at its boundary, and a long dark run still ends in black. Lit
+// texels are left as the normalisation made them.
+//
+// The same sums as xr_glow.c, with its constants handed in as uniforms.
+const char* const GLOW_EDGE_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "uniform sampler2D u_texture;\n"
+    // The luma target, floor and top of the knee, then where lit starts and
+    // ends, then the reach along the ring in texels and the inward steps
+    "uniform vec3 u_luma;\n"
+    "uniform vec2 u_lit;\n"
+    "uniform float u_reach;\n"
+    "uniform int u_steps;\n"
+    "out vec4 fragColor;\n"
+    // 32 is AMBI_SAMPLE_TEX, kept in step by hand. The ring runs round it
+    // anticlockwise from the bottom left corner, 31 texels a side.
+    "const int N = 32;\n"
+    "const int RING = 4 * (N - 1);\n"
+    "vec3 lifted(ivec2 p) {\n"
+    "    vec3 c = texelFetch(u_texture, p, 0).rgb;\n"
+    "    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
+    "    float s = smoothstep(u_luma.y, u_luma.z, l);\n"
+    "    return clamp(c * (mix(l, u_luma.x, s) / max(l, 1e-5)), 0.0, 1.0);\n"
+    "}\n"
+    "float lit(vec3 c) {\n"
+    "    return smoothstep(u_lit.x, u_lit.y, max(c.r, max(c.g, c.b)));\n"
+    "}\n"
+    "ivec2 ringTexel(int i) {\n"
+    "    if (i < N - 1) return ivec2(i, 0);\n"
+    "    if (i < 2 * (N - 1)) return ivec2(N - 1, i - (N - 1));\n"
+    "    if (i < 3 * (N - 1)) return ivec2(3 * (N - 1) - i, N - 1);\n"
+    "    return ivec2(0, RING - i);\n"
+    "}\n"
+    "int ringIndex(ivec2 p) {\n"
+    "    if (p.y == 0) return p.x;\n"
+    "    if (p.x == N - 1) return (N - 1) + p.y;\n"
+    "    if (p.y == N - 1) return 3 * (N - 1) - p.x;\n"
+    "    return RING - p.y;\n"
+    "}\n"
+    // The texel's colour, or where it is dark the first lit one further in.
+    // Whole texels, since a fetch between a dark one and a lit one reads as
+    // lit at half the brightness. Corners look in along the diagonal.
+    "vec3 edgeColour(int i) {\n"
+    "    ivec2 p = ringTexel(i);\n"
+    "    ivec2 inward = ivec2(p.x == 0 ? 1 : (p.x == N - 1 ? -1 : 0),\n"
+    "                         p.y == 0 ? 1 : (p.y == N - 1 ? -1 : 0));\n"
+    "    vec3 c = lifted(p);\n"
+    "    for (int s = 1; s <= u_steps; s++) {\n"
+    "        vec3 deeper = lifted(p + inward * s);\n"
+    "        c = mix(deeper, c, lit(c));\n"
+    "    }\n"
+    "    return c;\n"
+    "}\n"
+    "void main() {\n"
+    "    ivec2 p = ivec2(gl_FragCoord.xy);\n"
+    "    if (p.x > 0 && p.y > 0 && p.x < N - 1 && p.y < N - 1) {\n"
+    "        fragColor = vec4(lifted(p), 1.0);\n"
+    "        return;\n"
+    "    }\n"
+    "    int j = ringIndex(p);\n"
+    "    int r = min(int(u_reach), RING / 2 - 1);\n"
+    "    vec3 own = vec3(0.0);\n"
+    "    vec3 sum = vec3(0.0);\n"
+    "    float weight = 0.0;\n"
+    "    float carried = 0.0;\n"
+    "    for (int k = -r; k <= r; k++) {\n"
+    "        vec3 c = edgeColour((j + k + RING) % RING);\n"
+    "        float t = float(k) / u_reach;\n"
+    "        float w = (1.0 - t * t) * lit(c);\n"
+    "        sum += c * w;\n"
+    "        weight += w;\n"
+    "        carried = max(carried, w);\n"
+    "        if (k == 0) {\n"
+    "            own = c;\n"
+    "        }\n"
+    "    }\n"
+    "    vec3 nearby = sum / max(weight, 1e-4);\n"
+    "    vec3 c = own + nearby * (carried * (1.0 - lit(own)));\n"
+    "    fragColor = vec4(clamp(c, 0.0, 1.0), 1.0);\n"
+    "}\n";
+
 // The glow itself. The quad is larger than the screen, so the middle of it
 // covers the picture and only the border is ever seen. Sampling the colour
 // texture over that middle and letting the clamp carry the edge texels outward
@@ -340,18 +431,19 @@ const char* const GLOW_FRAGMENT_SRC =
     "in vec2 v_plain;\n"
     "uniform sampler2D u_texture;\n"
     "uniform float u_intensity;\n"
+    // 1 takes the colour through a spline widened by three texels, 0 through
+    // the spline alone
+    "uniform float u_blur;\n"
     "out vec4 fragColor;\n"
     // 1.7 is GLOW_SCALE and 32.0 is AMBI_SAMPLE_TEX, both kept in step by hand
     "const float scale = 1.7;\n"
     "const float size = 32.0;\n"
-    "void main() {\n"
-    "    vec2 uv = v_plain;\n"
-    "    vec2 fuv = (uv - 0.5) * scale + 0.5;\n"
     // A cubic B spline over the colour texture, done as four bilinear fetches.
     // Plain bilinear puts a crease at every texel boundary, and magnified this
     // far those creases are the lines that showed across the glow. This kernel
     // approximates rather than interpolates, so it smooths the texel to texel
     // steps on the way as well.
+    "vec3 spline(vec2 fuv) {\n"
     "    vec2 tc = fuv * size - 0.5;\n"
     "    vec2 base = floor(tc);\n"
     "    vec2 f = tc - base;\n"
@@ -371,7 +463,56 @@ const char* const GLOW_FRAGMENT_SRC =
     "    vec3 c10 = texture(u_texture, vec2(h1.x, h0.y)).rgb;\n"
     "    vec3 c01 = texture(u_texture, vec2(h0.x, h1.y)).rgb;\n"
     "    vec3 c11 = texture(u_texture, vec2(h1.x, h1.y)).rgb;\n"
-    "    vec3 color = mix(mix(c11, c01, g0.x), mix(c10, c00, g0.x), g0.y);\n"
+    "    return mix(mix(c11, c01, g0.x), mix(c10, c00, g0.x), g0.y);\n"
+    "}\n"
+    // The average of nine spline evaluations one sample texel apart, so the
+    // picture's own detail stops reaching the rim and only its colour does.
+    // The spline averaged over three texels is one kernel six taps wide, and
+    // those pair up into three bilinear fetches an axis the way the spline's
+    // own four pair into two: nine fetches for what would otherwise be 36,
+    // the same numbers to rounding, clamped edges included.
+    "vec3 blurredSpline(vec2 fuv) {\n"
+    "    vec2 tc = fuv * size - 0.5;\n"
+    "    vec2 base = floor(tc);\n"
+    "    vec2 f = tc - base;\n"
+    "    vec2 f2 = f * f;\n"
+    "    vec2 f3 = f2 * f;\n"
+    // The spline's weights on base - 1 to base + 2, then the widened
+    // kernel's on base - 2 to base + 3
+    "    vec2 b0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0;\n"
+    "    vec2 b1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;\n"
+    "    vec2 b2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0;\n"
+    "    vec2 b3 = f3 / 6.0;\n"
+    "    vec2 wb = (b0 + b1) / 3.0;\n"
+    "    vec2 wd = (b1 + b2 + b3) / 3.0;\n"
+    "    vec2 wf = b3 / 3.0;\n"
+    "    vec2 g0 = (2.0 * b0 + b1) / 3.0;\n"
+    "    vec2 g1 = (b0 + 2.0 * b1 + 2.0 * b2 + b3) / 3.0;\n"
+    "    vec2 g2 = (b2 + 2.0 * b3) / 3.0;\n"
+    "    vec2 h0 = (base - 1.5 + wb / g0) / size;\n"
+    "    vec2 h1 = (base + 0.5 + wd / g1) / size;\n"
+    "    vec2 h2 = (base + 2.5 + wf / g2) / size;\n"
+    "    vec3 r0 = texture(u_texture, vec2(h0.x, h0.y)).rgb * g0.x\n"
+    "            + texture(u_texture, vec2(h1.x, h0.y)).rgb * g1.x\n"
+    "            + texture(u_texture, vec2(h2.x, h0.y)).rgb * g2.x;\n"
+    "    vec3 r1 = texture(u_texture, vec2(h0.x, h1.y)).rgb * g0.x\n"
+    "            + texture(u_texture, vec2(h1.x, h1.y)).rgb * g1.x\n"
+    "            + texture(u_texture, vec2(h2.x, h1.y)).rgb * g2.x;\n"
+    "    vec3 r2 = texture(u_texture, vec2(h0.x, h2.y)).rgb * g0.x\n"
+    "            + texture(u_texture, vec2(h1.x, h2.y)).rgb * g1.x\n"
+    "            + texture(u_texture, vec2(h2.x, h2.y)).rgb * g2.x;\n"
+    "    return r0 * g0.y + r1 * g1.y + r2 * g2.y;\n"
+    "}\n"
+    "void main() {\n"
+    "    vec2 uv = v_plain;\n"
+    "    vec2 fuv = (uv - 0.5) * scale + 0.5;\n"
+    "    vec3 color;\n"
+    "    if (u_blur > 0.5) {\n"
+    "        color = blurredSpline(fuv);\n"
+    "    }\n"
+    "    else {\n"
+    "        color = spline(fuv);\n"
+    "    }\n"
     // Distance out into the border, 0 at the screen edge and 1 at the rim
     "    vec2 d = max(abs(uv - 0.5) - 0.5 / scale, 0.0) / (0.5 - 0.5 / scale);\n"
     "    float t = min(length(d), 1.0);\n"
