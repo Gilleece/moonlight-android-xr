@@ -204,6 +204,16 @@ int cogTrackSteps(int tab, int row) {
         return row == COG_ROW3D_SEPARATION ? COG_SEP_STEPS
                 : row == COG_ROW3D_CONVERGENCE ? 100 : 0;
     }
+    if (tab == COG_TAB_PICTURE) {
+        // Whole units, the ones each value is kept in and its readout shows
+        static const int PICTURE_STEPS[PICTURE_VALUES] = {
+            PICTURE_BRIGHTNESS_MAX - PICTURE_BRIGHTNESS_MIN,
+            PICTURE_CONTRAST_MAX - PICTURE_CONTRAST_MIN,
+            PICTURE_GAMMA_MAX - PICTURE_GAMMA_MIN,
+            PICTURE_SATURATION_MAX - PICTURE_SATURATION_MIN
+        };
+        return row >= 0 && row < PICTURE_VALUES ? PICTURE_STEPS[row] : 0;
+    }
     // The Room tab's lanes in five unit steps, and the size in whole percent
     if (row == COG_ROOM_ROW_BRIGHTNESS) {
         return (ROOM_BRIGHTNESS_MAX - ROOM_BRIGHTNESS_MIN) / 5;

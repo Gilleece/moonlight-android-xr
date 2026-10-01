@@ -20,6 +20,9 @@
 //     ray and cursor: 14.
 //   3D tab in a room: the rings on its preset and its switch, the hover ring
 //     and two thumbs over the same: 16.
+//   Picture tab in a room: the room, the glow, both eyes, the stats, the cog
+//     button, the panel, the clock, the strip of values, four thumbs, the
+//     hover ring, ray and cursor: 16.
 //   The bar: the pill, all five buttons and the padlock over the glow, both
 //     eyes, the stats, ray and cursor: 13, and 13 in a room, where the pill
 //     gives way to the room's own layer.
@@ -704,7 +707,7 @@ static void addCogRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
 }
 
 // The settings panel, the rings on its rows of cells, the thumbs on its
-// sliders, and on the Room tab the percents beside them
+// sliders, and on the Room and Picture tabs the values beside them
 static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The settings panel, at the pose it was opened with. The tab is a
     // choice of swapchain, all were filled at startup, and a room has its
@@ -802,10 +805,11 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             pushLayer(ctx, layers, mark);
         }
 
-        // The Room tab's percents, once the strip says what the rows do now.
-        // A strip still showing another room's values, or a value a drag has
-        // just moved past, stays down until Java has drawn it again.
-        if (face == COG_FACE_ROOM && ctx->cogReadoutReady) {
+        // The Room tab's percents or the Picture tab's values, once the strip
+        // says what the rows do now. A strip still showing another tab's or
+        // another room's values, or a value a drag has just moved past, stays
+        // down until Java has drawn it again.
+        if ((face == COG_FACE_ROOM || face == COG_TAB_PICTURE) && ctx->cogReadoutReady) {
             int readouts[READOUT_VALUES];
             cogReadouts(ctx, readouts);
             if (memcmp(readouts, ctx->cogReadoutDrawn, sizeof(readouts)) == 0) {

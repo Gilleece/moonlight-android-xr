@@ -461,9 +461,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject
          ctx->cogButtonReady ? "ready" : "missing");
 }
 
-// The strip of percents beside the Room tab's tracks, drawn in Java whenever
-// the frame before said one of them had moved, and the values it was drawn
-// with. The panel only shows it while those are still the values in force.
+// The strip of values beside the Room or Picture tab's tracks, drawn in Java
+// whenever the frame before said one of them had moved, and the values it was
+// drawn with. The panel only shows it while those are still the values in
+// force.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadCogReadout(JNIEnv* env, jobject thiz,
                                                                    jlong handle, jobject strip,

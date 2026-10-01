@@ -110,12 +110,16 @@
 // Which room a room's own setting belongs to, as the picker cell showing it,
 // or -1 with no room up. Every frame, since each room keeps its own values.
 #define IN_SETTING_ROOM 23
-// What the Room tab's three tracks read, as the percent drawn beside each:
-// brightness and light level as the place along their lanes, the size as the
-// share of the room's screen. The first is -1 while the tab is not up, and the
-// last is -1 in a room whose size is fixed.
+// What the strip beside the Room or Picture tab's tracks says. First which of
+// the two it is for, READOUT_ROOM or READOUT_PICTURE, or -1 while neither is
+// up, then a value a row. The Room tab's three are the percent drawn beside
+// each: brightness and light level as the place along their lanes, the size
+// as the share of the room's screen, -1 in a room whose size is fixed. The
+// Picture tab's four are its values in their own whole units.
 #define IN_READOUT  24
-#define READOUT_VALUES 3
+#define READOUT_VALUES 5
+#define READOUT_ROOM 0
+#define READOUT_PICTURE 1
 // 1 while the 3D is on, and 0 once the bar or the 3D tab has switched it off
 // for the rest of the session, or in a session started without it. Every
 // frame, since it says whether the model is to be fed.
@@ -158,6 +162,13 @@
 #define SETTING_POINTER_SLEEP 14
 // Whether a press on the panels ticks, Off 0 or On 1
 #define SETTING_CLICK_SOUND 15
+// The picture grade's four values in their whole units, one id each in the
+// PICTURE_ order, and all four back to the picture as streamed
+#define SETTING_PICTURE_BRIGHTNESS 16
+#define SETTING_PICTURE_CONTRAST 17
+#define SETTING_PICTURE_GAMMA 18
+#define SETTING_PICTURE_SATURATION 19
+#define SETTING_RESET_PICTURE 20
 
 // The lanes the Room tab's rows move along, in the units the preferences
 // hold. Brightness is the room's own in hundredths of the room as baked, from
@@ -189,6 +200,31 @@
 #define ROOM_SYNTHWAVE_SCREEN 100
 #define ROOM_SYNTHWAVE_GLOW 1
 #define ROOM_SYNTHWAVE_RESIZABLE 1
+
+// The picture grade, in the whole units its preferences hold, one set for
+// every room and session. Brightness is hundredths of full scale added after
+// the contrast, contrast is percent of gain about mid grey, gamma is in
+// hundredths, and saturation is percent of the picture's own. Each default is
+// the picture as streamed, where the grade does nothing at all.
+#define PICTURE_BRIGHTNESS_MIN -50
+#define PICTURE_BRIGHTNESS_MAX 50
+#define PICTURE_BRIGHTNESS_DEFAULT 0
+#define PICTURE_CONTRAST_MIN 50
+#define PICTURE_CONTRAST_MAX 150
+#define PICTURE_CONTRAST_DEFAULT 100
+#define PICTURE_GAMMA_MIN 50
+#define PICTURE_GAMMA_MAX 200
+#define PICTURE_GAMMA_DEFAULT 100
+#define PICTURE_SATURATION_MIN 0
+#define PICTURE_SATURATION_MAX 200
+#define PICTURE_SATURATION_DEFAULT 100
+// The four in the order the Picture tab draws them, which is also the order
+// they travel in wherever they go together
+#define PICTURE_BRIGHTNESS 0
+#define PICTURE_CONTRAST 1
+#define PICTURE_GAMMA 2
+#define PICTURE_SATURATION 3
+#define PICTURE_VALUES 4
 
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0
@@ -265,15 +301,17 @@
 #define COG_TAB_SCREEN  0
 #define COG_TAB_DISPLAY 1
 #define COG_TAB_3D      2
-#define COG_TAB_COUNT   3
+#define COG_TAB_PICTURE 3
+#define COG_TAB_COUNT   4
 // And the sheets a room shows instead. While one is up the first tab is the
 // Room tab, whose size row is live or greyed as the room allows, and the other
-// two tabs are drawn again with that name over the first slot.
-#define COG_ART_ROOM         3
-#define COG_ART_ROOM_FIXED   4
-#define COG_ART_ROOM_DISPLAY 5
-#define COG_ART_ROOM_3D      6
-#define COG_ART_COUNT        7
+// tabs are drawn again with that name over the first slot.
+#define COG_ART_ROOM         4
+#define COG_ART_ROOM_FIXED   5
+#define COG_ART_ROOM_DISPLAY 6
+#define COG_ART_ROOM_3D      7
+#define COG_ART_ROOM_PICTURE 8
+#define COG_ART_COUNT        9
 
 // Screen tab rows, in the order they are drawn
 #define COG_SLIDER_DISTANCE 0
@@ -295,10 +333,11 @@
 #define COG_ROOM_ROW_SIZE 4
 #define COG_ROOM_ROW_COUNT 5
 #define COG_ROOM_SWITCH_CELLS 2
-// The percent beside each of its tracks. Drawn in Java whenever one changes
-// and shown as a strip of its own over the panel rather than as part of the
-// sheet, so a drag costs an upload this size rather than the whole sheet's.
-// Where the strip sits on the panel, as fractions of it.
+// The percent beside each of its tracks, and the Picture tab's values beside
+// its. Drawn in Java whenever one changes and shown as a strip of its own over
+// the panel rather than as part of the sheet, so a drag costs an upload this
+// size rather than the whole sheet's. Where the strip sits on the panel, as
+// fractions of it.
 #define COG_READOUT_TEX_W 96
 #define COG_READOUT_TEX_H 384
 #define COG_READOUT_L 0.26f
@@ -331,6 +370,10 @@
 // Steps along that track, so a dragged value lands exactly on one of the
 // tenths of a percent the preference is stored in
 #define COG_SEP_STEPS 15
+
+// Picture tab rows are the four PICTURE_ values in their order, each a track
+// with a tick at the picture as streamed, over the reset button. Live in
+// every session and every room, since the grade only changes colours.
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
 // dragging a value.

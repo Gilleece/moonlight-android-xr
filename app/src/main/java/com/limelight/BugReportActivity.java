@@ -346,6 +346,7 @@ public class BugReportActivity extends Activity {
                 + " " + PreferenceConfiguration.inputLabel(prefs.vrShowHandLock,
                         prefs.vrPointerSleep, " ")
                 + " clickSound " + prefs.vrClickSound
+                + " " + PreferenceConfiguration.pictureLabel(prefs.vrPicture, " ")
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"
                 + "fileLog " + prefs.fileLogLevel + "\n";
     }

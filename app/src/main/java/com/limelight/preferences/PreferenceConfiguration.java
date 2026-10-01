@@ -112,6 +112,13 @@ public class PreferenceConfiguration {
     public static final String ROOM_GLOW_PREFIX = "room_glow_";
     public static final String ROOM_LIGHT_PREFIX = "room_light_";
     public static final String ROOM_SCREEN_PREFIX = "room_screen_";
+    // The picture grade, one set for every session, in the whole units of
+    // the PICTURE_ lanes in XrShared. The 2d seekbars and the headset panel's
+    // Picture tab read and write the same keys.
+    public static final String VR_PICTURE_BRIGHTNESS_PREF_STRING = "seekbar_vr_picture_brightness";
+    public static final String VR_PICTURE_CONTRAST_PREF_STRING = "seekbar_vr_picture_contrast";
+    public static final String VR_PICTURE_GAMMA_PREF_STRING = "seekbar_vr_picture_gamma";
+    public static final String VR_PICTURE_SATURATION_PREF_STRING = "seekbar_vr_picture_saturation";
     public static final String FILE_LOG_PREF_STRING = "list_vr_file_log";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
@@ -318,6 +325,10 @@ public class PreferenceConfiguration {
     public int vrAmbilightLevel;
     // The same colours washed over the walls of a 3d environment
     public boolean vrRoomLight;
+    // Brightness, contrast, gamma and saturation over the picture, in
+    // XrShared's PICTURE_ order and units. All four at their defaults is the
+    // picture as streamed.
+    public int[] vrPicture;
     // The environment last picked in the headset, one of the VR_ENV_ ids, or
     // -1 before anything has been. Read for the logs only: the renderer reads
     // and writes the preference itself.
@@ -687,6 +698,67 @@ public class PreferenceConfiguration {
                 Math.max(XrShared.ROOM_LIGHT_MIN, Math.min(XrShared.ROOM_LIGHT_MAX, light)),
                 clampRoomScreen(envId, prefs.getInt(roomScreenKey(envId),
                         defaultRoomScreen(envId))));
+    }
+
+    /** The key a picture value is kept under, by its PICTURE_ row. */
+    public static String pictureKey(int row) {
+        switch (row) {
+            case XrShared.PICTURE_CONTRAST: return VR_PICTURE_CONTRAST_PREF_STRING;
+            case XrShared.PICTURE_GAMMA: return VR_PICTURE_GAMMA_PREF_STRING;
+            case XrShared.PICTURE_SATURATION: return VR_PICTURE_SATURATION_PREF_STRING;
+            default: return VR_PICTURE_BRIGHTNESS_PREF_STRING;
+        }
+    }
+
+    /** Where a picture row starts, the picture as streamed. */
+    public static int pictureDefault(int row) {
+        switch (row) {
+            case XrShared.PICTURE_CONTRAST: return XrShared.PICTURE_CONTRAST_DEFAULT;
+            case XrShared.PICTURE_GAMMA: return XrShared.PICTURE_GAMMA_DEFAULT;
+            case XrShared.PICTURE_SATURATION: return XrShared.PICTURE_SATURATION_DEFAULT;
+            default: return XrShared.PICTURE_BRIGHTNESS_DEFAULT;
+        }
+    }
+
+    /** A picture value held to its row's lane. */
+    public static int clampPicture(int row, int units) {
+        int min, max;
+        switch (row) {
+            case XrShared.PICTURE_CONTRAST:
+                min = XrShared.PICTURE_CONTRAST_MIN;
+                max = XrShared.PICTURE_CONTRAST_MAX;
+                break;
+            case XrShared.PICTURE_GAMMA:
+                min = XrShared.PICTURE_GAMMA_MIN;
+                max = XrShared.PICTURE_GAMMA_MAX;
+                break;
+            case XrShared.PICTURE_SATURATION:
+                min = XrShared.PICTURE_SATURATION_MIN;
+                max = XrShared.PICTURE_SATURATION_MAX;
+                break;
+            default:
+                min = XrShared.PICTURE_BRIGHTNESS_MIN;
+                max = XrShared.PICTURE_BRIGHTNESS_MAX;
+                break;
+        }
+        return Math.max(min, Math.min(max, units));
+    }
+
+    /** All four picture values as stored, each in its lane, the defaults where nothing is. */
+    public static int[] readPicture(SharedPreferences prefs) {
+        int[] picture = new int[XrShared.PICTURE_VALUES];
+        for (int row = 0; row < picture.length; row++) {
+            picture[row] = clampPicture(row, prefs.getInt(pictureKey(row), pictureDefault(row)));
+        }
+        return picture;
+    }
+
+    /** The four picture values for a log line, joined the way that line joins its keys to their values. */
+    public static String pictureLabel(int[] picture, String join) {
+        return "pictureBrightness" + join + picture[XrShared.PICTURE_BRIGHTNESS]
+                + " pictureContrast" + join + picture[XrShared.PICTURE_CONTRAST]
+                + " pictureGamma" + join + picture[XrShared.PICTURE_GAMMA]
+                + " pictureSaturation" + join + picture[XrShared.PICTURE_SATURATION];
     }
 
     // Moves a stored MiDaS to ZipDepth, once. Installs from before ZipDepth
@@ -1173,6 +1245,7 @@ public class PreferenceConfiguration {
         config.vrAmbilightLevel = prefs.getInt(VR_AMBILIGHT_LEVEL_PREF_STRING,
                 DEFAULT_VR_AMBILIGHT_LEVEL);
         config.vrRoomLight = prefs.getBoolean(VR_ROOM_LIGHT_PREF_STRING, DEFAULT_VR_ROOM_LIGHT);
+        config.vrPicture = readPicture(prefs);
         config.vrEnvironmentId = prefs.getInt(VR_ENVIRONMENT_ID_PREF_STRING, -1);
         config.vrRoomLevels = isRoomEnvironment(config.vrEnvironmentId)
                 ? readRoomLevels(prefs, config.vrEnvironmentId) : null;

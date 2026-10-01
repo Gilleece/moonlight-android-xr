@@ -322,6 +322,14 @@
     <string name="summary_vr_depth_source">选择实时 3D 转换模式，包含多种测试图案。</string>
     <string name="title_vr_env_res">虚拟环境分辨率</string>
     <string name="summary_vr_env_res">屏幕周围 3D 虚拟场景的渲染清晰度。画质越高越消耗 GPU 性能。极致画质为实验性功能，可能导致卡顿或掉帧。</string>
+    <string name="title_seekbar_vr_picture_brightness">画面亮度</string>
+    <string name="summary_seekbar_vr_picture_brightness">提高或降低头显中整个画面的亮度。0 为串流的原始画面。头显内设置面板的 Picture 标签页调整的是同样的四个数值。</string>
+    <string name="title_seekbar_vr_picture_contrast">画面对比度</string>
+    <string name="summary_seekbar_vr_picture_contrast">以中灰为中心拉开或收拢画面的明暗层次。100% 为串流的原始画面。</string>
+    <string name="title_seekbar_vr_picture_gamma">画面伽马</string>
+    <string name="summary_seekbar_vr_picture_gamma">高于 1.00 会提亮中间调和暗部，同时不会让黑色和白色发灰，对偏暗的游戏通常比调亮度更合适。1.00 为串流的原始画面。</string>
+    <string name="title_seekbar_vr_picture_saturation">画面饱和度</string>
+    <string name="summary_seekbar_vr_picture_saturation">画面色彩的浓淡。0% 为黑白，100% 为串流的原始画面。</string>
     <string name="title_vr_sharpening">虚拟屏幕锐化</string>
     <string name="summary_vr_sharpening">在头显合成层中锐化虚拟屏幕。在受支持的头显上几乎不增加开销；若系统不支持该扩展则自动忽略。</string>
     <string name="title_vr_supersampling">虚拟屏幕超采样</string>

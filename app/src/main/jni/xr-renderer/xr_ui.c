@@ -71,6 +71,9 @@ int cogArt(XrCtx* ctx) {
     if (ctx->cogTab == COG_TAB_3D) {
         return COG_ART_ROOM_3D;
     }
+    if (ctx->cogTab == COG_TAB_PICTURE) {
+        return COG_ART_ROOM_PICTURE;
+    }
     return roomResizable(style) ? COG_ART_ROOM : COG_ART_ROOM_FIXED;
 }
 
@@ -406,6 +409,9 @@ int cogTabRowCount(int face) {
     if (face == COG_FACE_ROOM) {
         return COG_ROOM_ROW_COUNT;
     }
+    if (face == COG_TAB_PICTURE) {
+        return PICTURE_VALUES;
+    }
     // The option rows, then the glow level track under them
     return COG_DISPLAY_SLIDER_ROW + 1;
 }
@@ -492,6 +498,11 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
             t = ctx->convergence;
         }
     }
+    else if (face == COG_TAB_PICTURE) {
+        if (slider >= 0 && slider < PICTURE_VALUES) {
+            t = lanePlace(ctx->pictureUnits[slider], pictureMin(slider), pictureMax(slider));
+        }
+    }
     else if (slider == COG_SLIDER_DISTANCE) {
         float d = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
         t = (d - COG_DIST_MIN) / (COG_DIST_MAX - COG_DIST_MIN);
@@ -550,6 +561,16 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
         // will be written with when the drag ends
         int units = (int)roundf(t * 20.0f) * 5;
         ctx->ambiIntensity = units / 100.0f;
+        return;
+    }
+
+    if (face == COG_TAB_PICTURE) {
+        // Whole units, so the thumb and the readout show exactly what gets
+        // written when the drag ends. The grade is read every frame, so the
+        // picture changes under the thumb.
+        if (slider >= 0 && slider < PICTURE_VALUES) {
+            pictureSet(ctx, slider, laneUnits(t, pictureMin(slider), pictureMax(slider)));
+        }
         return;
     }
 
@@ -847,6 +868,15 @@ void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
     }
 }
 
+// The picture rows' settings and names, in the PICTURE_ order
+static const int PICTURE_SETTINGS[PICTURE_VALUES] = {
+    SETTING_PICTURE_BRIGHTNESS, SETTING_PICTURE_CONTRAST, SETTING_PICTURE_GAMMA,
+    SETTING_PICTURE_SATURATION
+};
+static const char* const PICTURE_NAMES[PICTURE_VALUES] = {
+    "brightness", "contrast", "gamma", "saturation"
+};
+
 // Letting go of a slider, either on purpose or because focus went away mid
 // drag. Persisting where it ended up rather than every frame on the way there
 // is the same policy a grab uses, so this is where the writing happens.
@@ -912,6 +942,12 @@ void cogDragEnded(XrCtx* ctx, float* out) {
         // Whole percent, the preference's units
         out[IN_SETTING_VALUE] = roundf(ctx->ambiIntensity * 100.0f);
     }
+    else if (face == COG_TAB_PICTURE && slider < PICTURE_VALUES) {
+        out[IN_SETTING] = (float)PICTURE_SETTINGS[slider];
+        out[IN_SETTING_VALUE] = (float)ctx->pictureUnits[slider];
+        LOGEV("picture %s %d from the panel, grade %s", PICTURE_NAMES[slider],
+              ctx->pictureUnits[slider], ctx->gradeOn ? "on" : "off");
+    }
 }
 
 // A press on one of a track's step buttons: one step that way, applied at once
@@ -945,23 +981,36 @@ int cogCellAt(float pu, int cells) {
     return cell;
 }
 
-// What the percents beside the Room tab's tracks should say, in IN_READOUT
-// order, or -1 first while the tab is not up. The size says nothing in a room
-// that keeps its picture whole, where its row is greyed.
+// What the strip beside the Room or Picture tab's tracks should say, in
+// IN_READOUT order: which tab it is for, or -1 first while neither is up, then
+// a value a row and -1 past the rows. The Room tab's size says nothing in a
+// room that keeps its picture whole, where its row is greyed.
 void cogReadouts(XrCtx* ctx, int* values) {
-    int style = roomFaceStyle(ctx);
+    for (int i = 0; i < READOUT_VALUES; i++) {
+        values[i] = -1;
+    }
     // Still up while the panel fades out, so the strip goes with it
     int showing = ctx->cogOpen || ctx->panelFades[FADE_COG].level > 0.0f;
-    if (!showing || cogFace(ctx) != COG_FACE_ROOM || style == 0) {
-        values[0] = -1;
-        values[1] = -1;
-        values[2] = -1;
+    if (!showing) {
         return;
     }
-    values[0] = lanePercent(ctx->roomBrightness[style], ROOM_BRIGHTNESS_MIN,
+    int face = cogFace(ctx);
+    if (face == COG_TAB_PICTURE) {
+        values[0] = READOUT_PICTURE;
+        for (int row = 0; row < PICTURE_VALUES; row++) {
+            values[1 + row] = ctx->pictureUnits[row];
+        }
+        return;
+    }
+    int style = roomFaceStyle(ctx);
+    if (face != COG_FACE_ROOM || style == 0) {
+        return;
+    }
+    values[0] = READOUT_ROOM;
+    values[1] = lanePercent(ctx->roomBrightness[style], ROOM_BRIGHTNESS_MIN,
                             ROOM_BRIGHTNESS_MAX);
-    values[1] = lanePercent(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
-    values[2] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
+    values[2] = lanePercent(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
+    values[3] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
 }
 
 // Held on the depth track, which is all the panel can show or write
@@ -1026,4 +1075,45 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetClickSound(JNIEnv* env, job
     if (ctx != NULL) {
         ctx->clickSoundOn = on;
     }
+}
+
+// One row of the picture grade to a value in its own whole units, held to its
+// lane, with the grade worked out again. Off once every row is back at its
+// default, which is all the shaders look at before skipping it.
+void pictureSet(XrCtx* ctx, int row, int units) {
+    if (row < 0 || row >= PICTURE_VALUES) {
+        return;
+    }
+    ctx->pictureUnits[row] = pictureClamp(row, units);
+    ctx->grade = pictureGradeFor(ctx->pictureUnits);
+    ctx->gradeOn = !pictureNeutral(ctx->pictureUnits);
+}
+
+// The Picture tab's reset: all four back to the picture as streamed, which
+// turns the grade off
+void pictureReset(XrCtx* ctx) {
+    for (int row = 0; row < PICTURE_VALUES; row++) {
+        pictureSet(ctx, row, pictureDefault(row));
+    }
+    LOGEV("picture reset from the panel, grade %s", ctx->gradeOn ? "on" : "off");
+}
+
+// The four picture values from the preferences, in PICTURE_ order, handed down
+// before the first frame
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetPicture(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jintArray values) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || values == NULL || (*env)->GetArrayLength(env, values) < PICTURE_VALUES) {
+        return;
+    }
+    int units[PICTURE_VALUES];
+    (*env)->GetIntArrayRegion(env, values, 0, PICTURE_VALUES, units);
+    for (int row = 0; row < PICTURE_VALUES; row++) {
+        pictureSet(ctx, row, units[row]);
+    }
+    LOGEV("picture: brightness %d, contrast %d, gamma %d, saturation %d, grade %s",
+          ctx->pictureUnits[PICTURE_BRIGHTNESS], ctx->pictureUnits[PICTURE_CONTRAST],
+          ctx->pictureUnits[PICTURE_GAMMA], ctx->pictureUnits[PICTURE_SATURATION],
+          ctx->gradeOn ? "on" : "off");
 }

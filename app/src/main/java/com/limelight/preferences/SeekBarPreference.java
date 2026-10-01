@@ -34,6 +34,12 @@ public class SeekBarPreference extends DialogPreference
     private final int stepSize;
     private final int keyStepSize;
     private final int divisor;
+    // Added to the bar's position for what is shown and stored, so a range
+    // can run below zero, or start well above it without a dead stretch at
+    // the left of the bar. currentValue is in the stored units.
+    private final int offset;
+    // Places after the point when there is a divisor
+    private final int decimals;
     private int currentValue;
 
     public SeekBarPreference(Context context, AttributeSet attrs) {
@@ -65,6 +71,8 @@ public class SeekBarPreference extends DialogPreference
         stepSize = attrs.getAttributeIntValue(SEEKBAR_SCHEMA_URL, "step", 1);
         divisor = attrs.getAttributeIntValue(SEEKBAR_SCHEMA_URL, "divisor", 1);
         keyStepSize = attrs.getAttributeIntValue(SEEKBAR_SCHEMA_URL, "keyStep", 0);
+        offset = attrs.getAttributeIntValue(SEEKBAR_SCHEMA_URL, "offset", 0);
+        decimals = attrs.getAttributeIntValue(SEEKBAR_SCHEMA_URL, "decimals", 1);
     }
 
     @Override
@@ -107,15 +115,7 @@ public class SeekBarPreference extends DialogPreference
                     return;
                 }
 
-                String t;
-                if (divisor != 1) {
-                    float floatValue = roundedValue / (float)divisor;
-                    t = String.format((Locale)null, "%.1f", floatValue);
-                }
-                else {
-                    t = String.valueOf(value);
-                }
-                valueText.setText(suffix == null ? t : t.concat(suffix.length() > 1 ? " "+suffix : suffix));
+                showValue(roundedValue);
             }
 
             @Override
@@ -135,9 +135,32 @@ public class SeekBarPreference extends DialogPreference
         if (keyStepSize != 0) {
             seekBar.setKeyProgressIncrement(keyStepSize);
         }
-        seekBar.setProgress(currentValue);
+        seekBar.setProgress(currentValue - offset);
+        if (offset != 0) {
+            // At the left end the listener never fires, and the placeholder
+            // above would stand for a value that is not zero
+            showValue(seekBar.getProgress());
+        }
 
         return layout;
+    }
+
+    // The bar's position as it is shown: offset, divided and suffixed
+    private void showValue(int progress) {
+        int value = progress + offset;
+        String t;
+        if (divisor != 1) {
+            float floatValue = value / (float)divisor;
+            t = String.format((Locale)null, "%." + decimals + "f", floatValue);
+        }
+        else {
+            t = String.valueOf(value);
+        }
+        // A range that runs below zero says which side of it a value is on
+        if (offset < 0 && value > 0) {
+            t = "+" + t;
+        }
+        valueText.setText(suffix == null ? t : t.concat(suffix.length() > 1 ? " "+suffix : suffix));
     }
 
     @Override
@@ -147,7 +170,7 @@ public class SeekBarPreference extends DialogPreference
         if (keyStepSize != 0) {
             seekBar.setKeyProgressIncrement(keyStepSize);
         }
-        seekBar.setProgress(currentValue);
+        seekBar.setProgress(currentValue - offset);
     }
 
     @Override
@@ -181,9 +204,9 @@ public class SeekBarPreference extends DialogPreference
             @Override
             public void onClick(View view) {
                 if (shouldPersist()) {
-                    currentValue = seekBar.getProgress();
-                    persistInt(seekBar.getProgress());
-                    callChangeListener(seekBar.getProgress());
+                    currentValue = seekBar.getProgress() + offset;
+                    persistInt(currentValue);
+                    callChangeListener(currentValue);
                 }
 
                 getDialog().dismiss();

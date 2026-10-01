@@ -44,6 +44,7 @@
 #include "xr_pinch.h"
 #include "xr_notice.h"
 #include "xr_glow.h"
+#include "xr_grade.h"
 
 #define TAG "moonlight-xr"
 
@@ -618,6 +619,8 @@ typedef struct {
     GLuint ambiProgram;
     GLint ambiTexMatrixUniform;
     GLint ambiCropUniform;
+    GLint ambiGradeOnUniform;
+    GLint ambiGradeUniform;
     GLuint ambiTexture;
     GLuint ambiFbo;
     // Whether there is anything in that texture yet, since the first frame has
@@ -667,6 +670,13 @@ typedef struct {
     float ambiIntensity;
     // What the debug property asked for, or -1 while the panel still owns it
     int ambiOverride;
+
+    // The picture grade, in the preferences' whole units in PICTURE_ order,
+    // and the sums they come to. Off while all four are at their defaults,
+    // which the shaders branch on, so the picture as streamed costs nothing.
+    int pictureUnits[PICTURE_VALUES];
+    int gradeOn;
+    PictureGrade grade;
 
     // Which room the picker is on: 0 none, else one of the ROOM_STYLE_ values
     // Same arrangement as the glow, with a debug property that can force it.
@@ -793,6 +803,8 @@ typedef struct {
     GLint srcInsetUniform;
     GLint edgeFadeUniform;
     GLint depthCubicUniform;
+    GLint gradeOnUniform;
+    GLint gradeUniform;
     GLuint fbo;
     int barTestFramesLogged;
 
@@ -1413,6 +1425,7 @@ extern PFNGETQUERYOBJECTUIVEXT pfnGetQueryObjectuiv;
 extern PFNGETQUERYOBJECTUI64VEXT pfnGetQueryObjectui64v;
 extern PFNDELETEQUERIESEXT pfnDeleteQueries;
 GLuint compileShader(GLenum type, const char* src);
+void setGradeUniforms(XrCtx* ctx, GLint onUniform, GLint gradeUniform, int on);
 int linkProgram(GLuint* out, const char* fragmentSrc, const char* what);
 int initGl(XrCtx* ctx);
 void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation);
@@ -1492,6 +1505,8 @@ void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);
 int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);
 void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide);
+void pictureSet(XrCtx* ctx, int row, int units);
+void pictureReset(XrCtx* ctx);
 int lockButtonHit(XrCtx* ctx, float u, float v, float height);
 
 // xr_assets.c: the swapchains the art goes into and the uploads that fill them

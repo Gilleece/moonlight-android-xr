@@ -60,6 +60,41 @@
             android:entryValues="@array/vr_env_res_values"
             android:summary="@string/summary_vr_env_res"
             android:defaultValue="standard" />
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_brightness"
+            android:defaultValue="0"
+            seekbar:min="0"
+            android:max="100"
+            seekbar:offset="-50"
+            android:summary="@string/summary_seekbar_vr_picture_brightness"
+            android:title="@string/title_seekbar_vr_picture_brightness"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_contrast"
+            android:defaultValue="100"
+            seekbar:min="0"
+            android:max="100"
+            seekbar:offset="50"
+            android:summary="@string/summary_seekbar_vr_picture_contrast"
+            android:text="@string/suffix_seekbar_vr_percent"
+            android:title="@string/title_seekbar_vr_picture_contrast"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_gamma"
+            android:defaultValue="100"
+            seekbar:min="0"
+            android:max="150"
+            seekbar:offset="50"
+            seekbar:divisor="100"
+            seekbar:decimals="2"
+            android:summary="@string/summary_seekbar_vr_picture_gamma"
+            android:title="@string/title_seekbar_vr_picture_gamma"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_saturation"
+            android:defaultValue="100"
+            seekbar:min="0"
+            android:max="200"
+            android:summary="@string/summary_seekbar_vr_picture_saturation"
+            android:text="@string/suffix_seekbar_vr_percent"
+            android:title="@string/title_seekbar_vr_picture_saturation"/>
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_vr_debug"
         android:key="category_vr_debug">

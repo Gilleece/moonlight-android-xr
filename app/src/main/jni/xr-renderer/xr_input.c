@@ -2029,8 +2029,9 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             break;
         }
 
-        // Only the screen and 3D tabs have a reset button under their rows
-        int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D)
+        // The screen, 3D and Picture tabs have a reset button under their
+        // rows
+        int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D || face == COG_TAB_PICTURE)
                 && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
         if (onReset && ctx->triggerEdge[h]) {
@@ -2050,6 +2051,12 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             LOGEV("3d settings reset from the panel to separation %d, convergence %d",
                   separationUnits(ctx->defaultSeparation),
                   (int)roundf(ctx->defaultConvergence * 100.0f));
+        }
+        else if (onReset && ctx->triggerEdge[h] && face == COG_TAB_PICTURE) {
+            // All four at once, written by the same road
+            pictureReset(ctx);
+            f->out[IN_SETTING] = (float)SETTING_RESET_PICTURE;
+            f->out[IN_SETTING_VALUE] = 0.0f;
         }
         else if (onReset && ctx->triggerEdge[h]) {
             // Hands the curve back to the preference and drops the
@@ -2496,7 +2503,10 @@ static void emitRoomScreen(XrCtx* ctx, float* out) {
 // The slots read off state rather than written as things happen, filled last
 // so they say what this frame left, then the lot to Java
 static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
-    int readouts[READOUT_VALUES] = { -1, -1, -1 };
+    int readouts[READOUT_VALUES];
+    for (int i = 0; i < READOUT_VALUES; i++) {
+        readouts[i] = -1;
+    }
     out[IN_SETTING_ROOM] = -1.0f;
     out[IN_STEREO] = 0.0f;
     out[IN_TOAST] = -1.0f;
