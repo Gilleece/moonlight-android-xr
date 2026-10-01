@@ -1,0 +1,26 @@
+"Controller" is this repository's own model. Copyright (c) 2026 Sean Gilleece /
+Woodford XR, licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/), attribution to Sean Gilleece /
+Woodford XR. Made in code by tools/make_controller.py: a generic VR controller,
+a handle, a head with a thumbstick, a trigger and a ring over the top, painted
+in vertex colours, a neutral dark grey with a lighter ring, and no texture.
+
+Shipped in the app as models/controller.room and drawn at each hand's grip
+when "Show the controllers" is on.
+
+Run from the top of the repository, with the glb outside it:
+
+  python3 tools/make_controller.py controller.glb
+  python3 tools/bake_room.py controller.glb \
+      app/src/main/assets/models/controller.room
+
+The glb is only a step between the two and is not kept; the script makes the
+same one every time.
+
+  controller.room   58,300 bytes, 890 vertices, 1,592 triangles, one part
+                    painted from its vertex colours, no atlas
+
+The model is a right hand controller in OpenXR's grip space, in metres: the
+origin is the middle of the handle where the palm closes round it, +x points to
+the right, +y up and -z forward along a straightened index finger. The renderer
+places it at the grip pose as it is and mirrors it in x for the left hand.

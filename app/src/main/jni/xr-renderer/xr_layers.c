@@ -26,16 +26,25 @@
 //   About tab in a room: no rows, so the room, the glow, both eyes, the
 //     stats, the cog button, the panel, the clock, the ring on its button,
 //     ray and cursor: 11.
-//   The bar: the pill, all five buttons and the padlock over the glow, both
-//     eyes, the stats, ray and cursor: 13, and 13 in a room, where the pill
-//     gives way to the room's own layer.
+//   The bar: the pill, all six buttons (exit, environment, cog, keyboard,
+//     ray, 3D) and the padlock over the glow, both eyes, the stats, ray and
+//     cursor: 14, and 14 in a room, where the pill gives way to the room's
+//     own layer. 15 with the toast. With the ray switched off it is one
+//     fewer, since the bar is not a panel and brings no beam back.
+//   The controller models are a projection layer of their own, over the
+//     picture and the panels and under the beam, one more on any of these
+//     while a model shows: the bar to 15, 16 with the toast, the Display tab
+//     to 15 and the About tab to 12, and the screen, 3D and Picture tabs to
+//     17 and the Room tab to 18, which go over.
 // So a frame over the runtime's limit sheds, in this order, the toast, the
-// hover ring, the cog button and the clock strip (see nativeEndFrame), which
-// brings every case above to 16 or under with the toast up.
+// controller models, the hover ring, the cog button and the clock strip (see
+// nativeEndFrame), which brings every case above to 16 or under with the
+// toast up.
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the bar furniture and adds only its panel and one ring,
 // so it comes to 9. The report sheet puts the settings panel away and brings
 // the keyboard up under it, so it is the keyboard's 9 and its own sheet: 10.
+// Each is one more with the controller models up.
 // The exit prompt sheds the furniture too and adds its own sheet and the
 // button that opened it, so it comes to less again. A panel fading out
 // keeps the bar furniture down until it has gone, and one opening cuts any
@@ -68,6 +77,7 @@ typedef struct {
     XrCompositionLayerQuad kbButton;
     XrCompositionLayerQuad exitButton;
     XrCompositionLayerQuad stereoButton;
+    XrCompositionLayerQuad rayButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad lock;
@@ -80,13 +90,17 @@ typedef struct {
     XrCompositionLayerQuad cogMarks;
     XrCompositionLayerQuad cogClock;
     // One per row of whichever tab has the most. The display tab's glow level
-    // track is its seventh row, so it is the one that sets the size.
+    // track is its last row, so it is the one that sets the size.
     XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SLIDER_COUNT
                                     ? COG_DISPLAY_SLIDER_ROW + 1 : COG_SLIDER_COUNT];
     XrCompositionLayerQuad kbPanel;
     XrCompositionLayerQuad kbMark;
     XrCompositionLayerQuad beam;
     XrCompositionLayerQuad dot;
+    // The controller models, over the picture and the panels and under the
+    // beam and the dot
+    XrCompositionLayerProjection models;
+    XrCompositionLayerProjectionView modelViews[ROOM_EYES];
     XrCompositionLayerQuad toast;
     XrCompositionLayerQuad splashBlack;
     XrCompositionLayerQuad splashSheet;
@@ -209,7 +223,7 @@ static void logWarpStats(XrCtx* ctx) {
         // The room is timed separately, so it is reported separately: kept
         // of harvested, since only a fraction of its queries come back with
         // anything usable in them. Nothing is said when it is not on.
-        char roomLine[64];
+        char roomLine[128];
         roomLine[0] = '\0';
         if (ctx->roomGpuSamples > 0) {
             snprintf(roomLine, sizeof(roomLine), ", room avg %.2f ms (%ld of %ld)",
@@ -219,6 +233,15 @@ static void logWarpStats(XrCtx* ctx) {
         else if (ctx->roomGpuDropped > 0) {
             snprintf(roomLine, sizeof(roomLine), ", room timer starved (%ld dropped)",
                      ctx->roomGpuDropped);
+        }
+        // The controller models' pass the same way, once a display frame
+        // while one shows
+        if (ctx->modelGpuSamples > 0) {
+            size_t used = strlen(roomLine);
+            snprintf(roomLine + used, sizeof(roomLine) - used,
+                     ", models avg %.2f ms (%ld of %ld)",
+                     ctx->modelGpuTotalNs / (double)ctx->modelGpuSamples / 1e6,
+                     ctx->modelGpuSamples, ctx->modelGpuSamples + ctx->modelGpuDropped);
         }
         // Submit is the wall clock around the draw calls, which is only
         // how long the driver took to queue them. GPU is the real cost.
@@ -247,6 +270,9 @@ static void logWarpStats(XrCtx* ctx) {
         ctx->roomGpuTotalNs = 0;
         ctx->roomGpuSamples = 0;
         ctx->roomGpuDropped = 0;
+        ctx->modelGpuTotalNs = 0;
+        ctx->modelGpuSamples = 0;
+        ctx->modelGpuDropped = 0;
     }
 }
 
@@ -585,6 +611,13 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
             && panelButton(ctx, view, layers, FADE_EXIT, ctx->exitConfirmOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->exitButton, ctx->exitButtonSwapchain,
                      exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
+    }
+
+    // The ray's switch, past the keyboard, showing which way it is set
+    if (ctx->rayButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->rayButton,
+                     ctx->rayButtonSwapchains[raySwitchOn(ctx->raySetting, ctx->rayFlipped)],
+                     rayButtonPlacement, ctx->rayButtonHot, NULL);
     }
 
     // The 3D switch, furthest out on the right, showing which way it is set.
@@ -930,8 +963,51 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     }
 }
 
+// The controller models' own projection layer, alpha blended over everything
+// in the room before it: a controller is nearer than the picture and the
+// panels, so it is drawn over them wherever the two cross. World locked, with
+// the poses its image was drawn from.
+static void addModelLayer(XrCtx* ctx, FrameLayers* layers) {
+    if (!ctx->modelsShowing || !ctx->modelRendered || ctx->passthrough) {
+        return;
+    }
+    XrCompositionLayerProjection* models = &layers->models;
+    memset(models, 0, sizeof(*models));
+    memset(layers->modelViews, 0, sizeof(layers->modelViews));
+    models->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    models->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    models->space = ctx->localSpace;
+    models->viewCount = ROOM_EYES;
+    models->views = layers->modelViews;
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        XrCompositionLayerProjectionView* projView = &layers->modelViews[eye];
+        projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        projView->pose = ctx->modelViews[eye].pose;
+        projView->fov = ctx->modelViews[eye].fov;
+        projView->subImage.swapchain = ctx->modelSwapchain;
+        projView->subImage.imageRect.offset.x = eye * ctx->modelEyeWidth;
+        projView->subImage.imageRect.offset.y = 0;
+        projView->subImage.imageRect.extent.width = ctx->modelEyeWidth;
+        projView->subImage.imageRect.extent.height = ctx->modelEyeHeight;
+        projView->subImage.imageArrayIndex = 0;
+    }
+    pushLayer(ctx, layers, models);
+}
+
 // The laser and the cursor at the end of it
 static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    // The beam goes when the ray is switched off, the hands' as well, unless
+    // a panel is up. Only the beam: the dot stays where the ray lands.
+    int beamShown = rayDrawn(ctx->raySetting, ctx->rayFlipped, panelUp(ctx));
+    if (beamShown != ctx->rayDrawnSaid) {
+        if (ctx->rayDrawnSaid >= 0 || !beamShown) {
+            LOGI("ray %s", beamShown ? (raySwitchOn(ctx->raySetting, ctx->rayFlipped)
+                                        ? "drawn" : "drawn while a panel is up")
+                                     : "hidden, the dot stays");
+        }
+        ctx->rayDrawnSaid = beamShown;
+    }
+
     // Laser and cursor, submitted last so they sit over the picture. Two
     // quad layers, so this costs no drawing at all: the art was uploaded
     // once and the compositor places it from these poses.
@@ -964,7 +1040,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             }
         }
 
-        if (length > 0.10f) {
+        if (length > 0.10f && beamShown) {
             beamX = vecNorm(beamX);
             Vec3 beamZ = vecCross(beamX, beamY);
             XrPosef beamPose = { quatFromBasis(beamX, beamY, beamZ),
@@ -1215,6 +1291,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         LOGI("3d warping again after %.0f ms", (nowNs() - ctx->stereoWaitNs) / 1e6);
     }
 
+    // Where the controllers are this frame, before anything draws them
+    updateControllerModels(ctx);
+
     // A switch of the 3D redraws the frame already latched, since the decoder
     // sends nothing while the picture stands still
     int redraw = ctx->warpRedraw && ctx->everRendered;
@@ -1230,6 +1309,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         ctx->statTotalNs += elapsed;
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
         logWarpStats(ctx);
+    }
+    // The controller models on every frame, a new picture or not, since a
+    // controller moves on its own. After the warp, so the picture never
+    // waits on them.
+    if (ctx->shouldRender && ctx->everRendered) {
+        renderControllerModels(ctx);
     }
 
     FrameView view;
@@ -1275,7 +1360,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 || ctx->hoverKind == HOVER_COGBUTTON
                 || ctx->hoverKind == HOVER_KBBUTTON
                 || ctx->hoverKind == HOVER_EXITBUTTON
-                || ctx->hoverKind == HOVER_STEREOBUTTON);
+                || ctx->hoverKind == HOVER_STEREOBUTTON
+                || ctx->hoverKind == HOVER_RAYBUTTON);
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
@@ -1320,6 +1406,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addCogLayers(ctx, &view, &layers);
         addReportLayer(ctx, &view, &layers);
         addKeyboardLayers(ctx, &view, &layers);
+        addModelLayer(ctx, &layers);
         addPointerLayers(ctx, &view, &layers);
     }
     // Over everything in the scene, since it hangs off the eyes, but under
@@ -1330,15 +1417,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
 
     // The Room tab at its fullest, with a room, the glow, the stats and the
     // ray all up, is a layer past the Pico's sixteen, two with the toast, and
-    // a frame over the limit is refused whole (the count is in the comment at
-    // the top). The toast goes first: it is only ever a few seconds of words,
-    // and what it says is still true without it. Then the hover ring, which
+    // the controller models put three more of the tabs past it. A frame over
+    // the limit is refused whole (the count is in the comment at the top).
+    // The toast goes first: it is only ever a few seconds of words, and what
+    // it says is still true without it. Then the controller models: a hand
+    // that goes unseen while a full tab is up still points, and the beam and
+    // the dot are still there to show where. Then the hover ring, which
     // every tab and the step buttons share: the cursor already shows where the
     // ray is. Then the cog button, which only says which panel is open while
     // it is: a press off the panel closes it the way pressing the button
     // would. Then the clock over the panel, which the stats can show as well.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.toast);
+    }
+    if (layers.count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(&layers, &layers.models);
     }
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);

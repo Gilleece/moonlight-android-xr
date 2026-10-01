@@ -609,3 +609,34 @@ const char* const ROOM_FRAGMENT_SRC =
     "    vec3 base = mix(v_color, texture(u_room, v_uv).rgb, u_texMix) * u_dim;\n"
     "    fragColor = vec4(base + v_wash, 1.0);\n"
     "}\n";
+
+// The controller model, painted from its vertex colours and lit by one light
+// fixed in the room, from above and behind the seat, over a floor of ambient
+// so the side turned away from it still reads. Per vertex, which a model this
+// small never shows.
+const char* const MODEL_VERTEX_SRC =
+    "#version 300 es\n"
+    "precision highp float;\n"
+    "in vec3 a_position;\n"
+    "in vec3 a_normal;\n"
+    "in vec3 a_color;\n"
+    "uniform mat4 u_viewproj;\n"
+    "uniform mat4 u_model;\n"
+    "out vec3 v_color;\n"
+    "void main() {\n"
+    // A turn, at most a mirror, and a move, so the model's own 3x3 carries
+    // the normals, the left hand's mirror included
+    "    vec3 n = normalize(mat3(u_model) * a_normal);\n"
+    "    float lit = 0.45 + 0.55 * max(dot(n, vec3(-0.303, 0.808, 0.505)), 0.0);\n"
+    "    v_color = a_color * lit;\n"
+    "    gl_Position = u_viewproj * (u_model * vec4(a_position, 1.0));\n"
+    "}\n";
+
+const char* const MODEL_FRAGMENT_SRC =
+    "#version 300 es\n"
+    "precision mediump float;\n"
+    "in vec3 v_color;\n"
+    "out vec4 fragColor;\n"
+    "void main() {\n"
+    "    fragColor = vec4(v_color, 1.0);\n"
+    "}\n";

@@ -92,7 +92,7 @@ static XrAction makeAction(XrCtx* ctx, XrActionType type, const char* name, cons
 // first and a runtime that does not recognise this controller falls back to
 // aim and trigger, which every profile has.
 static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
-    XrActionSuggestedBinding b[16];
+    XrActionSuggestedBinding b[20];
     uint32_t n = 0;
     static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
     // x and y on the left controller, a and b on the right
@@ -111,6 +111,15 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
                  simple ? "input/select/click" : "input/trigger/value");
         b[n].action = ctx->triggerAction;
         b[n++].binding = toPath(ctx, path);
+
+        // Where the controller model is drawn. Every controller profile has
+        // a grip, but it is left out of the fallback all the same, so a
+        // runtime that refused it would still point.
+        if (full && ctx->gripAction != XR_NULL_HANDLE) {
+            snprintf(path, sizeof(path), "%s/input/grip/pose", hands[h]);
+            b[n].action = ctx->gripAction;
+            b[n++].binding = toPath(ctx, path);
+        }
 
         if (!full || simple) {
             continue;
@@ -243,6 +252,8 @@ int initXrInput(XrCtx* ctx) {
     ctx->scrollAction = makeAction(ctx, XR_ACTION_TYPE_VECTOR2F_INPUT, "scroll", "Scroll");
     ctx->grabAction = makeAction(ctx, XR_ACTION_TYPE_FLOAT_INPUT, "grab", "Move the screen");
     ctx->toggleAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pointertoggle", "Pointer on or off");
+    // Only for drawing the controller model, which the hands never bind
+    ctx->gripAction = makeAction(ctx, XR_ACTION_TYPE_POSE_INPUT, "grip", "Controller");
 
     if (ctx->aimAction == XR_NULL_HANDLE || ctx->triggerAction == XR_NULL_HANDLE) {
         return 0;
@@ -325,6 +336,18 @@ int initXrInput(XrCtx* ctx) {
         if (!checkXr(xrCreateActionSpace(ctx->session, &spaceInfo, &ctx->aimSpaces[h]),
                      "create aim space")) {
             return 0;
+        }
+    }
+
+    // A grip that will not make a space only loses its model
+    for (int h = 0; h < HAND_COUNT && ctx->gripAction != XR_NULL_HANDLE; h++) {
+        XrActionSpaceCreateInfo spaceInfo = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
+        spaceInfo.action = ctx->gripAction;
+        spaceInfo.subactionPath = ctx->handPaths[h];
+        spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+        if (!checkXr(xrCreateActionSpace(ctx->session, &spaceInfo, &ctx->gripSpaces[h]),
+                     "create grip space")) {
+            ctx->gripSpaces[h] = XR_NULL_HANDLE;
         }
     }
 
@@ -1012,7 +1035,7 @@ static void swallowTrigger(XrCtx* ctx, int src) {
 static int onFurniture(int hover) {
     return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
             || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK
-            || hover == HOVER_STEREOBUTTON;
+            || hover == HOVER_STEREOBUTTON || hover == HOVER_RAYBUTTON;
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
@@ -1055,6 +1078,12 @@ void destroyXrInput(XrCtx* ctx) {
         if (ctx->aimSpaces[h] != XR_NULL_HANDLE) {
             xrDestroySpace(ctx->aimSpaces[h]);
             ctx->aimSpaces[h] = XR_NULL_HANDLE;
+        }
+    }
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (ctx->gripSpaces[h] != XR_NULL_HANDLE) {
+            xrDestroySpace(ctx->gripSpaces[h]);
+            ctx->gripSpaces[h] = XR_NULL_HANDLE;
         }
     }
     if (ctx->actionSet != XR_NULL_HANDLE) {
@@ -1261,8 +1290,12 @@ static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, 
             && exitButtonHit(ctx, u, v, height)) {
         hover = HOVER_EXITBUTTON;
     }
-    // The 3D switch, one further out than the keyboard, on the same halo
-    // ground
+    // The ray's switch, one further out than the keyboard, and the 3D switch
+    // one further again, on the same halo ground
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && rayButtonHit(ctx, u, v, height)) {
+        hover = HOVER_RAYBUTTON;
+    }
     if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
             && stereoButtonHit(ctx, u, v, height)) {
         hover = HOVER_STEREOBUTTON;
@@ -1840,6 +1873,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->exitButtonHot = 0;
     ctx->exitHoverZone = EXIT_ZONE_NONE;
     ctx->stereoButtonHot = 0;
+    ctx->rayButtonHot = 0;
     ctx->reportHoverZone = REPORT_ZONE_NONE;
     ctx->cogReportHot = 0;
 }
@@ -2324,7 +2358,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
     int pressed = f->hand >= 0 && ctx->triggerEdge[f->hand];
     if (pressed && (f->hover == HOVER_ENVBUTTON || f->hover == HOVER_COGBUTTON
             || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
-            || f->hover == HOVER_STEREOBUTTON
+            || f->hover == HOVER_STEREOBUTTON || f->hover == HOVER_RAYBUTTON
             || (f->hover == HOVER_LOCK && ctx->lockArmed[f->hand])
             || (f->hover == HOVER_KBPANEL
                 && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
@@ -2379,6 +2413,13 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             // The 3D tab rings its switch, but from the bar the only sign
             // is the picture going flat, which is easy to miss
             noticePush(&ctx->notices, ctx->stereoLive ? TOAST_3D_ON : TOAST_3D_OFF, 0);
+        }
+    }
+    else if (f->hover == HOVER_RAYBUTTON) {
+        ctx->rayButtonHot = 1;
+        if (ctx->triggerEdge[f->hand]) {
+            // The beam going or coming back under the hand is the feedback
+            setRayOn(ctx, !raySwitchOn(ctx->raySetting, ctx->rayFlipped), "the bar button");
         }
     }
     else if (f->hover == HOVER_KBPANEL) {
@@ -2776,6 +2817,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         handBack(env, ctx, out, outArr);
         return;
     }
+    // The controller models read their grips off this sync
+    ctx->actionsSynced = 1;
 
     int toggle = actionBool(ctx, ctx->toggleAction, -1);
     if (toggle && !ctx->togglePrev) {
@@ -2914,7 +2957,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             || f.hover == HOVER_COGPANEL || f.hover == HOVER_KBBUTTON
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_EXITBUTTON
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
-            || f.hover == HOVER_REPORT)
+            || f.hover == HOVER_RAYBUTTON || f.hover == HOVER_REPORT)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }

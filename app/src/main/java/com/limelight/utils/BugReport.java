@@ -434,7 +434,8 @@ public final class BugReport {
                         : prefs.vrRoomLevels.describe(" "))
                 + " hands " + prefs.vrHandTracking + " gaze " + prefs.vrGaze
                 + " " + PreferenceConfiguration.inputLabel(prefs.vrShowHandLock,
-                        prefs.vrPointerSleep, " ")
+                        prefs.vrPointerSleep, prefs.vrShowRay,
+                        prefs.vrControllerModel, " ")
                 + " clickSound " + prefs.vrClickSound
                 + " " + PreferenceConfiguration.pictureLabel(prefs.vrPicture, " ")
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"

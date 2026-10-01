@@ -314,16 +314,60 @@ int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
     return buttonHit(ctx, local, side, u, v, height);
 }
 
-// The 3D switch is one place further out again on the right, past the
-// keyboard, so a session without it loses only the last button and every
-// other one stays where it always is
-void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+// The ray's switch is one place further out on the right, past the keyboard
+void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
     float width = furnitureWidth(ctx);
     float side = width * COG_BUTTON_FRAC;
     float barW = width * BAR_WIDTH_FRAC;
     float barH = width * BAR_HEIGHT_FRAC;
     float gap = width * ENV_GAP_FRAC;
     outLocal->x = barW * 0.5f + gap + side * 1.5f + gap + side + gap;
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+// Only where it is drawn, once its art has arrived
+int rayButtonHit(XrCtx* ctx, float u, float v, float height) {
+    if (!ctx->rayButtonReady) {
+        return 0;
+    }
+    Vec3 local;
+    float side;
+    rayButtonPlacement(ctx, height, &local, &side);
+    return buttonHit(ctx, local, side, u, v, height);
+}
+
+// The ray on or off for the rest of the session, from the bar or the Display
+// tab. Nothing is stored: the setting is what the next session starts from.
+void setRayOn(XrCtx* ctx, int on, const char* from) {
+    on = on ? 1 : 0;
+    if (raySwitchOn(ctx->raySetting, ctx->rayFlipped) == on) {
+        return;
+    }
+    ctx->rayFlipped = rayFlipFor(ctx->raySetting, on);
+    LOGEV("ray %s from %s%s", on ? "on" : "off", from,
+          on ? "" : ", the dot stays and presses land as before");
+}
+
+// Whether one of the panels is up: the settings panel, the picker, the
+// keyboard, the exit prompt or the report sheet. The ray comes back for them
+// while it is switched off.
+int panelUp(XrCtx* ctx) {
+    return ctx->cogOpen || ctx->pickerOpen || ctx->kbOpen || ctx->exitConfirmOpen
+            || ctx->reportOpen;
+}
+
+// The 3D switch is one place further out again on the right, past the ray's,
+// so a session without it loses only the last button and every other one
+// stays where it always is
+void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    float gap = width * ENV_GAP_FRAC;
+    outLocal->x = barW * 0.5f + gap + side * 1.5f + gap + (side + gap) * 2.0f;
     outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
     outLocal->z = 0.005f;
     *outSide = side;
@@ -724,6 +768,12 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_POINTER_SLEEP) {
         return COG_POINTER_SLEEP_CELLS;
     }
+    if (option == COG_OPTION_RAY) {
+        return COG_RAY_CELLS;
+    }
+    if (option == COG_OPTION_CONTROLLERS) {
+        return COG_CONTROLLERS_CELLS;
+    }
     if (option == COG_OPTION_CLICK_SOUND) {
         return COG_CLICK_SOUND_CELLS;
     }
@@ -751,6 +801,14 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     }
     if (option == COG_OPTION_POINTER_SLEEP) {
         return ctx->pointerSleepOn ? 1 : 0;
+    }
+    if (option == COG_OPTION_RAY) {
+        // The switch as it stands, with no regard for the panel that is up
+        // and bringing the beam back while it is
+        return raySwitchOn(ctx->raySetting, ctx->rayFlipped);
+    }
+    if (option == COG_OPTION_CONTROLLERS) {
+        return ctx->modelOn ? 1 : 0;
     }
     if (option == COG_OPTION_CLICK_SOUND) {
         return ctx->clickSoundOn ? 1 : 0;
@@ -796,6 +854,18 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         ctx->pointerSleepOn = cell != 0;
         LOGEV("pointer sleep %s from the panel", cell != 0 ? "on" : "off");
         return SETTING_POINTER_SLEEP;
+    }
+    if (option == COG_OPTION_RAY) {
+        // The bar button's switch, for this session only, so nothing goes to
+        // Java to store
+        setRayOn(ctx, cell != 0, "the Display tab");
+        return -1;
+    }
+    if (option == COG_OPTION_CONTROLLERS) {
+        // Drawn from the next frame, and stored like the rows around it
+        ctx->modelOn = cell != 0;
+        LOGEV("controller model %s from the panel", cell != 0 ? "on" : "off");
+        return SETTING_CONTROLLER_MODEL;
     }
     if (option == COG_OPTION_CLICK_SOUND) {
         // Java plays it, and takes the switch from the setting this hands it
@@ -1107,6 +1177,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetClickSound(JNIEnv* env, job
     if (ctx != NULL) {
         ctx->clickSoundOn = on;
     }
+}
+
+// Whether the ray shows, the setting each session starts from, which the bar
+// button and the Display tab's row then turn over for the session. Handed
+// down before the first frame.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetShowRay(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jboolean on) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->raySetting = on ? 1 : 0;
+    ctx->rayFlipped = 0;
+    LOGEV("ray %s at the start of the session", on ? "shown" : "hidden");
 }
 
 // One row of the picture grade to a value in its own whole units, held to its

@@ -8,22 +8,26 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * Where the panel's rows are drawn, which has to be where the native side hit
- * tests and rings them. The display tab carries the pointer sleep and click
- * rows and packs its nine rows closer than the other tabs, and its choices
- * are marked from one strip that has to reach every row's cells.
+ * tests and rings them. The display tab carries the pointer sleep, ray,
+ * controllers and click rows and packs its eleven rows closer than the other
+ * tabs, and its choices are marked from one strip that has to reach every
+ * row's cells.
  */
 public class CogRowsTest {
 
     @Test
-    public void theDisplayTabHasNineRowsThatFit() {
+    public void theDisplayTabHasElevenRowsThatFit() {
         assertEquals(4, COG_OPTION_POINTER_SLEEP);
-        assertEquals(5, COG_OPTION_CLICK_SOUND);
-        assertEquals(8, COG_OPTION_COUNT);
+        assertEquals(5, COG_OPTION_RAY);
+        assertEquals(6, COG_OPTION_CONTROLLERS);
+        assertEquals(7, COG_OPTION_CLICK_SOUND);
+        assertEquals(10, COG_OPTION_COUNT);
         assertEquals(COG_OPTION_COUNT, COG_DISPLAY_SLIDER_ROW);
         assertEquals(14, SETTING_POINTER_SLEEP);
         assertEquals(15, SETTING_CLICK_SOUND);
-        assertEquals(0.215f, XrPanels.cogRowV(COG_TAB_DISPLAY, 0), 1e-6f);
-        assertEquals(0.911f, XrPanels.cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 1e-5f);
+        assertEquals(21, SETTING_CONTROLLER_MODEL);
+        assertEquals(0.205f, XrPanels.cogRowV(COG_TAB_DISPLAY, 0), 1e-6f);
+        assertEquals(0.925f, XrPanels.cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 1e-5f);
         for (int row = 1; row <= COG_DISPLAY_SLIDER_ROW; row++) {
             float gap = XrPanels.cogRowV(COG_TAB_DISPLAY, row)
                     - XrPanels.cogRowV(COG_TAB_DISPLAY, row - 1);

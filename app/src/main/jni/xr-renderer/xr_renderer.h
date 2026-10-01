@@ -46,6 +46,7 @@
 #include "xr_glow.h"
 #include "xr_grade.h"
 #include "xr_keys.h"
+#include "xr_controller.h"
 
 #define TAG "moonlight-xr"
 
@@ -1142,6 +1143,61 @@ typedef struct {
     int beamFree;
     // Aimed by the eyes, so there is a cursor but no ray
     int beamGaze;
+    // The ray's switch: the setting a session starts from, and whether the
+    // bar button or the Display tab's row has turned it over since. Off, the
+    // beam is not drawn unless a panel is up; the dot and the hit test stay.
+    // The hands' rays follow it too.
+    int raySetting;
+    int rayFlipped;
+    // Whether the beam went up last frame, -1 before the first, for the line
+    // that says when that changes
+    int rayDrawnSaid;
+    // The bundled controller model, drawn at each hand's grip into a
+    // projection layer of its own over the picture: whether it is wanted, the
+    // setting the Display tab's row also writes, and its buffers once Java has
+    // handed it over
+    int modelOn;
+    int modelReady;
+    GLuint modelVertexBuffer;
+    GLuint modelIndexBuffer;
+    int modelIndexCount;
+    // What its pass draws with, made the first time a model shows: the
+    // program, a side by side swapchain cleared to nothing round the models,
+    // a depth buffer so the two hands hide each other properly, and the eyes
+    // the image was last drawn from. One failure is enough to stop trying.
+    GLuint modelProgram;
+    GLint modelViewProjUniform;
+    GLint modelMatrixUniform;
+    XrSwapchain modelSwapchain;
+    uint32_t modelImageCount;
+    XrSwapchainImageOpenGLESKHR* modelImages;
+    GLuint modelFbo;
+    GLuint modelDepthBuffer;
+    int modelEyeWidth;
+    int modelEyeHeight;
+    int modelPassReady;
+    int modelPassFailed;
+    XrView modelViews[ROOM_EYES];
+    int modelRendered;
+    // Its own pair of timer queries, as the room has
+    GLuint modelTimerQueries[2];
+    int modelTimerSlot;
+    int modelTimerPending[2];
+    int modelTimerPendingFrames[2];
+    long modelGpuTotalNs;
+    long modelGpuSamples;
+    long modelGpuDropped;
+    // Each hand's grip this frame where its model shows, whether any does,
+    // and what the log last said
+    XrAction gripAction;
+    XrSpace gripSpaces[HAND_COUNT];
+    int modelShown[HAND_COUNT];
+    XrPosef modelGrip[HAND_COUNT];
+    int modelsShowing;
+    int modelsSaid;
+    // The input pass synced the actions this frame, which the grips are read
+    // through, so they are not synced twice
+    int actionsSynced;
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
@@ -1341,6 +1397,13 @@ typedef struct {
     int stereoButtonReady;
     int stereoButtonHot;
 
+    // The ray's switch on the bar, its art off and on, the same arrangement
+    XrSwapchain rayButtonSwapchains[2];
+    uint32_t rayButtonImageCounts[2];
+    XrSwapchainImageOpenGLESKHR* rayButtonImages[2];
+    int rayButtonReady;
+    int rayButtonHot;
+
     // The exit button and its prompt. One sheet per lit button, all filled at
     // startup, so hovering one costs a handle rather than an upload.
     XrSwapchain exitButtonSwapchain;
@@ -1490,6 +1553,11 @@ int roomGlowOn(XrCtx* ctx, int style);
 void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded);
 void prepareRoom(XrCtx* ctx);
 void renderRoom(XrCtx* ctx);
+void worldEyeSize(XrCtx* ctx, int* outW, int* outH);
+
+// xr_model.c: the bundled controller model
+void updateControllerModels(XrCtx* ctx);
+void renderControllerModels(XrCtx* ctx);
 
 // xr_input.c: actions, hands, the ray and the per frame input pass
 int initXrInput(XrCtx* ctx);
@@ -1525,6 +1593,10 @@ int exitButtonHit(XrCtx* ctx, float u, float v, float height);
 void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);
+void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
+int rayButtonHit(XrCtx* ctx, float u, float v, float height);
+void setRayOn(XrCtx* ctx, int on, const char* from);
+int panelUp(XrCtx* ctx);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);

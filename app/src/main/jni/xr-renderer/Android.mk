@@ -16,6 +16,7 @@ LOCAL_SRC_FILES := xr_log.c \
                    xr_glow.c \
                    xr_grade.c \
                    xr_keys.c \
+                   xr_controller.c \
                    xr_shaders.c \
                    xr_session.c \
                    xr_display.c \
@@ -23,6 +24,7 @@ LOCAL_SRC_FILES := xr_log.c \
                    xr_depth.c \
                    xr_ambilight.c \
                    xr_room.c \
+                   xr_model.c \
                    xr_input.c \
                    xr_ui.c \
                    xr_assets.c \

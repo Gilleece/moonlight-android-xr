@@ -76,6 +76,8 @@ public class PreferenceConfiguration {
     static final String VR_SHOW_HAND_LOCK_PREF_STRING = "checkbox_vr_show_hand_lock";
     public static final String VR_POINTER_SLEEP_PREF_STRING = "checkbox_vr_pointer_sleep";
     public static final String VR_CLICK_SOUND_PREF_STRING = "checkbox_vr_click_sound";
+    public static final String VR_SHOW_RAY_PREF_STRING = "checkbox_vr_show_ray";
+    public static final String VR_CONTROLLER_MODEL_PREF_STRING = "checkbox_vr_controller_model";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on. Legacy, and
@@ -205,6 +207,12 @@ public class PreferenceConfiguration {
     // A press on the headset panels ticks, since a pinch or a look has nothing
     // under a finger to say it landed
     static final boolean DEFAULT_VR_CLICK_SOUND = true;
+    // The beam from a controller to the screen. Off leaves the dot where it
+    // lands, for a lightgun game, and the bar turns it over for a session.
+    static final boolean DEFAULT_VR_SHOW_RAY = true;
+    // A generic controller drawn in each hand, where the real one is. Off, as
+    // every new drawing starts.
+    static final boolean DEFAULT_VR_CONTROLLER_MODEL = false;
     private static final boolean DEFAULT_VR_POINTER = true;
     // MiDaS's separation, tenths of a percent of frame width. 5 measured
     // comfortable on device and 7 already strained, once the depth map started
@@ -319,6 +327,10 @@ public class PreferenceConfiguration {
     public boolean vrShowHandLock;
     public boolean vrPointerSleep;
     public boolean vrClickSound;
+    // Whether a session starts with the controller ray drawn
+    public boolean vrShowRay;
+    // Whether the bundled controller model is drawn at each hand
+    public boolean vrControllerModel;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -576,12 +588,22 @@ public class PreferenceConfiguration {
         return prefs.getBoolean(VR_CLICK_SOUND_PREF_STRING, DEFAULT_VR_CLICK_SOUND);
     }
 
+    static boolean rayShown(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_SHOW_RAY_PREF_STRING, DEFAULT_VR_SHOW_RAY);
+    }
+
+    static boolean controllerModelOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_CONTROLLER_MODEL_PREF_STRING, DEFAULT_VR_CONTROLLER_MODEL);
+    }
+
     /**
-     * The pointer's own switches for a log line, joined the way that line
-     * joins its keys to their values
+     * The pointer's own switches and how the controllers are drawn, for a log
+     * line, joined the way that line joins its keys to their values
      */
-    public static String inputLabel(boolean handLockIcon, boolean pointerSleep, String join) {
-        return "handLockIcon" + join + handLockIcon + " pointerSleep" + join + pointerSleep;
+    public static String inputLabel(boolean handLockIcon, boolean pointerSleep, boolean showRay,
+                                    boolean controllerModel, String join) {
+        return "handLockIcon" + join + handLockIcon + " pointerSleep" + join + pointerSleep
+                + " showRay" + join + showRay + " controllerModel" + join + controllerModel;
     }
 
     /** Which of the 3D tab's presets a separation is under that model, or none, for the logs. */
@@ -1241,6 +1263,8 @@ public class PreferenceConfiguration {
         config.vrShowHandLock = handLockIconShown(prefs);
         config.vrPointerSleep = pointerSleepOn(prefs);
         config.vrClickSound = clickSoundOn(prefs);
+        config.vrShowRay = rayShown(prefs);
+        config.vrControllerModel = controllerModelOn(prefs);
         config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

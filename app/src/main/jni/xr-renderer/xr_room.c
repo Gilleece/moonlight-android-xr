@@ -585,25 +585,13 @@ static int buildableRoomStyle(XrCtx* ctx, int style) {
     return roomAssetsReady(ctx, style) ? style : 0;
 }
 
-// Brings up everything the room draws with, the first frame that asks for it.
-// A swapchain made mid session, the way the panels' art arrives.
-static int initRoom(XrCtx* ctx) {
-    if (ctx->roomReady) {
-        return 1;
-    }
-    if (ctx->roomFailed || ctx->session == XR_NULL_HANDLE) {
-        return 0;
-    }
-    ctx->roomFailed = 1;
-
-    // What the runtime recommends per eye, capped by the chosen tier, so the
-    // room's edges are as sharp as the video layer sitting in front of them.
-    // That is a couple of hundred megabytes between the side by side colour
-    // swapchain and the depth buffer, which is the reason none of it exists
-    // until a room is picked. A runtime that will not say what it wants gets a
-    // modest guess. Ultra takes a fixed size instead and only asks the runtime
-    // for its ceiling, since a recommendation is the one number it is trying to
-    // ignore.
+// How big each eye of the room's pass is drawn: what the runtime recommends per
+// eye, capped by the chosen tier, so the room's edges are as sharp as the
+// video layer sitting in front of them. A runtime that will not say what it
+// wants gets a modest guess. Ultra takes a fixed size instead and only asks
+// the runtime for its ceiling, since a recommendation is the one number it is
+// trying to ignore. The controller models draw at the same size.
+void worldEyeSize(XrCtx* ctx, int* outW, int* outH) {
     int tier = ctx->envResTier;
     int eyeW;
     int eyeH;
@@ -634,6 +622,28 @@ static int initRoom(XrCtx* ctx) {
             eyeH = maxEye;
         }
     }
+    *outW = eyeW;
+    *outH = eyeH;
+}
+
+// Brings up everything the room draws with, the first frame that asks for it.
+// A swapchain made mid session, the way the panels' art arrives.
+static int initRoom(XrCtx* ctx) {
+    if (ctx->roomReady) {
+        return 1;
+    }
+    if (ctx->roomFailed || ctx->session == XR_NULL_HANDLE) {
+        return 0;
+    }
+    ctx->roomFailed = 1;
+
+    // The side by side colour swapchain and the depth buffer come to a couple
+    // of hundred megabytes, which is the reason none of it exists until a room
+    // is picked
+    int tier = ctx->envResTier;
+    int eyeW;
+    int eyeH;
+    worldEyeSize(ctx, &eyeW, &eyeH);
 
     // Side by side, the same arrangement the video swapchain uses in stereo
     if (!createArtSwapchain(ctx, eyeW * ROOM_EYES, eyeH, "create room swapchain",

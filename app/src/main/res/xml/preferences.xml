@@ -21,6 +21,17 @@
             android:summary="@string/summary_vr_pointer_sleep"
             android:defaultValue="true"/>
         <CheckBoxPreference
+            android:key="checkbox_vr_show_ray"
+            android:dependency="checkbox_vr_pointer"
+            android:title="@string/title_vr_show_ray"
+            android:summary="@string/summary_vr_show_ray"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_controller_model"
+            android:title="@string/title_vr_controller_model"
+            android:summary="@string/summary_vr_controller_model"
+            android:defaultValue="false"/>
+        <CheckBoxPreference
             android:key="checkbox_vr_click_sound"
             android:title="@string/title_vr_click_sound"
             android:summary="@string/summary_vr_click_sound"

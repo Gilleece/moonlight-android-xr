@@ -279,6 +279,10 @@
     <string name="summary_vr_pointer">Point at the screen with a controller to move the host mouse. Trigger clicks, A or X right clicks, thumbstick scrolls. Click the thumbstick to switch pointing off in a game that needs the mouse itself.</string>
     <string name="title_vr_pointer_sleep">Pause the pointer when the controller is still</string>
     <string name="summary_vr_pointer_sleep">A controller\'s pointer goes away after a few seconds held still and comes back when it moves or its thumbstick is pushed. Switch this off to keep it on, so the thumbstick scrolls even with the pointer off the screen.</string>
+    <string name="title_vr_show_ray">Show the controller ray</string>
+    <string name="summary_vr_show_ray">The beam from a controller to the screen. Switch it off for lightgun games: the dot where it lands stays and presses land as before, the ray comes back while a panel is open, and the ray button under the screen switches it for the session.</string>
+    <string name="title_vr_controller_model">Show the controllers</string>
+    <string name="summary_vr_controller_model">Draws a simple controller in each hand, where the real one is. Not in passthrough, where the real ones are in view, nor while your hands are tracked instead.</string>
     <string name="title_vr_click_sound">Click when a panel is pressed</string>
     <string name="summary_vr_click_sound">A short tick when a press in the headset lands on a panel, a button or a key. It plays on the system sounds, apart from the stream\'s audio.</string>
     <string name="title_vr_reset_pose">Reset screen position</string>
