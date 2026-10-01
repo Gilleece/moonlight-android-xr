@@ -414,6 +414,9 @@ typedef struct XrCompositionLayerSettingsFB {
 // twice that. Long ones make a fade something a screenshot can catch.
 #define PROP_FADE_MS "debug.moonlight.fadems"
 #define FADE_KNOB_MAX_MS 10000
+// A start step to make fail for real, so the failure report can be seen on a
+// headset whose runtime works: instance, system or session. Read at start.
+#define PROP_START_FAIL "debug.moonlight.xrfail"
 
 // What the session asks the runtime's performance levels for
 #define PERF_LEVEL_NONE 0
@@ -454,6 +457,9 @@ typedef struct {
     // The runtime's name and version as the log line gives them, empty until
     // the instance answers
     char runtimeLabel[XR_MAX_RUNTIME_NAME_SIZE + 32];
+    // What the start has got through so far, kept until init is over in case
+    // it has to say where it stopped
+    struct StartReport* start;
     XrSystemId systemId;
     XrSession session;
     XrSpace localSpace;
@@ -1647,6 +1653,7 @@ void setRefreshKnob(XrCtx* ctx, int hz);
 
 // xr_debug.c: setprop knobs and frame capture
 void readStartKnobs(XrCtx* ctx);
+int startFailKnob(const char* step);
 void propFlag(const char* name, int* target);
 void pollCaptureRequest(XrCtx* ctx);
 void writeCapture(XrCtx* ctx, const char* what, const void* data, size_t bytes);

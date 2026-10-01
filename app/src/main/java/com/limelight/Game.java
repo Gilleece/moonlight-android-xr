@@ -21,6 +21,7 @@ import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.binding.video.XrRenderer;
+import com.limelight.binding.video.XrStartFailure;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -220,6 +221,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // Carried by the flat activity when the immersive one gave up on VR, so
     // the user is told why the stream is a panel rather than left guessing
     public static final String EXTRA_VR_UNAVAILABLE = "VrUnavailable";
+    // And the one line reason, in the user's language, where the start said
+    public static final String EXTRA_VR_REASON = "VrReason";
     // How long a VR session stays up to show an error on its toast before the
     // stream is stopped, which is how long the toast says anything
     private static final long VR_NOTICE_MS = 4000;
@@ -356,11 +359,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
         returnToPcView = Game.this.getIntent().getBooleanExtra(EXTRA_RETURN_TO_PC_VIEW, false);
         if (Game.this.getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false)) {
-            Toast.makeText(this, R.string.vr_unavailable_flat, Toast.LENGTH_LONG).show();
+            String reason = Game.this.getIntent().getStringExtra(EXTRA_VR_REASON);
+            String notice = reason != null
+                    ? getResources().getString(R.string.vr_unavailable_flat_reason, reason)
+                    : getResources().getString(R.string.vr_unavailable_flat);
+            Toast.makeText(this, notice, Toast.LENGTH_LONG).show();
             // A headset's shell was seen not to show that toast at all, but it
             // does show this panel, so the panel says it too for a while
-            showFlatNotice(getResources().getString(R.string.vr_unavailable_flat),
-                    VR_UNAVAILABLE_NOTICE_MS);
+            showFlatNotice(notice, VR_UNAVAILABLE_NOTICE_MS);
         }
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
@@ -3028,7 +3034,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     @Override
-    public void onVrUnavailable() {
+    public void onVrUnavailable(final XrStartFailure failure) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -3043,6 +3049,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 flat.setClass(Game.this, Game.class);
                 flat.removeCategory("com.oculus.intent.category.VR");
                 flat.putExtra(EXTRA_VR_UNAVAILABLE, true);
+                flat.putExtra(EXTRA_VR_REASON, vrFailureReason(failure));
                 startActivity(flat);
 
                 // The flat activity inherits the trip back to the PC list, so
@@ -3070,6 +3077,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 finish();
             }
         });
+    }
+
+    // The one line a failed VR start gets on the flat panel
+    private String vrFailureReason(XrStartFailure failure) {
+        String arg = failure.reasonArg();
+        return arg != null ? getResources().getString(failure.reasonRes(), arg)
+                : getResources().getString(failure.reasonRes());
     }
 
     // Words on the notification overlay for a while, put back as they were

@@ -134,6 +134,22 @@ public class BugReportTest {
         assertFalse(text.contains("commit"));
         assertFalse(text.contains("runtime"));
         assertFalse(text.contains("session"));
+        assertFalse(text.contains("VR start"));
+    }
+
+    @Test
+    public void aFailedVrStartComesStraightAfterTheNote() {
+        BugReport.Details d = details();
+        d.startFailure = "VR session did not start, 2026-10-01 21:40:00\n"
+                + "  stopped at: runtime (xrEnumerateInstanceExtensionProperties)\n"
+                + "  result: XR_ERROR_RUNTIME_UNAVAILABLE (-51)\n";
+        String text = BugReport.compose("no settings bar", "", d);
+        assertTrue(text.startsWith("Moonlight XR bug report\nFrom: \n\nno settings bar\n"
+                + "\n----- last VR start -----\n"
+                + "VR session did not start, 2026-10-01 21:40:00\n"
+                + "  stopped at: runtime (xrEnumerateInstanceExtensionProperties)\n"
+                + "  result: XR_ERROR_RUNTIME_UNAVAILABLE (-51)\n"
+                + "\n----- app and device -----\n"));
     }
 
     @Test

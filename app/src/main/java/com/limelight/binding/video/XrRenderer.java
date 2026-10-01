@@ -30,7 +30,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Date;
 import java.util.Locale;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
@@ -143,6 +145,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // The eye tracking permission is not refused, or not the platform's to
     // grant. Look to point only works with it.
     private volatile boolean gazeAllowed = true;
+    // Where the start stopped, if it did
+    private volatile XrStartFailure startFailure;
 
     // Controller pointer. The native side does the ray maths and hands back a
     // hit point and a button mask, this side turns that into host events. The
@@ -372,10 +376,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
      * headset's shell never shows. Called off the main thread.
      */
     public interface SessionListener {
-        void onVrUnavailable();
+        // failure says where the start stopped, never null
+        void onVrUnavailable(XrStartFailure failure);
     }
 
+    // How long a start is waited for before it counts as failed
+    private static final int INIT_WAIT_SECONDS = 5;
+
     private static native void nativeSetFileLog(String path, int level);
+    // Where the last start that failed stopped, as XrStartFailure reads it, or
+    // null. Taken once.
+    private static native String[] nativeTakeStartFailure();
     // envResTier is the EnvResTier the room renders at: 0 low, 1 standard,
     // 2 high, 3 ultra. fps is the stream's, which the display rate is matched to.
     private native long nativeInit(Activity activity, int width, int height, int fps,
@@ -520,12 +531,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 prefsContext = activity.getApplicationContext();
                 gazeAllowed = EyeTrackingPermission.gazeAllowed(prefsContext);
-                // Kept for a report, which can be made long after this session
+                // Kept for a report, which can be made long after this session,
+                // and a failed start before it no longer says how VR stands
+                SharedPreferences.Editor kept =
+                        PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                                .remove(BugReport.START_FAILURE_PREF);
                 String runtime = nativeGetRuntime(nativeCtx);
                 if (runtime != null) {
-                    PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                            .putString(BugReport.RUNTIME_PREF, runtime).apply();
+                    kept.putString(BugReport.RUNTIME_PREF, runtime);
                 }
+                kept.apply();
                 // For the frame rate list, which can only ask the Android
                 // display otherwise
                 XrDisplayRates.remember(prefsContext, nativeGetOfferedRates(nativeCtx));
@@ -593,7 +608,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         boolean initFinished;
         try {
             // Session setup can take a moment on a cold runtime
-            initFinished = initLatch.await(5, TimeUnit.SECONDS);
+            initFinished = initLatch.await(INIT_WAIT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             initFinished = false;
@@ -601,6 +616,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         if (!initFinished || !initOk[0]) {
             LimeLog.severe("XR renderer init failed");
+            XrStartFailure failure = initFinished
+                    ? XrStartFailure.fromNative(nativeTakeStartFailure())
+                    : XrStartFailure.timedOut(INIT_WAIT_SECONDS);
+            keepStartFailure(activity, failure);
+            startFailure = failure;
             prepareForStop();
             cleanup();
             return false;
@@ -608,6 +628,21 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         LimeLog.info("XR renderer initialized at "+videoWidth+"x"+videoHeight);
         return true;
+    }
+
+    /** Where the start stopped, once start has returned false; null before that. */
+    public XrStartFailure getStartFailure() {
+        return startFailure;
+    }
+
+    // The whole of a failed start in one block of the log, and kept for a
+    // report, which on a headset with no session can only be made from the
+    // 2d settings later
+    private static void keepStartFailure(Activity activity, XrStartFailure failure) {
+        LimeLog.severe(failure.block(null));
+        String when = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(new Date());
+        PreferenceManager.getDefaultSharedPreferences(activity.getApplicationContext()).edit()
+                .putString(BugReport.START_FAILURE_PREF, failure.block(when)).apply();
     }
 
     /**

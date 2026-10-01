@@ -85,6 +85,18 @@ void readStartKnobs(XrCtx* ctx) {
     }
 }
 
+// Whether the start is to fail for real at this step, which the step then
+// brings about with a request the runtime has to refuse
+int startFailKnob(const char* step) {
+    char value[PROP_VALUE_MAX];
+    value[0] = '\0';
+    if (__system_property_get(PROP_START_FAIL, value) <= 0 || strcmp(value, step) != 0) {
+        return 0;
+    }
+    LOGEV("start fail knob: %s will fail", step);
+    return 1;
+}
+
 // Fires once each time the property is set to a value it has not seen. The
 // value becomes the filename tag, so setprop 1, 2, 3 gives three captures.
 void pollCaptureRequest(XrCtx* ctx) {
@@ -192,6 +204,11 @@ void pollCaptureRequest(XrCtx* ctx) {
 // debug build.
 void readStartKnobs(XrCtx* ctx) {
     (void)ctx;
+}
+
+int startFailKnob(const char* step) {
+    (void)step;
+    return 0;
 }
 
 void propFlag(const char* name, int* target) {

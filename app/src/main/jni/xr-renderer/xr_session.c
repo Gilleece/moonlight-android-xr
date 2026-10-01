@@ -3,23 +3,147 @@
 #include "xr_renderer.h"
 #include "xr_depthmap.h"
 
+#include <openxr/openxr_reflection.h>
+
+// Every XrResult by its name, which is what a log should carry and what
+// anyone reading it will search for
+static const char* xrResultName(XrResult res) {
+    switch (res) {
+#define XR_RESULT_NAME_CASE(name, value) case name: return #name;
+        XR_LIST_ENUM_XrResult(XR_RESULT_NAME_CASE)
+#undef XR_RESULT_NAME_CASE
+        default:
+            return "unknown XrResult";
+    }
+}
+
+// The last call checkXr saw fail on this thread, which a start that stops
+// goes on to name
+static __thread XrResult lastFailedResult;
+static __thread const char* lastFailedCall;
+
+static void forgetLastFailure(void) {
+    lastFailedResult = XR_SUCCESS;
+    lastFailedCall = NULL;
+}
+
 int checkXr(XrResult res, const char* what) {
     if (XR_FAILED(res)) {
-        LOGE("%s failed: %d", what, res);
+        LOGE("%s failed: %d %s", what, res, xrResultName(res));
+        lastFailedResult = res;
+        lastFailedCall = what;
         return 0;
     }
     return 1;
 }
 
+// Room for every extension a runtime has been seen to offer, about a hundred,
+// with plenty over
+#define START_EXTS_MAX 8192
+
+// What a start got through and where it stopped. Filled in as init goes and
+// only kept if it fails, so a report from a headset nobody here has can say
+// which step it was, what the runtime answered and what it offered.
+struct StartReport {
+    char step[16];
+    char call[64];
+    XrResult result;
+    char detail[192];
+    char runtime[XR_MAX_RUNTIME_NAME_SIZE + 32];
+    // Space separated, as the runtime offered them and as the instance asked
+    char offered[START_EXTS_MAX];
+    char requested[1024];
+};
+
+// The last start that stopped, for Java to take once nativeInit has returned.
+// Locked, since a start Java gave up waiting for can still be finishing.
+static struct StartReport failedStart;
+static int failedStartSet;
+static pthread_mutex_t failedStartLock = PTHREAD_MUTEX_INITIALIZER;
+
+// Notes the step a start stopped at, the call there and its answer. The first
+// stop is the one that counts: anything after it is the start unwinding.
+static void startStopped(XrCtx* ctx, const char* step, const char* call, XrResult result) {
+    struct StartReport* r = ctx->start;
+    if (r == NULL || r->step[0] != '\0') {
+        return;
+    }
+    snprintf(r->step, sizeof(r->step), "%s", step);
+    snprintf(r->call, sizeof(r->call), "%s", call != NULL ? call : "");
+    r->result = result;
+}
+
+// The same, for a call checkXr has just seen fail
+static void startStoppedAtLast(XrCtx* ctx, const char* step) {
+    startStopped(ctx, step, lastFailedCall, lastFailedResult);
+}
+
+// A few words more about the stop just noted, where the answer alone does not
+// say enough
+static void startDetail(XrCtx* ctx, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+static void startDetail(XrCtx* ctx, const char* fmt, ...) {
+    struct StartReport* r = ctx->start;
+    if (r == NULL || r->detail[0] != '\0') {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(r->detail, sizeof(r->detail), fmt, args);
+    va_end(args);
+}
+
+// Adds a name to a space separated list, leaving it whole if it will not fit
+static void appendName(char* list, size_t size, const char* name) {
+    size_t used = strlen(list);
+    size_t need = strlen(name) + (used > 0 ? 1 : 0);
+    if (used + need >= size) {
+        return;
+    }
+    snprintf(list + used, size - used, "%s%s", used > 0 ? " " : "", name);
+}
+
+// Hands the report of a start that stopped to where Java can take it, with a
+// line in the log saying where that was. Java logs the whole of it as a block.
+static void publishStartFailure(XrCtx* ctx) {
+    struct StartReport* r = ctx->start;
+    if (r == NULL) {
+        return;
+    }
+    if (r->step[0] == '\0') {
+        startStoppedAtLast(ctx, "unknown");
+    }
+    snprintf(r->runtime, sizeof(r->runtime), "%s", ctx->runtimeLabel);
+    LOGE("VR start stopped at %s: %s %s%s%s", r->step, r->call,
+         r->result != XR_SUCCESS ? xrResultName(r->result) : "",
+         r->detail[0] != '\0' ? ", " : "", r->detail);
+
+    pthread_mutex_lock(&failedStartLock);
+    failedStart = *r;
+    failedStartSet = 1;
+    pthread_mutex_unlock(&failedStartLock);
+}
+
+// An EGL call that failed, with its error, which a later EGL call would reset
+static int eglFailed(XrCtx* ctx, const char* call, const char* why) {
+    EGLint error = eglGetError();
+    LOGE("%s failed: 0x%x%s%s", call, error, why != NULL ? ", " : "", why != NULL ? why : "");
+    startStopped(ctx, "egl", call, XR_SUCCESS);
+    if (why != NULL) {
+        startDetail(ctx, "%s", why);
+    }
+    else {
+        startDetail(ctx, "EGL error 0x%x", error);
+    }
+    return 0;
+}
+
 static int initEgl(XrCtx* ctx) {
     ctx->eglDisplay = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     if (ctx->eglDisplay == EGL_NO_DISPLAY) {
-        LOGE("eglGetDisplay failed");
-        return 0;
+        return eglFailed(ctx, "eglGetDisplay", NULL);
     }
     if (!eglInitialize(ctx->eglDisplay, NULL, NULL)) {
-        LOGE("eglInitialize failed");
-        return 0;
+        return eglFailed(ctx, "eglInitialize", NULL);
     }
 
     const EGLint configAttribs[] = {
@@ -32,30 +156,28 @@ static int initEgl(XrCtx* ctx) {
         EGL_NONE
     };
     EGLint numConfigs = 0;
-    if (!eglChooseConfig(ctx->eglDisplay, configAttribs, &ctx->eglConfig, 1, &numConfigs) ||
-            numConfigs < 1) {
-        LOGE("eglChooseConfig failed");
-        return 0;
+    if (!eglChooseConfig(ctx->eglDisplay, configAttribs, &ctx->eglConfig, 1, &numConfigs)) {
+        return eglFailed(ctx, "eglChooseConfig", NULL);
+    }
+    if (numConfigs < 1) {
+        return eglFailed(ctx, "eglChooseConfig", "no RGBA8 ES3 pbuffer config");
     }
 
     const EGLint contextAttribs[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
     ctx->eglContext = eglCreateContext(ctx->eglDisplay, ctx->eglConfig, EGL_NO_CONTEXT, contextAttribs);
     if (ctx->eglContext == EGL_NO_CONTEXT) {
-        LOGE("eglCreateContext failed: %d", eglGetError());
-        return 0;
+        return eglFailed(ctx, "eglCreateContext", NULL);
     }
 
     // The context needs a surface current but everything renders to FBOs
     const EGLint pbufferAttribs[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
     ctx->eglPbuffer = eglCreatePbufferSurface(ctx->eglDisplay, ctx->eglConfig, pbufferAttribs);
     if (ctx->eglPbuffer == EGL_NO_SURFACE) {
-        LOGE("eglCreatePbufferSurface failed: %d", eglGetError());
-        return 0;
+        return eglFailed(ctx, "eglCreatePbufferSurface", NULL);
     }
 
     if (!eglMakeCurrent(ctx->eglDisplay, ctx->eglPbuffer, ctx->eglPbuffer, ctx->eglContext)) {
-        LOGE("eglMakeCurrent failed: %d", eglGetError());
-        return 0;
+        return eglFailed(ctx, "eglMakeCurrent", NULL);
     }
 
     return 1;
@@ -75,9 +197,8 @@ static void enableExt(const char** list, uint32_t* count, const char* name) {
     list[(*count)++] = name;
 }
 
-// The few results a user's log is likely to carry, named, since the number on
-// its own sends everyone to the header
-static const char* xrResultName(XrResult res) {
+// The few results a user's log is likely to carry, spelled out
+static const char* xrResultMeaning(XrResult res) {
     switch (res) {
         case XR_ERROR_RUNTIME_UNAVAILABLE:
             return "no OpenXR runtime answered the loader";
@@ -95,14 +216,17 @@ static const char* xrResultName(XrResult res) {
 }
 
 static int initXrInstance(XrCtx* ctx) {
+    forgetLastFailure();
     PFN_xrInitializeLoaderKHR initLoader = NULL;
     xrGetInstanceProcAddr(XR_NULL_HANDLE, "xrInitializeLoaderKHR",
                           (PFN_xrVoidFunction*)&initLoader);
+    XrResult loaderResult = XR_SUCCESS;
     if (initLoader != NULL) {
         XrLoaderInitInfoAndroidKHR loaderInfo = { XR_TYPE_LOADER_INIT_INFO_ANDROID_KHR };
         loaderInfo.applicationVM = ctx->vm;
         loaderInfo.applicationContext = ctx->activity;
-        checkXr(initLoader((XrLoaderInitInfoBaseHeaderKHR*)&loaderInfo), "xrInitializeLoaderKHR");
+        loaderResult = initLoader((XrLoaderInitInfoBaseHeaderKHR*)&loaderInfo);
+        checkXr(loaderResult, "xrInitializeLoaderKHR");
     }
 
     // The failure a user is most likely to meet is here: on Android the loader
@@ -112,8 +236,19 @@ static int initXrInstance(XrCtx* ctx) {
     uint32_t extCount = 0;
     XrResult listed = xrEnumerateInstanceExtensionProperties(NULL, 0, &extCount, NULL);
     if (XR_FAILED(listed)) {
-        LOGE("xrEnumerateInstanceExtensionProperties failed: %d, %s", listed,
-             xrResultName(listed));
+        LOGE("xrEnumerateInstanceExtensionProperties failed: %d %s, %s", listed,
+             xrResultName(listed), xrResultMeaning(listed));
+        // A loader that could not start itself is the more likely cause
+        if (initLoader == NULL) {
+            startStopped(ctx, "loader", "xrInitializeLoaderKHR", XR_SUCCESS);
+            startDetail(ctx, "the loader has no xrInitializeLoaderKHR");
+        }
+        else if (XR_FAILED(loaderResult)) {
+            startStopped(ctx, "loader", "xrInitializeLoaderKHR", loaderResult);
+        }
+        else {
+            startStopped(ctx, "runtime", "xrEnumerateInstanceExtensionProperties", listed);
+        }
         return 0;
     }
     XrExtensionProperties* exts = calloc(extCount, sizeof(XrExtensionProperties));
@@ -130,6 +265,9 @@ static int initXrInstance(XrCtx* ctx) {
     LOGEV("runtime offers %u OpenXR extensions", extCount);
     for (uint32_t i = 0; i < extCount; i++) {
         LOGI("  extension %s", exts[i].extensionName);
+        if (ctx->start != NULL) {
+            appendName(ctx->start->offered, sizeof(ctx->start->offered), exts[i].extensionName);
+        }
         if (!strcmp(exts[i].extensionName, XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME)) haveGles = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) haveAndroidCreate = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) ctx->cylinderSupported = 1;
@@ -158,6 +296,17 @@ static int initXrInstance(XrCtx* ctx) {
 
     if (!haveGles || !haveAndroidCreate) {
         LOGE("required OpenXR extensions missing (gles=%d androidCreate=%d)", haveGles, haveAndroidCreate);
+        if (extCount == 0) {
+            // Answered, but with nothing, which is no runtime to speak of
+            startStopped(ctx, "runtime", "xrEnumerateInstanceExtensionProperties", listed);
+            startDetail(ctx, "the runtime offered no extensions");
+        }
+        else {
+            startStopped(ctx, "extensions", "", XR_SUCCESS);
+            startDetail(ctx, "missing%s%s",
+                        haveGles ? "" : " " XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME,
+                        haveAndroidCreate ? "" : " " XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME);
+        }
         return 0;
     }
 
@@ -197,6 +346,14 @@ static int initXrInstance(XrCtx* ctx) {
     if (ctx->colorScaleSupported) {
         enableExt(enabledExts, &enabledCount, XR_KHR_COMPOSITION_LAYER_COLOR_SCALE_BIAS_EXTENSION_NAME);
     }
+    if (startFailKnob("instance")) {
+        enableExt(enabledExts, &enabledCount, "XR_MOONLIGHT_no_such_extension");
+    }
+    if (ctx->start != NULL) {
+        for (uint32_t i = 0; i < enabledCount; i++) {
+            appendName(ctx->start->requested, sizeof(ctx->start->requested), enabledExts[i]);
+        }
+    }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
     androidInfo.applicationVM = ctx->vm;
@@ -213,7 +370,9 @@ static int initXrInstance(XrCtx* ctx) {
 
     XrResult created = xrCreateInstance(&createInfo, &ctx->instance);
     if (XR_FAILED(created)) {
-        LOGE("xrCreateInstance failed: %d, %s", created, xrResultName(created));
+        LOGE("xrCreateInstance failed: %d %s, %s", created, xrResultName(created),
+             xrResultMeaning(created));
+        startStopped(ctx, "instance", "xrCreateInstance", created);
         return 0;
     }
     probeDisplayExtensions(ctx);
@@ -232,8 +391,11 @@ static int initXrInstance(XrCtx* ctx) {
     }
 
     XrSystemGetInfo systemInfo = { XR_TYPE_SYSTEM_GET_INFO };
-    systemInfo.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
+    // A handheld is what the knob asks for, which a headset's runtime refuses
+    systemInfo.formFactor = startFailKnob("system") ? XR_FORM_FACTOR_HANDHELD_DISPLAY
+                                                    : XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
     if (!checkXr(xrGetSystem(ctx->instance, &systemInfo, &ctx->systemId), "xrGetSystem")) {
+        startStoppedAtLast(ctx, "system");
         return 0;
     }
 
@@ -334,10 +496,12 @@ static int initXrInstance(XrCtx* ctx) {
         LOGEV("hand joints %s", ctx->handTracking ? "available" : "not supported by this system");
     }
 
-    xrGetInstanceProcAddr(ctx->instance, "xrGetOpenGLESGraphicsRequirementsKHR",
-                          (PFN_xrVoidFunction*)&ctx->pfnGetGlesReqs);
+    XrResult found = xrGetInstanceProcAddr(ctx->instance, "xrGetOpenGLESGraphicsRequirementsKHR",
+                                           (PFN_xrVoidFunction*)&ctx->pfnGetGlesReqs);
     if (ctx->pfnGetGlesReqs == NULL) {
         LOGE("xrGetOpenGLESGraphicsRequirementsKHR not found");
+        startStopped(ctx, "graphics", "xrGetOpenGLESGraphicsRequirementsKHR", found);
+        startDetail(ctx, "the entry point is missing");
         return 0;
     }
 
@@ -345,9 +509,11 @@ static int initXrInstance(XrCtx* ctx) {
 }
 
 static int initXrSession(XrCtx* ctx) {
+    forgetLastFailure();
     // Spec requires this call before session creation
     XrGraphicsRequirementsOpenGLESKHR reqs = { XR_TYPE_GRAPHICS_REQUIREMENTS_OPENGL_ES_KHR };
     if (!checkXr(ctx->pfnGetGlesReqs(ctx->instance, ctx->systemId, &reqs), "get gles requirements")) {
+        startStoppedAtLast(ctx, "graphics");
         return 0;
     }
 
@@ -358,8 +524,10 @@ static int initXrSession(XrCtx* ctx) {
 
     XrSessionCreateInfo sessionInfo = { XR_TYPE_SESSION_CREATE_INFO };
     sessionInfo.next = &binding;
-    sessionInfo.systemId = ctx->systemId;
+    // A system that does not exist is what the knob asks for
+    sessionInfo.systemId = startFailKnob("session") ? XR_NULL_SYSTEM_ID : ctx->systemId;
     if (!checkXr(xrCreateSession(ctx->instance, &sessionInfo, &ctx->session), "xrCreateSession")) {
+        startStoppedAtLast(ctx, "session");
         return 0;
     }
 
@@ -367,10 +535,12 @@ static int initXrSession(XrCtx* ctx) {
     spaceInfo.poseInReferenceSpace.orientation.w = 1.0f;
     spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_LOCAL;
     if (!checkXr(xrCreateReferenceSpace(ctx->session, &spaceInfo, &ctx->localSpace), "create local space")) {
+        startStoppedAtLast(ctx, "space");
         return 0;
     }
     spaceInfo.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
     if (!checkXr(xrCreateReferenceSpace(ctx->session, &spaceInfo, &ctx->viewSpace), "create view space")) {
+        startStoppedAtLast(ctx, "space");
         return 0;
     }
 
@@ -381,11 +551,14 @@ static int initXrSession(XrCtx* ctx) {
 }
 
 static int initSwapchain(XrCtx* ctx) {
+    forgetLastFailure();
     uint32_t formatCount = 0;
-    xrEnumerateSwapchainFormats(ctx->session, 0, &formatCount, NULL);
+    XrResult listed = xrEnumerateSwapchainFormats(ctx->session, 0, &formatCount, NULL);
     int64_t* formats = calloc(formatCount, sizeof(int64_t));
     if (formatCount == 0 || formats == NULL) {
         LOGE("no swapchain formats to choose from");
+        startStopped(ctx, "swapchain", "xrEnumerateSwapchainFormats", listed);
+        startDetail(ctx, "no formats offered");
         free(formats);
         return 0;
     }
@@ -408,6 +581,9 @@ static int initSwapchain(XrCtx* ctx) {
     int chainWidth = ctx->stereoMode != DEPTH_MODE_OFF ? ctx->videoWidth * 2 : ctx->videoWidth;
     if (!createArtSwapchain(ctx, chainWidth, ctx->videoHeight, "xrCreateSwapchain",
                             &ctx->swapchain, &ctx->swapchainImages, &ctx->swapchainImageCount)) {
+        startStoppedAtLast(ctx, "swapchain");
+        startDetail(ctx, "%dx%d, format 0x%llx", chainWidth, ctx->videoHeight,
+                    (unsigned long long)ctx->swapchainFormat);
         return 0;
     }
 
@@ -657,6 +833,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     if (ctx->activity != NULL) {
         (*env)->DeleteGlobalRef(env, ctx->activity);
     }
+    free(ctx->start);
     free(ctx);
 }
 
@@ -818,11 +995,26 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     (*env)->GetJavaVM(env, &ctx->vm);
     ctx->activity = (*env)->NewGlobalRef(env, activity);
 
-    if (!initXrInstance(ctx) || !initEgl(ctx) || !initXrSession(ctx) ||
-            !initSwapchain(ctx) || !initGl(ctx)) {
+    // Whatever an earlier start left is not this one's to report
+    pthread_mutex_lock(&failedStartLock);
+    failedStartSet = 0;
+    pthread_mutex_unlock(&failedStartLock);
+    ctx->start = calloc(1, sizeof(struct StartReport));
+
+    int started = initXrInstance(ctx) && initEgl(ctx) && initXrSession(ctx) &&
+                  initSwapchain(ctx);
+    if (started && !initGl(ctx)) {
+        startStopped(ctx, "gl", "initGl", XR_SUCCESS);
+        startDetail(ctx, "the GL lines above say which");
+        started = 0;
+    }
+    if (!started) {
+        publishStartFailure(ctx);
         destroyCtx(env, ctx);
         return 0;
     }
+    free(ctx->start);
+    ctx->start = NULL;
 
     // Optional: a runtime with no controllers, or one that rejects every
     // binding we know, still streams. It just has no pointer.
@@ -912,6 +1104,51 @@ Java_com_limelight_binding_video_XrRenderer_nativeHasBeenFocused(JNIEnv* env, jo
                                                                  jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     return (ctx != NULL && ctx->everFocused) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Where the last start that failed stopped, taken once: step, call, the
+// XrResult as a number and by name, detail, runtime, the extensions offered
+// and those asked for, in that order, as XrStartFailure reads them. Null when
+// there is none.
+JNIEXPORT jobjectArray JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeTakeStartFailure(JNIEnv* env, jclass clazz) {
+    struct StartReport* r = malloc(sizeof(struct StartReport));
+    if (r == NULL) {
+        return NULL;
+    }
+    pthread_mutex_lock(&failedStartLock);
+    int set = failedStartSet;
+    if (set) {
+        *r = failedStart;
+        failedStartSet = 0;
+    }
+    pthread_mutex_unlock(&failedStartLock);
+    if (!set) {
+        free(r);
+        return NULL;
+    }
+
+    char result[16];
+    snprintf(result, sizeof(result), "%d", (int)r->result);
+    const char* fields[] = {
+        r->step, r->call, result, r->result != XR_SUCCESS ? xrResultName(r->result) : "",
+        r->detail, r->runtime, r->offered, r->requested
+    };
+    const int count = (int)(sizeof(fields) / sizeof(fields[0]));
+    jclass stringClass = (*env)->FindClass(env, "java/lang/String");
+    jobjectArray out = stringClass != NULL
+            ? (*env)->NewObjectArray(env, count, stringClass, NULL) : NULL;
+    for (int i = 0; out != NULL && i < count; i++) {
+        jstring s = (*env)->NewStringUTF(env, fields[i]);
+        if (s == NULL) {
+            out = NULL;
+            break;
+        }
+        (*env)->SetObjectArrayElement(env, out, i, s);
+        (*env)->DeleteLocalRef(env, s);
+    }
+    free(r);
+    return out;
 }
 
 // The runtime's name and version, for a report to carry, or null before the

@@ -533,7 +533,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     // recovery and the answer will not have changed
                     xrRendererStopped = true;
                     if (activity instanceof XrRenderer.SessionListener) {
-                        ((XrRenderer.SessionListener) activity).onVrUnavailable();
+                        XrStartFailure failure = renderer.getStartFailure();
+                        ((XrRenderer.SessionListener) activity).onVrUnavailable(
+                                failure != null ? failure : XrStartFailure.unknown());
                     }
                 }
             }
