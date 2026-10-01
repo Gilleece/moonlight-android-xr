@@ -30,6 +30,7 @@
 #define HOVER_EXITPROMPT 13
 #define HOVER_STEREOBUTTON 14
 #define HOVER_REPORT    15
+#define HOVER_RAYBUTTON 16
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 

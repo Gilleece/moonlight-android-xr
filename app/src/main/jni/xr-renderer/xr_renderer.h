@@ -46,6 +46,7 @@
 #include "xr_glow.h"
 #include "xr_grade.h"
 #include "xr_keys.h"
+#include "xr_controller.h"
 
 #define TAG "moonlight-xr"
 
@@ -1142,6 +1143,15 @@ typedef struct {
     int beamFree;
     // Aimed by the eyes, so there is a cursor but no ray
     int beamGaze;
+    // The ray's switch: the setting a session starts from, and whether the
+    // bar button or the Display tab's row has turned it over since. Off, the
+    // beam is not drawn unless a panel is up; the dot and the hit test stay.
+    // The hands' rays follow it too.
+    int raySetting;
+    int rayFlipped;
+    // Whether the beam went up last frame, -1 before the first, for the line
+    // that says when that changes
+    int rayDrawnSaid;
     XrVector3f beamStart;
     XrVector3f beamEnd;
     XrVector3f headPos;
@@ -1341,6 +1351,13 @@ typedef struct {
     int stereoButtonReady;
     int stereoButtonHot;
 
+    // The ray's switch on the bar, its art off and on, the same arrangement
+    XrSwapchain rayButtonSwapchains[2];
+    uint32_t rayButtonImageCounts[2];
+    XrSwapchainImageOpenGLESKHR* rayButtonImages[2];
+    int rayButtonReady;
+    int rayButtonHot;
+
     // The exit button and its prompt. One sheet per lit button, all filled at
     // startup, so hovering one costs a handle rather than an upload.
     XrSwapchain exitButtonSwapchain;
@@ -1525,6 +1542,10 @@ int exitButtonHit(XrCtx* ctx, float u, float v, float height);
 void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);
+void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
+int rayButtonHit(XrCtx* ctx, float u, float v, float height);
+void setRayOn(XrCtx* ctx, int on, const char* from);
+int panelUp(XrCtx* ctx);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);

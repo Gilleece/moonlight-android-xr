@@ -136,7 +136,7 @@
 // up. Every frame. As many as COG_OPTION_COUNT below, which the native side
 // checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
-#define MARK_VALUES 8
+#define MARK_VALUES 9
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
@@ -398,43 +398,46 @@
 #define COG_REPORT_B 0.72f
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
-// dragging a value.
+// dragging a value. The ray row is the bar's ray button for the session, so
+// it is not stored.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_SUPERSAMPLE 1
 #define COG_OPTION_STATS   2
 #define COG_OPTION_HEAD_LOCK 3
 #define COG_OPTION_POINTER_SLEEP 4
-#define COG_OPTION_CLICK_SOUND 5
-#define COG_OPTION_AMBILIGHT 6
-#define COG_OPTION_ROOM_LIGHT 7
-#define COG_OPTION_COUNT   8
+#define COG_OPTION_RAY 5
+#define COG_OPTION_CLICK_SOUND 6
+#define COG_OPTION_AMBILIGHT 7
+#define COG_OPTION_ROOM_LIGHT 8
+#define COG_OPTION_COUNT   9
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_HEAD_LOCK_CELLS 2
 #define COG_POINTER_SLEEP_CELLS 2
+#define COG_RAY_CELLS 2
 #define COG_CLICK_SOUND_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
 // This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 8
-// Nine rows on this tab, three more than the screen tab, so its rows start a
+#define COG_DISPLAY_SLIDER_ROW 9
+// Ten rows on this tab, four more than the screen tab, so its rows start a
 // little higher and sit closer together than the other tabs', with shallower
-// cells to keep a gap between them. The last is centred at 0.911 and its
+// cells to keep a gap between them. The last is centred at 0.921 and its
 // thumb still clears the bottom edge, grown or not. The hit band is half the
 // pitch, so neighbouring bands meet without overlapping.
-#define COG_DISPLAY_ROW_V0 0.215f
-#define COG_DISPLAY_ROW_STEP 0.087f
-#define COG_DISPLAY_ROW_HALF 0.0435f
-#define COG_DISPLAY_CELL_HALF 0.036f
+#define COG_DISPLAY_ROW_V0 0.21f
+#define COG_DISPLAY_ROW_STEP 0.079f
+#define COG_DISPLAY_ROW_HALF 0.0395f
+#define COG_DISPLAY_CELL_HALF 0.033f
 // The marks on the display tab's cells, which of each row's cells is in
 // force, drawn in Java as one strip over the column of cells rather than a
 // ring each, so the tab costs one layer for them however many rows it has.
 // Redrawn when one changes. Where the strip sits, as fractions of the panel.
 #define COG_MARKS_TEX_W 408
-#define COG_MARKS_TEX_H 448
+#define COG_MARKS_TEX_H 456
 #define COG_MARKS_L 0.41f
 #define COG_MARKS_T 0.17f
 // The time and the battery on a strip just over the panel's top edge, drawn

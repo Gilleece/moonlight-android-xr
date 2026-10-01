@@ -314,6 +314,8 @@
     <string name="summary_vr_pointer">Pointez l\'écran avec une manette pour déplacer la souris de l\'hôte. La gâchette clique, A ou X fait un clic droit, le joystick fait défiler. Cliquez sur le joystick pour désactiver le pointage dans un jeu qui a besoin de la souris elle-même.</string>
     <string name="title_vr_pointer_sleep">Mettre le pointeur en pause quand la manette est immobile</string>
     <string name="summary_vr_pointer_sleep">Le pointeur d\'une manette disparaît après quelques secondes d\'immobilité et revient quand elle bouge ou que son joystick est poussé. Désactivez cette option pour le garder actif, afin que le joystick fasse défiler même quand le pointeur n\'est pas sur l\'écran.</string>
+    <string name="title_vr_show_ray">Afficher le rayon de la manette</string>
+    <string name="summary_vr_show_ray">Le faisceau qui va de la manette à l\'écran. Désactivez-le pour les jeux au pistolet : le point où il arrive reste et les appuis fonctionnent comme avant, le rayon revient tant qu\'un panneau est ouvert, et le bouton du rayon sous l\'écran le change pour la session.</string>
     <string name="title_vr_click_sound">Clic à l\'appui sur un panneau</string>
     <string name="summary_vr_click_sound">Un bref tic quand un appui dans le casque touche un panneau, un bouton ou une touche. Il est joué sur les sons système, à part de l\'audio du stream.</string>
     <string name="title_vr_gaze">Regarder pour pointer</string>

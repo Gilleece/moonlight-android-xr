@@ -26,9 +26,11 @@
 //   About tab in a room: no rows, so the room, the glow, both eyes, the
 //     stats, the cog button, the panel, the clock, the ring on its button,
 //     ray and cursor: 11.
-//   The bar: the pill, all five buttons and the padlock over the glow, both
-//     eyes, the stats, ray and cursor: 13, and 13 in a room, where the pill
-//     gives way to the room's own layer.
+//   The bar: the pill, all six buttons (exit, environment, cog, keyboard,
+//     ray, 3D) and the padlock over the glow, both eyes, the stats, ray and
+//     cursor: 14, and 14 in a room, where the pill gives way to the room's
+//     own layer. 15 with the toast. With the ray switched off it is one
+//     fewer, since the bar is not a panel and brings no beam back.
 // So a frame over the runtime's limit sheds, in this order, the toast, the
 // hover ring, the cog button and the clock strip (see nativeEndFrame), which
 // brings every case above to 16 or under with the toast up.
@@ -68,6 +70,7 @@ typedef struct {
     XrCompositionLayerQuad kbButton;
     XrCompositionLayerQuad exitButton;
     XrCompositionLayerQuad stereoButton;
+    XrCompositionLayerQuad rayButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad lock;
@@ -80,7 +83,7 @@ typedef struct {
     XrCompositionLayerQuad cogMarks;
     XrCompositionLayerQuad cogClock;
     // One per row of whichever tab has the most. The display tab's glow level
-    // track is its seventh row, so it is the one that sets the size.
+    // track is its last row, so it is the one that sets the size.
     XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SLIDER_COUNT
                                     ? COG_DISPLAY_SLIDER_ROW + 1 : COG_SLIDER_COUNT];
     XrCompositionLayerQuad kbPanel;
@@ -587,6 +590,13 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
                      exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
     }
 
+    // The ray's switch, past the keyboard, showing which way it is set
+    if (ctx->rayButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->rayButton,
+                     ctx->rayButtonSwapchains[raySwitchOn(ctx->raySetting, ctx->rayFlipped)],
+                     rayButtonPlacement, ctx->rayButtonHot, NULL);
+    }
+
     // The 3D switch, furthest out on the right, showing which way it is set.
     // Never made in a session without stereo, so never ready in one.
     if (ctx->stereoButtonReady && view->barArea) {
@@ -932,6 +942,18 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
 
 // The laser and the cursor at the end of it
 static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    // The beam goes when the ray is switched off, the hands' as well, unless
+    // a panel is up. Only the beam: the dot stays where the ray lands.
+    int beamShown = rayDrawn(ctx->raySetting, ctx->rayFlipped, panelUp(ctx));
+    if (beamShown != ctx->rayDrawnSaid) {
+        if (ctx->rayDrawnSaid >= 0 || !beamShown) {
+            LOGI("ray %s", beamShown ? (raySwitchOn(ctx->raySetting, ctx->rayFlipped)
+                                        ? "drawn" : "drawn while a panel is up")
+                                     : "hidden, the dot stays");
+        }
+        ctx->rayDrawnSaid = beamShown;
+    }
+
     // Laser and cursor, submitted last so they sit over the picture. Two
     // quad layers, so this costs no drawing at all: the art was uploaded
     // once and the compositor places it from these poses.
@@ -964,7 +986,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
             }
         }
 
-        if (length > 0.10f) {
+        if (length > 0.10f && beamShown) {
             beamX = vecNorm(beamX);
             Vec3 beamZ = vecCross(beamX, beamY);
             XrPosef beamPose = { quatFromBasis(beamX, beamY, beamZ),
@@ -1275,7 +1297,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 || ctx->hoverKind == HOVER_COGBUTTON
                 || ctx->hoverKind == HOVER_KBBUTTON
                 || ctx->hoverKind == HOVER_EXITBUTTON
-                || ctx->hoverKind == HOVER_STEREOBUTTON);
+                || ctx->hoverKind == HOVER_STEREOBUTTON
+                || ctx->hoverKind == HOVER_RAYBUTTON);
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;

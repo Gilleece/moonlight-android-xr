@@ -1012,7 +1012,7 @@ static void swallowTrigger(XrCtx* ctx, int src) {
 static int onFurniture(int hover) {
     return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
             || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK
-            || hover == HOVER_STEREOBUTTON;
+            || hover == HOVER_STEREOBUTTON || hover == HOVER_RAYBUTTON;
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
@@ -1261,8 +1261,12 @@ static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, 
             && exitButtonHit(ctx, u, v, height)) {
         hover = HOVER_EXITBUTTON;
     }
-    // The 3D switch, one further out than the keyboard, on the same halo
-    // ground
+    // The ray's switch, one further out than the keyboard, and the 3D switch
+    // one further again, on the same halo ground
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && rayButtonHit(ctx, u, v, height)) {
+        hover = HOVER_RAYBUTTON;
+    }
     if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
             && stereoButtonHit(ctx, u, v, height)) {
         hover = HOVER_STEREOBUTTON;
@@ -1840,6 +1844,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->exitButtonHot = 0;
     ctx->exitHoverZone = EXIT_ZONE_NONE;
     ctx->stereoButtonHot = 0;
+    ctx->rayButtonHot = 0;
     ctx->reportHoverZone = REPORT_ZONE_NONE;
     ctx->cogReportHot = 0;
 }
@@ -2324,7 +2329,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
     int pressed = f->hand >= 0 && ctx->triggerEdge[f->hand];
     if (pressed && (f->hover == HOVER_ENVBUTTON || f->hover == HOVER_COGBUTTON
             || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
-            || f->hover == HOVER_STEREOBUTTON
+            || f->hover == HOVER_STEREOBUTTON || f->hover == HOVER_RAYBUTTON
             || (f->hover == HOVER_LOCK && ctx->lockArmed[f->hand])
             || (f->hover == HOVER_KBPANEL
                 && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
@@ -2379,6 +2384,13 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             // The 3D tab rings its switch, but from the bar the only sign
             // is the picture going flat, which is easy to miss
             noticePush(&ctx->notices, ctx->stereoLive ? TOAST_3D_ON : TOAST_3D_OFF, 0);
+        }
+    }
+    else if (f->hover == HOVER_RAYBUTTON) {
+        ctx->rayButtonHot = 1;
+        if (ctx->triggerEdge[f->hand]) {
+            // The beam going or coming back under the hand is the feedback
+            setRayOn(ctx, !raySwitchOn(ctx->raySetting, ctx->rayFlipped), "the bar button");
         }
     }
     else if (f->hover == HOVER_KBPANEL) {
@@ -2914,7 +2926,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             || f.hover == HOVER_COGPANEL || f.hover == HOVER_KBBUTTON
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_EXITBUTTON
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
-            || f.hover == HOVER_REPORT)
+            || f.hover == HOVER_RAYBUTTON || f.hover == HOVER_REPORT)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }

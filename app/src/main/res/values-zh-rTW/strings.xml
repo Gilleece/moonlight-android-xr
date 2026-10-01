@@ -299,6 +299,8 @@
     <string name="summary_vr_pointer">使用控制器指向螢幕以移動主機滑鼠。扳機鍵為左鍵點擊，A 或 X 鍵為右鍵點擊，搖桿上下捲動。在需要原生滑鼠控制的遊戲中，可按下搖桿關閉指向功能。</string>
     <string name="title_vr_pointer_sleep">控制器靜止時暫停游標</string>
     <string name="summary_vr_pointer_sleep">控制器靜止幾秒後游標會隱藏，移動控制器或推動搖桿時恢復。關閉此項可讓游標保持啟用，即使游標不在螢幕上，搖桿也能捲動。</string>
+    <string name="title_vr_show_ray">顯示控制器射線</string>
+    <string name="summary_vr_show_ray">從控制器射向螢幕的光束。玩光槍遊戲時可將其關閉：落點處的光點仍會保留，按鍵照常生效；開啟面板時射線會重新出現，螢幕下方的射線按鈕可在本次階段中切換它。</string>
     <string name="title_vr_click_sound">按下面板時發出點擊聲</string>
     <string name="summary_vr_click_sound">在頭戴裝置中按下面板、按鈕或按鍵時發出短促的點擊聲。它透過系統音效播放，與串流音訊分開。</string>
     <string name="title_vr_gaze">注視瞄準 (Look to point)</string>

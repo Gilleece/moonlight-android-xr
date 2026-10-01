@@ -596,6 +596,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyArtSwapchain(&ctx->reportSwapchain, &ctx->reportImages);
     for (int state = 0; state < 2; state++) {
         destroyArtSwapchain(&ctx->stereoButtonSwapchains[state], &ctx->stereoButtonImages[state]);
+        destroyArtSwapchain(&ctx->rayButtonSwapchains[state], &ctx->rayButtonImages[state]);
     }
     destroyArtSwapchain(&ctx->lockSwapchain, &ctx->lockImages);
     destroyArtSwapchain(&ctx->unlockSwapchain, &ctx->unlockImages);
@@ -750,6 +751,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->pointerSleep = POINTER_SLEEP_SEC;
     // 1 cm reads as a thin line at 3 m without disappearing
     ctx->beamWidth = 0.010f;
+    // The ray shows until Java hands down the setting, and nothing has been
+    // said about it yet
+    ctx->raySetting = 1;
+    ctx->rayDrawnSaid = -1;
     // Comfort comes from absolute disparity and depth comes from the steps
     // between objects, so the overall shape is pulled toward the screen plane
     // while the local detail is boosted. Measured on captured frames this is

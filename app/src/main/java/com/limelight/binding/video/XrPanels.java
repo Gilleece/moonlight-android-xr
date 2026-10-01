@@ -74,17 +74,19 @@ final class XrPanels {
     // Under the size row where the room keeps its picture whole
     private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Head locked, pointer sleep and the
-    // click sit with the picture rows so the two light rows and the level
+    // the glow level track under them. Head locked, pointer sleep, the ray and
+    // the click sit with the picture rows so the two light rows and the level
     // track they belong with stay together at the bottom. Screen light is the
     // wash the picture throws over a 3d room, which only shows in one, and
     // head lock is ignored in one, but both stay live here like the rest: the
-    // picker can put a room up at any moment.
+    // picker can put a room up at any moment. The ray row is the bar's ray
+    // button, for the session only.
     private static final String[] COG_OPTION_ROWS = { "Sharpen", "Supersample", "Stats",
-            "Head locked", "Pointer sleep", "Click sound", "Glow", "Screen light" };
+            "Head locked", "Pointer sleep", "Ray", "Click sound", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
@@ -671,7 +673,7 @@ final class XrPanels {
 
     // Where a row sits down the panel, as a fraction of its height: the same
     // as cogRowV in xr_layout.c, which hit tests and rings what this draws.
-    // The display tab packs its eight rows closer than the other tabs.
+    // The display tab packs its rows closer than the other tabs.
     static float cogRowV(int tab, int row) {
         if (tab == COG_TAB_DISPLAY) {
             return COG_DISPLAY_ROW_V0 + row * COG_DISPLAY_ROW_STEP;
@@ -1807,6 +1809,53 @@ final class XrPanels {
             paint.setStrokeWidth(7.0f);
             paint.setStrokeCap(Paint.Cap.ROUND);
             canvas.drawLine(30.0f, 98.0f, 98.0f, 30.0f, paint);
+        }
+        return button;
+    }
+
+    /**
+     * The ray's switch on the bar, off and then on, a swapchain each on the
+     * native side like the 3D switch's. A beam leaving a hand for a dot, in
+     * the frame the other buttons are drawn in, bright while the ray is drawn
+     * and dimmed with a stroke through it while it is hidden.
+     */
+    ByteBuffer[] buildRayButtons() {
+        ByteBuffer[] faces = new ByteBuffer[2];
+        for (int on = 0; on < 2; on++) {
+            Bitmap button = buildRayButton(on == 1);
+            faces[on] = toBuffer(button);
+            button.recycle();
+        }
+        return faces;
+    }
+
+    private Bitmap buildRayButton(boolean on) {
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        int ink = on ? 0xEEFFFFFF : 0x80FFFFFF;
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(ink);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6.0f);
+        canvas.drawRoundRect(new RectF(14.0f, 14.0f, 114.0f, 114.0f), 22.0f, 22.0f, paint);
+
+        // The beam from the bottom left toward the dot at the top right,
+        // fading as it goes the way the real one does at its ends
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        paint.setStrokeWidth(7.0f);
+        canvas.drawLine(34.0f, 94.0f, 70.0f, 58.0f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(84.0f, 44.0f, 11.0f, paint);
+
+        if (!on) {
+            // Struck through like the 3D switch, at full strength so it reads
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setColor(0xEEFFFFFF);
+            paint.setStrokeWidth(7.0f);
+            canvas.drawLine(30.0f, 30.0f, 98.0f, 98.0f, paint);
         }
         return button;
     }

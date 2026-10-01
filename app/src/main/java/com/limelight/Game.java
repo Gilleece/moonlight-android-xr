@@ -558,7 +558,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " hands=" + prefConfig.vrHandTracking
                 + " gaze=" + prefConfig.vrGaze
                 + " " + PreferenceConfiguration.inputLabel(prefConfig.vrShowHandLock,
-                        prefConfig.vrPointerSleep, "=")
+                        prefConfig.vrPointerSleep, prefConfig.vrShowRay, "=")
                 + " clickSound=" + prefConfig.vrClickSound
                 + " " + PreferenceConfiguration.pictureLabel(prefConfig.vrPicture, "=")
                 + " audio=" + prefConfig.audioConfiguration.channelCount

@@ -240,6 +240,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // The 3D switch's two faces, only drawn in a session with stereo to switch
     private final AtomicReference<ByteBuffer> pendingStereoOff = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingStereoOn = new AtomicReference<>();
+    // The ray's switch's two faces, drawn in every session
+    private final AtomicReference<ByteBuffer> pendingRayOff = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingRayOn = new AtomicReference<>();
     // A baked room on its way to the GPU, read off the frame loop like the art
     // above. The native side shows the void in its place until it has landed.
     // The mesh, the atlases and the cell they belong to travel as one, so a
@@ -429,6 +432,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native String nativeGetRuntime(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
+    private native void nativeUploadRayButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
     // The toast's words for a notice just gone up, and a notice of this
     // side's own to be queued, a TOAST_TEXT under its slot
@@ -438,6 +442,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadCogClock(long ctx, ByteBuffer strip);
     // Whether a press ticks, which the display tab's row reads back
     private native void nativeSetClickSound(long ctx, boolean on);
+    // Whether a session starts with the ray drawn, which the bar's ray button
+    // and the Display tab's row then switch for the session
+    private native void nativeSetShowRay(long ctx, boolean on);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -1058,6 +1065,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadStereoButton(nativeCtx, stereoOff, stereoOnArt);
             }
 
+            ByteBuffer rayOff = pendingRayOff.getAndSet(null);
+            ByteBuffer rayOn = pendingRayOn.getAndSet(null);
+            if (rayOff != null && rayOn != null) {
+                nativeUploadRayButton(nativeCtx, rayOff, rayOn);
+            }
+
             RoomAssets room = pendingRoom.getAndSet(null);
             if (room != null) {
                 nativeUploadRoomModel(nativeCtx, room.mesh, room.meshBytes, room.cell);
@@ -1131,6 +1144,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // Nothing drawn yet, so the first look at the tab draws them
         Arrays.fill(marksDrawn, -2);
         nativeSetClickSound(nativeCtx, prefs.vrClickSound);
+        nativeSetShowRay(nativeCtx, prefs.vrShowRay);
 
         final int startRoom = cell;
         final int roomTicketAtStart;
@@ -1188,6 +1202,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             pendingStereoOff.set(faces[0]);
             pendingStereoOn.set(faces[1]);
         }
+        ByteBuffer[] rayFaces = panels.buildRayButtons();
+        pendingRayOff.set(rayFaces[0]);
+        pendingRayOn.set(rayFaces[1]);
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
         kbKeyRects = keyboard.keyRects;

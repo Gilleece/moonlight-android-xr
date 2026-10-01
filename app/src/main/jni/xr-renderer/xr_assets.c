@@ -134,6 +134,13 @@ int createPointerSwapchain(XrCtx* ctx) {
         }
     }
 
+    // The ray's switch, off and on, in every session
+    for (int state = 0; state < 2; state++) {
+        createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create ray button swapchain",
+                           &ctx->rayButtonSwapchains[state], &ctx->rayButtonImages[state],
+                           &ctx->rayButtonImageCounts[state]);
+    }
+
     // Two padlocks rather than one, since a quad layer has no way to swap
     // its own texture and open and shut have to read differently
     createArtSwapchain(ctx, LOCK_TEX, LOCK_TEX, "create lock swapchain",
@@ -711,6 +718,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadStereoButton(JNIEnv* env
                 BUTTON_TEX, BUTTON_TEX, &onReady);
     ctx->stereoButtonReady = offReady && onReady;
     LOGI("3d button art %s", ctx->stereoButtonReady ? "ready" : "missing");
+}
+
+// The ray switch's two faces, off and on, both or neither
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadRayButton(JNIEnv* env, jobject thiz,
+                                                                  jlong handle, jobject off,
+                                                                  jobject on) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || off == NULL || on == NULL) {
+        return;
+    }
+    int offReady = 0;
+    int onReady = 0;
+    uploadSheet(env, ctx, off, ctx->rayButtonSwapchains[0], ctx->rayButtonImages[0],
+                BUTTON_TEX, BUTTON_TEX, &offReady);
+    uploadSheet(env, ctx, on, ctx->rayButtonSwapchains[1], ctx->rayButtonImages[1],
+                BUTTON_TEX, BUTTON_TEX, &onReady);
+    ctx->rayButtonReady = offReady && onReady;
+    LOGI("ray button art %s", ctx->rayButtonReady ? "ready" : "missing");
 }
 
 // The two padlocks, shut and open. Both or neither, since one on its own
