@@ -709,6 +709,65 @@ final class XrPanels {
         }
     }
 
+    /**
+     * The toast: a line, and a quieter one under it when there is more to
+     * say, on the same dark sheet the panels sit on. Redrawn on the frame loop
+     * whenever a notice goes up, into the one bitmap and buffer, which the
+     * upload has finished with by the time the next one comes round. Either
+     * line is cut short with an ellipsis rather than let run off the sheet.
+     */
+    static final class Toast {
+        private final Bitmap bitmap = Bitmap.createBitmap(TOAST_TEX_W, TOAST_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final Paint sheet = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint detail = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ByteBuffer pixels = ByteBuffer.allocateDirect(TOAST_TEX_W * TOAST_TEX_H * 4);
+
+        Toast() {
+            sheet.setColor(0xF0141416);
+            line.setColor(Color.WHITE);
+            line.setTextSize(44.0f);
+            line.setTextAlign(Paint.Align.CENTER);
+            detail.setColor(0xB0FFFFFF);
+            detail.setTextSize(32.0f);
+            detail.setTextAlign(Paint.Align.CENTER);
+        }
+
+        ByteBuffer draw(String text, String more) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            canvas.drawRoundRect(new RectF(1.0f, 1.0f, TOAST_TEX_W - 1.0f, TOAST_TEX_H - 1.0f),
+                    40.0f, 40.0f, sheet);
+            float room = TOAST_TEX_W - 80.0f;
+            float mid = TOAST_TEX_W * 0.5f;
+            if (more == null || more.isEmpty()) {
+                canvas.drawText(fit(text, line, room), mid,
+                        TOAST_TEX_H * 0.5f - (line.ascent() + line.descent()) * 0.5f, line);
+            }
+            else {
+                canvas.drawText(fit(text, line, room), mid, TOAST_TEX_H * 0.44f, line);
+                canvas.drawText(fit(more, detail, room), mid, TOAST_TEX_H * 0.78f, detail);
+            }
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
+
+        // Trimmed a character at a time until it fits with its ellipsis
+        private static String fit(String text, Paint paint, float width) {
+            if (paint.measureText(text) <= width) {
+                return text;
+            }
+            int end = text.length();
+            while (end > 0 && paint.measureText(text, 0, end) + paint.measureText("…") > width) {
+                end--;
+            }
+            return text.substring(0, end).trim() + "…";
+        }
+    }
+
     // 3D tab: three presets, then the two values worth reaching mid stream,
     // then the switch. Depth runs past the comfortable range on purpose, with
     // the far end marked, since where that range ends is a matter of eyes

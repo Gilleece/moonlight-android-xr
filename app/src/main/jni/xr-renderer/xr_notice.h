@@ -69,4 +69,43 @@ float splashLevel(const Splash* splash, int64_t now, int64_t fadeNs);
 // Which of the dot rows is showing: one dot, two, then three, and round again
 int splashRow(const Splash* splash, int64_t now, int rows);
 
+// The toast says one thing at a time for NOTICE_SHOW_NS. A notice about the
+// same thing as the one up replaces it at once, being the newer word on it,
+// and one about something else waits until the one up has had NOTICE_MIN_NS.
+// A few can wait their turn; past that the oldest waiting is dropped.
+#define NOTICE_SHOW_NS 4000000000LL
+#define NOTICE_MIN_NS 1500000000LL
+#define NOTICE_QUEUE 4
+
+typedef struct {
+    int kind;
+    int arg;
+} Notice;
+
+typedef struct {
+    Notice waiting[NOTICE_QUEUE];
+    int count;
+    // What is up and since when, kind -1 while nothing is
+    Notice current;
+    int64_t sinceNs;
+} NoticeBoard;
+
+void noticeInit(NoticeBoard* board);
+
+// Which notices are about the same thing: a lock and an unlock, the 3D going
+// off and on, two display rates, two messages
+int noticeGroup(int kind);
+
+// Queued to be said. One about the same thing already waiting is replaced
+// where it stands.
+void noticePush(NoticeBoard* board, int kind, int arg);
+
+// Retires the notice up once its time is over and puts the next one up when
+// its turn has come, unless held, which is how the splash keeps them back.
+// Returns 1 on the frame a notice goes up, with it in out.
+int noticeAdvance(NoticeBoard* board, int64_t now, int held, Notice* out);
+
+// Whether a notice is up and still within its time
+int noticeShowing(const NoticeBoard* board, int64_t now);
+
 #endif

@@ -65,6 +65,20 @@
 #define SPLASH_BLACK_PX 16
 #define SPLASH_TEX_H (SPLASH_ROW_H * SPLASH_ROWS + SPLASH_BLACK_PX + 8)
 
+// The toast, a short notice hung off the eyes for a few seconds: one sheet,
+// drawn in Java whenever what it says changes. What a notice is about, which
+// the native side raises and Java turns into words. The rate's number is its
+// Hz, and a message of Java's own is a slot in Java's list of them.
+#define TOAST_TEX_W 1024
+#define TOAST_TEX_H 160
+#define TOAST_RATE 0
+#define TOAST_HANDS_LOCKED 1
+#define TOAST_HANDS_UNLOCKED 2
+#define TOAST_3D_OFF 3
+#define TOAST_3D_ON 4
+#define TOAST_TEXT 5
+#define TOAST_TEXT_SLOTS 4
+
 // Slots in the float array handed back to Java each frame
 #define IN_HIT      0
 #define IN_U        1
@@ -106,7 +120,11 @@
 // for the rest of the session, or in a session started without it. Every
 // frame, since it says whether the model is to be fed.
 #define IN_STEREO   (IN_READOUT + READOUT_VALUES)
-#define IN_SLOTS    (IN_STEREO + 1)
+// A notice for the toast to say, the frame it goes up: one of the TOAST_
+// kinds, or -1 for none, and its number
+#define IN_TOAST    (IN_STEREO + 1)
+#define IN_TOAST_ARG (IN_TOAST + 1)
+#define IN_SLOTS    (IN_TOAST_ARG + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0

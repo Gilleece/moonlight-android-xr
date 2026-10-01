@@ -417,6 +417,9 @@ static int initSwapchain(XrCtx* ctx) {
     // Or the splash, whose black still goes up without its sheet
     createArtSwapchain(ctx, SPLASH_TEX_W, SPLASH_TEX_H, "create splash swapchain",
                        &ctx->splashSwapchain, &ctx->splashImages, &ctx->splashImageCount);
+    // Or the toast
+    createArtSwapchain(ctx, TOAST_TEX_W, TOAST_TEX_H, "create toast swapchain",
+                       &ctx->toastSwapchain, &ctx->toastImages, &ctx->toastImageCount);
 
     return 1;
 }
@@ -590,6 +593,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyArtSwapchain(&ctx->glowSwapchain, &ctx->glowImages);
     destroyArtSwapchain(&ctx->roomSwapchain, &ctx->roomImages);
     destroyArtSwapchain(&ctx->splashSwapchain, &ctx->splashImages);
+    destroyArtSwapchain(&ctx->toastSwapchain, &ctx->toastImages);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }
@@ -723,6 +727,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     }
     atomic_init(&ctx->depthMapsStaged, 0);
     atomic_init(&ctx->depthGaveUp, 0);
+    // Nothing said yet, and kind 0 is a real one
+    noticeInit(&ctx->notices);
+    ctx->toastDrawnKind = -1;
     // No key under the ray, and zero is a real key
     ctx->kbHoverKey = -1;
     ctx->pointerMinCutoff = POINTER_MIN_CUTOFF;

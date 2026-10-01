@@ -217,6 +217,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // Carried by the flat activity when the immersive one gave up on VR, so
     // the user is told why the stream is a panel rather than left guessing
     public static final String EXTRA_VR_UNAVAILABLE = "VrUnavailable";
+    // How long a VR session stays up to show an error on its toast before the
+    // stream is stopped, which is how long the toast says anything
+    private static final long VR_NOTICE_MS = 4000;
+    // How long the flat panel a failed VR start falls back to says why
+    private static final long VR_UNAVAILABLE_NOTICE_MS = 12000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -349,6 +354,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         returnToPcView = Game.this.getIntent().getBooleanExtra(EXTRA_RETURN_TO_PC_VIEW, false);
         if (Game.this.getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false)) {
             Toast.makeText(this, R.string.vr_unavailable_flat, Toast.LENGTH_LONG).show();
+            // A headset's shell was seen not to show that toast at all, but it
+            // does show this panel, so the panel says it too for a while
+            showFlatNotice(getResources().getString(R.string.vr_unavailable_flat),
+                    VR_UNAVAILABLE_NOTICE_MS);
         }
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
@@ -2421,7 +2430,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (!displayedFailureDialog) {
                     displayedFailureDialog = true;
                     LimeLog.severe("Connection terminated: " + errorCode);
-                    stopConnection();
+                    // A VR session never shows the dialog's window, so it says
+                    // the same on its own toast, and the stream is only
+                    // stopped once that has been up long enough to read,
+                    // since stopping it ends the session
+                    final boolean vrNotice = errorCode != MoonBridge.ML_ERROR_GRACEFUL_TERMINATION
+                            && vrSessionUp();
+                    if (!vrNotice) {
+                        stopConnection();
+                    }
 
                     // Display the error dialog if it was an unexpected termination.
                     // Otherwise, just finish the activity immediately.
@@ -2471,8 +2488,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                                     MoonBridge.stringifyPortFlags(portFlags, "\n");
                         }
 
-                        Dialog.displayDialog(Game.this, getResources().getString(R.string.conn_terminated_title),
-                                message, true);
+                        final String title = getResources().getString(R.string.conn_terminated_title);
+                        final String dialogMessage = message;
+                        if (vrNotice) {
+                            showVrNotice(title, message.replaceAll("\\s*\\n+\\s*", " ").trim());
+                            FileLog.event("connection error said on the VR toast");
+                            new Handler().postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    stopConnection();
+                                    Dialog.displayDialog(Game.this, title, dialogMessage, true);
+                                }
+                            }, VR_NOTICE_MS);
+                        }
+                        else {
+                            Dialog.displayDialog(Game.this, title, dialogMessage, true);
+                        }
                     }
                     else {
                         finish();
@@ -2979,6 +3010,42 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private void sendVrKeyPress(short keyMap, byte modifier) {
         conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, modifier, (byte)0);
         conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, modifier, (byte)0);
+    }
+
+    // Words on the notification overlay for a while, put back as they were
+    // after unless the connection's own warning has taken the overlay since
+    private void showFlatNotice(final String text, long ms) {
+        notificationOverlayView.setText(text);
+        requestedNotificationOverlayVisibility = View.VISIBLE;
+        if (!isHidingOverlays) {
+            notificationOverlayView.setVisibility(View.VISIBLE);
+        }
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!text.contentEquals(notificationOverlayView.getText())) {
+                    return;
+                }
+                requestedNotificationOverlayVisibility = View.GONE;
+                notificationOverlayView.setVisibility(View.GONE);
+            }
+        }, ms);
+    }
+
+    // Whether a VR session is up to say something in
+    private boolean vrSessionUp() {
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        return renderer != null && renderer.getXrRenderer() != null;
+    }
+
+    // Says something on the toast inside the VR session, where a 2d toast or
+    // dialog is never seen. Nothing happens without a session.
+    private void showVrNotice(String text, String more) {
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        if (xrRenderer != null) {
+            xrRenderer.showNotice(text, more);
+        }
     }
 
     // For the virtual surround, on the audio thread once a block. A flat

@@ -1,7 +1,8 @@
-// The panels' fades and the splash's floor, ceiling, fade and dots, checked
-// against a clock stepped by hand
+// The panels' fades, the splash's floor, ceiling, fade and dots, and the
+// toast's queue, checked against a clock stepped by hand
 #include "check.h"
 #include "xr_notice.h"
+#include "xr_shared.h"
 
 #define MS 1000000LL
 // A frame at 72 Hz, near enough
@@ -171,6 +172,113 @@ static void testSplashDotsStep(void) {
     CHECK(splashRow(&splash, start, 0) == 0);
 }
 
+static void testNoticeShowsForItsTime(void) {
+    NoticeBoard board;
+    noticeInit(&board);
+    Notice up = { -1, 0 };
+    long long now = 1000 * MS;
+    CHECK(!noticeShowing(&board, now));
+    CHECK(noticeAdvance(&board, now, 0, &up) == 0);
+
+    noticePush(&board, TOAST_RATE, 90);
+    CHECK(noticeAdvance(&board, now, 0, &up) == 1);
+    CHECK(up.kind == TOAST_RATE && up.arg == 90);
+    CHECK(noticeShowing(&board, now));
+    // Said once, then up for its four seconds and gone
+    CHECK(noticeAdvance(&board, now + FRAME, 0, &up) == 0);
+    CHECK(noticeShowing(&board, now + NOTICE_SHOW_NS - MS));
+    noticeAdvance(&board, now + NOTICE_SHOW_NS, 0, &up);
+    CHECK(!noticeShowing(&board, now + NOTICE_SHOW_NS));
+    CHECK(board.current.kind == -1);
+}
+
+static void testNoticeOfTheSameKindReplacesAtOnce(void) {
+    NoticeBoard board;
+    noticeInit(&board);
+    Notice up = { -1, 0 };
+    long long now = 0;
+    noticePush(&board, TOAST_HANDS_LOCKED, 0);
+    CHECK(noticeAdvance(&board, now, 0, &up) == 1);
+    // Unlocked a moment later is the newer word on the same thing
+    now += 200 * MS;
+    noticePush(&board, TOAST_HANDS_UNLOCKED, 0);
+    CHECK(noticeAdvance(&board, now, 0, &up) == 1);
+    CHECK(up.kind == TOAST_HANDS_UNLOCKED);
+    // And starts its own four seconds
+    CHECK(noticeShowing(&board, now + NOTICE_SHOW_NS - MS));
+
+    // The 3D going off and on again are one thing too, and two rates
+    CHECK(noticeGroup(TOAST_3D_OFF) == noticeGroup(TOAST_3D_ON));
+    CHECK(noticeGroup(TOAST_RATE) != noticeGroup(TOAST_3D_ON));
+    CHECK(noticeGroup(TOAST_HANDS_LOCKED) != noticeGroup(TOAST_3D_OFF));
+    CHECK(noticeGroup(TOAST_TEXT) != noticeGroup(TOAST_RATE));
+}
+
+static void testAnotherKindWaitsItsTurn(void) {
+    NoticeBoard board;
+    noticeInit(&board);
+    Notice up = { -1, 0 };
+    long long start = 500 * MS;
+    noticePush(&board, TOAST_3D_OFF, 0);
+    noticeAdvance(&board, start, 0, &up);
+    // Switching the 3D off moves the display rate a moment later, which
+    // waits until the first has been read
+    noticePush(&board, TOAST_RATE, 72);
+    CHECK(noticeAdvance(&board, start + 100 * MS, 0, &up) == 0);
+    CHECK(board.current.kind == TOAST_3D_OFF);
+    CHECK(noticeAdvance(&board, start + NOTICE_MIN_NS - MS, 0, &up) == 0);
+    CHECK(noticeAdvance(&board, start + NOTICE_MIN_NS, 0, &up) == 1);
+    CHECK(up.kind == TOAST_RATE && up.arg == 72);
+    CHECK(board.count == 0);
+}
+
+static void testTheSplashHoldsThemBack(void) {
+    NoticeBoard board;
+    noticeInit(&board);
+    Notice up = { -1, 0 };
+    // The rate moves twice while the session starts, and only the last word
+    // is said, once the splash has gone
+    noticePush(&board, TOAST_RATE, 90);
+    noticePush(&board, TOAST_RATE, 72);
+    CHECK(board.count == 1);
+    CHECK(noticeAdvance(&board, 100 * MS, 1, &up) == 0);
+    CHECK(noticeAdvance(&board, 1500 * MS, 1, &up) == 0);
+    CHECK(noticeAdvance(&board, 1800 * MS, 0, &up) == 1);
+    CHECK(up.kind == TOAST_RATE && up.arg == 72);
+}
+
+static void testTheQueueDropsItsOldest(void) {
+    NoticeBoard board;
+    noticeInit(&board);
+    Notice up = { -1, 0 };
+    noticePush(&board, -1, 0);
+    CHECK(board.count == 0);
+    noticePush(&board, TOAST_TEXT, 0);
+    noticeAdvance(&board, 0, 0, &up);
+    // Four more of four other kinds, then a fifth: the oldest goes
+    noticePush(&board, TOAST_RATE, 90);
+    noticePush(&board, TOAST_HANDS_LOCKED, 0);
+    noticePush(&board, TOAST_3D_OFF, 0);
+    noticePush(&board, 40, 0);
+    CHECK(board.count == NOTICE_QUEUE);
+    noticePush(&board, 41, 0);
+    CHECK(board.count == NOTICE_QUEUE);
+    CHECK(board.waiting[0].kind == TOAST_HANDS_LOCKED);
+    CHECK(board.waiting[NOTICE_QUEUE - 1].kind == 41);
+    // Then one at a time, each once the one before has had its turn, and
+    // never two in one frame
+    long long now = NOTICE_MIN_NS;
+    int said = 0;
+    for (int i = 0; i < 10; i++) {
+        said += noticeAdvance(&board, now, 0, &up);
+        said += noticeAdvance(&board, now + FRAME, 0, &up);
+        now += NOTICE_MIN_NS;
+    }
+    CHECK(said == NOTICE_QUEUE);
+    CHECK(up.kind == 41);
+    CHECK(board.count == 0);
+}
+
 int main(void) {
     testFadeRisesAndLands();
     testFadeFallsAndTurnsRound();
@@ -179,5 +287,10 @@ int main(void) {
     testSplashWaitsThenGivesUp();
     testSplashCutsWithoutAFade();
     testSplashDotsStep();
+    testNoticeShowsForItsTime();
+    testNoticeOfTheSameKindReplacesAtOnce();
+    testAnotherKindWaitsItsTurn();
+    testTheSplashHoldsThemBack();
+    testTheQueueDropsItsOldest();
     return checksDone("xr_notice");
 }

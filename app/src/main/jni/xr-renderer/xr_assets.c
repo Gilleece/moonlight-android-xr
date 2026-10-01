@@ -575,6 +575,34 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadSplash(JNIEnv* env, jobj
     LOGI("splash art %s", ctx->splashArtReady ? "ready" : "missing");
 }
 
+// The toast's words for the notice up now, drawn in Java the frame it went up.
+// The layer only shows while the notice it was drawn for is the one up.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadToast(JNIEnv* env, jobject thiz,
+                                                              jlong handle, jobject sheet,
+                                                              jint kind, jint arg) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, sheet, ctx->toastSwapchain, ctx->toastImages, TOAST_TEX_W,
+                TOAST_TEX_H, &ctx->toastArtReady);
+    ctx->toastDrawnKind = kind;
+    ctx->toastDrawnArg = arg;
+    LOGEV("toast up: kind %d, %d", kind, arg);
+}
+
+// A notice Java has to say, its words kept on that side under the number.
+// Frame loop only, like everything else the board is touched from.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativePushNotice(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jint kind, jint arg) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx != NULL) {
+        noticePush(&ctx->notices, kind, arg);
+    }
+}
+
 // The 3D switch's two faces, off and on. Both or neither, like the padlocks.
 // Never called in a session without stereo, which has no swapchains for them.
 JNIEXPORT void JNICALL

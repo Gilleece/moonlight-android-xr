@@ -17,6 +17,7 @@ import android.view.Surface;
 
 import com.limelight.FileLog;
 import com.limelight.LimeLog;
+import com.limelight.R;
 import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
@@ -27,6 +28,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -184,6 +186,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private XrPanels.Readout roomReadout;
     private final int[] readoutDrawn = { -1, -1, -1 };
     private final int[] readoutWanted = new int[READOUT_VALUES];
+    // The toast's sheet, drawn on the frame loop when a notice goes up, and
+    // the words of the notices this side raises, each a line and the one
+    // under it: queued from any thread, then kept in slots the native side
+    // names them by
+    private XrPanels.Toast toast;
+    private final ConcurrentLinkedQueue<String[]> pendingNotices = new ConcurrentLinkedQueue<>();
+    private final String[][] noticeTexts = new String[TOAST_TEXT_SLOTS][];
+    private int noticeSlot;
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
     // The 3D switch's two faces, only drawn in a session with stereo to switch
@@ -261,6 +271,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * Says something on the toast inside the session, where a 2d toast or
+     * dialog is never seen: a line, and a quieter one under it or null. Any
+     * thread; it goes up once the frame loop next comes round.
+     */
+    public void showNotice(String text, String more) {
+        if (text != null) {
+            pendingNotices.add(new String[] { text, more });
+        }
+    }
+
+    /**
      * Told when a VR session could not be started at all, so the activity can
      * do something visible about it rather than stream into a window the
      * headset's shell never shows. Called off the main thread.
@@ -327,6 +348,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
+    // The toast's words for a notice just gone up, and a notice of this
+    // side's own to be queued, a TOAST_TEXT under its slot
+    private native void nativeUploadToast(long ctx, ByteBuffer sheet, int kind, int arg);
+    private native void nativePushNotice(long ctx, int kind, int arg);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -816,6 +841,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateRoomReadout();
+            updateToast();
 
             // Switched off, the warp draws flat and the model is left idle.
             // Back on, it wants a map of what is showing now, so the frame in
@@ -981,6 +1007,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     levels.light, levels.screen);
         }
         roomReadout = new XrPanels.Readout();
+        toast = new XrPanels.Toast();
 
         final int startRoom = cell;
         final int roomTicketAtStart;
@@ -1269,6 +1296,54 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
         nativeUploadCogReadout(nativeCtx, roomReadout.draw(readoutWanted), readoutWanted);
         System.arraycopy(readoutWanted, 0, readoutDrawn, 0, READOUT_VALUES);
+    }
+
+    // Queues the notices raised on this side since the last frame, then draws
+    // whichever notice the frame says has just gone up and hands it straight
+    // up, since this is the thread with the GL context
+    private void updateToast() {
+        String[] notice;
+        while ((notice = pendingNotices.poll()) != null) {
+            int slot = noticeSlot;
+            noticeSlot = (noticeSlot + 1) % TOAST_TEXT_SLOTS;
+            noticeTexts[slot] = notice;
+            nativePushNotice(nativeCtx, TOAST_TEXT, slot);
+        }
+        int kind = (int)inputState[IN_TOAST];
+        if (kind < 0 || toast == null || prefsContext == null) {
+            return;
+        }
+        int arg = (int)inputState[IN_TOAST_ARG];
+        String text;
+        String more = null;
+        switch (kind) {
+            case TOAST_RATE:
+                text = prefsContext.getString(R.string.vr_toast_rate, arg);
+                break;
+            case TOAST_HANDS_LOCKED:
+                text = prefsContext.getString(R.string.vr_toast_hands_locked);
+                break;
+            case TOAST_HANDS_UNLOCKED:
+                text = prefsContext.getString(R.string.vr_toast_hands_unlocked);
+                break;
+            case TOAST_3D_OFF:
+                text = prefsContext.getString(R.string.vr_toast_3d_off);
+                break;
+            case TOAST_3D_ON:
+                text = prefsContext.getString(R.string.vr_toast_3d_on);
+                break;
+            case TOAST_TEXT:
+                String[] words = arg >= 0 && arg < TOAST_TEXT_SLOTS ? noticeTexts[arg] : null;
+                if (words == null) {
+                    return;
+                }
+                text = words[0];
+                more = words[1];
+                break;
+            default:
+                return;
+        }
+        nativeUploadToast(nativeCtx, toast.draw(text, more), kind, arg);
     }
 
     /**

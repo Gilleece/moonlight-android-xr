@@ -154,9 +154,6 @@ static inline long nowNs(void) {
 // thing left to aim at, so it has to be findable without a ray to guide you.
 #define LOCK_BUTTON_FRAC 0.09f
 #define LOCK_GAP_FRAC 0.025f
-// How long the padlock shows after the ring finger gesture has turned it, so
-// the change can be seen without having to go looking for it
-#define LOCK_FLASH_NS 1500000000L
 
 #define COG_WIDTH_FRAC 0.36f
 // The button that opens it, sitting to the right of the move bar, the same
@@ -200,8 +197,16 @@ static inline long nowNs(void) {
 #define FADE_EXIT 3
 #define FADE_PANELS 4
 // And the layers a colour scale is chained onto: those four, then the splash
+// and the toast
 #define FADE_SLOT_SPLASH FADE_PANELS
-#define FADE_SLOTS (FADE_PANELS + 1)
+#define FADE_SLOT_TOAST (FADE_PANELS + 1)
+#define FADE_SLOTS (FADE_PANELS + 2)
+
+// The toast hangs off the eyes, ahead and a little below where they look,
+// in metres
+#define TOAST_W_M 0.56f
+#define TOAST_DISTANCE_M 0.80f
+#define TOAST_DROP_M 0.14f
 
 // The launch splash, locked to the head: a black quad wider than any view
 // with the sheet a little in front of it, in metres
@@ -835,6 +840,18 @@ typedef struct {
     atomic_int depthMapsStaged;
     atomic_int depthGaveUp;
 
+    // The toast: what is waiting to be said and what is up, raised here or
+    // handed down by Java, held back while the splash is up. Java draws the
+    // words into the sheet, which shows only while it says what is up now.
+    NoticeBoard notices;
+    XrSwapchain toastSwapchain;
+    uint32_t toastImageCount;
+    XrSwapchainImageOpenGLESKHR* toastImages;
+    int toastArtReady;
+    int toastDrawnKind;
+    int toastDrawnArg;
+    Fade toastFade;
+
     // The display refresh rate. The runtime keeps whatever rate it starts on
     // unless asked, so a stream faster than that loses frames before they are
     // ever shown. Asked for to match the stream, and stepped down while the
@@ -986,9 +1003,8 @@ typedef struct {
     float middleGap[HAND_COUNT];
     int ringRefusalSaid[HAND_COUNT];
     // The padlock is shown at all, which a setting can turn off while the
-    // gesture still works, and when the gesture last turned the lock
+    // gesture still works. The toast says when the gesture turns the lock.
     int lockIconShown;
-    long lockFlashNs;
     XrSwapchain lockSwapchain;
     XrSwapchain unlockSwapchain;
     uint32_t lockImageCount;

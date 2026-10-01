@@ -63,6 +63,7 @@ typedef struct {
     XrCompositionLayerQuad kbMark;
     XrCompositionLayerQuad beam;
     XrCompositionLayerQuad dot;
+    XrCompositionLayerQuad toast;
     XrCompositionLayerQuad splashBlack;
     XrCompositionLayerQuad splashSheet;
     XrCompositionLayerSettingsFB settings;
@@ -565,12 +566,11 @@ static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // The padlock. Comes and goes like the rest of the furniture rather
     // than sitting there permanently, so it costs nothing to look at while
     // playing. Reaching for the bar shows it too, since that is where
-    // people go looking when they want to change something, and so does the
-    // ring finger gesture turning it, for a moment. A setting can hide it
-    // altogether, which leaves the gesture as the way to the lock.
-    int flashing = ctx->lockFlashNs != 0 && nowNs() - ctx->lockFlashNs < LOCK_FLASH_NS;
+    // people go looking when they want to change something. A setting can
+    // hide it altogether, which leaves the gesture as the way to the lock,
+    // and the toast says when that turns it.
     if (ctx->handsEnabled && ctx->lockIconShown && ctx->lockArtReady
-            && (ctx->hoverKind == HOVER_LOCK || view->barArea || flashing)) {
+            && (ctx->hoverKind == HOVER_LOCK || view->barArea)) {
         Vec3 local;
         float side;
         float lockYaw = 0.0f;
@@ -871,6 +871,31 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
     }
 }
 
+// The toast, hung off the eyes ahead and a little below where they look, so
+// it reads wherever the picture is and never covers its middle. Nothing hit
+// tests it: a press aimed through it lands on whatever is behind. It shows
+// while the notice it was drawn for is the one up, and fades out after.
+static void addToastLayer(XrCtx* ctx, FrameLayers* layers, long now) {
+    int shown = ctx->toastArtReady && noticeShowing(&ctx->notices, now)
+            && ctx->toastDrawnKind == ctx->notices.current.kind
+            && ctx->toastDrawnArg == ctx->notices.current.arg;
+    fadeStep(&ctx->toastFade, shown, now, ctx->fadeNs, ctx->colorScaleSupported);
+    float level = ctx->toastFade.level;
+    if (level <= 0.0f || !ctx->toastArtReady) {
+        return;
+    }
+    XrPosef pose;
+    memset(&pose, 0, sizeof(pose));
+    pose.orientation.w = 1.0f;
+    pose.position.y = -TOAST_DROP_M;
+    pose.position.z = -TOAST_DISTANCE_M;
+    quadLayer(&layers->toast, fadeNext(ctx, layers, FADE_SLOT_TOAST, 1, level),
+              XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->toastSwapchain,
+              TOAST_TEX_W, TOAST_TEX_H, ctx->viewSpace, pose, TOAST_W_M,
+              TOAST_W_M * TOAST_TEX_H / TOAST_TEX_W);
+    pushLayer(ctx, layers, &layers->toast);
+}
+
 // Steps each panel's fade toward whether it is showing. A panel opening takes
 // any other still on its way out away at once, so two are never up together,
 // and the keyboard stands down at once for a modal the way it always has.
@@ -1166,22 +1191,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addKeyboardLayers(ctx, &view, &layers);
         addPointerLayers(ctx, &view, &layers);
     }
+    // Over everything in the scene, since it hangs off the eyes, but under
+    // the splash, which keeps it back until it has gone
+    addToastLayer(ctx, &layers, frameNs);
     // Last, so it is in front of everything
     addSplashLayers(ctx, &layers, frameNs);
 
     // The display tab at its fullest, with a room, the glow, the stats and
     // the ray all up, is two layers past the Pico's sixteen, and a frame over
-    // the limit is refused whole. Its hover ring goes first, and the Room and
-    // 3D tabs' are the same slot: the cursor already shows where the ray is.
-    // The padlock shown for a moment after the ring finger gesture can land
-    // on top of that, and goes next. Then the cog button, which only says
+    // the limit is refused whole. The toast goes first: it is only ever a few
+    // seconds of words, and what it says is still true without it. Then the
+    // hover ring, and the Room and 3D tabs' are the same slot: the cursor
+    // already shows where the ray is. Then the cog button, which only says
     // which panel is open while it is: a press off the panel closes it the
     // way pressing the button would.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
-        dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);
+        dropLayer(&layers, &layers.toast);
     }
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
-        dropLayer(&layers, &layers.lock);
+        dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);
     }
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogButton);

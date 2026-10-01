@@ -321,6 +321,11 @@
     <string name="title_vr_eye_swap">對調左右眼</string>
     <string name="summary_vr_eye_swap">在立體模式下對調左眼與右眼的影像</string>
     <string name="vr_unavailable_flat">無法連線至頭戴裝置的 OpenXR 執行階段，因此串流將以平面面板顯示。請更新頭戴裝置系統軟體，或在設定中關閉「以 VR 模式串流」。</string>
+    <string name="vr_toast_rate">顯示更新率 %1$d Hz</string>
+    <string name="vr_toast_hands_locked">手部已鎖定</string>
+    <string name="vr_toast_hands_unlocked">手部已解鎖</string>
+    <string name="vr_toast_3d_off">3D 已關閉</string>
+    <string name="vr_toast_3d_on">3D 已開啟</string>
 
     <!-- Bug Report strings -->
     <string name="title_bug_report">回報問題</string>

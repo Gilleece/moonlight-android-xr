@@ -1548,7 +1548,10 @@ static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
         }
         if (fired) {
             setHandsLocked(ctx, !ctx->handsLocked, "the ring pinch");
-            ctx->lockFlashNs = f->now;
+            // Nothing in view moves when a gesture locks the hands, so the
+            // toast says so
+            noticePush(&ctx->notices, ctx->handsLocked ? TOAST_HANDS_LOCKED
+                                                       : TOAST_HANDS_UNLOCKED, 0);
         }
     }
 }
@@ -2156,6 +2159,9 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         ctx->stereoButtonHot = 1;
         if (ctx->triggerEdge[f->hand]) {
             setStereoLive(ctx, !ctx->stereoLive, "the bar button");
+            // The 3D tab rings its switch, but from the bar the only sign
+            // is the picture going flat, which is easy to miss
+            noticePush(&ctx->notices, ctx->stereoLive ? TOAST_3D_ON : TOAST_3D_OFF, 0);
         }
     }
     else if (f->hover == HOVER_KBPANEL) {
@@ -2460,7 +2466,16 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     int readouts[READOUT_VALUES] = { -1, -1, -1 };
     out[IN_SETTING_ROOM] = -1.0f;
     out[IN_STEREO] = 0.0f;
+    out[IN_TOAST] = -1.0f;
+    out[IN_TOAST_ARG] = 0.0f;
     if (ctx != NULL) {
+        // The next notice goes up once its turn comes and the splash has
+        // gone, and Java draws it the same frame
+        Notice up;
+        if (noticeAdvance(&ctx->notices, nowNs(), ctx->splash.phase != SPLASH_GONE, &up)) {
+            out[IN_TOAST] = (float)up.kind;
+            out[IN_TOAST_ARG] = (float)up.arg;
+        }
         emitRoomScreen(ctx, out);
         // Every room keeps its own values, so a room setting says whose it is
         out[IN_SETTING_ROOM] = (float)roomCellForStyle(roomEffective(ctx));

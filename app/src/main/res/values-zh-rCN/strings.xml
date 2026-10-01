@@ -329,6 +329,11 @@
     <string name="title_vr_eye_swap">左右眼画面对调</string>
     <string name="summary_vr_eye_swap">在立体模式下对调左眼与右眼的图像</string>
     <string name="vr_unavailable_flat">未能连接到头显的 OpenXR 运行时，串流将以平面窗口显示。请更新头显系统软件，或在设置中关闭“以 VR 模式串流”。</string>
+    <string name="vr_toast_rate">显示刷新率 %1$d Hz</string>
+    <string name="vr_toast_hands_locked">手部已锁定</string>
+    <string name="vr_toast_hands_unlocked">手部已解锁</string>
+    <string name="vr_toast_3d_off">3D 已关闭</string>
+    <string name="vr_toast_3d_on">3D 已开启</string>
 
     <!-- Bug Report strings -->
     <string name="title_bug_report">问题反馈与错误报告</string>

@@ -1,6 +1,7 @@
-// The fades and the splash's timing. No GL and no context, so the host tests
-// reach all of it.
+// The fades, the splash's timing and the toast's queue. No GL and no
+// context, so the host tests reach all of it.
 #include "xr_notice.h"
+#include "xr_shared.h"
 
 int fadeStep(Fade* fade, int shown, int64_t now, int64_t durationNs, int smooth) {
     float target = shown ? 1.0f : 0.0f;
@@ -69,4 +70,72 @@ int splashRow(const Splash* splash, int64_t now, int rows) {
         return 0;
     }
     return (int)(((now - splash->firstNs) / SPLASH_DOT_NS) % rows);
+}
+
+void noticeInit(NoticeBoard* board) {
+    board->count = 0;
+    board->current.kind = -1;
+    board->current.arg = 0;
+    board->sinceNs = 0;
+}
+
+int noticeGroup(int kind) {
+    switch (kind) {
+        case TOAST_HANDS_LOCKED:
+        case TOAST_HANDS_UNLOCKED:
+            return TOAST_HANDS_LOCKED;
+        case TOAST_3D_OFF:
+        case TOAST_3D_ON:
+            return TOAST_3D_OFF;
+        default:
+            return kind;
+    }
+}
+
+void noticePush(NoticeBoard* board, int kind, int arg) {
+    if (kind < 0) {
+        return;
+    }
+    Notice notice = { kind, arg };
+    for (int i = 0; i < board->count; i++) {
+        if (noticeGroup(board->waiting[i].kind) == noticeGroup(kind)) {
+            board->waiting[i] = notice;
+            return;
+        }
+    }
+    if (board->count == NOTICE_QUEUE) {
+        for (int i = 1; i < NOTICE_QUEUE; i++) {
+            board->waiting[i - 1] = board->waiting[i];
+        }
+        board->count--;
+    }
+    board->waiting[board->count++] = notice;
+}
+
+int noticeAdvance(NoticeBoard* board, int64_t now, int held, Notice* out) {
+    if (board->current.kind >= 0 && now - board->sinceNs >= NOTICE_SHOW_NS) {
+        board->current.kind = -1;
+    }
+    if (held || board->count == 0) {
+        return 0;
+    }
+    Notice next = board->waiting[0];
+    int turn = board->current.kind < 0
+            || noticeGroup(next.kind) == noticeGroup(board->current.kind)
+            || now - board->sinceNs >= NOTICE_MIN_NS;
+    if (!turn) {
+        return 0;
+    }
+    for (int i = 1; i < board->count; i++) {
+        board->waiting[i - 1] = board->waiting[i];
+    }
+    board->count--;
+    board->current = next;
+    board->sinceNs = now;
+    *out = next;
+    return 1;
+}
+
+int noticeShowing(const NoticeBoard* board, int64_t now) {
+    return board->current.kind >= 0 && now - board->sinceNs < NOTICE_SHOW_NS;
 }
