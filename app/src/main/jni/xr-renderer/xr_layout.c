@@ -204,6 +204,10 @@ int cogTrackSteps(int tab, int row) {
         return row == COG_ROW3D_SEPARATION ? COG_SEP_STEPS
                 : row == COG_ROW3D_CONVERGENCE ? 100 : 0;
     }
+    if (tab == COG_TAB_ABOUT) {
+        // No rows at all, only the button
+        return 0;
+    }
     if (tab == COG_TAB_PICTURE) {
         // Whole units, the ones each value is kept in and its readout shows
         static const int PICTURE_STEPS[PICTURE_VALUES] = {
@@ -225,4 +229,32 @@ int cogTrackSteps(int tab, int row) {
         return ROOM_SCREEN_MAX - ROOM_SCREEN_MIN;
     }
     return 0;
+}
+
+int cogReportButtonAt(float pu, float pv) {
+    return pu >= COG_REPORT_L && pu <= COG_REPORT_R && pv >= COG_REPORT_T && pv <= COG_REPORT_B;
+}
+
+// The two fields across the sheet, one over the other, then the two buttons
+// side by side under them. Everything else on it is words.
+int reportZone(float u, float v) {
+    if (v >= REPORT_BTN_T && v <= REPORT_BTN_B) {
+        if (u >= REPORT_CANCEL_L && u <= REPORT_CANCEL_R) {
+            return REPORT_ZONE_CANCEL;
+        }
+        if (u >= REPORT_SEND_L && u <= REPORT_SEND_R) {
+            return REPORT_ZONE_SEND;
+        }
+        return REPORT_ZONE_NONE;
+    }
+    if (u < REPORT_FIELD_L || u > REPORT_FIELD_R) {
+        return REPORT_ZONE_NONE;
+    }
+    if (v >= REPORT_NOTE_T && v <= REPORT_NOTE_B) {
+        return REPORT_ZONE_NOTE;
+    }
+    if (v >= REPORT_EMAIL_T && v <= REPORT_EMAIL_B) {
+        return REPORT_ZONE_EMAIL;
+    }
+    return REPORT_ZONE_NONE;
 }

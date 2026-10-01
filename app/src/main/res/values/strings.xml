@@ -312,6 +312,16 @@
     <string name="vr_toast_hands_unlocked">Hands unlocked</string>
     <string name="vr_toast_3d_off">3D off</string>
     <string name="vr_toast_3d_on">3D on</string>
+    <!-- The report sheet inside the session -->
+    <string name="vr_report_note_hint">What were you doing when it went wrong?</string>
+    <string name="vr_report_optional">Optional</string>
+    <string name="vr_report_email_bad">That does not look like an email address</string>
+    <string name="vr_report_sends">Sends your message, the headset and build details, your settings and the app\'s log, which can include your PC\'s name and address on your network. Nothing is sent until you press Send.</string>
+    <string name="vr_report_saves">Saves your message, the headset and build details, your settings and the app\'s log, which can include your PC\'s name and address on your network, to a file on this headset.</string>
+    <string name="vr_report_not_sent">The report could not be sent</string>
+    <string name="vr_report_saved">Report saved</string>
+    <string name="vr_report_saved_at">Saved at %1$s</string>
+    <string name="vr_report_not_written">The report could not be saved</string>
     <string name="vr_battery">Battery %1$d%%</string>
     <string name="title_bug_report">Report a problem</string>
     <string name="summary_bug_report">Put together a report with your message, the device, the settings and the log, and send it in</string>

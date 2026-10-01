@@ -65,7 +65,8 @@ public class PictureTabTest {
     @Test
     public void thePictureTabIsTheFourth() {
         assertEquals(3, COG_TAB_PICTURE);
-        assertEquals(4, COG_TAB_COUNT);
+        // The About tab comes after it
+        assertEquals(5, COG_TAB_COUNT);
         assertEquals(COG_TAB_COUNT, COG_ART_ROOM);
         assertEquals(COG_ART_ROOM + COG_TAB_COUNT + 1, COG_ART_COUNT);
         // Its rows sit where the screen tab's do, clear of the reset button

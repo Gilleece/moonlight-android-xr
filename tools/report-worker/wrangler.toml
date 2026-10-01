@@ -15,7 +15,7 @@ RESEND_TO = "hello@seangilleece.com"
 # this file:
 #   RESEND_API_KEY  from the Resend dashboard, API Keys
 #   REPORT_TOKEN    a long random string, the same one that goes in the app's
-#                   gradle.properties as moonlightReportToken
+#                   keystore.properties as reportToken
 
 # Optional: also keep every report in an R2 bucket. R2 is metered rather than
 # capped, which is why this is off. Create the bucket first if turning it on.

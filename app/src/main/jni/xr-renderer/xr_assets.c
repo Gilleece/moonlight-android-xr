@@ -111,6 +111,10 @@ int createPointerSwapchain(XrCtx* ctx) {
                            &ctx->exitPromptImageCounts[sheet]);
     }
 
+    // The report sheet, drawn again whenever what it shows changes
+    createArtSwapchain(ctx, REPORT_TEX_W, REPORT_TEX_H, "create report sheet swapchain",
+                       &ctx->reportSwapchain, &ctx->reportImages, &ctx->reportImageCount);
+
     createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create keyboard button swapchain",
                        &ctx->kbButtonSwapchain, &ctx->kbButtonImages, &ctx->kbButtonImageCount);
     createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create cog button swapchain",
@@ -621,6 +625,30 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobjec
          ctx->exitPromptReady[EXIT_ZONE_NONE] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_EXIT] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_CANCEL] ? "ready" : "missing");
+}
+
+// The report sheet drawn again, with what is in its fields now. Java only
+// hands over a sheet drawn for the opening that is up.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadReport(JNIEnv* env, jobject thiz,
+                                                               jlong handle, jobject sheet) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || sheet == NULL || !ctx->reportOpen) {
+        return;
+    }
+    uploadSheet(env, ctx, sheet, ctx->reportSwapchain, ctx->reportImages, REPORT_TEX_W,
+                REPORT_TEX_H, &ctx->reportReady);
+}
+
+// Whether the report's note and address will do, which Send waits on. Java
+// says so whenever it changes, on the frame loop.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetReportSend(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jboolean ready) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx != NULL) {
+        ctx->reportSendReady = ready;
+    }
 }
 
 // The launch splash's sheet, every number of dots one under the other. Drawn

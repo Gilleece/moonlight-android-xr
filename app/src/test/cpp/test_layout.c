@@ -243,9 +243,13 @@ static void testThePresetAccent(void) {
 // bands apart and every cell drawn inside its own band
 static void testTheRowsFit(void) {
     int counts[COG_TAB_COUNT] = {
-        COG_SLIDER_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_VALUES
+        COG_SLIDER_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_VALUES, 0
     };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
+        // The About tab has no rows, only its button
+        if (counts[tab] == 0) {
+            continue;
+        }
         float half = cogRowHalf(tab);
         CHECK(cogCellHalf(tab) < half);
         CHECK(cogRowV(tab, 0) - half >= COG_TAB_BAR_B);
@@ -267,7 +271,7 @@ static void testTheRowsFit(void) {
     CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_CELL_HALF, 1e-6);
     // The Picture tab is the fourth, with the screen tab's spacing, and its
     // last row's band ends well clear of the reset button
-    CHECK(COG_TAB_PICTURE == 3 && COG_TAB_COUNT == 4);
+    CHECK(COG_TAB_PICTURE == 3 && COG_TAB_ABOUT == 4 && COG_TAB_COUNT == 5);
     CHECK_NEAR(cogRowV(COG_TAB_PICTURE, PICTURE_SATURATION),
                COG_ROW_V0 + PICTURE_SATURATION * COG_ROW_STEP, 1e-6);
     CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_VALUES - 1) + cogRowHalf(COG_TAB_PICTURE)
@@ -342,6 +346,11 @@ static void testEveryTrackHasItsSteps(void) {
     CHECK(cogTrackSteps(COG_TAB_3D, COG_ROW3D_PRESET) == 0);
     CHECK(cogTrackSteps(COG_TAB_COUNT, COG_ROOM_ROW_GLOW) == 0);
     CHECK(cogTrackSteps(COG_TAB_COUNT, COG_ROOM_ROW_SIZE) == 75);
+    // The About tab sits just before the Room tab's number and has no tracks,
+    // so none of the Room tab's lanes leak onto it
+    for (int row = 0; row < COG_ROOM_ROW_COUNT; row++) {
+        CHECK(cogTrackSteps(COG_TAB_ABOUT, row) == 0);
+    }
 
     // A Room lane's steps land on whole units, so a press always moves the
     // stored value by the same number of them, from wherever a drag left it
@@ -405,8 +414,42 @@ static void testEveryTrackHasItsSteps(void) {
     CHECK(cogTrackSteps(COG_TAB_SCREEN, COG_SLIDER_ROTATE) % 2 == 0);
 }
 
+// The About tab's button sits clear of the tab bar and the panel's edges, and
+// the report sheet's fields and buttons are where a press on each lands
+static void testTheReportParts(void) {
+    CHECK(COG_REPORT_T > COG_TAB_BAR_B);
+    CHECK(COG_REPORT_B < 1.0f && COG_REPORT_L > 0.0f && COG_REPORT_R < 1.0f);
+    CHECK(cogReportButtonAt((COG_REPORT_L + COG_REPORT_R) * 0.5f,
+                            (COG_REPORT_T + COG_REPORT_B) * 0.5f));
+    CHECK(!cogReportButtonAt(COG_REPORT_L - 0.01f, COG_REPORT_T + 0.01f));
+    CHECK(!cogReportButtonAt(0.5f, COG_REPORT_B + 0.01f));
+    CHECK(!cogReportButtonAt(0.5f, 0.08f));
+
+    float mid = (REPORT_FIELD_L + REPORT_FIELD_R) * 0.5f;
+    CHECK(reportZone(mid, (REPORT_NOTE_T + REPORT_NOTE_B) * 0.5f) == REPORT_ZONE_NOTE);
+    CHECK(reportZone(mid, (REPORT_EMAIL_T + REPORT_EMAIL_B) * 0.5f) == REPORT_ZONE_EMAIL);
+    float btn = (REPORT_BTN_T + REPORT_BTN_B) * 0.5f;
+    CHECK(reportZone((REPORT_CANCEL_L + REPORT_CANCEL_R) * 0.5f, btn) == REPORT_ZONE_CANCEL);
+    CHECK(reportZone((REPORT_SEND_L + REPORT_SEND_R) * 0.5f, btn) == REPORT_ZONE_SEND);
+    // The gap between the buttons, the words between the fields, the title
+    // and the margins are nothing
+    CHECK(reportZone(0.5f, btn) == REPORT_ZONE_NONE);
+    CHECK(reportZone(mid, (REPORT_NOTE_B + REPORT_EMAIL_T) * 0.5f) == REPORT_ZONE_NONE);
+    CHECK(reportZone(mid, (REPORT_EMAIL_B + REPORT_BTN_T) * 0.5f) == REPORT_ZONE_NONE);
+    CHECK(reportZone(mid, 0.05f) == REPORT_ZONE_NONE);
+    CHECK(reportZone(0.02f, (REPORT_NOTE_T + REPORT_NOTE_B) * 0.5f) == REPORT_ZONE_NONE);
+    // Top to bottom without overlapping, inside the sheet
+    CHECK(REPORT_NOTE_T < REPORT_NOTE_B && REPORT_NOTE_B < REPORT_EMAIL_T);
+    CHECK(REPORT_EMAIL_T < REPORT_EMAIL_B && REPORT_EMAIL_B < REPORT_BTN_T);
+    CHECK(REPORT_BTN_T < REPORT_BTN_B && REPORT_BTN_B < 1.0f);
+    CHECK(REPORT_CANCEL_R < REPORT_SEND_L);
+    // The opening is an event of its own, apart from every zone
+    CHECK(REPORT_OPENED > REPORT_ZONE_SEND);
+}
+
 int main(void) {
     testTheRowsFit();
+    testTheReportParts();
     testCornersFollowTheirArt();
     testNoCornersWhereThereAreNone();
     testTheRestOfThePicture();

@@ -346,6 +346,15 @@
     <string name="vr_toast_hands_unlocked">手部已解锁</string>
     <string name="vr_toast_3d_off">3D 已关闭</string>
     <string name="vr_toast_3d_on">3D 已开启</string>
+    <string name="vr_report_note_hint">出现问题时您正在做什么？</string>
+    <string name="vr_report_optional">选填</string>
+    <string name="vr_report_email_bad">这看起来不像电子邮箱地址</string>
+    <string name="vr_report_sends">将发送您的说明、头显与版本信息、您的设置以及应用日志，日志中可能包含您电脑在局域网中的名称和地址。在您点击“发送报告”之前不会发送任何内容。</string>
+    <string name="vr_report_saves">将把您的说明、头显与版本信息、您的设置以及应用日志保存为此头显上的一个文件，日志中可能包含您电脑在局域网中的名称和地址。</string>
+    <string name="vr_report_not_sent">报告发送失败</string>
+    <string name="vr_report_saved">报告已保存</string>
+    <string name="vr_report_saved_at">已保存至 %1$s</string>
+    <string name="vr_report_not_written">无法保存报告</string>
     <string name="vr_battery">电量 %1$d%%</string>
 
     <!-- Bug Report strings -->

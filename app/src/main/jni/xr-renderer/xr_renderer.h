@@ -193,13 +193,18 @@ static inline long nowNs(void) {
 
 #define EXIT_WIDTH_FRAC 0.30f
 
+// The report sheet, centred over the bottom of the picture with the keyboard
+// under it
+#define REPORT_WIDTH_FRAC 0.40f
+
 // The panels that fade in and out, each with a fade of its own
 #define FADE_COG 0
 #define FADE_PICKER 1
 #define FADE_KB 2
 #define FADE_EXIT 3
-#define FADE_PANELS 4
-// And the layers a colour scale is chained onto: those four, then the splash
+#define FADE_REPORT 4
+#define FADE_PANELS 5
+// And the layers a colour scale is chained onto: those five, then the splash
 // and the toast
 #define FADE_SLOT_SPLASH FADE_PANELS
 #define FADE_SLOT_TOAST (FADE_PANELS + 1)
@@ -445,6 +450,9 @@ typedef struct {
     EGLSurface eglPbuffer;
 
     XrInstance instance;
+    // The runtime's name and version as the log line gives them, empty until
+    // the instance answers
+    char runtimeLabel[XR_MAX_RUNTIME_NAME_SIZE + 32];
     XrSystemId systemId;
     XrSession session;
     XrSpace localSpace;
@@ -1353,6 +1361,23 @@ typedef struct {
     XrPosef exitPose;
     float exitW, exitH;
 
+    // Report a problem. One sheet, drawn again in Java whenever what it shows
+    // changes, and not shown until Java has drawn it for this opening. Up
+    // with the keyboard under it, which types into it rather than the host
+    // while it is. The part under the ray, whether Send can go as Java last
+    // said, the About tab's button being under the ray, and the pose frozen
+    // when it opened.
+    XrSwapchain reportSwapchain;
+    uint32_t reportImageCount;
+    XrSwapchainImageOpenGLESKHR* reportImages;
+    int reportReady;
+    int reportOpen;
+    int reportHoverZone;
+    int reportSendReady;
+    int cogReportHot;
+    XrPosef reportPose;
+    float reportW, reportH;
+
     // Curvature the panel asked for, or -1 while the preference still owns it,
     // alongside the preference itself so both are readable away from the JNI
     // entry points that carry it
@@ -1502,6 +1527,7 @@ int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
+XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int cogTabRowCount(int face);
 int cogRowIsTrack(int face, int row);
 int cogRowLive(XrCtx* ctx, int face, int row);

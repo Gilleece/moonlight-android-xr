@@ -14,11 +14,17 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
 
+import com.limelight.BuildConfig;
+import com.limelight.FileLog;
 import com.limelight.LimeLog;
+import com.limelight.R;
+import com.limelight.utils.BugReport;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 
 import static com.limelight.binding.video.XrShared.*;
@@ -51,11 +57,11 @@ final class XrPanels {
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout is agreed between the two through the COG_
-    // values in XrShared. Four tabs, a texture each, all uploaded once so
+    // values in XrShared. Five tabs, a texture each, all uploaded once so
     // switching is free, and the sheets a 3d room shows handed over after
     // them, which the native side picks for itself: the Room tab in the first
-    // tab's place, and the other three again with its name over that slot.
-    private static final String[] COG_TABS = { "Screen", "Display", "3D", "Picture" };
+    // tab's place, and the other four again with its name over that slot.
+    private static final String[] COG_TABS = { "Screen", "Display", "3D", "Picture", "About" };
     private static final String COG_ROOM_TAB = "Room";
     private static final String[] COG_SLIDER_ROWS =
             { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size" };
@@ -98,6 +104,8 @@ final class XrPanels {
     // order, each ticked where it leaves the picture as streamed
     private static final String[] COG_PICTURE_ROWS =
             { "Brightness", "Contrast", "Gamma", "Saturation" };
+    // About tab: the app, its version and its log, over the report button
+    private static final String COG_ABOUT_NAME = "Moonlight XR";
 
     // The in world keyboard. Four sheets of the same layout, one per state,
     // handed over in state order, along with the geometry that goes with them:
@@ -473,8 +481,8 @@ final class XrPanels {
     }
 
     // One sheet of the panel. The ones past the tabs are what a room shows:
-    // the Room tab with its size row live or greyed, then the display, 3D and
-    // Picture tabs with the Room tab's name over the first slot.
+    // the Room tab with its size row live or greyed, then the display, 3D,
+    // Picture and About tabs with the Room tab's name over the first slot.
     private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk,
                                  int defaultSeparation, int defaultConvergence) {
         Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
@@ -483,6 +491,7 @@ final class XrPanels {
         int tab = art == COG_ART_ROOM_DISPLAY ? COG_TAB_DISPLAY
                 : art == COG_ART_ROOM_3D ? COG_TAB_3D
                 : art == COG_ART_ROOM_PICTURE ? COG_TAB_PICTURE
+                : art == COG_ART_ROOM_ABOUT ? COG_TAB_ABOUT
                 : inRoom ? COG_TAB_SCREEN : art;
         drawCogChrome(canvas, tab, inRoom);
         if (art == COG_ART_ROOM || art == COG_ART_ROOM_FIXED) {
@@ -496,6 +505,9 @@ final class XrPanels {
         }
         else if (tab == COG_TAB_PICTURE) {
             drawCogPictureRows(canvas);
+        }
+        else if (tab == COG_TAB_ABOUT) {
+            drawCogAbout(canvas);
         }
         else {
             drawCogOptionRows(canvas);
@@ -921,17 +933,22 @@ final class XrPanels {
         private final Paint detail = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final ByteBuffer pixels = ByteBuffer.allocateDirect(TOAST_TEX_W * TOAST_TEX_H * 4);
 
+        private static final float DETAIL_SIZE = 32.0f;
+        private static final float DETAIL_SIZE_MIN = 22.0f;
+
         Toast() {
             sheet.setColor(0xF0141416);
             line.setColor(Color.WHITE);
             line.setTextSize(44.0f);
             line.setTextAlign(Paint.Align.CENTER);
             detail.setColor(0xB0FFFFFF);
-            detail.setTextSize(32.0f);
+            detail.setTextSize(DETAIL_SIZE);
             detail.setTextAlign(Paint.Align.CENTER);
         }
 
-        ByteBuffer draw(String text, String more) {
+        // A second line that is a path is cut from the middle rather than the
+        // end when it will not fit, so the file at its end stays in view
+        ByteBuffer draw(String text, String more, boolean path) {
             canvas.drawColor(0, PorterDuff.Mode.CLEAR);
             canvas.drawRoundRect(new RectF(1.0f, 1.0f, TOAST_TEX_W - 1.0f, TOAST_TEX_H - 1.0f),
                     40.0f, 40.0f, sheet);
@@ -943,7 +960,17 @@ final class XrPanels {
             }
             else {
                 canvas.drawText(fit(text, line, room), mid, TOAST_TEX_H * 0.44f, line);
-                canvas.drawText(fit(more, detail, room), mid, TOAST_TEX_H * 0.78f, detail);
+                // A path is what the second line most often carries, and its
+                // end is the part that matters, so it gets smaller before it
+                // gets cut
+                float size = DETAIL_SIZE;
+                detail.setTextSize(size);
+                while (detail.measureText(more) > room && size > DETAIL_SIZE_MIN) {
+                    size -= 1.0f;
+                    detail.setTextSize(size);
+                }
+                canvas.drawText(path ? fitMiddle(more, detail, room) : fit(more, detail, room), mid,
+                        TOAST_TEX_H * 0.78f, detail);
             }
             pixels.rewind();
             bitmap.copyPixelsToBuffer(pixels);
@@ -951,8 +978,25 @@ final class XrPanels {
             return pixels;
         }
 
+        // Trimmed from the middle until it fits round its ellipsis, a third
+        // of what is kept from the start and the rest from the end
+        static String fitMiddle(String text, Paint paint, float width) {
+            if (paint.measureText(text) <= width) {
+                return text;
+            }
+            for (int keep = text.length() - 1; keep > 1; keep--) {
+                int head = keep / 3;
+                String cut = text.substring(0, head) + "…"
+                        + text.substring(text.length() - (keep - head));
+                if (paint.measureText(cut) <= width) {
+                    return cut;
+                }
+            }
+            return "…";
+        }
+
         // Trimmed a character at a time until it fits with its ellipsis
-        private static String fit(String text, Paint paint, float width) {
+        static String fit(String text, Paint paint, float width) {
             if (paint.measureText(text) <= width) {
                 return text;
             }
@@ -1157,6 +1201,289 @@ final class XrPanels {
         text.setTextAlign(Paint.Align.CENTER);
         canvas.drawText("Reset", reset.centerX(),
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    // About tab: the app's name and version, where its log is, and the button
+    // that opens the report sheet, drawn the way the reset buttons are. The
+    // ring under the ray is the native side's.
+    private void drawCogAbout(Canvas canvas) {
+        final float mid = COG_TEX_W * 0.5f;
+        final float room = COG_TEX_W - 80.0f;
+        Paint name = new Paint(Paint.ANTI_ALIAS_FLAG);
+        name.setTextSize(30.0f);
+        name.setTextAlign(Paint.Align.CENTER);
+        name.setColor(Color.WHITE);
+        canvas.drawText(COG_ABOUT_NAME, mid, 0.28f * COG_TEX_H, name);
+
+        Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
+        line.setTextSize(19.0f);
+        line.setTextAlign(Paint.Align.CENTER);
+        line.setColor(0xB0FFFFFF);
+        String version = "Version " + BuildConfig.VERSION_NAME
+                + (BuildConfig.GIT_HASH.isEmpty() ? "" : ", commit " + BuildConfig.GIT_HASH);
+        canvas.drawText(Toast.fit(version, line, room), mid, 0.36f * COG_TEX_H, line);
+        String log = FileLog.getLogPath();
+        canvas.drawText(Toast.fit("Log file: " + (log != null ? BugReport.shortPath(log) : "off"),
+                line, room), mid, 0.43f * COG_TEX_H, line);
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4.0f);
+        RectF button = new RectF(COG_REPORT_L * COG_TEX_W, COG_REPORT_T * COG_TEX_H,
+                COG_REPORT_R * COG_TEX_W, COG_REPORT_B * COG_TEX_H);
+        canvas.drawRoundRect(button, 14.0f, 14.0f, paint);
+        Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        label.setTextSize(24.0f);
+        label.setTextAlign(Paint.Align.CENTER);
+        label.setColor(Color.WHITE);
+        canvas.drawText(Toast.fit(context.getString(R.string.title_bug_report), label,
+                button.width() - 24.0f), button.centerX(),
+                button.centerY() - (label.ascent() + label.descent()) * 0.5f, label);
+
+        // What it does, under it, where the other tabs say why a row is dead
+        Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        hint.setTextSize(17.0f);
+        hint.setTextAlign(Paint.Align.CENTER);
+        hint.setColor(0x80FFFFFF);
+        canvas.drawText(BugReport.collectorConfigured()
+                        ? "Sends a note with the headset, your settings and the log"
+                        : "Saves a note with the headset, your settings and the log",
+                mid, 0.80f * COG_TEX_H, hint);
+    }
+
+    /**
+     * The report sheet: a title, the note and the address under their
+     * labels, the line saying what goes, and Cancel and Send. Unlike the other
+     * panels it is drawn again whenever what it shows changes, off the frame
+     * loop, into the one bitmap and buffer, which the upload has finished with
+     * before the next drawing starts. Moonlight's own dark sheet and white
+     * strokes, like the exit prompt.
+     */
+    static final class ReportSheet {
+        // Lines of the note shown at once, the last ones, so the end being
+        // typed at is always in view
+        private static final int NOTE_LINES = 4;
+        private static final float PAD = 14.0f;
+
+        private final Bitmap bitmap = Bitmap.createBitmap(REPORT_TEX_W, REPORT_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final ByteBuffer pixels = ByteBuffer.allocateDirect(REPORT_TEX_W * REPORT_TEX_H * 4);
+        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint title = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint field = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint small = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint button = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final String titleText;
+        private final String noteLabel;
+        private final String noteHint;
+        private final String addressLabel;
+        private final String addressHint;
+        private final String addressBad;
+        private final String whatGoes;
+        private final String cancelText;
+        private final String sendText;
+
+        ReportSheet(Context context, boolean collector) {
+            titleText = context.getString(R.string.title_bug_report);
+            noteLabel = context.getString(R.string.bug_report_message_hint);
+            noteHint = context.getString(R.string.vr_report_note_hint);
+            addressLabel = context.getString(R.string.bug_report_email_hint);
+            addressHint = context.getString(R.string.vr_report_optional);
+            addressBad = context.getString(R.string.vr_report_email_bad);
+            whatGoes = context.getString(collector ? R.string.vr_report_sends
+                                                   : R.string.vr_report_saves);
+            cancelText = context.getString(android.R.string.cancel);
+            sendText = context.getString(collector ? R.string.bug_report_send_direct
+                                                   : R.string.bug_report_save);
+            stroke.setStyle(Paint.Style.STROKE);
+            title.setTextSize(32.0f);
+            title.setTextAlign(Paint.Align.CENTER);
+            title.setColor(Color.WHITE);
+            label.setTextSize(21.0f);
+            label.setColor(0xB0FFFFFF);
+            field.setTextSize(25.0f);
+            small.setTextSize(18.0f);
+            button.setTextSize(28.0f);
+            button.setTextAlign(Paint.Align.CENTER);
+        }
+
+        /**
+         * focus and hover are REPORT_ZONE_ values: the field with the keys,
+         * and the part under the ray or none.
+         */
+        ByteBuffer draw(String note, String address, int focus, int hover, boolean canSend,
+                        boolean addressWrong) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            fill.setColor(0xF0141416);
+            canvas.drawRoundRect(new RectF(1.0f, 1.0f, REPORT_TEX_W - 1.0f, REPORT_TEX_H - 1.0f),
+                    32.0f, 32.0f, fill);
+
+            final float left = REPORT_FIELD_L * REPORT_TEX_W;
+            final float right = REPORT_FIELD_R * REPORT_TEX_W;
+            canvas.drawText(Toast.fit(titleText, title, right - left), REPORT_TEX_W * 0.5f,
+                    0.085f * REPORT_TEX_H, title);
+
+            // The note: its label, the box, and its last lines
+            RectF noteBox = new RectF(left, REPORT_NOTE_T * REPORT_TEX_H, right,
+                    REPORT_NOTE_B * REPORT_TEX_H);
+            canvas.drawText(Toast.fit(noteLabel, label, right - left), left,
+                    noteBox.top - 12.0f, label);
+            drawBox(noteBox, focus == REPORT_ZONE_NOTE, hover == REPORT_ZONE_NOTE);
+            float lineH = (noteBox.height() - 2.0f * PAD) / NOTE_LINES;
+            float textW = noteBox.width() - 2.0f * PAD;
+            // An empty field's hint stands a little clear of the caret
+            final float hintIn = 8.0f;
+            if (note.isEmpty()) {
+                field.setColor(0x60FFFFFF);
+                canvas.drawText(Toast.fit(noteHint, field, textW - hintIn), noteBox.left + PAD
+                        + hintIn, noteBox.top + PAD + lineH * 0.78f, field);
+                if (focus == REPORT_ZONE_NOTE) {
+                    drawCaret(noteBox.left + PAD, noteBox.top + PAD, lineH);
+                }
+            }
+            else {
+                List<String> lines = wrap(note, field, textW);
+                int first = Math.max(0, lines.size() - NOTE_LINES);
+                field.setColor(Color.WHITE);
+                for (int i = first; i < lines.size(); i++) {
+                    float top = noteBox.top + PAD + (i - first) * lineH;
+                    canvas.drawText(lines.get(i), noteBox.left + PAD, top + lineH * 0.78f, field);
+                }
+                if (focus == REPORT_ZONE_NOTE) {
+                    String last = lines.get(lines.size() - 1);
+                    drawCaret(noteBox.left + PAD + field.measureText(last) + 2.0f,
+                            noteBox.top + PAD + (lines.size() - 1 - first) * lineH, lineH);
+                }
+            }
+
+            // The address on one line, its end in view when it runs long
+            RectF addressBox = new RectF(left, REPORT_EMAIL_T * REPORT_TEX_H, right,
+                    REPORT_EMAIL_B * REPORT_TEX_H);
+            canvas.drawText(Toast.fit(addressLabel, label, right - left), left,
+                    addressBox.top - 12.0f, label);
+            drawBox(addressBox, focus == REPORT_ZONE_EMAIL, hover == REPORT_ZONE_EMAIL);
+            float addressH = addressBox.height() - 2.0f * PAD;
+            float baseline = addressBox.centerY() - (field.ascent() + field.descent()) * 0.5f;
+            if (address.isEmpty()) {
+                field.setColor(0x60FFFFFF);
+                canvas.drawText(addressHint, addressBox.left + PAD + hintIn, baseline, field);
+                if (focus == REPORT_ZONE_EMAIL) {
+                    drawCaret(addressBox.left + PAD, addressBox.top + PAD, addressH);
+                }
+            }
+            else {
+                field.setColor(Color.WHITE);
+                String shown = tail(address, field, textW - 8.0f);
+                canvas.drawText(shown, addressBox.left + PAD, baseline, field);
+                if (focus == REPORT_ZONE_EMAIL) {
+                    drawCaret(addressBox.left + PAD + field.measureText(shown) + 2.0f,
+                            addressBox.top + PAD, addressH);
+                }
+            }
+            if (addressWrong) {
+                small.setColor(0xFFFFB74D);
+                canvas.drawText(Toast.fit(addressBad, small, right - left), left,
+                        addressBox.bottom + 26.0f, small);
+            }
+
+            // What goes, and where
+            small.setColor(0x99FFFFFF);
+            List<String> said = wrap(whatGoes, small, right - left);
+            for (int i = 0; i < said.size() && i < 3; i++) {
+                canvas.drawText(said.get(i), left, 0.69f * REPORT_TEX_H + i * 23.0f, small);
+            }
+
+            drawButton(REPORT_CANCEL_L, REPORT_CANCEL_R, cancelText, true, false,
+                    hover == REPORT_ZONE_CANCEL);
+            drawButton(REPORT_SEND_L, REPORT_SEND_R, sendText, canSend, true,
+                    hover == REPORT_ZONE_SEND);
+
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
+
+        // A field's box: brightest with the keys, a little brighter under the ray
+        private void drawBox(RectF box, boolean focused, boolean hot) {
+            fill.setColor(focused ? 0x1EFFFFFF : 0x12FFFFFF);
+            canvas.drawRoundRect(box, 12.0f, 12.0f, fill);
+            stroke.setStrokeWidth(focused ? 3.0f : 2.0f);
+            stroke.setColor(focused ? 0xEEFFFFFF : hot ? 0x99FFFFFF : 0x50FFFFFF);
+            canvas.drawRoundRect(box, 12.0f, 12.0f, stroke);
+        }
+
+        // Where the next key lands
+        private void drawCaret(float x, float top, float height) {
+            fill.setColor(0xEEFFFFFF);
+            canvas.drawRect(x, top + height * 0.12f, x + 2.5f, top + height * 0.92f, fill);
+        }
+
+        // A button the shape the exit prompt's are. Send is the one that does
+        // something, so it carries a faint fill, and greys out until it can.
+        private void drawButton(float l, float r, String text, boolean live, boolean primary,
+                                boolean hot) {
+            RectF box = new RectF(l * REPORT_TEX_W, REPORT_BTN_T * REPORT_TEX_H,
+                    r * REPORT_TEX_W, REPORT_BTN_B * REPORT_TEX_H);
+            int ink = live ? 0xEEFFFFFF : 0x40FFFFFF;
+            if (live && (hot || primary)) {
+                fill.setColor(hot ? 0x38FFFFFF : 0x18FFFFFF);
+                canvas.drawRoundRect(box, 16.0f, 16.0f, fill);
+            }
+            stroke.setStrokeWidth(live && hot ? 5.0f : 3.0f);
+            stroke.setColor(ink);
+            canvas.drawRoundRect(box, 16.0f, 16.0f, stroke);
+            button.setColor(live ? Color.WHITE : 0x50FFFFFF);
+            canvas.drawText(Toast.fit(text, button, box.width() - 24.0f), box.centerX(),
+                    box.centerY() - (button.ascent() + button.descent()) * 0.5f, button);
+        }
+    }
+
+    /**
+     * Text broken into lines that fit the width: at the line breaks it has,
+     * then at the last space that fits, or between characters where there is
+     * none, which is how a language without spaces wraps.
+     */
+    static List<String> wrap(String text, Paint paint, float width) {
+        List<String> lines = new ArrayList<>();
+        for (String paragraph : text.split("\n", -1)) {
+            String rest = paragraph;
+            if (rest.isEmpty()) {
+                lines.add("");
+                continue;
+            }
+            while (!rest.isEmpty()) {
+                int fits = paint.breakText(rest, true, width, null);
+                if (fits >= rest.length()) {
+                    lines.add(rest);
+                    break;
+                }
+                fits = Math.max(1, fits);
+                int space = rest.lastIndexOf(' ', fits);
+                int cut = space > 0 ? space : fits;
+                lines.add(rest.substring(0, cut));
+                rest = space > 0 ? rest.substring(space + 1) : rest.substring(cut);
+            }
+        }
+        return lines;
+    }
+
+    // The end of a line too long to show whole, after an ellipsis, so the
+    // part being typed at stays in view
+    static String tail(String text, Paint paint, float width) {
+        if (paint.measureText(text) <= width) {
+            return text;
+        }
+        int start = 0;
+        while (start < text.length()
+                && paint.measureText("…" + text.substring(start)) > width) {
+            start++;
+        }
+        return "…" + text.substring(start);
     }
 
     // Where a picture row's tick sits along its run, 0 to 1: the place of its

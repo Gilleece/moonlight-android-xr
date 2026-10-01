@@ -22,6 +22,7 @@ import com.limelight.R;
 import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
+import com.limelight.utils.BugReport;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -30,6 +31,7 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -180,6 +182,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final AtomicReference<KbSheet> pendingKbSheet = new AtomicReference<>();
     private boolean kbSheetDrawing;
 
+    // The report sheet: what its fields hold, which opening of it is up, and
+    // what was last drawn and handed down, all frame loop only. It is drawn
+    // again on a thread of its own whenever what it shows changes, one
+    // drawing at a time, and goes up from the frame loop once done if it is
+    // still for the opening that is up.
+    private final XrReportForm reportForm = new XrReportForm();
+    private volatile XrPanels.ReportSheet reportArt;
+    private int reportOpening;
+    private String reportDrawn;
+    private boolean reportDrawing;
+    private boolean reportSendHanded;
+    private final AtomicReference<ReportDrawing> pendingReport = new AtomicReference<>();
+
     private final AtomicReference<ByteBuffer> pendingExitButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingExitPlain = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingExitHot = new AtomicReference<>();
@@ -217,8 +232,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile XrClickSound clickSound;
     private boolean clickSoundStarting;
     private boolean clickSessionOver;
-    private final ConcurrentLinkedQueue<String[]> pendingNotices = new ConcurrentLinkedQueue<>();
-    private final String[][] noticeTexts = new String[TOAST_TEXT_SLOTS][];
+    private final ConcurrentLinkedQueue<NoticeWords> pendingNotices = new ConcurrentLinkedQueue<>();
+    private final NoticeWords[] noticeTexts = new NoticeWords[TOAST_TEXT_SLOTS];
     private int noticeSlot;
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
@@ -317,8 +332,27 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
      * thread; it goes up once the frame loop next comes round.
      */
     public void showNotice(String text, String more) {
+        showNotice(text, more, false);
+    }
+
+    // The same, where the second line is a path: cut from the middle when it
+    // will not fit, so the folder it starts in and the file both stay in view
+    private void showNotice(String text, String more, boolean path) {
         if (text != null) {
-            pendingNotices.add(new String[] { text, more });
+            pendingNotices.add(new NoticeWords(text, more, path));
+        }
+    }
+
+    // A notice of this side's own, as it waits for its turn
+    private static final class NoticeWords {
+        final String text;
+        final String more;
+        final boolean path;
+
+        NoticeWords(String text, String more, boolean path) {
+            this.text = text;
+            this.more = more;
+            this.path = path;
         }
     }
 
@@ -386,10 +420,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadKeyboard(long ctx, ByteBuffer[] sheets, ByteBuffer buttonIcon,
                                              float[] keyRects, int[][] codes);
     private native void nativeUploadKeyboardSheet(long ctx, int state, ByteBuffer sheet);
+    private native void nativeUploadReport(long ctx, ByteBuffer sheet);
+    private native void nativeSetReportSend(long ctx, boolean ready);
     private native void nativeUploadExit(long ctx, ByteBuffer button, ByteBuffer promptPlain,
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native boolean nativeHasBeenFocused(long ctx);
+    private native String nativeGetRuntime(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
@@ -464,6 +501,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 prefsContext = activity.getApplicationContext();
                 gazeAllowed = EyeTrackingPermission.gazeAllowed(prefsContext);
+                // Kept for a report, which can be made long after this session
+                String runtime = nativeGetRuntime(nativeCtx);
+                if (runtime != null) {
+                    PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                            .putString(BugReport.RUNTIME_PREF, runtime).apply();
+                }
                 // For the frame rate list, which can only ask the Android
                 // display otherwise
                 XrDisplayRates.remember(prefsContext, nativeGetOfferedRates(nativeCtx));
@@ -909,6 +952,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
+            updateReport();
             updateCogReadout();
             updateCogMarks();
             updateCogClock();
@@ -1330,9 +1374,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
             // Every real code is 8 or more, so anything at zero or above is a
             // key rather than the sentinel. It goes before the modifiers are
-            // let go of, since it was typed with them held.
+            // let go of, since it was typed with them held. While the report
+            // sheet is up the keys are its own, below.
             int key = (int)inputState[IN_KEY];
-            if (key >= 0) {
+            if (key >= 0 && inputState[IN_REPORT_ZONE] < 0.0f) {
                 inputListener.onVrKey(key, (int)inputState[IN_KEY_MODS]);
             }
             int mods = (int)inputState[IN_KB_MODS];
@@ -1347,6 +1392,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 inputState[IN_EXIT] = 0.0f;
                 inputListener.onVrExit();
             }
+        }
+
+        // The report sheet's fields take the keys while it is up, and nothing
+        // typed there reaches the host. What was typed stays out of the log.
+        int reportKey = (int)inputState[IN_KEY];
+        if (reportKey >= 0 && inputState[IN_REPORT_ZONE] >= 0.0f && reportForm.type(reportKey)) {
+            LimeLog.info("Report sheet: " + reportForm.note().length() + " characters in the note, "
+                    + reportForm.address().length() + " in the address, the keys on the "
+                    + (reportForm.focus() == REPORT_ZONE_NOTE ? "note" : "address")
+                    + (reportForm.canSend() ? ", ready to send" : ""));
         }
 
         // A 3d room forces the picture onto its wall, so what comes back while
@@ -1365,6 +1420,163 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (setting >= 0) {
             applySetting(setting, (int)inputState[IN_SETTING_VALUE],
                     (int)inputState[IN_SETTING_ROOM]);
+        }
+    }
+
+    // The report sheet coming up, a field taking the keys and Send, then the
+    // sheet drawn again when what it shows has changed, and Send's readiness
+    // handed down when it has. Cancel needs nothing: the next opening starts
+    // the note afresh.
+    private void updateReport() {
+        int event = (int)inputState[IN_REPORT];
+        int zone = (int)inputState[IN_REPORT_ZONE];
+        if (event == REPORT_OPENED) {
+            reportOpening++;
+            reportForm.open(prefsContext != null ? PreferenceManager
+                    .getDefaultSharedPreferences(prefsContext).getString(BugReport.EMAIL_PREF, "")
+                    : "");
+            reportDrawn = null;
+            // Each opening starts with Send held on the native side
+            reportSendHanded = false;
+        }
+        else if (event == REPORT_ZONE_NOTE || event == REPORT_ZONE_EMAIL) {
+            reportForm.focus(event);
+        }
+        else if (event == REPORT_ZONE_SEND) {
+            sendReport();
+        }
+
+        ReportDrawing drawn = pendingReport.getAndSet(null);
+        if (drawn != null) {
+            reportDrawing = false;
+            if (drawn.opening == reportOpening && zone >= 0 && drawn.pixels != null) {
+                nativeUploadReport(nativeCtx, drawn.pixels);
+                reportDrawn = drawn.key;
+                LimeLog.info("Report sheet drawn in " + drawn.ms + " ms, off the frame loop");
+            }
+        }
+        if (zone < 0) {
+            return;
+        }
+
+        boolean ready = reportForm.canSend();
+        if (ready != reportSendHanded) {
+            nativeSetReportSend(nativeCtx, ready);
+            reportSendHanded = ready;
+        }
+        final int opening = reportOpening;
+        final String note = reportForm.note();
+        final String address = reportForm.address();
+        final int focus = reportForm.focus();
+        final boolean wrong = reportForm.addressWrong();
+        final String key = opening + "|" + focus + "|" + zone + "|" + ready + "|" + wrong + "|"
+                + note + "\u0000" + address;
+        if (reportDrawing || key.equals(reportDrawn) || prefsContext == null) {
+            return;
+        }
+        reportDrawing = true;
+        final int hover = zone;
+        final boolean sendable = ready;
+        final Context context = prefsContext;
+        Thread draw = new Thread() {
+            @Override
+            public void run() {
+                long start = System.nanoTime();
+                ByteBuffer pixels = null;
+                try {
+                    XrPanels.ReportSheet art = reportArt;
+                    if (art == null) {
+                        art = new XrPanels.ReportSheet(context, BugReport.collectorConfigured());
+                        reportArt = art;
+                    }
+                    pixels = art.draw(note, address, focus, hover, sendable, wrong);
+                } catch (RuntimeException | OutOfMemoryError e) {
+                    LimeLog.warning("Report sheet failed to draw: " + e);
+                }
+                pendingReport.set(new ReportDrawing(opening, key, pixels,
+                        msPer(System.nanoTime() - start, 1)));
+            }
+        };
+        draw.setName("Video - XR Report");
+        draw.start();
+    }
+
+    // A drawing of the report sheet, waiting to go up
+    private static final class ReportDrawing {
+        final int opening;
+        final String key;
+        final ByteBuffer pixels;
+        final String ms;
+
+        ReportDrawing(int opening, String key, ByteBuffer pixels, String ms) {
+            this.opening = opening;
+            this.key = key;
+            this.pixels = pixels;
+            this.ms = ms;
+        }
+    }
+
+    // Send was pressed with a note that will do: the address is remembered
+    // for next time, and the report is put together, saved and posted on a
+    // thread of its own while the stream carries on. The toast says how it
+    // went.
+    private void sendReport() {
+        final Context context = prefsContext;
+        final String note = reportForm.note();
+        final String address = reportForm.address().trim();
+        if (context == null || !BugReport.canSend(note, address)) {
+            return;
+        }
+        PreferenceManager.getDefaultSharedPreferences(context).edit()
+                .putString(BugReport.EMAIL_PREF, address).apply();
+        final String session = "environment " + environmentName(environmentChoice)
+                + ", 3d " + (stereoLive ? "on" : "off")
+                + ", display " + Math.round(nativeGetDisplayRate(nativeCtx)) + " Hz";
+        FileLog.event("report from the session: " + note.length() + " characters, "
+                + (address.isEmpty() ? "no address" : "an address") + ", "
+                + (BugReport.collectorConfigured() ? "sending" : "saving"));
+        if (BugReport.collectorConfigured()) {
+            showNotice(context.getString(R.string.bug_report_sending), null);
+        }
+        Thread send = new Thread() {
+            @Override
+            public void run() {
+                BugReport.Outcome outcome = BugReport.file(context, note, address, session);
+                FileLog.event("report " + outcome.result.name().toLowerCase(Locale.ROOT)
+                        + (outcome.path != null ? " at " + outcome.path : "")
+                        + (outcome.detail != null ? ": " + outcome.detail : ""));
+                String where = context.getString(R.string.vr_report_saved_at,
+                        BugReport.shortPath(outcome.path));
+                switch (outcome.result) {
+                    case SENT:
+                        showNotice(context.getString(R.string.bug_report_sent), null);
+                        break;
+                    case NOT_SENT:
+                        showNotice(context.getString(R.string.vr_report_not_sent), where, true);
+                        break;
+                    case SAVED:
+                        showNotice(context.getString(R.string.vr_report_saved), where, true);
+                        break;
+                    default:
+                        showNotice(context.getString(R.string.vr_report_not_written),
+                                outcome.detail);
+                        break;
+                }
+            }
+        };
+        send.setName("Video - XR Report send");
+        send.start();
+    }
+
+    // The environment showing, as the report's session line names it
+    private static String environmentName(int cell) {
+        switch (cell) {
+            case ENV_CELL_PASSTHROUGH: return "passthrough";
+            case ENV_CELL_VOID: return "void";
+            case ENV_CELL_HOME_THEATER: return "home theater";
+            case ENV_CELL_GRAND_CINEMA: return "grand cinema";
+            case ENV_CELL_SYNTHWAVE: return "synthwave";
+            default: return "cell " + cell;
         }
     }
 
@@ -1535,7 +1747,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // whichever notice the frame says has just gone up and hands it straight
     // up, since this is the thread with the GL context
     private void updateToast() {
-        String[] notice;
+        NoticeWords notice;
         while ((notice = pendingNotices.poll()) != null) {
             int slot = noticeSlot;
             noticeSlot = (noticeSlot + 1) % TOAST_TEXT_SLOTS;
@@ -1549,6 +1761,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         int arg = (int)inputState[IN_TOAST_ARG];
         String text;
         String more = null;
+        boolean path = false;
         switch (kind) {
             case TOAST_RATE:
                 text = prefsContext.getString(R.string.vr_toast_rate, arg);
@@ -1566,17 +1779,18 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 text = prefsContext.getString(R.string.vr_toast_3d_on);
                 break;
             case TOAST_TEXT:
-                String[] words = arg >= 0 && arg < TOAST_TEXT_SLOTS ? noticeTexts[arg] : null;
+                NoticeWords words = arg >= 0 && arg < TOAST_TEXT_SLOTS ? noticeTexts[arg] : null;
                 if (words == null) {
                     return;
                 }
-                text = words[0];
-                more = words[1];
+                text = words.text;
+                more = words.more;
+                path = words.path;
                 break;
             default:
                 return;
         }
-        nativeUploadToast(nativeCtx, toast.draw(text, more), kind, arg);
+        nativeUploadToast(nativeCtx, toast.draw(text, more, path), kind, arg);
     }
 
     /**

@@ -338,6 +338,15 @@
     <string name="vr_toast_hands_unlocked">手部已解鎖</string>
     <string name="vr_toast_3d_off">3D 已關閉</string>
     <string name="vr_toast_3d_on">3D 已開啟</string>
+    <string name="vr_report_note_hint">發生問題時您正在做什麼？</string>
+    <string name="vr_report_optional">選填</string>
+    <string name="vr_report_email_bad">這看起來不像電子郵件地址</string>
+    <string name="vr_report_sends">將傳送您的說明、頭戴裝置與版本資訊、您的設定以及應用程式記錄檔，記錄檔中可能包含您電腦在區域網路中的名稱與位址。在您按下「傳送」之前不會傳送任何內容。</string>
+    <string name="vr_report_saves">將把您的說明、頭戴裝置與版本資訊、您的設定以及應用程式記錄檔儲存為此頭戴裝置上的檔案，記錄檔中可能包含您電腦在區域網路中的名稱與位址。</string>
+    <string name="vr_report_not_sent">無法傳送報告</string>
+    <string name="vr_report_saved">報告已儲存</string>
+    <string name="vr_report_saved_at">已儲存至 %1$s</string>
+    <string name="vr_report_not_written">無法儲存報告</string>
     <string name="vr_battery">電量 %1$d%%</string>
 
     <!-- Bug Report strings -->

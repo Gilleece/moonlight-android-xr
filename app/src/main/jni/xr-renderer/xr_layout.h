@@ -29,6 +29,7 @@
 #define HOVER_EXITBUTTON 12
 #define HOVER_EXITPROMPT 13
 #define HOVER_STEREOBUTTON 14
+#define HOVER_REPORT    15
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 
@@ -111,6 +112,13 @@ int cogStepIndex(float t, int steps, int dir);
 // share of a value kept as a float, or 0 for a row that is not a track. tab
 // is one of the COG_TAB_ values, or anything past them for the Room tab.
 int cogTrackSteps(int tab, int row);
+
+// Whether a point on the settings panel is on the About tab's button
+int cogReportButtonAt(float pu, float pv);
+
+// Which part of the report sheet a point on it is over, one of the
+// REPORT_ZONE_ values, u and v across the sheet from its top left
+int reportZone(float u, float v);
 
 // The 3D tab's depth track. A separation, as a fraction of frame width, in the
 // tenths of a percent the preference stores, which is also the step the track
