@@ -81,23 +81,25 @@ final class XrPanels {
     // Under the size row where the room keeps its picture whole
     private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Head locked, head aim, pointer sleep,
-    // the ray, the controllers and the click sit with the picture rows so the
-    // two light rows and the level track they belong with stay together at the
-    // bottom. Screen light is the wash the picture throws over a 3d room,
-    // which only shows in one, and head lock is ignored in one, but both stay
-    // live here like the rest: the picker can put a room up at any moment.
-    // The head aim and ray rows are the bar's buttons, for the session only,
-    // and head aim's is greyed where it cannot act.
+    // the glow level track under them. Head locked, head aim, the controllers
+    // as pointer or gamepad, pointer sleep, the ray, the controller model and
+    // the click sit with the picture rows so the two light rows and the level
+    // track they belong with stay together at the bottom. Screen light is the
+    // wash the picture throws over a 3d room, which only shows in one, and
+    // head lock is ignored in one, but both stay live here like the rest: the
+    // picker can put a room up at any moment. The head aim, controllers and
+    // ray rows are the bar's buttons, for the session only, and head aim's is
+    // greyed where it cannot act.
     private static final String[] COG_OPTION_ROWS = { "Sharpen", "Supersample", "Stats",
-            "Head locked", "Head aim", "Pointer sleep", "Ray", "Controllers", "Click sound",
-            "Glow", "Screen light" };
+            "Head locked", "Head aim", "Controllers", "Pointer sleep", "Ray",
+            "Controller model", "Click sound", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
             { "Off", "Normal", "Quality" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
+            { "Pointer", "Gamepad" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
@@ -1923,6 +1925,56 @@ final class XrPanels {
 
         if (!on) {
             // Struck through like the 3D switch, at full strength so it reads
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setColor(0xEEFFFFFF);
+            paint.setStrokeWidth(7.0f);
+            canvas.drawLine(30.0f, 30.0f, 98.0f, 98.0f, paint);
+        }
+        return button;
+    }
+
+    /**
+     * Gamepad mode's switch on the bar, pointer and then gamepad, a swapchain
+     * each on the native side like the ray's. A pad in the frame the other
+     * buttons are drawn in, bright while the controllers are the pad and
+     * dimmed with a stroke through it while they are the pointer.
+     */
+    ByteBuffer[] buildPadButtons() {
+        ByteBuffer[] faces = new ByteBuffer[2];
+        for (int on = 0; on < 2; on++) {
+            Bitmap button = buildPadButton(on == 1);
+            faces[on] = toBuffer(button);
+            button.recycle();
+        }
+        return faces;
+    }
+
+    private Bitmap buildPadButton(boolean on) {
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        int ink = on ? 0xEEFFFFFF : 0x80FFFFFF;
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(ink);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6.0f);
+        canvas.drawRoundRect(new RectF(14.0f, 14.0f, 114.0f, 114.0f), 22.0f, 22.0f, paint);
+
+        // A pad: a wide rounded body with a cross on the left and two
+        // buttons on the right
+        paint.setStrokeWidth(5.0f);
+        canvas.drawRoundRect(new RectF(28.0f, 46.0f, 100.0f, 84.0f), 18.0f, 18.0f, paint);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        canvas.drawLine(38.0f, 65.0f, 54.0f, 65.0f, paint);
+        canvas.drawLine(46.0f, 57.0f, 46.0f, 73.0f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(76.0f, 69.0f, 4.5f, paint);
+        canvas.drawCircle(86.0f, 60.0f, 4.5f, paint);
+
+        if (!on) {
+            // Struck through like the ray's and the 3D switch
             paint.setStyle(Paint.Style.STROKE);
             paint.setColor(0xEEFFFFFF);
             paint.setStrokeWidth(7.0f);

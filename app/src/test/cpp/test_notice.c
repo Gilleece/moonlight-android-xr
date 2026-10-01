@@ -216,6 +216,12 @@ static void testNoticeOfTheSameKindReplacesAtOnce(void) {
     CHECK(noticeGroup(TOAST_HEAD_AIM_OFF) == noticeGroup(TOAST_HEAD_AIM_ON));
     CHECK(noticeGroup(TOAST_HEAD_AIM_ON) != noticeGroup(TOAST_3D_ON));
     CHECK(noticeGroup(TOAST_HEAD_AIM_ON) != noticeGroup(TOAST_TEXT));
+    // Gamepad mode and pointer mode are one notice, the latest standing
+    CHECK(noticeGroup(TOAST_GAMEPAD_MODE) == noticeGroup(TOAST_POINTER_MODE));
+    CHECK(noticeGroup(TOAST_GAMEPAD_MODE) != noticeGroup(TOAST_HEAD_AIM_ON));
+    CHECK(noticeGroup(TOAST_POINTER_MODE) != noticeGroup(TOAST_TEXT));
+    CHECK(TOAST_GAMEPAD_MODE == TOAST_HEAD_AIM_ON + 1);
+    CHECK(TOAST_POINTER_MODE == TOAST_GAMEPAD_MODE + 1);
 }
 
 static void testAnotherKindWaitsItsTurn(void) {

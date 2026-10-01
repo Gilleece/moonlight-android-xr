@@ -149,6 +149,13 @@ int createPointerSwapchain(XrCtx* ctx) {
                            &ctx->aimButtonImageCounts[state]);
     }
 
+    // Gamepad mode's switch, pointer and gamepad, in every session
+    for (int state = 0; state < 2; state++) {
+        createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create gamepad button swapchain",
+                           &ctx->padButtonSwapchains[state], &ctx->padButtonImages[state],
+                           &ctx->padButtonImageCounts[state]);
+    }
+
     // Two padlocks rather than one, since a quad layer has no way to swap
     // its own texture and open and shut have to read differently
     createArtSwapchain(ctx, LOCK_TEX, LOCK_TEX, "create lock swapchain",
@@ -764,6 +771,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadAimButton(JNIEnv* env, j
                 BUTTON_TEX, BUTTON_TEX, &onReady);
     ctx->aimButtonReady = offReady && onReady;
     LOGI("head aim button art %s", ctx->aimButtonReady ? "ready" : "missing");
+}
+
+// Gamepad mode's switch's two faces, pointer and gamepad, both or neither
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadPadButton(JNIEnv* env, jobject thiz,
+                                                                  jlong handle, jobject off,
+                                                                  jobject on) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || off == NULL || on == NULL) {
+        return;
+    }
+    int offReady = 0;
+    int onReady = 0;
+    uploadSheet(env, ctx, off, ctx->padButtonSwapchains[0], ctx->padButtonImages[0],
+                BUTTON_TEX, BUTTON_TEX, &offReady);
+    uploadSheet(env, ctx, on, ctx->padButtonSwapchains[1], ctx->padButtonImages[1],
+                BUTTON_TEX, BUTTON_TEX, &onReady);
+    ctx->padButtonReady = offReady && onReady;
+    LOGI("gamepad button art %s", ctx->padButtonReady ? "ready" : "missing");
 }
 
 // The two padlocks, shut and open. Both or neither, since one on its own

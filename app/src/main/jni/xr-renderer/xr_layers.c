@@ -3,10 +3,11 @@
 #include "xr_renderer.h"
 
 // What a frame carries at its fullest, counted against the Pico's sixteen, the
-// lowest limit of the headsets here (the Quests report 32). The settings panel
-// is modal, and the frame a modal opens sheds the bar furniture, so the two
-// never land in one frame together. With the panel open the clock strip over
-// it is always up, and a step button under the ray takes the hover ring a
+// lowest limit of the headsets here (the Quests report 32, but the Quest 3
+// refuses more than 16 all the same, so 16 is used everywhere). The settings
+// panel is modal, and the frame a modal opens sheds the bar furniture, so the
+// two never land in one frame together. With the panel open the clock strip
+// over it is always up, and a step button under the ray takes the hover ring a
 // cell would. The toast can land on any of these, one layer more.
 //   Screen tab: the glow, both eyes, the stats, the cog button, the panel,
 //     the clock, six thumbs, the hover ring, ray and cursor: 16. With the
@@ -28,16 +29,16 @@
 //   About tab in a room: no rows, so the room, the glow, both eyes, the
 //     stats, the cog button, the panel, the clock, the ring on its button,
 //     ray and cursor: 11.
-//   The bar: the pill, all six buttons (exit, environment, cog, keyboard,
-//     ray, 3D) and the padlock over the glow, both eyes, the stats, ray and
-//     cursor: 14, and 14 in a room, where the pill gives way to the room's
-//     own layer. 15 with the toast. With the ray switched off it is one
-//     fewer, since the bar is not a panel and brings no beam back. With the
-//     screen locked to the head, outside a room, head aim's button is a
-//     seventh: 15, 16 with the toast.
+//   The bar: the pill, all seven buttons (exit, gamepad, environment, cog,
+//     keyboard, ray, 3D) and the padlock over the glow, both eyes, the stats,
+//     ray and cursor: 15, and 15 in a room, where the pill gives way to the
+//     room's own layer. 16 with the toast. With the ray switched off it is
+//     one fewer, since the bar is not a panel and brings no beam back. With
+//     the screen locked to the head, outside a room, head aim's button is an
+//     eighth: 16, 17 with the toast, one past.
 //   The controller models are a projection layer of their own, over the
 //     picture and the panels and under the beam, one more on any of these
-//     while a model shows: the bar to 15, 16 with the toast (16 and 17 with
+//     while a model shows: the bar to 16, 17 with the toast (17 and 18 with
 //     head aim's button), the Display tab to 15 and the About tab to 12, and
 //     the screen, 3D and Picture tabs to 17 and the Room tab to 18, which go
 //     over, and the head locked screen tab to 20.
@@ -45,7 +46,8 @@
 // controller models, the hover ring, the cog button and the clock strip (see
 // nativeEndFrame), which brings every case above to 16 or under with the
 // toast up. The head locked screen tab at its fullest, models and toast
-// included, is 21 and comes down to exactly 16.
+// included, is 21 and comes down to exactly 16; the head locked bar at its
+// fullest is 18 and comes down to 16.
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the bar furniture and adds only its panel and one ring,
 // so it comes to 9. The report sheet puts the settings panel away and brings
@@ -85,6 +87,7 @@ typedef struct {
     XrCompositionLayerQuad stereoButton;
     XrCompositionLayerQuad rayButton;
     XrCompositionLayerQuad aimButton;
+    XrCompositionLayerQuad padButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad lock;
@@ -620,8 +623,16 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
                      exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
     }
 
-    // Head aim's switch, past the exit button, showing which way it is set.
-    // Only where head aim can act, so it is never a button that does nothing.
+    // Gamepad mode's switch, past the exit button, lit while the controllers
+    // are the pad
+    if (ctx->padButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->padButton,
+                     ctx->padButtonSwapchains[ctx->padMode ? 1 : 0],
+                     padButtonPlacement, ctx->padButtonHot, NULL);
+    }
+
+    // Head aim's switch, past that, showing which way it is set. Only where
+    // head aim can act, so it is never a button that does nothing.
     if (ctx->aimButtonReady && view->barArea && headAimCanAct(ctx)) {
         addBarButton(ctx, view, layers, &layers->aimButton,
                      ctx->aimButtonSwapchains[headAimSwitchOn(ctx->headAimSetting,
@@ -1380,7 +1391,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 || ctx->hoverKind == HOVER_EXITBUTTON
                 || ctx->hoverKind == HOVER_STEREOBUTTON
                 || ctx->hoverKind == HOVER_RAYBUTTON
-                || ctx->hoverKind == HOVER_AIMBUTTON);
+                || ctx->hoverKind == HOVER_AIMBUTTON
+                || ctx->hoverKind == HOVER_PADBUTTON);
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;

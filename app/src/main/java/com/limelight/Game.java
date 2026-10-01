@@ -8,6 +8,7 @@ import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.binding.input.KeyboardTranslator;
 import com.limelight.binding.input.VrKeyboard;
 import com.limelight.binding.input.XrClickAnchor;
+import com.limelight.binding.input.XrPad;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.binding.input.touch.AbsoluteTouchContext;
@@ -494,6 +495,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // If we're using OSC, always set at least gamepad 1.
             gamepadMask |= 1;
         }
+        // A VR session starting with its controllers as a pad has that pad
+        // from the launch, in the place it will take when it plugs in
+        if (prefConfig.enableVrMode && !getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false)
+                && prefConfig.vrGamepadMode) {
+            gamepadMask = XrPad.launchMask(gamepadMask, prefConfig.multiController);
+        }
 
         // Set to the optimal mode for streaming
         float displayRefreshRate = prepareDisplayForRendering();
@@ -568,6 +575,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                         prefConfig.vrControllerModel, "=")
                 + " " + PreferenceConfiguration.headAimLabel(prefConfig.vrHeadAim,
                         prefConfig.vrHeadAimSensitivity, prefConfig.vrHeadAimDeadZone, "=")
+                + " " + PreferenceConfiguration.controllerModeLabel(prefConfig.vrGamepadMode, "=")
                 + " clickSound=" + prefConfig.vrClickSound
                 + " " + PreferenceConfiguration.pictureLabel(prefConfig.vrPicture, "=")
                 + " audio=" + prefConfig.audioConfiguration.channelCount
@@ -2999,6 +3007,38 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             return;
         }
         conn.sendMouseHighResScroll((short)(clicks * 120));
+    }
+
+    // Gamepad mode's pad, off the renderer's frame loop. The controller
+    // handler keeps every pad on the main thread, so this one goes there too,
+    // in the order it came. Not held back for the connection: a pad plugged
+    // in before it is up is heard of with its first state, as a real one is.
+    @Override
+    public void onVrGamepadPlugged(final boolean plugged) {
+        final ControllerHandler handler = controllerHandler;
+        if (handler == null) {
+            return;
+        }
+        runOnUiThread(() -> {
+            if (plugged) {
+                handler.attachXrPad();
+            }
+            else {
+                handler.detachXrPad();
+            }
+        });
+    }
+
+    @Override
+    public void onVrGamepadState(final int buttons, final int leftTrigger, final int rightTrigger,
+                                 final int leftX, final int leftY, final int rightX,
+                                 final int rightY) {
+        final ControllerHandler handler = controllerHandler;
+        if (handler == null) {
+            return;
+        }
+        runOnUiThread(() -> handler.reportXrPad(buttons, (byte)leftTrigger, (byte)rightTrigger,
+                (short)leftX, (short)leftY, (short)rightX, (short)rightY));
     }
 
     /**

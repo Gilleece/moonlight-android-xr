@@ -48,6 +48,7 @@
 #include "xr_keys.h"
 #include "xr_controller.h"
 #include "xr_headaim.h"
+#include "xr_gamepad.h"
 
 #define TAG "moonlight-xr"
 
@@ -1077,6 +1078,11 @@ typedef struct {
     XrAction scrollAction;
     XrAction grabAction;
     XrAction toggleAction;
+    // The left menu button, only for gamepad mode: Start, and with the left
+    // grip the switch between the pad and the pointer. Whether a profile took
+    // it, since one that will not loses only this.
+    XrAction menuAction;
+    int menuBound;
     XrSpace aimSpaces[SRC_COUNT];
     XrPath handPaths[HAND_COUNT];
     int inputReady;
@@ -1190,6 +1196,24 @@ typedef struct {
     XrTime headAimCountNs;
     // Counts the input passes, so the pointer can tell when it missed one
     long inputFrames;
+    // Gamepad mode: whether the controllers are one pad on the host rather
+    // than the pointer, for the rest of the session; the sticks' dead zone;
+    // the switch, and each grip as a bumper; each controller as last read
+    // and the pad as it last went to Java; whether it is plugged in, whether
+    // it is resting under a panel or for want of focus, and what is held back
+    // until let go; panels to be put away now the controllers have gone to
+    // the pad; and what the log last said about it
+    int padMode;
+    float padDeadzone;
+    PadToggle padToggle;
+    int padGrip[HAND_COUNT];
+    PadHand padRead[HAND_COUNT];
+    PadState pad;
+    int padAttached;
+    int padResting;
+    int padHeld;
+    int padPutAway;
+    int padButtonsSaid;
     // The bundled controller model, drawn at each hand's grip into a
     // projection layer of its own over the picture: whether it is wanted, the
     // setting the Display tab's row also writes, and its buffers once Java has
@@ -1450,6 +1474,13 @@ typedef struct {
     int aimButtonReady;
     int aimButtonHot;
 
+    // Gamepad mode's switch on the bar, pointer and gamepad, the same again
+    XrSwapchain padButtonSwapchains[2];
+    uint32_t padButtonImageCounts[2];
+    XrSwapchainImageOpenGLESKHR* padButtonImages[2];
+    int padButtonReady;
+    int padButtonHot;
+
     // The exit button and its prompt. One sheet per lit button, all filled at
     // startup, so hovering one costs a handle rather than an upload.
     XrSwapchain exitButtonSwapchain;
@@ -1640,6 +1671,9 @@ int headAimCanAct(XrCtx* ctx);
 void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int aimButtonHit(XrCtx* ctx, float u, float v, float height);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);
+void setPadMode(XrCtx* ctx, int on, const char* from);
+void padButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
+int padButtonHit(XrCtx* ctx, float u, float v, float height);
 void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);

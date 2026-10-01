@@ -451,6 +451,7 @@ public final class BugReport {
                         prefs.vrControllerModel, " ")
                 + " " + PreferenceConfiguration.headAimLabel(prefs.vrHeadAim,
                         prefs.vrHeadAimSensitivity, prefs.vrHeadAimDeadZone, " ")
+                + " " + PreferenceConfiguration.controllerModeLabel(prefs.vrGamepadMode, " ")
                 + " clickSound " + prefs.vrClickSound
                 + " " + PreferenceConfiguration.pictureLabel(prefs.vrPicture, " ")
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"

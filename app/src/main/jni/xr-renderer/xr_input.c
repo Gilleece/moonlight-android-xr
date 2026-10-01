@@ -88,12 +88,23 @@ static XrAction makeAction(XrCtx* ctx, XrActionType type, const char* name, cons
     return action;
 }
 
+// How much of a controller profile is offered: aim and trigger, which every
+// profile has, then everything the pointer uses, then that and the left menu
+// button gamepad mode reads
+#define BIND_REDUCED 0
+#define BIND_FULL 1
+#define BIND_MENU 2
+
 // One unsupported path rejects a whole profile, so the full set is offered
 // first and a runtime that does not recognise this controller falls back to
-// aim and trigger, which every profile has.
-static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
+// aim and trigger, which every profile has. The menu button goes first of
+// all, so a runtime that refused it would cost gamepad mode its Start and
+// switch rather than the pointer anything.
+static void suggestBindings(XrCtx* ctx, const char* profile, int level) {
     XrActionSuggestedBinding b[20];
     uint32_t n = 0;
+    int full = level >= BIND_FULL;
+    int menu = 0;
     static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
     // x and y on the left controller, a and b on the right
     static const char* rightClick[HAND_COUNT] = { "input/x/click", "input/a/click" };
@@ -144,6 +155,14 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
         snprintf(path, sizeof(path), "%s/input/squeeze/value", hands[h]);
         b[n].action = ctx->grabAction;
         b[n++].binding = toPath(ctx, path);
+
+        // Only the left: the right controller's is the system's
+        if (level >= BIND_MENU && h == HAND_LEFT && ctx->menuAction != XR_NULL_HANDLE) {
+            snprintf(path, sizeof(path), "%s/input/menu/click", hands[h]);
+            b[n].action = ctx->menuAction;
+            b[n++].binding = toPath(ctx, path);
+            menu = 1;
+        }
     }
 
     XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
@@ -153,11 +172,18 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int full) {
 
     XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
     if (XR_SUCCEEDED(res)) {
-        LOGI("bindings accepted for %s (%s)", profile, full ? "full" : "reduced");
+        LOGI("bindings accepted for %s (%s)", profile,
+             menu ? "full, with the menu button" : (full ? "full" : "reduced"));
+        ctx->menuBound |= menu;
+    }
+    else if (menu) {
+        LOGW("full bindings with the menu button rejected for %s (%d), trying without it",
+             profile, res);
+        suggestBindings(ctx, profile, BIND_FULL);
     }
     else if (full) {
         LOGW("full bindings rejected for %s (%d), trying aim and trigger only", profile, res);
-        suggestBindings(ctx, profile, 0);
+        suggestBindings(ctx, profile, BIND_REDUCED);
     }
     else {
         LOGW("bindings rejected for %s (%d)", profile, res);
@@ -254,15 +280,19 @@ int initXrInput(XrCtx* ctx) {
     ctx->toggleAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pointertoggle", "Pointer on or off");
     // Only for drawing the controller model, which the hands never bind
     ctx->gripAction = makeAction(ctx, XR_ACTION_TYPE_POSE_INPUT, "grip", "Controller");
+    ctx->menuAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "menu",
+                                 "Start, or with the grip the gamepad switch");
 
     if (ctx->aimAction == XR_NULL_HANDLE || ctx->triggerAction == XR_NULL_HANDLE) {
         return 0;
     }
 
-    suggestBindings(ctx, "/interaction_profiles/khr/simple_controller", 1);
-    suggestBindings(ctx, "/interaction_profiles/oculus/touch_controller", 1);
+    // The simple controller has no thumbstick or face buttons for the
+    // pointer or the pad, so it is offered aim, trigger and grip alone
+    suggestBindings(ctx, "/interaction_profiles/khr/simple_controller", BIND_FULL);
+    suggestBindings(ctx, "/interaction_profiles/oculus/touch_controller", BIND_MENU);
     if (ctx->picoInteraction) {
-        suggestBindings(ctx, "/interaction_profiles/bytedance/pico4_controller", 1);
+        suggestBindings(ctx, "/interaction_profiles/bytedance/pico4_controller", BIND_MENU);
     }
 
     // Hands. aim_activate is the spec's own name for pointing at something out
@@ -366,9 +396,10 @@ int initXrInput(XrCtx* ctx) {
     ctx->pointerOn = 1;
     initJointTracking(ctx);
     refreshInputSource(ctx);
-    LOGI("controller input ready (pico bindings %s, hand pinch %s)",
+    LOGI("controller input ready (pico bindings %s, hand pinch %s, menu button %s)",
          ctx->picoInteraction ? "offered" : "not offered by this runtime",
-         ctx->handClickOk ? "bound" : (ctx->jointTracking ? "from joints" : "unavailable"));
+         ctx->handClickOk ? "bound" : (ctx->jointTracking ? "from joints" : "unavailable"),
+         ctx->menuBound ? "bound" : "not bound, so gamepad mode has no Start or switch");
     LOGEV("pinch: joints on %.0f mm, off %.0f mm, closing %.0f mm in %ld ms (untracked tips "
           "%.0f / %.0f mm), hold %ld ms; runtime value on %.1f off %.1f, %s",
           PINCH_ON_M * 1000.0f, PINCH_OFF_M * 1000.0f, PINCH_CLOSE_M * 1000.0f,
@@ -1036,7 +1067,7 @@ static int onFurniture(int hover) {
     return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
             || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK
             || hover == HOVER_STEREOBUTTON || hover == HOVER_RAYBUTTON
-            || hover == HOVER_AIMBUTTON;
+            || hover == HOVER_AIMBUTTON || hover == HOVER_PADBUTTON;
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
@@ -1157,6 +1188,28 @@ static int gazeWanted(XrCtx* ctx) {
 
 static int handInUse(XrCtx* ctx, int h) {
     return controllerInUse(ctx->profileKind[h], ctx->aimTracked[h], ctx->aimClock[h].awake);
+}
+
+// Whether a hand is the pad's rather than the pointer's: gamepad mode, with a
+// controller in it. Hands that are tracked instead point as they always do.
+static int padHand(XrCtx* ctx, int h) {
+    return ctx->padMode && ctx->profileKind[h] == PROFILE_CONTROLLER;
+}
+
+// The pad's controller is off the pointer whole: no ray, nothing pressed and
+// nothing to point with, and its filters forget it, so when it comes back to
+// the pointer its ray does not sweep in from where it last was
+static void padHandAway(XrCtx* ctx, int h) {
+    ctx->triggerDown[h] = 0;
+    ctx->triggerEdge[h] = 0;
+    ctx->triggerValue[h] = 0.0f;
+    ctx->pinchWantNs[h] = 0;
+    ctx->aimTracked[h] = 0;
+    ctx->aimFilterPos[h][0].valid = 0;
+    ctx->aimFilterPos[h][1].valid = 0;
+    ctx->aimFilterPos[h][2].valid = 0;
+    ctx->aimFilterRot[h].valid = 0;
+    ctx->poseSeen[h] = 0;
 }
 
 // A drag the eyes started, which finishes as theirs
@@ -1291,7 +1344,12 @@ static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, 
             && exitButtonHit(ctx, u, v, height)) {
         hover = HOVER_EXITBUTTON;
     }
-    // Head aim's switch, one further out again on the left, while it can act
+    // Gamepad mode's switch, one further out on the left, and head aim's one
+    // further again, while it can act
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && padButtonHit(ctx, u, v, height)) {
+        hover = HOVER_PADBUTTON;
+    }
     if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
             && aimButtonHit(ctx, u, v, height)) {
         hover = HOVER_AIMBUTTON;
@@ -1405,6 +1463,13 @@ static void updateHeadTurn(XrCtx* ctx, InputFrame* f) {
 // Reads every source: the triggers, the aim poses and where each ray lands
 static void readSources(XrCtx* ctx, InputFrame* f) {
     int gazeSpace = ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
+    // A controller that is the pad's points at nothing and presses nothing, so
+    // it is never read here
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (padHand(ctx, h)) {
+            padHandAway(ctx, h);
+        }
+    }
     // The eyes point and the hands only pinch, which is the rule while gaze
     // is on and no controller is in use
     int gazeMode = gazePointing(ctx) && gazeSpace;
@@ -1412,6 +1477,9 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
     // back, but gives it nothing to point with
     int gazeWatch = gazeWanted(ctx) && gazeSpace;
     for (int h = 0; h < SRC_COUNT; h++) {
+        if (h < HAND_COUNT && padHand(ctx, h)) {
+            continue;
+        }
         if (h < HAND_COUNT) {
             f->grab[h] = actionFloat(ctx, ctx->grabAction, h);
             f->stick[h] = actionVec2(ctx, ctx->scrollAction, h);
@@ -1684,7 +1752,9 @@ static void updateControllerClocks(XrCtx* ctx, InputFrame* f) {
     int eyesPoint = ctx->eyeGaze && ctx->gazeEnabled;
     int swallowed = 0;
     for (int h = 0; h < HAND_COUNT; h++) {
-        if (ctx->profileKind[h] != PROFILE_CONTROLLER) {
+        // The pad's controllers are never in use as pointers, so the eyes keep
+        // the pointer however the buttons are pressed
+        if (ctx->profileKind[h] != PROFILE_CONTROLLER || padHand(ctx, h)) {
             controllerClockReset(&ctx->aimClock[h]);
             continue;
         }
@@ -1881,6 +1951,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->stereoButtonHot = 0;
     ctx->rayButtonHot = 0;
     ctx->aimButtonHot = 0;
+    ctx->padButtonHot = 0;
     ctx->reportHoverZone = REPORT_ZONE_NONE;
     ctx->cogReportHot = 0;
 }
@@ -2366,7 +2437,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
     if (pressed && (f->hover == HOVER_ENVBUTTON || f->hover == HOVER_COGBUTTON
             || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
             || f->hover == HOVER_STEREOBUTTON || f->hover == HOVER_RAYBUTTON
-            || f->hover == HOVER_AIMBUTTON
+            || f->hover == HOVER_AIMBUTTON || f->hover == HOVER_PADBUTTON
             || (f->hover == HOVER_LOCK && ctx->lockArmed[f->hand])
             || (f->hover == HOVER_KBPANEL
                 && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
@@ -2438,6 +2509,15 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             // Nothing shows it until the head turns, by which time the game
             // has turned with it
             noticePush(&ctx->notices, on ? TOAST_HEAD_AIM_ON : TOAST_HEAD_AIM_OFF, 0);
+        }
+    }
+    else if (f->hover == HOVER_PADBUTTON) {
+        ctx->padButtonHot = 1;
+        if (ctx->triggerEdge[f->hand]) {
+            // Pressed with a controller this is the way into gamepad mode, the
+            // press held back from the pad; the way out is the hands, the eyes
+            // or the switch on the controllers. Says which with a toast.
+            setPadMode(ctx, !ctx->padMode, "the bar button");
         }
     }
     else if (f->hover == HOVER_KBPANEL) {
@@ -2596,10 +2676,11 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
             mask |= VR_BUTTON_LEFT;
         }
     }
-    if (actionBool(ctx, ctx->rightClickAction, -1)) {
+    // Only a controller has these, and in gamepad mode they are the pad's
+    if (!ctx->padMode && actionBool(ctx, ctx->rightClickAction, -1)) {
         mask |= VR_BUTTON_RIGHT;
     }
-    if (actionBool(ctx, ctx->middleClickAction, -1)) {
+    if (!ctx->padMode && actionBool(ctx, ctx->middleClickAction, -1)) {
         mask |= VR_BUTTON_MIDDLE;
     }
     // A press only counts while aimed at the screen, but a release always
@@ -2645,7 +2726,11 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
 // the host's cursor was left, the way a wheel does, as long as the ray is not
 // on something of ours.
 static void updateScroll(XrCtx* ctx, InputFrame* f, int hit) {
-    XrVector2f stick = actionVec2(ctx, ctx->scrollAction, -1);
+    // The sticks are the pad's in gamepad mode
+    XrVector2f stick = { 0.0f, 0.0f };
+    if (!ctx->padMode) {
+        stick = actionVec2(ctx, ctx->scrollAction, -1);
+    }
     int offPicture = !ctx->pointerSleepOn
             && (f->hover == HOVER_NONE || f->hover == HOVER_HALO);
     if ((hit || offPicture) && fabsf(stick.y) > SCROLL_DEADZONE) {
@@ -2806,6 +2891,138 @@ static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
     }
 }
 
+// One controller as the pad reads it, all zero for a hand without one. In
+// pointer mode only the switch is wanted, the left menu button and grip.
+static void readPadHand(XrCtx* ctx, int h, int all, PadHand* p) {
+    memset(p, 0, sizeof(*p));
+    if (ctx->profileKind[h] != PROFILE_CONTROLLER) {
+        return;
+    }
+    p->grip = actionFloat(ctx, ctx->grabAction, h);
+    p->menu = h == HAND_LEFT && actionBool(ctx, ctx->menuAction, h);
+    if (!all) {
+        return;
+    }
+    p->trigger = actionFloat(ctx, ctx->triggerAction, h);
+    XrVector2f stick = actionVec2(ctx, ctx->scrollAction, h);
+    p->stickX = stick.x;
+    p->stickY = stick.y;
+    p->stickClick = actionBool(ctx, ctx->toggleAction, h);
+    p->lower = actionBool(ctx, ctx->rightClickAction, h);
+    p->upper = actionBool(ctx, ctx->middleClickAction, h);
+}
+
+// The pad is plugged in on the host in gamepad mode while a controller is in
+// either hand. Put both down and the hands take over, and it comes out until
+// one is picked up again.
+static int padPlugged(XrCtx* ctx) {
+    return ctx->padMode && (ctx->profileKind[HAND_LEFT] == PROFILE_CONTROLLER
+                            || ctx->profileKind[HAND_RIGHT] == PROFILE_CONTROLLER);
+}
+
+// The pad as it goes to Java: at rest unless live, with anything still held
+// from before it was live kept off until let go, and the comings and goings
+// logged
+static void settlePad(XrCtx* ctx, int plugged, int live, PadState* s, const char* why) {
+    if (!plugged || !live) {
+        padRest(s);
+        if (plugged && !ctx->padResting) {
+            LOGI("gamepad resting: %s", why);
+        }
+        ctx->padResting = 1;
+    }
+    else if (ctx->padResting) {
+        // A press that was for a panel or for the switch, or for the pointer
+        // before it, is not the game's
+        ctx->padHeld = padHeldIn(s);
+        ctx->padResting = 0;
+        LOGI("gamepad live%s", ctx->padHeld != 0 ? ", holding back what is still down" : "");
+    }
+    padHoldBack(&ctx->padHeld, s);
+
+    if (plugged != ctx->padAttached) {
+        if (plugged) {
+            LOGEV("gamepad plugged in: the controllers are one Xbox pad on the host");
+        }
+        else {
+            LOGEV("gamepad unplugged: %s", ctx->padMode ? "no controller in either hand"
+                                                        : "pointer mode");
+        }
+        ctx->padAttached = plugged;
+    }
+    // Only the buttons, since the sticks and triggers move every frame
+    if (s->buttons != ctx->padButtonsSaid) {
+        LOGI("gamepad buttons 0x%04x, triggers %d %d", s->buttons, s->leftTrigger,
+             s->rightTrigger);
+        ctx->padButtonsSaid = s->buttons;
+    }
+    ctx->pad = *s;
+}
+
+// Nothing is read this frame, so the pad lets go of everything and the switch
+// starts again, but stays plugged in: a moment without focus is no reason for
+// a game to lose its pad
+static void restPad(XrCtx* ctx, const char* why) {
+    PadState s;
+    padRest(&s);
+    padToggleReset(&ctx->padToggle);
+    settlePad(ctx, padPlugged(ctx), 0, &s, why);
+}
+
+// Gamepad mode's pass, after the actions are synced and before anything
+// points. The left menu button held with the left grip switches modes in
+// either one. In gamepad mode both controllers become the pad, which rests
+// while a panel is up: the controllers cannot reach one, and whatever reaches
+// it must not land in the game.
+static void updatePad(XrCtx* ctx) {
+    PadHand* hands = ctx->padRead;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        readPadHand(ctx, h, ctx->padMode, &hands[h]);
+        ctx->padGrip[h] = padGripDown(hands[h].grip, ctx->padGrip[h]);
+    }
+    int startOk = 1;
+    if (padToggleStep(&ctx->padToggle, hands[HAND_LEFT].menu, ctx->padGrip[HAND_LEFT], nowNs(),
+                      &startOk)) {
+        setPadMode(ctx, !ctx->padMode, "the menu button and grip");
+        // Read whole now it is the pad, so a trigger or stick already held
+        // for the pointer is held back with the rest
+        for (int h = 0; h < HAND_COUNT; h++) {
+            readPadHand(ctx, h, ctx->padMode, &hands[h]);
+        }
+    }
+
+    PadState s;
+    padMap(&hands[HAND_LEFT], &hands[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone, &s);
+    int plugged = padPlugged(ctx);
+    settlePad(ctx, plugged, plugged && !panelUp(ctx), &s, "a panel is up");
+}
+
+// The panels go when the controllers go to the pad, since nothing on them can
+// reach a panel any more, and whatever the pointer was holding is let go
+static void padPutPanelsAway(XrCtx* ctx, float* out) {
+    if (!ctx->padPutAway) {
+        return;
+    }
+    ctx->padPutAway = 0;
+    if (ctx->cogDragSlider >= 0) {
+        cogDragEnded(ctx, out);
+    }
+    if (ctx->grabMode != GRAB_NONE) {
+        ctx->grabMode = GRAB_NONE;
+        ctx->grabByGaze = 0;
+        ctx->poseDirty = 1;
+    }
+    if (panelUp(ctx)) {
+        LOGI("gamepad mode put the panels away");
+    }
+    ctx->cogOpen = 0;
+    ctx->pickerOpen = 0;
+    ctx->kbOpen = 0;
+    ctx->exitConfirmOpen = 0;
+    ctx->reportOpen = 0;
+    ctx->buttonsDown = 0;
+}
+
 // A room's size left by a corner goes to the preference once the grab is over,
 // however it ended, on the first frame with the setting slot free. A room gone
 // from under it in the meantime leaves nothing to write it to.
@@ -2841,6 +3058,14 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     out[IN_KB_SHEET] = -1.0f;
     out[IN_REPORT_ZONE] = -1.0f;
     if (ctx != NULL) {
+        out[IN_PAD] = ctx->padAttached ? 1.0f : 0.0f;
+        out[IN_PAD_BUTTONS] = (float)ctx->pad.buttons;
+        out[IN_PAD_LT] = (float)ctx->pad.leftTrigger;
+        out[IN_PAD_RT] = (float)ctx->pad.rightTrigger;
+        out[IN_PAD_LX] = (float)ctx->pad.leftX;
+        out[IN_PAD_LY] = (float)ctx->pad.leftY;
+        out[IN_PAD_RX] = (float)ctx->pad.rightX;
+        out[IN_PAD_RY] = (float)ctx->pad.rightY;
         out[IN_REPORT_ZONE] = ctx->reportOpen ? (float)ctx->reportHoverZone : -1.0f;
         // However the keyboard went away, it lets go of what it held
         if (!ctx->kbOpen && ctx->kbMods != 0) {
@@ -2926,12 +3151,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     // Anything held has to come back up when pointing stops, or the host is
     // left with a stuck button. Nothing is pointed at under the splash either:
-    // it hides everything a press could land on.
-    if (ctx == NULL || !ctx->inputReady || !pointerEnabled || !ctx->placementValid
+    // it hides everything a press could land on. The pad lets go the same way.
+    if (ctx == NULL || !ctx->inputReady || !ctx->placementValid
             || ctx->sessionState != XR_SESSION_STATE_FOCUSED
             || ctx->splash.phase != SPLASH_GONE) {
         if (ctx != NULL) {
             releaseInput(ctx, out);
+            restPad(ctx, "the session is not focused");
         }
         handBack(env, ctx, out, outArr);
         return;
@@ -2946,14 +3172,28 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     sync.activeActionSets = &active;
     if (XR_FAILED(xrSyncActions(ctx->session, &sync))) {
         ctx->buttonsDown = 0;
+        restPad(ctx, "the controllers could not be read");
         handBack(env, ctx, out, outArr);
         return;
     }
     // The controller models read their grips off this sync
     ctx->actionsSynced = 1;
 
+    // The pad before anything points, so a switch between the two lands
+    // before the controllers are read for the pointer
+    updatePad(ctx);
+    if (!pointerEnabled) {
+        // The pointer is switched off in the settings, so only the pad and
+        // the switch to it are read
+        releaseInput(ctx, out);
+        padPutPanelsAway(ctx, out);
+        handBack(env, ctx, out, outArr);
+        return;
+    }
+
+    // In gamepad mode the stick clicks are the pad's
     int toggle = actionBool(ctx, ctx->toggleAction, -1);
-    if (toggle && !ctx->togglePrev) {
+    if (toggle && !ctx->togglePrev && !ctx->padMode) {
         ctx->pointerOn = !ctx->pointerOn;
         LOGI("pointer %s", ctx->pointerOn ? "on" : "off");
     }
@@ -3028,6 +3268,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         updateFurniture(ctx, &f);
     }
     dismissKeyboard(ctx, &f);
+    // Gamepad mode just came on, from the switch, the bar or the Display tab
+    padPutPanelsAway(ctx, out);
     logInputSnapshot(ctx, &f);
 
     // Where the handle is clear of the picture, so a trigger press there cannot
@@ -3090,7 +3332,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_EXITBUTTON
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
             || f.hover == HOVER_RAYBUTTON || f.hover == HOVER_AIMBUTTON
-            || f.hover == HOVER_REPORT)
+            || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }

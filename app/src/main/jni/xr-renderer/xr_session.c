@@ -435,6 +435,14 @@ static int initXrInstance(XrCtx* ctx) {
         if (layerProps.graphicsProperties.maxLayerCount > 0) {
             ctx->maxLayerCount = (int)layerProps.graphicsProperties.maxLayerCount;
         }
+        // The Quest 3 says 32, yet its compositor refuses a frame of more than
+        // 16 once it has merged what it can, and the whole frame is lost. So
+        // the spec's 16, the Pico's own limit, is the ceiling everywhere.
+        if (ctx->maxLayerCount > XR_MIN_COMPOSITION_LAYERS_SUPPORTED) {
+            LOGI("runtime reports %d composition layers, %d used", ctx->maxLayerCount,
+                 XR_MIN_COMPOSITION_LAYERS_SUPPORTED);
+            ctx->maxLayerCount = XR_MIN_COMPOSITION_LAYERS_SUPPORTED;
+        }
         // Worth having in a user's log, it is the one place an unknown headset
         // names itself
         LOGEV("system %s (vendor 0x%x)", layerProps.systemName, layerProps.vendorId);
@@ -789,6 +797,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         destroyArtSwapchain(&ctx->stereoButtonSwapchains[state], &ctx->stereoButtonImages[state]);
         destroyArtSwapchain(&ctx->rayButtonSwapchains[state], &ctx->rayButtonImages[state]);
         destroyArtSwapchain(&ctx->aimButtonSwapchains[state], &ctx->aimButtonImages[state]);
+        destroyArtSwapchain(&ctx->padButtonSwapchains[state], &ctx->padButtonImages[state]);
     }
     destroyArtSwapchain(&ctx->lockSwapchain, &ctx->lockImages);
     destroyArtSwapchain(&ctx->unlockSwapchain, &ctx->unlockImages);
@@ -958,6 +967,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     headAimReset(&ctx->headAim);
     pointerNudgeReset(&ctx->headAimNudge);
     ctx->headAimSaid = -1;
+    // Pointer mode until Java says otherwise, and the pad resting, so the
+    // first frame it is live holds back whatever is already down
+    ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
+    padToggleReset(&ctx->padToggle);
+    padRest(&ctx->pad);
+    ctx->padResting = 1;
     // Comfort comes from absolute disparity and depth comes from the steps
     // between objects, so the overall shape is pulled toward the screen plane
     // while the local detail is boosted. Measured on captured frames this is

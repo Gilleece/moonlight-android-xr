@@ -32,6 +32,7 @@
 #define HOVER_REPORT    15
 #define HOVER_RAYBUTTON 16
 #define HOVER_AIMBUTTON 17
+#define HOVER_PADBUTTON 18
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 

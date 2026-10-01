@@ -154,6 +154,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // SETTING_ values in XrShared, so both sides read them off the same file.
     private final float[] inputState = new float[IN_SLOTS];
     private int heldButtons;
+    // Gamepad mode's pad as the listener was last told it: plugged in or not,
+    // then its buttons, triggers and sticks in the IN_PAD_ order. Frame loop
+    // only.
+    private boolean padPlugged;
+    private final int[] padSent = new int[IN_PAD_RY - IN_PAD_BUTTONS + 1];
     // The head's yaw against the screen, for the virtual surround. Written by
     // the frame loop and read by the audio thread once a block.
     private volatile float headYaw;
@@ -253,6 +258,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Head aim's switch's two faces, the same
     private final AtomicReference<ByteBuffer> pendingAimOff = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingAimOn = new AtomicReference<>();
+    // And gamepad mode's, pointer and gamepad
+    private final AtomicReference<ByteBuffer> pendingPadOff = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingPadOn = new AtomicReference<>();
     // A baked room on its way to the GPU, read off the frame loop like the art
     // above. The native side shows the void in its place until it has landed.
     // The mesh, the atlases and the cell they belong to travel as one, so a
@@ -303,6 +311,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         void onVrMouseMove(int dx, int dy);
         void onVrButton(int button, boolean down);
         void onVrScroll(int clicks);
+        // Gamepad mode's pad, the two controllers as one Xbox pad: plugged in
+        // or out on the host, then each time it changes what it reads, PAD_
+        // button bits, triggers 0 to 255 and sticks -32766 to 32766, up
+        // positive. Always plugged in before its first state and let go of
+        // before it comes out.
+        void onVrGamepadPlugged(boolean plugged);
+        void onVrGamepadState(int buttons, int leftTrigger, int rightTrigger,
+                              int leftX, int leftY, int rightX, int rightY);
         // A key from the in world keyboard. Unicode with the shift already
         // applied, backspace, tab, enter and space as their control codes, or
         // a virtual key code over KB_CODE_VK. The modifiers, KB_MOD_ bits, are
@@ -464,6 +480,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadRayButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadAimButton(long ctx, ByteBuffer off, ByteBuffer on);
+    private native void nativeUploadPadButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
     // The toast's words for a notice just gone up, and a notice of this
     // side's own to be queued, a TOAST_TEXT under its slot
@@ -479,6 +496,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Whether a session starts with head aim on, its pixels a degree and its
     // dead zone in degrees a second
     private native void nativeSetHeadAim(long ctx, boolean on, int sensitivity, int deadZone);
+    // Whether a session starts in gamepad mode, and the sticks' dead zone in
+    // the whole percent the settings keep for a real pad
+    private native void nativeSetGamepad(long ctx, boolean on, int deadzonePercent);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -590,6 +610,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 initLatch.countDown();
 
                 runFrameLoop(prefs);
+                // The session is over, so the pad comes out with it
+                unplugPad();
 
                 stopDepthThread();
                 XrClickSound click;
@@ -1135,6 +1157,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadAimButton(nativeCtx, aimOff, aimOn);
             }
 
+            ByteBuffer padOff = pendingPadOff.getAndSet(null);
+            ByteBuffer padOn = pendingPadOn.getAndSet(null);
+            if (padOff != null && padOn != null) {
+                nativeUploadPadButton(nativeCtx, padOff, padOn);
+            }
+
             ByteBuffer controller = pendingControllerModel.getAndSet(null);
             if (controller != null) {
                 nativeUploadControllerModel(nativeCtx, controller, controller.remaining());
@@ -1216,6 +1244,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         nativeSetShowRay(nativeCtx, prefs.vrShowRay);
         nativeSetHeadAim(nativeCtx, prefs.vrHeadAim, prefs.vrHeadAimSensitivity,
                 prefs.vrHeadAimDeadZone);
+        nativeSetGamepad(nativeCtx, prefs.vrGamepadMode, prefs.deadzonePercentage);
         nativeSetControllerModel(nativeCtx, prefs.vrControllerModel);
 
         final int startRoom = cell;
@@ -1281,6 +1310,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         ByteBuffer[] aimFaces = panels.buildAimButtons();
         pendingAimOff.set(aimFaces[0]);
         pendingAimOn.set(aimFaces[1]);
+        ByteBuffer[] padFaces = panels.buildPadButtons();
+        pendingPadOff.set(padFaces[0]);
+        pendingPadOn.set(padFaces[1]);
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
         kbKeyRects = keyboard.keyRects;
@@ -1472,6 +1504,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 inputListener.onVrScroll(clicks);
             }
 
+            dispatchPad();
+
             // Every real code is 8 or more, so anything at zero or above is a
             // key rather than the sentinel. It goes before the modifiers are
             // let go of, since it was typed with them held. While the report
@@ -1520,6 +1554,45 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (setting >= 0) {
             applySetting(setting, (int)inputState[IN_SETTING_VALUE],
                     (int)inputState[IN_SETTING_ROOM]);
+        }
+    }
+
+    // The pad plugged in, its state each time it changes, and the pad taken
+    // out, in that order, and only on a change, since the native side fills
+    // the slots every frame
+    private void dispatchPad() {
+        boolean plugged = inputState[IN_PAD] != 0.0f;
+        if (plugged && !padPlugged) {
+            padPlugged = true;
+            inputListener.onVrGamepadPlugged(true);
+            // Nothing sent yet, so the first state always goes
+            Arrays.fill(padSent, Integer.MIN_VALUE);
+        }
+        if (!plugged) {
+            unplugPad();
+            return;
+        }
+        boolean changed = false;
+        for (int i = 0; i < padSent.length; i++) {
+            int value = (int)inputState[IN_PAD_BUTTONS + i];
+            if (value != padSent[i]) {
+                padSent[i] = value;
+                changed = true;
+            }
+        }
+        if (changed) {
+            inputListener.onVrGamepadState(padSent[0], padSent[1], padSent[2], padSent[3],
+                    padSent[4], padSent[5], padSent[6]);
+        }
+    }
+
+    // The pad out, if it was in. Frame loop only.
+    private void unplugPad() {
+        if (padPlugged) {
+            padPlugged = false;
+            if (inputListener != null) {
+                inputListener.onVrGamepadPlugged(false);
+            }
         }
     }
 
@@ -1884,6 +1957,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             case TOAST_HEAD_AIM_ON:
                 text = prefsContext.getString(R.string.vr_toast_head_aim_on);
                 more = prefsContext.getString(R.string.vr_toast_head_aim_on_more);
+                break;
+            case TOAST_GAMEPAD_MODE:
+                text = prefsContext.getString(R.string.vr_toast_gamepad_mode);
+                more = prefsContext.getString(R.string.vr_toast_gamepad_mode_more);
+                break;
+            case TOAST_POINTER_MODE:
+                text = prefsContext.getString(R.string.vr_toast_pointer_mode);
                 break;
             case TOAST_TEXT:
                 NoticeWords words = arg >= 0 && arg < TOAST_TEXT_SLOTS ? noticeTexts[arg] : null;
