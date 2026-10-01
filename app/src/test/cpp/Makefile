@@ -11,7 +11,7 @@ INCLUDES := -Istubs -I$(SRC)
 OUT := build
 
 TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_roommesh \
-         $(OUT)/test_layout $(OUT)/test_audio
+         $(OUT)/test_layout $(OUT)/test_audio $(OUT)/test_rate
 
 .PHONY: test clean
 
@@ -42,6 +42,11 @@ $(OUT)/test_layout: test_layout.c check.h $(SRC)/xr_layout.c $(SRC)/xr_layout.h 
                     $(SRC)/xr_math.h $(SRC)/xr_shared.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_layout.c $(SRC)/xr_layout.c $(SRC)/xr_math.c -lm
+
+# The display refresh rate choice and the frame budget that steps it down
+$(OUT)/test_rate: test_rate.c check.h $(SRC)/xr_rate.c $(SRC)/xr_rate.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_rate.c $(SRC)/xr_rate.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it

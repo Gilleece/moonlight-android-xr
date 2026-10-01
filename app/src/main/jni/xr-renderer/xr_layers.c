@@ -966,4 +966,5 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     endInfo.layerCount = layers.count;
     endInfo.layers = layers.order;
     checkXr(xrEndFrame(ctx->session, &endInfo), "xrEndFrame");
+    displayFrameEnded(ctx);
 }

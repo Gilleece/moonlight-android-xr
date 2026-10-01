@@ -39,6 +39,7 @@
 #include "xr_depthmap.h"
 #include "xr_roommesh.h"
 #include "xr_layout.h"
+#include "xr_rate.h"
 
 #define TAG "moonlight-xr"
 
@@ -367,6 +368,27 @@ typedef struct XrCompositionLayerSettingsFB {
 #define PROP_EDGE_FADE "debug.moonlight.edgefade"
 #define PROP_DEPTH_CUBIC "debug.moonlight.depthcubic"
 #define PROP_SEAM_INSET "debug.moonlight.seaminset"
+// Hz to force the display to, 0 to hand it back to the stream's rate and the
+// frame budget. Read at session start and live.
+#define PROP_REFRESH "debug.moonlight.refresh"
+// The CPU and GPU levels asked of the runtime: 0 none, 1 sustained high as
+// shipped, 2 boost. Read at session start and live, though a level once asked
+// for cannot be taken back, so 0 only means nothing at the next session.
+#define PROP_PERF_LEVEL "debug.moonlight.perflevel"
+
+// What the session asks the runtime's performance levels for
+#define PERF_LEVEL_NONE 0
+#define PERF_LEVEL_SUSTAINED_HIGH 1
+#define PERF_LEVEL_BOOST 2
+
+// How long after the runtime moves the display off the rate asked for before
+// it is asked once more, how many times a session does that, and how long a
+// request may take to land before the display is checked
+#define RATE_REASK_MS 10000
+#define RATE_REASK_MAX 3
+#define RATE_CONFIRM_MS 5000
+// Windows of the frame budget between two summary lines in the log
+#define RATE_LOG_WINDOWS 5
 
 // Pixels of the frame the shift fades to nothing over at each side edge, and
 // the most the property can ask for
@@ -753,6 +775,57 @@ typedef struct {
 
     int cylinderSupported;
     int layerSettingsSupported;
+
+    // The display refresh rate. The runtime keeps whatever rate it starts on
+    // unless asked, so a stream faster than that loses frames before they are
+    // ever shown. Asked for to match the stream, and stepped down while the
+    // 3D warp runs if the frame loop cannot hold it. All of it the frame
+    // loop's own, bar the two rates the stats read.
+    int refreshRateSupported;
+    PFN_xrEnumerateDisplayRefreshRatesFB pfnEnumerateDisplayRefreshRates;
+    PFN_xrGetDisplayRefreshRateFB pfnGetDisplayRefreshRate;
+    PFN_xrRequestDisplayRefreshRateFB pfnRequestDisplayRefreshRate;
+    float displayRates[RATE_MAX];
+    int displayRateCount;
+    // The stream's frame rate as the preferences asked for it
+    int streamFps;
+    // What was last asked for and what the display is on, 0 for none yet
+    float rateAsked;
+    float displayRate;
+    long rateAskedNs;
+    int rateConfirmed;
+    // The rate the warp was stepped down to, 0 while it has not been, kept
+    // for the session so switching the 3D off and on does not try again
+    float warpRateHeld;
+    int rateWarpOn;
+    // The rate the budget last said it could go no lower from
+    float rateFloorSaid;
+    // The runtime moved the display off the rate asked for at this time, 0
+    // for not, and how many times this session the rate was asked for again
+    long rateMovedNs;
+    int rateReasks;
+    // debug.moonlight.refresh, 0 for automatic
+    int refreshKnob;
+    RateBudget rateBudget;
+    int rateLogWindows;
+    float rateLogFrameMs;
+    float rateLogWorstMs;
+    long rateLogMissed;
+    // The frame loop's own clock for the budget: when this frame began, the
+    // display time the last one was predicted for, and the period between
+    // refreshes, which is also the rate on a runtime without the extension
+    long frameBeganNs;
+    XrTime lastDisplayTime;
+    long displayPeriodNs;
+
+    // The CPU and GPU levels (XR_EXT_performance_settings). Decoding, the
+    // warp and the depth model all want the clocks to stay put rather than be
+    // renegotiated around every scene, so a sustained level is asked for once
+    // the session exists. A runtime without it carries on as it would have.
+    int perfSettingsSupported;
+    PFN_xrPerfSettingsSetPerformanceLevelEXT pfnPerfSettingsSetPerformanceLevel;
+    int perfLevel;
+
     // Probed and logged only. Ours is drawn here, but knowing which runtimes
     // offer one of their own is worth a line.
     int virtualKeyboardSupported;
@@ -1264,7 +1337,21 @@ int uploadPointerArt(XrCtx* ctx);
 int roomStyleForCell(int cell);
 int roomCellForStyle(int style);
 
+// xr_display.c: the display refresh rate and the performance levels
+void probeDisplayExtensions(XrCtx* ctx);
+void startDisplay(XrCtx* ctx);
+void startPerfLevels(XrCtx* ctx);
+void setPerfLevel(XrCtx* ctx, int level);
+void perfNotice(XrCtx* ctx, const XrEventDataPerfSettingsEXT* notice);
+void displaySessionBegun(XrCtx* ctx);
+void displayFocused(XrCtx* ctx);
+void displayRateChanged(XrCtx* ctx, float from, float to);
+void displayFrameBegun(XrCtx* ctx, const XrFrameState* state);
+void displayFrameEnded(XrCtx* ctx);
+void setRefreshKnob(XrCtx* ctx, int hz);
+
 // xr_debug.c: setprop knobs and frame capture
+void readStartKnobs(XrCtx* ctx);
 void propFlag(const char* name, int* target);
 void pollCaptureRequest(XrCtx* ctx);
 void writeCapture(XrCtx* ctx, const char* what, const void* data, size_t bytes);

@@ -598,7 +598,16 @@ public class StreamSettings extends Activity {
                 addNativeResolutionEntries(width, height, false);
             }
 
-            if (!PreferenceConfiguration.readPreferences(this.getActivity()).unlockFps) {
+            // A headset's runtime can offer rates its Android display does not
+            // list, and in VR those are the ones the stream is shown at
+            PreferenceConfiguration current = PreferenceConfiguration.readPreferences(this.getActivity());
+            int xrMaxFps = XrDisplayRates.highestRemembered(getActivity());
+            if (current.enableVrMode && xrMaxFps > maxSupportedFps) {
+                LimeLog.info("Headset runtime offers "+xrMaxFps+" Hz over the display's "+maxSupportedFps);
+                maxSupportedFps = xrMaxFps;
+            }
+
+            if (!current.unlockFps) {
                 // We give some extra room in case the FPS is rounded down
                 if (maxSupportedFps < 118) {
                     removeValue(PreferenceConfiguration.FPS_PREF_STRING, "120", new Runnable() {

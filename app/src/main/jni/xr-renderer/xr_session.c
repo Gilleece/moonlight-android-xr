@@ -140,6 +140,8 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME)) ctx->eyeGaze = 1;
         if (!strcmp(exts[i].extensionName, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)) ctx->layerSettingsSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME)) ctx->virtualKeyboardSupported = 1;
+        if (!strcmp(exts[i].extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME)) ctx->refreshRateSupported = 1;
+        if (!strcmp(exts[i].extensionName, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME)) ctx->perfSettingsSupported = 1;
     }
     free(exts);
 
@@ -185,6 +187,12 @@ static int initXrInstance(XrCtx* ctx) {
     if (ctx->layerSettingsSupported) {
         enableExt(enabledExts, &enabledCount, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME);
     }
+    if (ctx->refreshRateSupported) {
+        enableExt(enabledExts, &enabledCount, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+    }
+    if (ctx->perfSettingsSupported) {
+        enableExt(enabledExts, &enabledCount, XR_EXT_PERFORMANCE_SETTINGS_EXTENSION_NAME);
+    }
 
     XrInstanceCreateInfoAndroidKHR androidInfo = { XR_TYPE_INSTANCE_CREATE_INFO_ANDROID_KHR };
     androidInfo.applicationVM = ctx->vm;
@@ -204,6 +212,7 @@ static int initXrInstance(XrCtx* ctx) {
         LOGE("xrCreateInstance failed: %d, %s", created, xrResultName(created));
         return 0;
     }
+    probeDisplayExtensions(ctx);
 
     // Which runtime we ended up on, since a report from a headset we do not
     // have starts with knowing what answered
@@ -355,6 +364,9 @@ static int initXrSession(XrCtx* ctx) {
         return 0;
     }
 
+    readStartKnobs(ctx);
+    startDisplay(ctx);
+    startPerfLevels(ctx);
     return 1;
 }
 
@@ -409,9 +421,13 @@ static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
             beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
             if (checkXr(xrBeginSession(ctx->session, &beginInfo), "xrBeginSession")) {
                 ctx->sessionRunning = 1;
+                displaySessionBegun(ctx);
             }
             break;
         }
+        case XR_SESSION_STATE_FOCUSED:
+            displayFocused(ctx);
+            break;
         case XR_SESSION_STATE_STOPPING:
             xrEndSession(ctx->session);
             ctx->sessionRunning = 0;
@@ -458,6 +474,15 @@ static void pollEvents(XrCtx* ctx) {
                 // Picking a controller up or putting it down swaps the profile
                 // on that hand, and the pointer wakes differently for each
                 refreshInputSource(ctx);
+                break;
+            case XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB: {
+                XrEventDataDisplayRefreshRateChangedFB* rate =
+                        (XrEventDataDisplayRefreshRateChangedFB*)&event;
+                displayRateChanged(ctx, rate->fromDisplayRefreshRate, rate->toDisplayRefreshRate);
+                break;
+            }
+            case XR_TYPE_EVENT_DATA_PERF_SETTINGS_EXT:
+                perfNotice(ctx, (XrEventDataPerfSettingsEXT*)&event);
                 break;
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
                 ctx->exitRequested = 1;
@@ -600,7 +625,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
 JNIEXPORT jlong JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz,
                                                        jobject activity, jint width, jint height,
-                                                       jint stereoMode, jint depthWidth,
+                                                       jint fps, jint stereoMode, jint depthWidth,
                                                        jint depthHeight, jboolean depthDebug,
                                                        jint convergence, jint depthScale,
                                                        jboolean handTracking, jint sharpenMode,
@@ -614,6 +639,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->envResTier = envResTier;
     ctx->videoWidth = width;
     ctx->videoHeight = height;
+    // The display is asked for a rate to match
+    ctx->streamFps = fps;
+    ctx->perfLevel = PERF_LEVEL_SUSTAINED_HIGH;
     ctx->stereoMode = stereoMode;
     // Every session with stereo starts with it on, and the switch only lasts
     // the session
@@ -800,6 +828,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
 
     ctx->predictedDisplayTime = frameState.predictedDisplayTime;
     ctx->shouldRender = frameState.shouldRender;
+    displayFrameBegun(ctx, &frameState);
     return FRAME_RENDER;
 }
 
