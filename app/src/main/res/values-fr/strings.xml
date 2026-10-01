@@ -180,6 +180,8 @@
     <string name="summary_checkbox_enable_sops">Autoriser GFE à modifier les paramètres du jeu pour un streaming optimal</string>
     <string name="title_checkbox_host_audio">Diffuser l\'audio sur le PC</string>
     <string name="summary_checkbox_host_audio">Diffuser l\'audio sur l\'ordinateur et sur cet appareil</string>
+    <string name="title_checkbox_auto_launch_desktop">Ouvrir Desktop automatiquement</string>
+    <string name="summary_checkbox_auto_launch_desktop">Toucher un PC lance son application nommée Desktop sans afficher la liste des applications, si l\'hôte en a une</string>
     <string name="category_advanced_settings">Paramètres avancés</string>
     <string name="title_unlock_fps">Débloquer toutes les fréquences d\'images possibles</string>
     <string name="summary_unlock_fps">Le streaming à 90 ou 120 FPS peut réduire la latence sur les appareils haut de gamme, mais peut entraîner un décalage ou une instabilité sur les appareils qui ne le supporte pas</string>

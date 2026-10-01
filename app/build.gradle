@@ -272,4 +272,7 @@ dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 
     testImplementation 'junit:junit:4.13.2'
+    // kXML 2, BSD style licence (its XmlPull API classes are public domain), the
+    // parser Android itself reads host answers with, so tests can read them too
+    testImplementation 'net.sf.kxml:kxml2:2.3.0'
 }

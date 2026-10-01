@@ -165,6 +165,8 @@
     <string name="summary_checkbox_enable_sops">允許 GFE 為最佳串流效果自動更改遊戲設定</string>
     <string name="title_checkbox_host_audio">在電腦上播放音訊</string>
     <string name="summary_checkbox_host_audio">在電腦和本裝置同時輸出音訊</string>
+    <string name="title_checkbox_auto_launch_desktop">自動開啟 Desktop</string>
+    <string name="summary_checkbox_auto_launch_desktop">點選電腦時，若主機有名為 Desktop 的應用程式，則直接啟動，不顯示應用程式清單</string>
     <string name="category_advanced_settings">進階設定</string>
     <string name="title_disable_frame_drop">永不丟失影格</string>
     <string name="summary_disable_frame_drop">可能會減少在一些裝置上的卡頓，但會增加延時</string>

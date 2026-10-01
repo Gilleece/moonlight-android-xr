@@ -22,10 +22,12 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
+import com.limelight.utils.DesktopLaunch;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
+import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
 import com.limelight.utils.WarningDialog;
 
@@ -642,6 +644,61 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
         startActivity(i);
     }
 
+    // With "Open Desktop automatically" on, a tap on a PC starts its Desktop
+    // app the way the app list would, if the host has one. Anything less
+    // certain, no Desktop, another app running or no answer, falls through to
+    // the app list as a tap always did.
+    private void doDesktopOrAppList(final ComputerDetails computer) {
+        if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
+            doAppList(computer, false, false);
+            return;
+        }
+        final ComputerManagerService.ComputerManagerBinder binder = managerBinder;
+        if (binder == null) {
+            Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        final SpinnerDialog spinner = SpinnerDialog.displayDialog(this,
+                getResources().getString(R.string.applist_refresh_title),
+                getResources().getString(R.string.applist_refresh_msg), false);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                NvApp desktop = null;
+                try {
+                    NvHTTP httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer),
+                            computer.httpsPort, binder.getUniqueId(), computer.serverCert,
+                            PlatformBinding.getCryptoProvider(PcView.this));
+                    desktop = DesktopLaunch.choose(DesktopLaunch.parse(httpConn.getAppListRaw()),
+                            computer.runningGameId);
+                    LimeLog.info(desktop != null
+                            ? "Opening " + desktop.getAppName() + " on " + computer.name + " directly"
+                            : "No Desktop to open on " + computer.name + " directly, showing the app list");
+                } catch (XmlPullParserException | IOException e) {
+                    LimeLog.warning("App list for the Desktop check failed: " + e);
+                }
+
+                final NvApp app = desktop;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        spinner.dismiss();
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        if (app != null && managerBinder != null) {
+                            ServerHelper.doStart(PcView.this, app, computer, managerBinder);
+                        }
+                        else {
+                            doAppList(computer, false, false);
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
     @Override
     public boolean onContextItemSelected(MenuItem item) {
         AdapterContextMenuInfo info = (AdapterContextMenuInfo) item.getMenuInfo();
@@ -803,6 +860,8 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                 } else if (computer.details.pairState != PairState.PAIRED) {
                     // Pair an unpaired machine by default
                     doPair(computer.details);
+                } else if (PreferenceConfiguration.readPreferences(PcView.this).autoLaunchDesktop) {
+                    doDesktopOrAppList(computer.details);
                 } else {
                     doAppList(computer.details, false, false);
                 }
