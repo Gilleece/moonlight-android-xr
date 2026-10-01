@@ -445,6 +445,9 @@ typedef struct {
     EGLSurface eglPbuffer;
 
     XrInstance instance;
+    // The runtime's name and version as the log line gives them, empty until
+    // the instance answers
+    char runtimeLabel[XR_MAX_RUNTIME_NAME_SIZE + 32];
     XrSystemId systemId;
     XrSession session;
     XrSpace localSpace;

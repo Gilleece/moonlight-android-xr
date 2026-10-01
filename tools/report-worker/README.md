@@ -26,10 +26,17 @@ this app will see means the collector costs nothing and cannot start to.
 
 ## Pointing the app at it
 
-In the repository's `gradle.properties`:
+In `keystore.properties` at the top of the repository, the file the release
+signing details live in (see `keystore.properties.example`), which is
+gitignored:
 
-    moonlightReportUrl=https://moonlight-xr-reports.<account>.workers.dev/report
-    moonlightReportToken=<the same random string>
+    reportUrl=https://moonlight-xr-reports.<account>.workers.dev/report
+    reportToken=<the same random string>
+
+Both end up in the APK's BuildConfig, so they must never go in a tracked
+file. The `moonlightReportUrl` and `moonlightReportToken` keys in the tracked
+`gradle.properties` are only a fallback, for passing a test collector with
+`-PmoonlightReportUrl=...` on the command line, and stay empty there.
 
 A build without these keeps the report screen's local behaviour: the report
 is saved beside the log and the user is told where it is.

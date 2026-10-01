@@ -22,6 +22,7 @@ import com.limelight.R;
 import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
+import com.limelight.utils.BugReport;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -390,6 +391,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native boolean nativeHasBeenFocused(long ctx);
+    private native String nativeGetRuntime(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
@@ -464,6 +466,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
                 prefsContext = activity.getApplicationContext();
                 gazeAllowed = EyeTrackingPermission.gazeAllowed(prefsContext);
+                // Kept for a report, which can be made long after this session
+                String runtime = nativeGetRuntime(nativeCtx);
+                if (runtime != null) {
+                    PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                            .putString(BugReport.RUNTIME_PREF, runtime).apply();
+                }
                 // For the frame rate list, which can only ask the Android
                 // display otherwise
                 XrDisplayRates.remember(prefsContext, nativeGetOfferedRates(nativeCtx));

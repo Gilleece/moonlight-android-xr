@@ -222,10 +222,13 @@ static int initXrInstance(XrCtx* ctx) {
     // have starts with knowing what answered
     XrInstanceProperties instanceProps = { XR_TYPE_INSTANCE_PROPERTIES };
     if (XR_SUCCEEDED(xrGetInstanceProperties(ctx->instance, &instanceProps))) {
-        LOGEV("runtime %s %u.%u.%u", instanceProps.runtimeName,
-              (unsigned)XR_VERSION_MAJOR(instanceProps.runtimeVersion),
-              (unsigned)XR_VERSION_MINOR(instanceProps.runtimeVersion),
-              (unsigned)XR_VERSION_PATCH(instanceProps.runtimeVersion));
+        // Kept as the line gives it, for a report made later to carry
+        snprintf(ctx->runtimeLabel, sizeof(ctx->runtimeLabel), "%s %u.%u.%u",
+                 instanceProps.runtimeName,
+                 (unsigned)XR_VERSION_MAJOR(instanceProps.runtimeVersion),
+                 (unsigned)XR_VERSION_MINOR(instanceProps.runtimeVersion),
+                 (unsigned)XR_VERSION_PATCH(instanceProps.runtimeVersion));
+        LOGEV("runtime %s", ctx->runtimeLabel);
     }
 
     XrSystemGetInfo systemInfo = { XR_TYPE_SYSTEM_GET_INFO };
@@ -891,6 +894,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeHasBeenFocused(JNIEnv* env, jo
                                                                  jlong handle) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     return (ctx != NULL && ctx->everFocused) ? JNI_TRUE : JNI_FALSE;
+}
+
+// The runtime's name and version, for a report to carry, or null before the
+// instance has said
+JNIEXPORT jstring JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetRuntime(JNIEnv* env, jobject thiz,
+                                                             jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || ctx->runtimeLabel[0] == '\0') {
+        return NULL;
+    }
+    return (*env)->NewStringUTF(env, ctx->runtimeLabel);
 }
 
 // Whether curved screens are available at all, which is what says if the panel
