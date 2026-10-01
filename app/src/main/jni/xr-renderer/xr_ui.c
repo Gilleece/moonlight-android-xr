@@ -305,6 +305,53 @@ int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
     return buttonHit(ctx, local, side, u, v, height);
 }
 
+// The 3D switch is one place further out again on the right, past the
+// keyboard, so a session without it loses only the last button and every
+// other one stays where it always is
+void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    float gap = width * ENV_GAP_FRAC;
+    outLocal->x = barW * 0.5f + gap + side * 1.5f + gap + side + gap;
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+// Only where it is drawn, which is a session with stereo to switch once its
+// art has arrived
+int stereoButtonHit(XrCtx* ctx, float u, float v, float height) {
+    if (!ctx->stereoButtonReady) {
+        return 0;
+    }
+    Vec3 local;
+    float side;
+    stereoButtonPlacement(ctx, height, &local, &side);
+    return buttonHit(ctx, local, side, u, v, height);
+}
+
+// The 3D on or off for the rest of the session, from the bar or the 3D tab.
+// Takes effect on the next draw, which is asked for now so a picture standing
+// still shows it too. Coming back on with a model running, the warp waits
+// flat for a map of what is on screen now rather than picking up with the
+// one left from whenever it went off.
+void setStereoLive(XrCtx* ctx, int on, const char* from) {
+    on = on ? 1 : 0;
+    if (ctx->stereoMode == DEPTH_MODE_OFF || ctx->stereoLive == on) {
+        return;
+    }
+    ctx->stereoLive = on;
+    ctx->warpRedraw = 1;
+    ctx->stereoWaiting = on && ctx->stereoMode == DEPTH_MODE_MODEL;
+    ctx->stereoWaitIndex = atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire);
+    ctx->stereoWaitNs = nowNs();
+    // The shift test measures again in the new state
+    ctx->barTestFramesLogged = 0;
+    LOGEV("3d %s from %s", on ? "on" : "off", from);
+}
+
 // The prompt stands on the button that opened it, the way the settings panel
 // stands on the cog. Frozen for as long as it is up for the same reason: the
 // screen can still be dragged behind it, and the two buttons must not move out
@@ -383,7 +430,7 @@ int cogRowCells(int face, int row) {
         return COG_ROOM_SWITCH_CELLS;
     }
     if (face == COG_TAB_3D) {
-        return COG_PRESET_CELLS;
+        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : COG_STEREO_CELLS;
     }
     return cogOptionCells(row);
 }
@@ -395,7 +442,7 @@ int cogRowLive(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_SCREEN && row == COG_SLIDER_CURVE) {
         return ctx->cylinderSupported;
     }
-    // With stereo off there is nothing for either 3D row to move
+    // With stereo off there is nothing for any 3D row to move or switch
     if (face == COG_TAB_3D) {
         return ctx->stereoMode != DEPTH_MODE_OFF;
     }
@@ -508,6 +555,9 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
     }
 
     if (face == COG_TAB_3D) {
+        // Both tracks move something only the 3D shows, so taking hold of
+        // either brings it back if it was switched off
+        setStereoLive(ctx, 1, "the 3D tab's tracks");
         if (slider == COG_ROW3D_SEPARATION) {
             // Snapped to the units the preference is stored in, so what the
             // thumb shows is exactly what gets written when the drag ends
@@ -725,15 +775,24 @@ int cogCellInForce(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_3D && row == COG_ROW3D_PRESET) {
         return cogPresetAt(separationUnits(ctx->separationCurrent), ctx->presetUnits);
     }
+    if (face == COG_TAB_3D && row == COG_ROW3D_SWITCH) {
+        return ctx->stereoLive ? 1 : 0;
+    }
     return -1;
 }
 
-// A preset writes its separation the way letting go of the track there
-// would, so it goes to the preference by the same road
+// The switch is the bar button's, for this session only, so nothing goes to
+// Java to store. A preset writes its separation the way letting go of the
+// track there would, so it goes to the preference by the same road, and it
+// brings the 3D back if it was off, since a strength is something to see.
 static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
     static const char* const PRESET_NAMES[COG_PRESET_CELLS] = {
         "Comfort", "Balanced", "Strong"
     };
+    if (row == COG_ROW3D_SWITCH) {
+        setStereoLive(ctx, cell != 0, "the 3D tab");
+        return;
+    }
     if (row != COG_ROW3D_PRESET || cell < 0 || cell >= COG_PRESET_CELLS) {
         return;
     }
@@ -743,6 +802,7 @@ static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
     out[IN_SETTING] = (float)SETTING_SEPARATION;
     out[IN_SETTING_VALUE] = (float)units;
     LOGEV("3d preset %s from the panel, separation %d", PRESET_NAMES[cell], units);
+    setStereoLive(ctx, 1, "a preset");
 }
 
 // A press on a cell, whichever tab it is on, applied here and now and handed

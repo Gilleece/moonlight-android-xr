@@ -28,6 +28,7 @@
 #define HOVER_KBPANEL   11
 #define HOVER_EXITBUTTON 12
 #define HOVER_EXITPROMPT 13
+#define HOVER_STEREOBUTTON 14
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 

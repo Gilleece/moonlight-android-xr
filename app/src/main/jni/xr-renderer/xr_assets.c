@@ -116,6 +116,15 @@ int createPointerSwapchain(XrCtx* ctx) {
     createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create exit button swapchain",
                        &ctx->exitButtonSwapchain, &ctx->exitButtonImages,
                        &ctx->exitButtonImageCount);
+    // The 3D switch, off and on, only where there is stereo to switch
+    if (ctx->stereoMode != DEPTH_MODE_OFF) {
+        for (int state = 0; state < 2; state++) {
+            createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create 3d button swapchain",
+                               &ctx->stereoButtonSwapchains[state],
+                               &ctx->stereoButtonImages[state],
+                               &ctx->stereoButtonImageCounts[state]);
+        }
+    }
 
     // Two padlocks rather than one, since a quad layer has no way to swap
     // its own texture and open and shut have to read differently
@@ -547,6 +556,26 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobjec
          ctx->exitPromptReady[EXIT_ZONE_NONE] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_EXIT] ? "ready" : "missing",
          ctx->exitPromptReady[EXIT_ZONE_CANCEL] ? "ready" : "missing");
+}
+
+// The 3D switch's two faces, off and on. Both or neither, like the padlocks.
+// Never called in a session without stereo, which has no swapchains for them.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadStereoButton(JNIEnv* env, jobject thiz,
+                                                                     jlong handle, jobject off,
+                                                                     jobject on) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || off == NULL || on == NULL) {
+        return;
+    }
+    int offReady = 0;
+    int onReady = 0;
+    uploadSheet(env, ctx, off, ctx->stereoButtonSwapchains[0], ctx->stereoButtonImages[0],
+                BUTTON_TEX, BUTTON_TEX, &offReady);
+    uploadSheet(env, ctx, on, ctx->stereoButtonSwapchains[1], ctx->stereoButtonImages[1],
+                BUTTON_TEX, BUTTON_TEX, &onReady);
+    ctx->stereoButtonReady = offReady && onReady;
+    LOGI("3d button art %s", ctx->stereoButtonReady ? "ready" : "missing");
 }
 
 // The two padlocks, shut and open. Both or neither, since one on its own

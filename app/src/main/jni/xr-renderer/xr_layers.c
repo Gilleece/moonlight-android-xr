@@ -10,9 +10,15 @@
 // up, which is the Pico's limit and no further. The display tab keeps its
 // rows in a room: its seven rings and the glow level thumb over the rest come
 // to 17 at its fullest, one past the Pico's sixteen, so a frame over the
-// runtime's limit sheds the hover ring (see nativeEndFrame). The panel is
-// modal, and since the frame a modal opens now sheds the bar furniture too,
-// the two can no longer land in one frame together.
+// runtime's limit sheds the hover ring (see nativeEndFrame). The 3D tab, with
+// the ring on its preset, the ring on its switch, the hover ring and its two
+// thumbs, comes to 15 in a room. The panel is modal, and since the frame a
+// modal opens now sheds the bar furniture too, the two can no longer land in
+// one frame together.
+// The bar itself, with the pill, all five buttons including the 3D switch and
+// the padlock up over the glow, both eyes, the stats, ray and cursor, comes to
+// 13, and to 13 in a room, where the pill gives way to the room's own layer.
+// Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the same furniture and adds only its panel and one
 // ring, so it comes to 9. The exit prompt sheds it too and adds its own
 // sheet and the button that opened it, so it comes to less again. Sized
@@ -34,6 +40,7 @@ typedef struct {
     XrCompositionLayerQuad cogButton;
     XrCompositionLayerQuad kbButton;
     XrCompositionLayerQuad exitButton;
+    XrCompositionLayerQuad stereoButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad lock;
     XrCompositionLayerQuad picker;
@@ -279,21 +286,25 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     }
 }
 
-// The picture, one layer per eye, on a cylinder when it is curved
+// The picture, one layer per eye, on a cylinder when it is curved. With the 3D
+// switched off the left half alone is drawn, flat, and goes to both eyes as
+// one layer. What was last drawn decides, not the switch, so a press that
+// lands between two frames never shows an eye the draw has not caught up with.
 static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
-    int viewCount = view->stereo ? 2 : 1;
+    int viewCount = view->stereo && ctx->drawnEyes == 2 ? 2 : 1;
     for (int eye = 0; eye < viewCount; eye++) {
         XrSwapchainSubImage subImage;
         subImage.swapchain = ctx->swapchain;
         // The swap toggle reroutes which half each eye sees. Any stereo
         // inversion bug found later is then depth or warp, not routing
-        int half = view->eyeSwap ? (1 - eye) : eye;
+        int half = viewCount == 2 && view->eyeSwap ? (1 - eye) : eye;
         int x = view->stereo ? half * ctx->videoWidth : 0;
         int w = ctx->videoWidth;
         // Both eyes share one chain, side by side, and the compositor's filter
         // reads a texel past the rectangle it is given, which at the seam is
         // the other eye's picture. Both ends come in by a texel, so the two
         // eyes lose the same columns and the crop brings no disparity with it.
+        // The flat picture keeps the same crop, so switching moves nothing.
         if (view->stereo && ctx->seamInset && w > 2 * SEAM_INSET_TEXELS) {
             x += SEAM_INSET_TEXELS;
             w -= 2 * SEAM_INSET_TEXELS;
@@ -304,7 +315,7 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         subImage.imageRect.extent.height = ctx->videoHeight;
         subImage.imageArrayIndex = 0;
 
-        XrEyeVisibility visibility = !view->stereo ? XR_EYE_VISIBILITY_BOTH :
+        XrEyeVisibility visibility = viewCount == 1 ? XR_EYE_VISIBILITY_BOTH :
                 (eye == 0 ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT);
 
         if (view->curve > 0.01f && ctx->cylinderSupported) {
@@ -469,6 +480,14 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     if (ctx->exitButtonReady && (view->barArea || ctx->exitConfirmOpen)) {
         addBarButton(ctx, view, layers, &layers->exitButton, ctx->exitButtonSwapchain,
                      exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen);
+    }
+
+    // The 3D switch, furthest out on the right, showing which way it is set.
+    // Never made in a session without stereo, so never ready in one.
+    if (ctx->stereoButtonReady && view->barArea) {
+        addBarButton(ctx, view, layers, &layers->stereoButton,
+                     ctx->stereoButtonSwapchains[ctx->stereoLive ? 1 : 0],
+                     stereoButtonPlacement, ctx->stereoButtonHot);
     }
 }
 
@@ -821,7 +840,22 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         quadWidth = ctx->screenOverride;
     }
 
-    if (newFrame && ctx->shouldRender) {
+    // Back on and waiting flat: a map made since the switch has landed, or
+    // the wait is over. Drawn again at once, like the switch itself, so a
+    // picture standing still takes its depth without waiting for a new frame.
+    if (ctx->stereoWaiting
+            && (atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire)
+                    != ctx->stereoWaitIndex
+                || nowNs() - ctx->stereoWaitNs > STEREO_WAIT_NS)) {
+        ctx->stereoWaiting = 0;
+        ctx->warpRedraw = 1;
+        LOGI("3d warping again after %.0f ms", (nowNs() - ctx->stereoWaitNs) / 1e6);
+    }
+
+    // A switch of the 3D redraws the frame already latched, since the decoder
+    // sends nothing while the picture stands still
+    int redraw = ctx->warpRedraw && ctx->everRendered;
+    if ((newFrame || redraw) && ctx->shouldRender) {
         long startNs = nowNs();
 
         float texMatrix[16];
@@ -871,7 +905,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
             && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                 || ctx->hoverKind == HOVER_COGBUTTON
                 || ctx->hoverKind == HOVER_KBBUTTON
-                || ctx->hoverKind == HOVER_EXITBUTTON);
+                || ctx->hoverKind == HOVER_EXITBUTTON
+                || ctx->hoverKind == HOVER_STEREOBUTTON);
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;
@@ -913,7 +948,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // The display tab at its fullest, with a room, the glow, the stats and
     // the ray all up, is one layer past the Pico's sixteen, and a frame over
     // the limit is refused whole. Its hover ring is what goes, and the Room
-    // tab's is the same slot: the cursor already shows where the ray is.
+    // and 3D tabs' are the same slot: the cursor already shows where the ray
+    // is.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);
     }

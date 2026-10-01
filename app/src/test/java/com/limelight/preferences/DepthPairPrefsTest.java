@@ -2,6 +2,8 @@ package com.limelight.preferences;
 
 import android.content.SharedPreferences;
 
+import com.limelight.binding.video.XrShared;
+
 import org.junit.Test;
 
 import java.util.HashMap;
@@ -10,7 +12,10 @@ import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 
-/** The separation and convergence each model starts on, and what a stored pair does to them. */
+/**
+ * The separation and convergence each model starts on, what a stored pair does
+ * to them, and how the log lines name the pair, the preset and the 3D.
+ */
 public class DepthPairPrefsTest {
 
     private static final String ZIPDEPTH = PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH;
@@ -80,6 +85,15 @@ public class DepthPairPrefsTest {
     public void theLogLinesGiveThePairSeparationFirst() {
         assertEquals("6/50", PreferenceConfiguration.defaultPairLabel(ZIPDEPTH));
         assertEquals("5/50", PreferenceConfiguration.defaultPairLabel(MIDAS));
+    }
+
+    // Any depth source but off starts a session in 3D, the patterns included
+    @Test
+    public void theLogLinesSayWhetherASessionStartsIn3d() {
+        assertEquals("off", PreferenceConfiguration.stereoAtStartLabel(XrShared.DEPTH_MODE_OFF));
+        assertEquals("on", PreferenceConfiguration.stereoAtStartLabel(XrShared.DEPTH_MODE_MODEL));
+        assertEquals("on", PreferenceConfiguration.stereoAtStartLabel(
+                XrShared.DEPTH_MODE_SHIFTTEST));
     }
 
     // The same separation is a different preset under each model

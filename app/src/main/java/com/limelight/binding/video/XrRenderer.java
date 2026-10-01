@@ -126,6 +126,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile String depthLabel = "";
     private volatile float lastDepthAgeMs;
     private volatile int lastDepthSkips;
+    // Whether the 3D is on, as the frame before said. The bar and the 3D tab
+    // can switch it off for the rest of the session, and while it is off the
+    // model is not fed, so it sits idle until it comes back on.
+    private volatile boolean stereoLive = true;
 
     // Controller pointer. The native side does the ray maths and hands back a
     // hit point and a button mask, this side turns that into host events. The
@@ -174,6 +178,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final int[] readoutWanted = new int[READOUT_VALUES];
     private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
+    // The 3D switch's two faces, only drawn in a session with stereo to switch
+    private final AtomicReference<ByteBuffer> pendingStereoOff = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingStereoOn = new AtomicReference<>();
     // A baked room on its way to the GPU, read off the frame loop like the art
     // above. The native side shows the void in its place until it has landed.
     // The mesh, the atlases and the cell they belong to travel as one, so a
@@ -300,6 +307,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
+    private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeSetEnvironment(long ctx, int choice);
     private native void nativeUploadOverlay(long ctx, ByteBuffer pixels, int width, int height);
     private native float nativeGetWarpGpuMs(long ctx);
@@ -741,6 +749,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         int cadence = Math.max(1, prefs.vrInferenceCadence);
 
         long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
+        // When the 3D last came back on. Until a map captured since then is
+        // up, the live one is from before it went off, and its age says how
+        // long the 3D was off rather than how far behind the depth is.
+        long stereoBackNs = 0;
 
         while (!stopping) {
             int r = nativeWaitBeginFrame(nativeCtx);
@@ -764,16 +776,26 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             dispatchInput();
             updateRoomReadout();
 
+            // Switched off, the warp draws flat and the model is left idle.
+            // Back on, it wants a map of what is showing now, so the frame in
+            // hand is captured at once whatever the cadence says.
+            boolean stereoOn = inputState[IN_STEREO] != 0.0f;
+            boolean stereoBack = stereoOn && !stereoLive;
+            stereoLive = stereoOn;
+            if (stereoBack) {
+                stereoBackNs = System.nanoTime();
+            }
+
             boolean newFrame = pendingFrames.getAndSet(0) > 0;
             if (newFrame) {
                 surfaceTexture.updateTexImage();
                 surfaceTexture.getTransformMatrix(texMatrix);
 
-                if (depthReady) {
-                    if ((videoFrameIndex % cadence) == 0) {
+                if (depthReady && stereoOn) {
+                    if ((videoFrameIndex % cadence) == 0 || stereoBack) {
                         startDepthCapture();
                     }
-                    if (publishedFrameNs != 0) {
+                    if (publishedFrameNs != 0 && publishedFrameNs >= stereoBackNs) {
                         long age = System.nanoTime() - publishedFrameNs;
                         // Smoothed for the overlay, the raw value swings a lot
                         // between one inference landing and the next
@@ -796,6 +818,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     }
                 }
                 videoFrameIndex++;
+            }
+            else if (stereoBack && depthReady && videoFrameIndex > 0) {
+                // Nothing new from the decoder, so the frame still latched
+                startDepthCapture();
             }
             // Upload here rather than from the reporting thread, since this is
             // the thread that owns the GL context
@@ -837,6 +863,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             ByteBuffer open = pendingLockOpen.getAndSet(null);
             if (shut != null && open != null) {
                 nativeUploadLock(nativeCtx, shut, open);
+            }
+
+            ByteBuffer stereoOff = pendingStereoOff.getAndSet(null);
+            ByteBuffer stereoOnArt = pendingStereoOn.getAndSet(null);
+            if (stereoOff != null && stereoOnArt != null) {
+                nativeUploadStereoButton(nativeCtx, stereoOff, stereoOnArt);
             }
 
             RoomAssets room = pendingRoom.getAndSet(null);
@@ -944,6 +976,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         pendingCogSheets.set(panels.buildCogTabs(curveOk, stereoOk, spec.defaultSeparation,
                 spec.defaultConvergence));
         pendingCogButton.set(panels.buildCogButton());
+        // The 3D switch on the bar is left out altogether without stereo:
+        // there is nothing for it to switch, and the 3D tab already says why
+        if (stereoOk) {
+            ByteBuffer[] faces = panels.buildStereoButtons();
+            pendingStereoOff.set(faces[0]);
+            pendingStereoOn.set(faces[1]);
+        }
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
         kbKeyRects = keyboard.keyRects;
@@ -1484,8 +1523,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
         StringBuilder sb = new StringBuilder();
         sb.append(String.format("Warp GPU: %.2f ms", warpMs));
+        // Switched off from the bar or the 3D tab, the model's numbers are
+        // the last ones it had and mean nothing, so they make way for saying so
+        boolean switchedOff = !stereoLive && prefConfig != null
+                && prefConfig.vrDepthMode != DEPTH_MODE_OFF;
         if (depthReady) {
             sb.append('\n').append("Depth model: ").append(depthLabel);
+        }
+        if (switchedOff) {
+            sb.append('\n').append(depthReady ? "3D: off, depth model idle" : "3D: off");
+        }
+        else if (depthReady) {
             sb.append('\n').append(String.format("Depth inference: %.1f ms", lastInferenceMs));
             sb.append('\n').append(String.format("Depth age: %.0f ms", lastDepthAgeMs));
             sb.append('\n').append("Depth frames skipped: ").append(lastDepthSkips);

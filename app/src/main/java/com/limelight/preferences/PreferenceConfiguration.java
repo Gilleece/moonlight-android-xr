@@ -525,6 +525,15 @@ public class PreferenceConfiguration {
         return defaultSeparation(depthModel) + "/" + defaultConvergence(depthModel);
     }
 
+    /**
+     * Whether a session with this depth mode starts in 3D, as the log lines
+     * give it. The bar and the 3D tab can switch it off and on again for the
+     * session only, and each switch is a line in the log of its own.
+     */
+    public static String stereoAtStartLabel(int depthMode) {
+        return depthMode != XrShared.DEPTH_MODE_OFF ? "on" : "off";
+    }
+
     /** Which of the 3D tab's presets a separation is under that model, or none, for the logs. */
     public static String presetLabel(int separation, String depthModel) {
         return DepthPresets.name(DepthPresets.presetFor(separation, defaultSeparation(depthModel)));

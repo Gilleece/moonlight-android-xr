@@ -546,6 +546,9 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         destroyArtSwapchain(&ctx->exitPromptSwapchains[sheet], &ctx->exitPromptImages[sheet]);
     }
     destroyArtSwapchain(&ctx->exitButtonSwapchain, &ctx->exitButtonImages);
+    for (int state = 0; state < 2; state++) {
+        destroyArtSwapchain(&ctx->stereoButtonSwapchains[state], &ctx->stereoButtonImages[state]);
+    }
     destroyArtSwapchain(&ctx->lockSwapchain, &ctx->lockImages);
     destroyArtSwapchain(&ctx->unlockSwapchain, &ctx->unlockImages);
     destroyArtSwapchain(&ctx->outlineSwapchain, &ctx->outlineImages);
@@ -612,6 +615,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->videoWidth = width;
     ctx->videoHeight = height;
     ctx->stereoMode = stereoMode;
+    // Every session with stereo starts with it on, and the switch only lasts
+    // the session
+    ctx->stereoLive = stereoMode != DEPTH_MODE_OFF;
+    ctx->drawnEyes = ctx->stereoLive ? 2 : 1;
     // The size the depth map runs at, from the model Java picked. Everything
     // the depth path allocates is sized from it, so it is settled before any
     // of that is built.

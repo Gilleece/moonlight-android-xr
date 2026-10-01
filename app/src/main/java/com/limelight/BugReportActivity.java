@@ -329,6 +329,7 @@ public class BugReportActivity extends Activity {
                 + " audio " + prefs.audioConfiguration.channelCount
                 + " virtualSurround " + prefs.vrVirtualSurround + "\n"
                 + "vr " + prefs.enableVrMode + " depthMode " + prefs.vrDepthMode
+                + " stereo3d " + PreferenceConfiguration.stereoAtStartLabel(prefs.vrDepthMode)
                 + " depthModel " + prefs.vrDepthModel
                 + " cadence " + prefs.vrInferenceCadence + " separation " + prefs.vrStereoSeparation
                 + " convergence " + prefs.vrConvergence

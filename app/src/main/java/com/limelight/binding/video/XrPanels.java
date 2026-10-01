@@ -12,6 +12,7 @@ import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.Typeface;
 
 import com.limelight.LimeLog;
 
@@ -23,8 +24,8 @@ import static com.limelight.binding.video.XrShared.*;
 
 /**
  * The flat panels reachable from inside the session: the environment picker,
- * the settings sheets, the keyboard and the exit prompt, and the buttons that
- * open them. Java is the only place Android will lay out text, so their art
+ * the settings sheets, the keyboard and the exit prompt, and the buttons along
+ * the bar that open them or switch the 3D. Java is the only place Android will lay out text, so their art
  * is drawn to bitmaps here and handed back as pixels for the frame loop to
  * upload, since that thread owns the GL context. Nothing in here touches the
  * session, so it can run on whichever thread has the time.
@@ -80,12 +81,14 @@ final class XrPanels {
             { "Off", "On" },
             { "Off", "On" }
     };
-    // 3D tab: a row of presets over two sliders, drawn the same way the
-    // display tab's cells and the screen tab's tracks are, in the COG_ROW3D_
-    // order. Only values that take effect the moment they move belong on the
-    // panel, which is why the depth source itself stays in the 2d settings.
+    // 3D tab: a row of presets over two sliders, then the switch the bar's 3D
+    // button works too, drawn the same way the display tab's cells and the
+    // screen tab's tracks are, in the COG_ROW3D_ order. Only values that take
+    // effect the moment they move belong on the panel, which is why the depth
+    // source itself stays in the 2d settings.
     private static final String COG_PRESET_ROW = "Preset";
     private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
+    private static final String COG_STEREO_ROW = "3D";
 
     // The in world keyboard. Three sheets of the same layout, one per state,
     // handed over in state order, along with the geometry that goes with them:
@@ -684,12 +687,13 @@ final class XrPanels {
         }
     }
 
-    // 3D tab: three presets, then the two values worth reaching mid stream.
-    // Depth runs past the comfortable range on purpose, with the far end
-    // marked, since where that range ends is a matter of eyes rather than of
-    // hardware. The ticks and the start of the marked end are the running
-    // model's own pair, which is also where Balanced sits. Which preset is in
-    // force is a ring the native side puts over its cell.
+    // 3D tab: three presets, then the two values worth reaching mid stream,
+    // then the switch. Depth runs past the comfortable range on purpose, with
+    // the far end marked, since where that range ends is a matter of eyes
+    // rather than of hardware. The ticks and the start of the marked end are
+    // the running model's own pair, which is also where Balanced sits. Which
+    // preset is in force, and which way the switch is set, are rings the
+    // native side puts over their cells.
     private void drawCog3dRows(Canvas canvas, boolean stereoOk, int defaultSeparation,
                                int defaultConvergence) {
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -755,6 +759,13 @@ final class XrPanels {
 
             canvas.drawRect(markX - 2.0f, y - tickHalf, markX + 2.0f, y + tickHalf, tick);
         }
+
+        // The switch, which only lasts the session, the same one the bar's
+        // button works, so the two never disagree
+        float switchY = (COG_ROW_V0 + COG_ROW3D_SWITCH * COG_ROW_STEP) * COG_TEX_H;
+        canvas.drawText(COG_STEREO_ROW, 0.06f * COG_TEX_W,
+                switchY - (text.ascent() + text.descent()) * 0.5f, text);
+        drawCogCells(canvas, COG_ROOM_SWITCH, switchY, stereoOk);
 
         // A way back from a pair of values that turned out to be unwatchable
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -997,6 +1008,55 @@ final class XrPanels {
         }
         canvas.drawRoundRect(new RectF(44.0f, 74.0f, 84.0f, 86.0f), 3.0f, 3.0f, paint);
 
+        return button;
+    }
+
+    /**
+     * The 3D switch on the bar, off and then on, a swapchain each on the
+     * native side so flipping it is a handle rather than an upload. The
+     * letters sit in the frame the environment button is drawn in, bright
+     * while the picture is in 3D and dimmed with a stroke through them while
+     * it is flat.
+     */
+    ByteBuffer[] buildStereoButtons() {
+        ByteBuffer[] faces = new ByteBuffer[2];
+        for (int on = 0; on < 2; on++) {
+            Bitmap button = buildStereoButton(on == 1);
+            faces[on] = toBuffer(button);
+            button.recycle();
+        }
+        return faces;
+    }
+
+    private Bitmap buildStereoButton(boolean on) {
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        int ink = on ? 0xEEFFFFFF : 0x80FFFFFF;
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(ink);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6.0f);
+        canvas.drawRoundRect(new RectF(14.0f, 14.0f, 114.0f, 114.0f), 22.0f, 22.0f, paint);
+
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setColor(ink);
+        text.setTextSize(48.0f);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        text.setTextAlign(Paint.Align.CENTER);
+        final float mid = BUTTON_TEX * 0.5f;
+        canvas.drawText("3D", mid, mid - (text.ascent() + text.descent()) * 0.5f, text);
+
+        if (!on) {
+            // Corner to corner through the letters, the way a muted speaker
+            // is struck through, and at full strength so it reads at a glance
+            paint.setColor(0xEEFFFFFF);
+            paint.setStrokeWidth(7.0f);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            canvas.drawLine(30.0f, 98.0f, 98.0f, 30.0f, paint);
+        }
         return button;
     }
 

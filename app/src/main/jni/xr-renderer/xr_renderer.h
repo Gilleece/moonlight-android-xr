@@ -270,6 +270,11 @@ static inline long nowNs(void) {
 // anisotropic filtering on a compressed atlas, where the driver offers it
 #define ROOM_ANISOTROPY_MAX 4.0f
 
+// The longest the warp waits flat for a fresh map once the 3D is switched back
+// on. Java captures the frame in hand at the switch, so a map is one inference
+// away, about 55 ms on the slowest route; this only matters if none comes.
+#define STEREO_WAIT_NS 400000000L
+
 // Three depth textures rather than two: the stage thread advances through
 // them in a fixed rotation, so a slot it is about to overwrite was last handed
 // to the frame loop a full rotation ago rather than one. One inference dwarfs
@@ -420,6 +425,24 @@ typedef struct {
     // wide and each eye gets its own warped copy of the frame
     int stereoMode;
     int depthDebug;
+    // The 3D switch on the bar and the 3D tab, for this session only. Off, the
+    // frame is drawn once and flat into the left half, both eyes are shown
+    // that, and Java stops feeding the model. Starts on in a session with
+    // stereo and means nothing in one without.
+    int stereoLive;
+    // Just switched back on with a model running: still drawn flat until a
+    // map made since then lands, or STEREO_WAIT_NS has gone by, so the warp
+    // does not pick up with the depth of whatever was showing when it went
+    // off. The map that was live at the switch, and when it was pressed.
+    int stereoWaiting;
+    int stereoWaitIndex;
+    long stereoWaitNs;
+    // Draws the frame again with nothing new from the decoder, so the switch
+    // shows at once on a picture that is standing still
+    int warpRedraw;
+    // How many eyes the last draw left in the swapchain, which the video
+    // layers follow: both halves, or the left one to both eyes
+    int drawnEyes;
     // The depth map's size for this session, which is the model input's.
     // Set by nativeInit before any GL init and fixed from then on.
     int depthTexW;
@@ -1037,6 +1060,14 @@ typedef struct {
     XrPosef kbPose;
     float kbW, kbH;
 
+    // The 3D switch on the bar, its art off and on, one swapchain each like the
+    // padlock's two. Only made in a session with stereo to switch.
+    XrSwapchain stereoButtonSwapchains[2];
+    uint32_t stereoButtonImageCounts[2];
+    XrSwapchainImageOpenGLESKHR* stereoButtonImages[2];
+    int stereoButtonReady;
+    int stereoButtonHot;
+
     // The exit button and its prompt. One sheet per lit button, all filled at
     // startup, so hovering one costs a handle rather than an upload.
     XrSwapchain exitButtonSwapchain;
@@ -1199,6 +1230,9 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int exitButtonHit(XrCtx* ctx, float u, float v, float height);
+void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
+int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
+void setStereoLive(XrCtx* ctx, int on, const char* from);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
 int cogTabRowCount(int face);
