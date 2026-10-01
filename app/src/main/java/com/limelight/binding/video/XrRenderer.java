@@ -357,6 +357,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // presets write, in cell order
     private native void nativeSetDepthDefaults(long ctx, int separation, int convergence,
                                                int[] presets);
+    // Brightness, contrast, gamma and saturation over the picture, in the
+    // PICTURE_ order and units
+    private native void nativeSetPicture(long ctx, int[] picture);
     private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
                                              ByteBuffer symbols, ByteBuffer buttonIcon,
                                              float[] keyRects, int[] codesLower,
@@ -448,6 +451,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeSetDepthDefaults(nativeCtx, depthSpec.defaultSeparation,
                         depthSpec.defaultConvergence,
                         DepthPresets.values(depthSpec.defaultSeparation));
+                nativeSetPicture(nativeCtx, prefs.vrPicture);
                 restoreScreenPose();
                 startEnvironment(prefs);
                 // A few milliseconds here, and the first frame has it

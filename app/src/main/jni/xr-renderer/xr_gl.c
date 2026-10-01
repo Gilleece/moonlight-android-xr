@@ -122,6 +122,16 @@ int linkProgram(GLuint* out, const char* fragmentSrc, const char* what) {
     return 1;
 }
 
+// The picture grade into a program that carries GRADE_GLSL. With it off only
+// the switch goes in, and the shader never reads the rest.
+void setGradeUniforms(XrCtx* ctx, GLint onUniform, GLint gradeUniform, int on) {
+    glUniform1f(onUniform, on ? 1.0f : 0.0f);
+    if (on) {
+        glUniform4f(gradeUniform, ctx->grade.offset, ctx->grade.contrast, ctx->grade.exponent,
+                    ctx->grade.saturation);
+    }
+}
+
 // Quarter resolution is enough: at 1920x1080 the measured edge width was the
 // same 5 px, so the extra four times the pixels bought nothing.
 static int initUpsample(XrCtx* ctx) {
@@ -231,6 +241,8 @@ int initGl(XrCtx* ctx) {
     ctx->srcInsetUniform = glGetUniformLocation(ctx->program, "u_srcInset");
     ctx->edgeFadeUniform = glGetUniformLocation(ctx->program, "u_edgeFade");
     ctx->depthCubicUniform = glGetUniformLocation(ctx->program, "u_depthCubic");
+    ctx->gradeOnUniform = glGetUniformLocation(ctx->program, "u_gradeOn");
+    ctx->gradeUniform = glGetUniformLocation(ctx->program, "u_grade");
 
     // Sampler units are fixed: color on 0, depth on 1
     glUseProgram(ctx->program);
@@ -480,6 +492,7 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     glUniform1f(ctx->edgeFadeUniform, (float)ctx->edgeFadePx / (float)ctx->videoWidth);
     // Mono never uses the depth it reads, so it keeps the single fetch
     glUniform1f(ctx->depthCubicUniform, ctx->depthCubic && eyes == 2 ? 1.0f : 0.0f);
+    setGradeUniforms(ctx, ctx->gradeOnUniform, ctx->gradeUniform, ctx->gradeOn);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
     glEnableVertexAttribArray(0);
@@ -498,7 +511,10 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
             glUniform1f(ctx->disparityUniform, 0.0f);
             glUniform1f(ctx->barTestUniform, 0.0f);
             glUniform3f(ctx->tintUniform, 1.0f, 1.0f, 1.0f);
+            // The frame as it arrived, which is what the depth passes saw
+            glUniform1f(ctx->gradeOnUniform, 0.0f);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glUniform1f(ctx->gradeOnUniform, ctx->gradeOn ? 1.0f : 0.0f);
             glReadPixels(0, 0, ctx->videoWidth, ctx->videoHeight, GL_RGBA, GL_UNSIGNED_BYTE,
                          captureBuf);
             writeCapture(ctx, "source", captureBuf, captureBytes);

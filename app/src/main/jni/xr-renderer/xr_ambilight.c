@@ -13,6 +13,8 @@ int initAmbilight(XrCtx* ctx) {
     }
     ctx->ambiTexMatrixUniform = glGetUniformLocation(ctx->ambiProgram, "u_texmatrix");
     ctx->ambiCropUniform = glGetUniformLocation(ctx->ambiProgram, "u_crop");
+    ctx->ambiGradeOnUniform = glGetUniformLocation(ctx->ambiProgram, "u_gradeOn");
+    ctx->ambiGradeUniform = glGetUniformLocation(ctx->ambiProgram, "u_grade");
     glUseProgram(ctx->ambiProgram);
     glUniform1i(glGetUniformLocation(ctx->ambiProgram, "u_texture"), 0);
 
@@ -287,10 +289,12 @@ void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix) {
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glUniformMatrix4fv(ctx->ambiTexMatrixUniform, 1, GL_FALSE, texMatrix);
     glUniform4fv(ctx->ambiCropUniform, 1, AMBI_CROP_FULL);
-    // The current frame whole. Both the crop, which would hide the bars being
-    // looked for, and the smoothing, which would drag old ones in for ten
-    // frames after a cut, are off for this one draw.
+    // The current frame whole and as it arrived. The crop would hide the bars
+    // being looked for, the smoothing would drag old ones in for ten frames
+    // after a cut, and the picture grade would lift a black bar into a grey
+    // one that no longer reads as a bar, so all three are off for this draw.
     glDisable(GL_BLEND);
+    setGradeUniforms(ctx, ctx->ambiGradeOnUniform, ctx->ambiGradeUniform, 0);
 
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
     glEnableVertexAttribArray(0);
@@ -344,6 +348,9 @@ void runFrameColorSample(XrCtx* ctx, const float* texMatrix) {
     // so turning it back on picks up where it was.
     glUniform4fv(ctx->ambiCropUniform, 1,
                  ctx->ambiBarDetect ? ctx->ambiCrop : AMBI_CROP_FULL);
+    // Graded the way the screen is, so the glow and the room's light come from
+    // the picture as it is seen
+    setGradeUniforms(ctx, ctx->ambiGradeOnUniform, ctx->ambiGradeUniform, ctx->gradeOn);
 
     // Mixed into what is already there rather than replacing it. A cut to a
     // different scene would otherwise strobe the whole glow in one frame,

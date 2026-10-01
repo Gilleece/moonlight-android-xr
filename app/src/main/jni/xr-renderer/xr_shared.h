@@ -190,6 +190,31 @@
 #define ROOM_SYNTHWAVE_GLOW 1
 #define ROOM_SYNTHWAVE_RESIZABLE 1
 
+// The picture grade, in the whole units its preferences hold, one set for
+// every room and session. Brightness is hundredths of full scale added after
+// the contrast, contrast is percent of gain about mid grey, gamma is in
+// hundredths, and saturation is percent of the picture's own. Each default is
+// the picture as streamed, where the grade does nothing at all.
+#define PICTURE_BRIGHTNESS_MIN -50
+#define PICTURE_BRIGHTNESS_MAX 50
+#define PICTURE_BRIGHTNESS_DEFAULT 0
+#define PICTURE_CONTRAST_MIN 50
+#define PICTURE_CONTRAST_MAX 150
+#define PICTURE_CONTRAST_DEFAULT 100
+#define PICTURE_GAMMA_MIN 50
+#define PICTURE_GAMMA_MAX 200
+#define PICTURE_GAMMA_DEFAULT 100
+#define PICTURE_SATURATION_MIN 0
+#define PICTURE_SATURATION_MAX 200
+#define PICTURE_SATURATION_DEFAULT 100
+// The four in the order the Picture tab draws them, which is also the order
+// they travel in wherever they go together
+#define PICTURE_BRIGHTNESS 0
+#define PICTURE_CONTRAST 1
+#define PICTURE_GAMMA 2
+#define PICTURE_SATURATION 3
+#define PICTURE_VALUES 4
+
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0
 #define ENV_RES_STANDARD 1

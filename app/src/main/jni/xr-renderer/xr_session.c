@@ -762,6 +762,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     ctx->ambilightOn = ambilight;
     ctx->ambiIntensity = (ambiLevel < 0 ? 0 : (ambiLevel > 100 ? 100 : ambiLevel)) / 100.0f;
     ctx->ambiOverride = -1;
+    // The picture as streamed until Java hands down what the preferences say
+    for (int row = 0; row < PICTURE_VALUES; row++) {
+        ctx->pictureUnits[row] = pictureDefault(row);
+    }
+    ctx->grade = pictureGradeFor(ctx->pictureUnits);
+    ctx->gradeOn = 0;
     // The room's own light off the picture, which the panel owns from here on
     ctx->roomLightOn = roomLight;
     // And each room's own rows as its table row starts them, until Java hands

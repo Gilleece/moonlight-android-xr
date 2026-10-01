@@ -314,6 +314,14 @@
     <string name="summary_vr_depth_source">選擇即時 3D 模式，包含多種測試圖樣。</string>
     <string name="title_vr_env_res">虛擬環境解析度</string>
     <string name="summary_vr_env_res">螢幕周圍 3D 虛擬房間的渲染清晰度。畫質越高越消耗 GPU 效能。極致為實驗性功能，可能導致延遲或掉影格。</string>
+    <string name="title_seekbar_vr_picture_brightness">畫面亮度</string>
+    <string name="summary_seekbar_vr_picture_brightness">提高或降低頭戴裝置中整個畫面的亮度。0 為串流的原始畫面。頭戴裝置內設定面板的 Picture 分頁調整的是同樣的四個數值。</string>
+    <string name="title_seekbar_vr_picture_contrast">畫面對比</string>
+    <string name="summary_seekbar_vr_picture_contrast">以中灰為中心拉開或收攏畫面的明暗層次。100% 為串流的原始畫面。</string>
+    <string name="title_seekbar_vr_picture_gamma">畫面伽瑪</string>
+    <string name="summary_seekbar_vr_picture_gamma">高於 1.00 會提亮中間調與暗部，同時不會讓黑色和白色發灰，對偏暗的遊戲通常比調亮度更合適。1.00 為串流的原始畫面。</string>
+    <string name="title_seekbar_vr_picture_saturation">畫面飽和度</string>
+    <string name="summary_seekbar_vr_picture_saturation">畫面色彩的濃淡。0% 為黑白，100% 為串流的原始畫面。</string>
     <string name="title_vr_sharpening">虛擬螢幕銳化</string>
     <string name="summary_vr_sharpening">在頭戴裝置合成器中銳化虛擬螢幕。在受支援的頭戴裝置上幾乎不增加額外開銷；若執行階段不支援此擴充功能則自動略過。</string>
     <string name="title_vr_supersampling">虛擬螢幕超取樣</string>

@@ -1027,3 +1027,35 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetClickSound(JNIEnv* env, job
         ctx->clickSoundOn = on;
     }
 }
+
+// One row of the picture grade to a value in its own whole units, held to its
+// lane, with the grade worked out again. Off once every row is back at its
+// default, which is all the shaders look at before skipping it.
+void pictureSet(XrCtx* ctx, int row, int units) {
+    if (row < 0 || row >= PICTURE_VALUES) {
+        return;
+    }
+    ctx->pictureUnits[row] = pictureClamp(row, units);
+    ctx->grade = pictureGradeFor(ctx->pictureUnits);
+    ctx->gradeOn = !pictureNeutral(ctx->pictureUnits);
+}
+
+// The four picture values from the preferences, in PICTURE_ order, handed down
+// before the first frame
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetPicture(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jintArray values) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || values == NULL || (*env)->GetArrayLength(env, values) < PICTURE_VALUES) {
+        return;
+    }
+    int units[PICTURE_VALUES];
+    (*env)->GetIntArrayRegion(env, values, 0, PICTURE_VALUES, units);
+    for (int row = 0; row < PICTURE_VALUES; row++) {
+        pictureSet(ctx, row, units[row]);
+    }
+    LOGEV("picture: brightness %d, contrast %d, gamma %d, saturation %d, grade %s",
+          ctx->pictureUnits[PICTURE_BRIGHTNESS], ctx->pictureUnits[PICTURE_CONTRAST],
+          ctx->pictureUnits[PICTURE_GAMMA], ctx->pictureUnits[PICTURE_SATURATION],
+          ctx->gradeOn ? "on" : "off");
+}

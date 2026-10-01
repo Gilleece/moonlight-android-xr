@@ -329,6 +329,14 @@
     <string name="summary_vr_depth_source">Choisissez le mode 3D en temps réel, y compris les motifs de test.</string>
     <string name="title_vr_env_res">Résolution de l\'environnement</string>
     <string name="summary_vr_env_res">La netteté avec laquelle la pièce 3D autour de l\'écran est rendue. Une valeur plus élevée coûte plus de temps GPU. Ultra est expérimental et peut provoquer des à-coups ou des saccades.</string>
+    <string name="title_seekbar_vr_picture_brightness">Luminosité de l\'image</string>
+    <string name="summary_seekbar_vr_picture_brightness">Éclaircit ou assombrit toute l\'image dans le casque. 0 laisse l\'image telle qu\'elle est diffusée. L\'onglet Picture du panneau de réglages dans le casque modifie les quatre mêmes valeurs.</string>
+    <string name="title_seekbar_vr_picture_contrast">Contraste de l\'image</string>
+    <string name="summary_seekbar_vr_picture_contrast">Écarte ou rapproche les tons de l\'image autour du gris moyen. 100 % laisse l\'image telle qu\'elle est diffusée.</string>
+    <string name="title_seekbar_vr_picture_gamma">Gamma de l\'image</string>
+    <string name="summary_seekbar_vr_picture_gamma">Au-dessus de 1.00, éclaircit les tons moyens et les ombres sans griser le noir ni le blanc, ce qui convient souvent mieux que la luminosité à un jeu trop sombre. 1.00 laisse l\'image telle qu\'elle est diffusée.</string>
+    <string name="title_seekbar_vr_picture_saturation">Saturation de l\'image</string>
+    <string name="summary_seekbar_vr_picture_saturation">L\'intensité des couleurs de l\'image. 0 % donne du noir et blanc, 100 % laisse l\'image telle qu\'elle est diffusée.</string>
     <string name="title_vr_sharpening">Accentuation de l\'écran</string>
     <string name="summary_vr_sharpening">Accentue la netteté de l\'écran virtuel dans le compositeur du casque. Ne coûte rien sur les casques pris en charge et est ignoré sur les runtimes sans l\'extension.</string>
     <string name="title_vr_supersampling">Suréchantillonnage de l\'écran</string>

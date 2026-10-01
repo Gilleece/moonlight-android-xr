@@ -10,6 +10,25 @@ const char* const VERTEX_SRC =
     "    v_plain = a_texcoord.xy;\n"
     "}\n";
 
+// The picture grade, the same sums as pictureGradeApply in xr_grade.c, shared
+// by the warp and the frame colour sample so the glow and the room's light
+// follow the graded picture. u_grade is the offset, the contrast gain, the
+// exponent (one over the gamma) and the saturation. Each shader only calls it
+// behind u_gradeOn, a branch on a uniform, so a picture left as streamed
+// costs nothing. The video's conversion to RGB can land a little under black
+// or over white, which the screen shows as black or white, so that is what
+// gets graded: lifted, it would come up darker than black does.
+#define GRADE_GLSL \
+    "uniform float u_gradeOn;\n" \
+    "uniform vec4 u_grade;\n" \
+    "vec3 grade(vec3 c) {\n" \
+    "    c = clamp(c, 0.0, 1.0);\n" \
+    "    c = clamp((c - 0.5) * u_grade.y + 0.5 + u_grade.x, 0.0, 1.0);\n" \
+    "    c = pow(c, vec3(u_grade.z));\n" \
+    "    float l = dot(c, vec3(0.2126, 0.7152, 0.0722));\n" \
+    "    return clamp(mix(vec3(l), c, u_grade.w), 0.0, 1.0);\n" \
+    "}\n"
+
 // Gather warp. Each output pixel samples the color frame shifted by a
 // disparity derived from the depth map. u_disparity is signed per eye and
 // zero in mono, which makes this exactly the old passthrough. The transform
@@ -41,6 +60,7 @@ const char* const FRAGMENT_SRC =
     // falls to nothing, in frame uv. 0 is no band.
     "uniform float u_edgeFade;\n"
     "uniform float u_depthCubic;\n"
+    GRADE_GLSL
     "out vec4 fragColor;\n"
     // The depth here is a quarter of the frame wide, so a texel of it spans
     // four pixels, and a bilinear read joins texels with straight segments.
@@ -142,6 +162,11 @@ const char* const FRAGMENT_SRC =
     // sample stays on the picture whatever the shift did.
     "    tc.x = clamp(tc.x, u_srcInset, 1.0 - u_srcInset);\n"
     "    fragColor = texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy);\n"
+    // On the colour alone, after the shift, so where things sit in each eye
+    // is the same graded or not
+    "    if (u_gradeOn > 0.5) {\n"
+    "        fragColor.rgb = grade(fragColor.rgb);\n"
+    "    }\n"
     "    fragColor.rgb *= u_tint;\n"
     "}\n";
 
@@ -306,6 +331,9 @@ const char* const DOWNSCALE_FRAGMENT_SRC =
 // u_crop is the region of the frame worth sampling, x0 y0 w h, and letterbox
 // detection narrows it to the picture inside the black bars. At 0 0 1 1 the
 // output is what it was before there was a crop at all.
+// The picture grade goes on each tap rather than on their sum, so the sample
+// is the average of what the screen shows. The letterbox detector draws with
+// it off, so a lifted black bar is still found as a bar.
 const char* const AMBI_FRAGMENT_SRC =
     "#version 300 es\n"
     "#extension GL_OES_EGL_image_external_essl3 : require\n"
@@ -314,6 +342,7 @@ const char* const AMBI_FRAGMENT_SRC =
     "uniform samplerExternalOES u_texture;\n"
     "uniform mat4 u_texmatrix;\n"
     "uniform vec4 u_crop;\n"
+    GRADE_GLSL
     "out vec4 fragColor;\n"
     "void main() {\n"
     "    vec2 base = u_crop.xy + v_plain * u_crop.zw;\n"
@@ -324,7 +353,11 @@ const char* const AMBI_FRAGMENT_SRC =
     // instead of reaching back over the bar
     "            vec2 off = (vec2(float(x), float(y)) - 1.5) * (0.25 / 32.0) * u_crop.zw;\n"
     "            vec2 tc = base + off;\n"
-    "            sum += texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy).rgb;\n"
+    "            vec3 c = texture(u_texture, (u_texmatrix * vec4(tc, 0.0, 1.0)).xy).rgb;\n"
+    "            if (u_gradeOn > 0.5) {\n"
+    "                c = grade(c);\n"
+    "            }\n"
+    "            sum += c;\n"
     "        }\n"
     "    }\n"
     "    fragColor = vec4(sum * (1.0 / 16.0), 1.0);\n"

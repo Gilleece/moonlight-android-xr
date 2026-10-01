@@ -288,6 +288,14 @@
     <string name="summary_vr_depth_source">Choose the realtime 3D mode, including test patterns.</string>
     <string name="title_vr_env_res">Environment Res</string>
     <string name="summary_vr_env_res">How sharply the 3D room around the screen is rendered. Higher costs more GPU time. Ultra is experimental and may cause hitches or stutter.</string>
+    <string name="title_seekbar_vr_picture_brightness">Picture brightness</string>
+    <string name="summary_seekbar_vr_picture_brightness">Lift or lower the whole picture in the headset. 0 is the picture as streamed. The Picture tab on the settings panel in the headset changes the same four values.</string>
+    <string name="title_seekbar_vr_picture_contrast">Picture contrast</string>
+    <string name="summary_seekbar_vr_picture_contrast">Spread the picture\'s tones apart or draw them together about mid grey. 100% is the picture as streamed.</string>
+    <string name="title_seekbar_vr_picture_gamma">Picture gamma</string>
+    <string name="summary_seekbar_vr_picture_gamma">Above 1.00 lifts the mid tones and shadows without greying black or white, which usually suits a dark game better than brightness. 1.00 is the picture as streamed.</string>
+    <string name="title_seekbar_vr_picture_saturation">Picture saturation</string>
+    <string name="summary_seekbar_vr_picture_saturation">How strong the picture\'s colours are. 0% is black and white, 100% is the picture as streamed.</string>
     <string name="title_vr_sharpening">Screen sharpening</string>
     <string name="summary_vr_sharpening">Sharpen the virtual screen in the headset compositor. Costs nothing on supported headsets and is ignored on runtimes without the extension.</string>
     <string name="title_vr_supersampling">Screen supersampling</string>
