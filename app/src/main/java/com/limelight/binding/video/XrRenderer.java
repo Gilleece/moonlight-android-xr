@@ -296,7 +296,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
                                           float curvature, boolean headLocked,
                                           boolean pointerEnabled, boolean gazeEnabled,
-                                          boolean lockIcon, float[] out);
+                                          boolean lockIcon, boolean pointerSleep,
+                                          float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     // The room's assets name the picker cell they belong to, which the native
     // side turns into its own room style
@@ -794,8 +795,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             // the next one with no native state to keep in step.
             boolean headLocked = prefs.vrHeadLocked;
 
+            // The pointer sleep row on the panel writes back to this same
+            // object, so it is read fresh each frame like head lock
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
-                    pointer, gaze && gazeAllowed, prefs.vrShowHandLock, inputState);
+                    pointer, gaze && gazeAllowed, prefs.vrShowHandLock, prefs.vrPointerSleep,
+                    inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateRoomReadout();
@@ -1322,6 +1326,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
                     .putBoolean(PreferenceConfiguration.VR_HEAD_LOCKED_PREF_STRING, on)
                     .apply();
+        }
+        else if (setting == SETTING_POINTER_SLEEP) {
+            boolean on = value != 0;
+            if (prefConfig != null) {
+                prefConfig.vrPointerSleep = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_POINTER_SLEEP_PREF_STRING, on)
+                    .apply();
+            FileLog.event("pointer sleep " + (on ? "on" : "off") + " saved");
         }
         else if (setting == SETTING_AMBI_LEVEL) {
             if (prefConfig != null) {

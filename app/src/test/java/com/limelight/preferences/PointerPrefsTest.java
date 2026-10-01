@@ -28,9 +28,27 @@ public class PointerPrefsTest {
     }
 
     @Test
+    public void thePointerPausesUnlessSwitchedOff() {
+        assertEquals("checkbox_vr_pointer_sleep",
+                PreferenceConfiguration.VR_POINTER_SLEEP_PREF_STRING);
+        assertTrue(PreferenceConfiguration.DEFAULT_VR_POINTER_SLEEP);
+
+        FakePrefs prefs = new FakePrefs();
+        assertTrue(PreferenceConfiguration.pointerSleepOn(prefs));
+        prefs.putBoolean(PreferenceConfiguration.VR_POINTER_SLEEP_PREF_STRING, false);
+        assertFalse(PreferenceConfiguration.pointerSleepOn(prefs));
+        // The other switch is left alone
+        assertTrue(PreferenceConfiguration.handLockIconShown(prefs));
+    }
+
+    @Test
     public void theLogLinesNameThemTheWayTheyJoinTheRest() {
-        assertEquals("handLockIcon=true", PreferenceConfiguration.inputLabel(true, "="));
-        assertEquals("handLockIcon false", PreferenceConfiguration.inputLabel(false, " "));
+        assertEquals("handLockIcon=true pointerSleep=true",
+                PreferenceConfiguration.inputLabel(true, true, "="));
+        assertEquals("handLockIcon false pointerSleep false",
+                PreferenceConfiguration.inputLabel(false, false, " "));
+        assertEquals("handLockIcon=false pointerSleep=true",
+                PreferenceConfiguration.inputLabel(false, true, "="));
     }
 
     private static final class FakePrefs implements SharedPreferences, SharedPreferences.Editor {

@@ -113,6 +113,8 @@
 #define SETTING_ROOM_GLOW 11
 #define SETTING_ROOM_LIGHT_LEVEL 12
 #define SETTING_ROOM_SCREEN 13
+// Whether a still controller's pointer pauses, Off 0 or On 1
+#define SETTING_POINTER_SLEEP 14
 
 // The lanes the Room tab's rows move along, in the units the preferences
 // hold. Brightness is the room's own in hundredths of the room as baked, from
@@ -284,21 +286,30 @@
 #define COG_OPTION_SUPERSAMPLE 1
 #define COG_OPTION_STATS   2
 #define COG_OPTION_HEAD_LOCK 3
-#define COG_OPTION_AMBILIGHT 4
-#define COG_OPTION_ROOM_LIGHT 5
-#define COG_OPTION_COUNT   6
+#define COG_OPTION_POINTER_SLEEP 4
+#define COG_OPTION_AMBILIGHT 5
+#define COG_OPTION_ROOM_LIGHT 6
+#define COG_OPTION_COUNT   7
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_HEAD_LOCK_CELLS 2
+#define COG_POINTER_SLEEP_CELLS 2
 #define COG_AMBI_CELLS    2
 #define COG_ROOM_LIGHT_CELLS 2
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
-// Seven rows on this tab, one more than the screen tab: the last is centred
-// at 0.91, which still clears the bottom edge, and this tab has no reset
-// button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 6
+// This tab has no reset button for it to land on.
+#define COG_DISPLAY_SLIDER_ROW 7
+// Eight rows on this tab, two more than the screen tab, so its rows start a
+// little higher and sit closer together than the other tabs', with shallower
+// cells to keep a gap between them. The last is centred at 0.907 and its
+// thumb still clears the bottom edge. The hit band is half the pitch, so
+// neighbouring bands meet without overlapping.
+#define COG_DISPLAY_ROW_V0 0.235f
+#define COG_DISPLAY_ROW_STEP 0.096f
+#define COG_DISPLAY_ROW_HALF 0.048f
+#define COG_DISPLAY_CELL_HALF 0.040f
 
 // In world keyboard, for the login boxes and chat windows that turn up mid
 // stream. One sheet of art per state, drawn in Java like the other panels, and

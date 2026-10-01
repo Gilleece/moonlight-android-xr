@@ -1588,8 +1588,9 @@ static void updateControllerClocks(XrCtx* ctx, InputFrame* f) {
         int holding = ctx->triggerDown[h] || stickPushed(f->stick[h]);
         int swallow = 0;
         int event = controllerClockStep(&ctx->aimClock[h], f->dt, f->handMoved[h], pressed,
-                                        holding, ctx->triggerDown[h], pressWakes, 1,
-                                        ctx->pointerWake, ctx->pointerSleep, &swallow);
+                                        holding, ctx->triggerDown[h], pressWakes,
+                                        ctx->pointerSleepOn, ctx->pointerWake,
+                                        ctx->pointerSleep, &swallow);
         if (event == CLOCK_PRESSED || event == CLOCK_PICKED_UP) {
             LOGI("controller %d %s, its ray is back", h,
                  event == CLOCK_PRESSED ? "pressed" : "picked up");
@@ -1658,8 +1659,17 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
         }
     }
 
+    // The thumbstick is as deliberate as a pinch: a controller held still
+    // while a long page scrolled used to be retired mid scroll, and the stick
+    // did nothing until it was waved about. A push wakes the pointer at once
+    // and holds it up for the usual time after the last one.
+    int stick = stickPushed(f->stick[HAND_LEFT]) || stickPushed(f->stick[HAND_RIGHT]);
+    if (stick) {
+        ctx->pointerAwake = 1;
+    }
+
     // Deliberate movement wakes the pointer, a controller put down retires it
-    if (f->pinching) {
+    if (f->pinching || stick) {
         // Only the pinch clock matters while hands are in charge
         ctx->stillFor = 0.0f;
         ctx->movingFor = 0.0f;
@@ -1677,6 +1687,15 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
         if (ctx->stillFor >= ctx->pointerSleep) {
             ctx->pointerAwake = 0;
         }
+    }
+
+    // With the pause switched off a controller in the hand keeps the pointer
+    // up however still it is held, so the stick and the trigger always work.
+    // Hands keep their own rule, since a resting hand points at the screen.
+    if (!ctx->pointerSleepOn && (ctx->profileKind[HAND_LEFT] == PROFILE_CONTROLLER
+                                 || ctx->profileKind[HAND_RIGHT] == PROFILE_CONTROLLER)) {
+        ctx->pointerAwake = 1;
+        ctx->stillFor = 0.0f;
     }
 
     updateControllerClocks(ctx, f);
@@ -1882,7 +1901,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             pu = ctx->cogDragStartU + vecDot(carry, right) * ctx->cogDragScale / ctx->cogW;
             if (pu < 0.0f) pu = 0.0f;
             if (pu > 1.0f) pu = 1.0f;
-            pv = COG_ROW_V0 + ctx->cogDragSlider * COG_ROW_STEP;
+            pv = cogRowV(face, ctx->cogDragSlider);
         }
         else if (held) {
             held = screenProject(f->aimPoses[h], ctx->cogPose, ctx->cogW, ctx->cogH,
@@ -1941,7 +1960,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             if (!cogRowLive(ctx, face, s)) {
                 continue;
             }
-            if (fabsf(pv - (COG_ROW_V0 + s * COG_ROW_STEP)) < COG_ROW_HALF) {
+            if (fabsf(pv - cogRowV(face, s)) < cogRowHalf(face)) {
                 row = s;
                 break;
             }
@@ -2322,10 +2341,15 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
     }
 }
 
-// Winds the thumbstick into scroll clicks while the pointer is on the picture
+// Winds the thumbstick into scroll clicks while the pointer is on the picture.
+// With the pause off it scrolls with the ray off the picture as well, wherever
+// the host's cursor was left, the way a wheel does, as long as the ray is not
+// on something of ours.
 static void updateScroll(XrCtx* ctx, InputFrame* f, int hit) {
     XrVector2f stick = actionVec2(ctx, ctx->scrollAction, -1);
-    if (hit && fabsf(stick.y) > SCROLL_DEADZONE) {
+    int offPicture = !ctx->pointerSleepOn
+            && (f->hover == HOVER_NONE || f->hover == HOVER_HALO);
+    if ((hit || offPicture) && fabsf(stick.y) > SCROLL_DEADZONE) {
         float past = (fabsf(stick.y) - SCROLL_DEADZONE) / (1.0f - SCROLL_DEADZONE);
         ctx->scrollCarry += copysignf(past * SCROLL_CLICKS_PER_SEC * f->dt, stick.y);
     }
@@ -2433,6 +2457,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                                                               jboolean pointerEnabled,
                                                               jboolean gazeEnabled,
                                                               jboolean lockIcon,
+                                                              jboolean pointerSleep,
                                                               jfloatArray outArr) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     float out[IN_SLOTS];
@@ -2440,6 +2465,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if (ctx != NULL) {
         ctx->gazeEnabled = gazeEnabled;
         ctx->lockIconShown = lockIcon;
+        ctx->pointerSleepOn = pointerSleep;
         // Before anything asks who is pointing, off the last frame's clocks and
         // gaze, which are the only ones there are until the sources are read
         updateControllerAwake(ctx);

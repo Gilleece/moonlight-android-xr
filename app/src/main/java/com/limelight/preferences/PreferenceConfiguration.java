@@ -73,6 +73,7 @@ public class PreferenceConfiguration {
     private static final String VR_GAZE_PREF_STRING = "checkbox_vr_gaze";
     private static final String VR_HAND_TRACKING_PREF_STRING = "checkbox_vr_hand_tracking";
     static final String VR_SHOW_HAND_LOCK_PREF_STRING = "checkbox_vr_show_hand_lock";
+    public static final String VR_POINTER_SLEEP_PREF_STRING = "checkbox_vr_pointer_sleep";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on. Legacy, and
@@ -188,6 +189,9 @@ public class PreferenceConfiguration {
     // The padlock beside the screen. The thumb to ring finger gesture turns
     // the same lock with or without it.
     static final boolean DEFAULT_VR_SHOW_HAND_LOCK = true;
+    // A controller's pointer goes to sleep after a few still seconds and wakes
+    // when it moves. Off keeps it up however still the controller is held.
+    static final boolean DEFAULT_VR_POINTER_SLEEP = true;
     private static final boolean DEFAULT_VR_POINTER = true;
     // MiDaS's separation, tenths of a percent of frame width. 5 measured
     // comfortable on device and 7 already strained, once the depth map started
@@ -298,6 +302,7 @@ public class PreferenceConfiguration {
     public boolean vrGaze;
     public boolean vrHandTracking;
     public boolean vrShowHandLock;
+    public boolean vrPointerSleep;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -543,12 +548,16 @@ public class PreferenceConfiguration {
         return prefs.getBoolean(VR_SHOW_HAND_LOCK_PREF_STRING, DEFAULT_VR_SHOW_HAND_LOCK);
     }
 
+    static boolean pointerSleepOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_POINTER_SLEEP_PREF_STRING, DEFAULT_VR_POINTER_SLEEP);
+    }
+
     /**
      * The pointer's own switches for a log line, joined the way that line
      * joins its keys to their values
      */
-    public static String inputLabel(boolean handLockIcon, String join) {
-        return "handLockIcon" + join + handLockIcon;
+    public static String inputLabel(boolean handLockIcon, boolean pointerSleep, String join) {
+        return "handLockIcon" + join + handLockIcon + " pointerSleep" + join + pointerSleep;
     }
 
     /** Which of the 3D tab's presets a separation is under that model, or none, for the logs. */
@@ -1144,6 +1153,7 @@ public class PreferenceConfiguration {
         config.vrGaze = prefs.getBoolean(VR_GAZE_PREF_STRING, DEFAULT_VR_GAZE);
         config.vrHandTracking = prefs.getBoolean(VR_HAND_TRACKING_PREF_STRING, DEFAULT_VR_HAND_TRACKING);
         config.vrShowHandLock = handLockIconShown(prefs);
+        config.vrPointerSleep = pointerSleepOn(prefs);
         config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

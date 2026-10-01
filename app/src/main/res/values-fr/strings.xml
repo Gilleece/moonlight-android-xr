@@ -310,6 +310,8 @@
     <string name="suffix_seekbar_vr_meters">m</string>
     <string name="title_vr_pointer">Manettes comme souris</string>
     <string name="summary_vr_pointer">Pointez l\'écran avec une manette pour déplacer la souris de l\'hôte. La gâchette clique, A ou X fait un clic droit, le joystick fait défiler. Cliquez sur le joystick pour désactiver le pointage dans un jeu qui a besoin de la souris elle-même.</string>
+    <string name="title_vr_pointer_sleep">Mettre le pointeur en pause quand la manette est immobile</string>
+    <string name="summary_vr_pointer_sleep">Le pointeur d\'une manette disparaît après quelques secondes d\'immobilité et revient quand elle bouge ou que son joystick est poussé. Désactivez cette option pour le garder actif, afin que le joystick fasse défiler même quand le pointeur n\'est pas sur l\'écran.</string>
     <string name="title_vr_gaze">Regarder pour pointer</string>
     <string name="summary_vr_gaze">Sur un casque avec suivi oculaire, pointez en regardant l\'écran et pincez avec l\'une ou l\'autre main pour cliquer. Appuyer sur un bouton d\'une manette lui donne le pointeur jusqu\'à ce qu\'elle soit posée, et si les yeux sont perdus pendant 10 secondes, vos mains pointent jusqu\'à leur retour.</string>
     <string name="title_vr_hand_tracking">Suivi des mains</string>

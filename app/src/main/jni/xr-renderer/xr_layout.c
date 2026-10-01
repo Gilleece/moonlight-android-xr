@@ -137,3 +137,18 @@ int roomResizePercent(int startPercent, float startReach, float reach) {
 float roomCornerSide(float distance) {
     return CORNER_FRAC * STAND_IN_WIDTH_M * distance / STAND_IN_DISTANCE_M;
 }
+
+float cogRowV(int tab, int row) {
+    if (tab == COG_TAB_DISPLAY) {
+        return COG_DISPLAY_ROW_V0 + row * COG_DISPLAY_ROW_STEP;
+    }
+    return COG_ROW_V0 + row * COG_ROW_STEP;
+}
+
+float cogRowHalf(int tab) {
+    return tab == COG_TAB_DISPLAY ? COG_DISPLAY_ROW_HALF : COG_ROW_HALF;
+}
+
+float cogCellHalf(int tab) {
+    return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF : COG_CELL_HALF;
+}

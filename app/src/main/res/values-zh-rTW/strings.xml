@@ -295,6 +295,8 @@
     <string name="suffix_seekbar_vr_meters">公尺</string>
     <string name="title_vr_pointer">使用控制器模擬滑鼠</string>
     <string name="summary_vr_pointer">使用控制器指向螢幕以移動主機滑鼠。扳機鍵為左鍵點擊，A 或 X 鍵為右鍵點擊，搖桿上下捲動。在需要原生滑鼠控制的遊戲中，可按下搖桿關閉指向功能。</string>
+    <string name="title_vr_pointer_sleep">控制器靜止時暫停游標</string>
+    <string name="summary_vr_pointer_sleep">控制器靜止幾秒後游標會隱藏，移動控制器或推動搖桿時恢復。關閉此項可讓游標保持啟用，即使游標不在螢幕上，搖桿也能捲動。</string>
     <string name="title_vr_gaze">注視瞄準 (Look to point)</string>
     <string name="summary_vr_gaze">在支援眼球追蹤的頭戴裝置上，透過注視螢幕進行瞄準，用任一隻手捏合手指點擊。按下控制器上的按鍵後由控制器接管游標，直到將其放下；若眼球追蹤遺失 10 秒，將改由雙手指向，直到恢復。</string>
     <string name="title_vr_hand_tracking">手勢追蹤</string>

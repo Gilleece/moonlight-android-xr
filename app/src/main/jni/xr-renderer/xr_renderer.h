@@ -1019,6 +1019,9 @@ typedef struct {
     int pointerAwake;
     float pointerWake;
     float pointerSleep;
+    // Whether a still controller's pointer pauses at all, the setting the
+    // Display tab's row also writes. Arrives with every frame.
+    int pointerSleepOn;
 
     // Laser. Two tiny quad layers rather than a projection layer: the whole
     // renderer draws nothing per frame for this, the compositor places it

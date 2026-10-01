@@ -303,6 +303,8 @@
     <string name="suffix_seekbar_vr_meters">米</string>
     <string name="title_vr_pointer">使用手柄模拟鼠标</string>
     <string name="summary_vr_pointer">使用手柄指向屏幕以移动主机鼠标。扳机键为左键点击，A 或 X 键为右键点击，摇杆上下滚动。在需要原生鼠标控制的游戏中，可按下摇杆关闭指向功能。</string>
+    <string name="title_vr_pointer_sleep">手柄静止时暂停指针</string>
+    <string name="summary_vr_pointer_sleep">手柄静止几秒后指针会隐藏，移动手柄或推动摇杆时恢复。关闭此项可让指针保持激活，即使指针不在屏幕上，摇杆也能滚动。</string>
     <string name="title_vr_gaze">注视点瞄准 (Look to point)</string>
     <string name="summary_vr_gaze">在支持眼动追踪的头显上，通过注视屏幕进行瞄准，用任意一只手捏合手指点击。按下手柄上的按键后由手柄接管指针，直到将其放下；如果眼动追踪丢失 10 秒，将改由双手指向，直到恢复。</string>
     <string name="title_vr_hand_tracking">手势追踪</string>

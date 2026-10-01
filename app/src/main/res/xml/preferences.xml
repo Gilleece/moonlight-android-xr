@@ -15,6 +15,12 @@
             android:summary="@string/summary_vr_pointer"
             android:defaultValue="true"/>
         <CheckBoxPreference
+            android:key="checkbox_vr_pointer_sleep"
+            android:dependency="checkbox_vr_pointer"
+            android:title="@string/title_vr_pointer_sleep"
+            android:summary="@string/summary_vr_pointer_sleep"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
             android:key="checkbox_vr_gaze"
             android:title="@string/title_vr_gaze"
             android:summary="@string/summary_vr_gaze"
