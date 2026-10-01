@@ -70,6 +70,25 @@ XrPosef poseInFrame(XrPosef frame, XrPosef pose) {
     return out;
 }
 
+// Where a screen goes when the headset is recentred: round the vertical through
+// the origin until it is straight ahead, square to the viewer. A turn about
+// that axis leaves its distance and height alone, and taking the yaw off the
+// front of its orientation leaves the tilt and roll inside it alone too.
+XrPosef poseRecentred(XrPosef screen) {
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 fwd = quatRotate(screen.orientation, back);
+    // Facing straight up or down has no yaw to take off, and atan2 says 0
+    float yaw = atan2f(fwd.x, fwd.z);
+    XrPosef out;
+    out.orientation = quatNorm(quatMul(axisAngleQuat(up, -yaw), screen.orientation));
+    out.position.x = 0.0f;
+    out.position.y = screen.position.y;
+    out.position.z = -sqrtf(screen.position.x * screen.position.x
+                            + screen.position.z * screen.position.z);
+    return out;
+}
+
 // The virtual surround turns its speakers by this. Forward is -z, and a
 // positive turn about +y swings it toward -x, which is the viewer's left, so a
 // facing's heading is atan2(-x, -z). Only the heading is compared, so looking

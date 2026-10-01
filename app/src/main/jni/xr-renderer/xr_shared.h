@@ -140,7 +140,14 @@
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
-#define IN_SLOTS    (IN_COG_OPEN + 1)
+// The keyboard's modifiers, KB_MOD_ bits: those held down with this frame's
+// key, then those lit on the keyboard now, every frame, which Java holds down
+// on the host for as long as they stay lit. Last the sheet showing, or -1
+// with the keyboard put away, which Java redraws when the lit ones change.
+#define IN_KEY_MODS (IN_COG_OPEN + 1)
+#define IN_KB_MODS  (IN_KEY_MODS + 1)
+#define IN_KB_SHEET (IN_KB_MODS + 1)
+#define IN_SLOTS    (IN_KB_SHEET + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -423,18 +430,33 @@
 // In world keyboard, for the login boxes and chat windows that turn up mid
 // stream. One sheet of art per state, drawn in Java like the other panels, and
 // the layout arrives with it: the native side is handed rectangles and codes
-// and knows nothing else about what the keys say.
+// and knows nothing else about what the keys say. The fourth sheet, reached
+// from the symbols, has the keys that type nothing: Esc, the F keys, the
+// arrows and the rest, and the Ctrl, Alt and Win that stay held until the
+// next key goes with them.
 #define KB_TEX_W 1120
 #define KB_TEX_H 448
 #define KB_STATE_LOWER   0
 #define KB_STATE_UPPER   1
 #define KB_STATE_SYMBOLS 2
-#define KB_STATE_COUNT   3
-// Codes under zero change the keyboard instead of typing. Everything at or
-// above 8 is sent on as it stands.
+#define KB_STATE_FN      3
+#define KB_STATE_COUNT   4
+// Codes under zero change the keyboard instead of typing, and 0 is a blank
+// with no key on it. Everything from 8 up to KB_CODE_VK is sent on as it
+// stands, and a Windows virtual key code added to KB_CODE_VK is sent as that
+// key.
 #define KB_CODE_SHIFT   -2
 #define KB_CODE_SYMBOLS -3
 #define KB_CODE_HIDE    -4
+#define KB_CODE_FN      -5
+#define KB_CODE_CTRL    -6
+#define KB_CODE_ALT     -7
+#define KB_CODE_WIN     -8
+#define KB_CODE_VK      65536
+// The modifier bits, the same as the host protocol's own
+#define KB_MOD_CTRL 2
+#define KB_MOD_ALT  4
+#define KB_MOD_WIN  8
 
 // The button that ends the stream and the prompt it opens. The sheet is drawn
 // in Java like the other panels, one per lit button, so hovering one is

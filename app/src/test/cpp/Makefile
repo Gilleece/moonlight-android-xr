@@ -12,7 +12,8 @@ OUT := build
 
 TESTS := $(OUT)/test_math $(OUT)/test_depthmap $(OUT)/test_atlas $(OUT)/test_roommesh \
          $(OUT)/test_layout $(OUT)/test_audio $(OUT)/test_rate $(OUT)/test_gate \
-         $(OUT)/test_pinch $(OUT)/test_notice $(OUT)/test_glow $(OUT)/test_grade
+         $(OUT)/test_pinch $(OUT)/test_notice $(OUT)/test_glow $(OUT)/test_grade \
+         $(OUT)/test_keys
 
 .PHONY: test clean
 
@@ -77,6 +78,11 @@ $(OUT)/test_glow: test_glow.c check.h $(SRC)/xr_glow.c $(SRC)/xr_glow.h
 $(OUT)/test_grade: test_grade.c check.h $(SRC)/xr_grade.c $(SRC)/xr_grade.h $(SRC)/xr_shared.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_grade.c $(SRC)/xr_grade.c -lm
+
+# The keyboard's sheets and the Ctrl, Alt and Win it holds
+$(OUT)/test_keys: test_keys.c check.h $(SRC)/xr_keys.c $(SRC)/xr_keys.h $(SRC)/xr_shared.h
+	@mkdir -p $(OUT)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_keys.c $(SRC)/xr_keys.c -lm
 
 # The audio module ships at -O2 and this test prints what its kernels cost, so
 # it is built the way the app builds it

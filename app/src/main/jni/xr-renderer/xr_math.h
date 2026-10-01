@@ -48,6 +48,10 @@ XrQuaternionf quatFromBasis(Vec3 x, Vec3 y, Vec3 z);
 // the frame's own pose undone. The frame itself comes out at the origin.
 XrPosef poseInFrame(XrPosef frame, XrPosef pose);
 
+// The screen brought round to straight ahead of the origin and square to it,
+// at the same distance and height, with its tilt and roll kept
+XrPosef poseRecentred(XrPosef screen);
+
 // How far the head has turned from the way the screen faces, in radians,
 // positive to the viewer's left, in (-pi, pi]
 float yawBetween(XrQuaternionf head, XrQuaternionf screen);

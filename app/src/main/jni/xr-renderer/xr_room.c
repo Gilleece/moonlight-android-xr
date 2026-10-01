@@ -389,6 +389,10 @@ void applyRoomPlacement(XrCtx* ctx, int style, float aspect, int reseeded) {
         // A room's corner still held as the room went would carry on as a free
         // resize of the placement just handed back
         ctx->grabMode = GRAB_NONE;
+        if (ctx->recentredInRoom) {
+            ctx->recentredInRoom = 0;
+            ctx->poseDirty = 1;
+        }
     }
     if (!roomOn) {
         ctx->roomPlacedStyle = 0;

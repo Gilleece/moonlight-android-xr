@@ -274,10 +274,13 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 
 // Which key a point on the panel is inside, or -1. The rectangles are the
 // whole of what this side knows about the layout, so a row of them is all
-// there is to search.
+// there is to search. A blank on the sheet showing is no key at all.
 int kbKeyAt(XrCtx* ctx, float u, float v) {
     int found = -1;
     for (int i = 0; i < ctx->kbKeyCount; i++) {
+        if (ctx->kbCodes[ctx->kbState][i] == 0) {
+            continue;
+        }
         const float* r = &ctx->kbKeyRects[i * 4];
         if (u >= r[0] && u <= r[2] && v >= r[1] && v <= r[3]) {
             found = i;

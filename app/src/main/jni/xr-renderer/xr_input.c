@@ -633,6 +633,42 @@ int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature
     return reseeded;
 }
 
+// Recentring is the user saying where forward is. The screen comes round to
+// straight ahead of the new forward, and how far away, how big and how curved
+// it is stay as they were set. A room hangs its own picture on its wall, so
+// there it is the placement waiting behind the room that comes round.
+void recentreScreen(XrCtx* ctx) {
+    ctx->grabMode = GRAB_NONE;
+    if (!ctx->placementValid) {
+        // Nothing placed yet, and the first frame places it ahead anyway
+        LOGI("recentred before the screen was placed");
+        return;
+    }
+    int inRoom = ctx->roomHoldingScreen;
+    XrPosef* pose = inRoom ? &ctx->savedScreenPose : &ctx->screenPose;
+    XrPosef was = *pose;
+    *pose = poseRecentred(was);
+    if (inRoom) {
+        // Written when the room hands it back, since what is saved from a
+        // room's frames is the wall's placement rather than the user's
+        ctx->recentredInRoom = 1;
+    }
+    else {
+        ctx->poseDirty = 1;
+    }
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 fwd = quatRotate(was.orientation, back);
+    XrVector3f p = pose->position;
+    LOGEV("recentred%s: screen from %.2f %.2f %.2f, turned %.1f deg, to %.2f %.2f %.2f;"
+          " kept distance %.2f m, width %.2f m, radius %.2f m, curve %.2f, head lock %d",
+          inRoom ? " behind the room" : "", was.position.x, was.position.y, was.position.z,
+          atan2f(fwd.x, fwd.z) * 180.0f / (float)M_PI, p.x, p.y, p.z,
+          sqrtf(p.x * p.x + p.y * p.y + p.z * p.z),
+          inRoom ? ctx->savedScreenWidth : ctx->screenWidth,
+          inRoom ? ctx->savedScreenRadius : ctx->screenRadius, effectiveCurvature(ctx),
+          ctx->headLockedPref);
+}
+
 // Handed back only when a grab ends, so preferences are written once per move
 // rather than every frame of it
 static void writeInputPose(XrCtx* ctx, float* out) {
@@ -2210,28 +2246,21 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         ctx->kbKeyDown = key >= 0 && ctx->triggerDown[f->hand];
         if (key >= 0 && ctx->triggerEdge[f->hand]) {
             int code = ctx->kbCodes[ctx->kbState][key];
-            if (code == KB_CODE_SHIFT) {
-                // Shift off the symbols page goes to the capitals rather than
-                // back where it came from
-                ctx->kbState = ctx->kbState == KB_STATE_UPPER
-                        ? KB_STATE_LOWER : KB_STATE_UPPER;
+            KbPress press = kbPress(ctx->kbState, ctx->kbMods, code);
+            if (press.code > 0) {
+                // One key a frame, which is as fast as anyone presses them
+                f->out[IN_KEY] = (float)press.code;
+                f->out[IN_KEY_MODS] = (float)press.codeMods;
             }
-            else if (code == KB_CODE_SYMBOLS) {
-                ctx->kbState = ctx->kbState == KB_STATE_SYMBOLS
-                        ? KB_STATE_LOWER : KB_STATE_SYMBOLS;
+            if (press.mods != ctx->kbMods) {
+                LOGI("keyboard modifiers %d -> %d%s", ctx->kbMods, press.mods,
+                     press.code > 0 ? ", let go after the key" : "");
             }
-            else if (code == KB_CODE_HIDE) {
+            ctx->kbState = press.sheet;
+            ctx->kbMods = press.mods;
+            if (press.hide) {
                 ctx->kbOpen = 0;
                 LOGI("keyboard closed");
-            }
-            else if (code > 0) {
-                // One key a frame, which is as fast as anyone presses them
-                f->out[IN_KEY] = (float)code;
-                // Shift is one shot over the letters, the way a phone keyboard
-                // behaves, and sticky over the punctuation row above them
-                if (ctx->kbState == KB_STATE_UPPER && code >= 'A' && code <= 'Z') {
-                    ctx->kbState = KB_STATE_LOWER;
-                }
             }
         }
     }
@@ -2514,7 +2543,16 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     out[IN_CLICK] = 0.0f;
     out[IN_MARKS] = -1.0f;
     out[IN_COG_OPEN] = 0.0f;
+    out[IN_KB_MODS] = 0.0f;
+    out[IN_KB_SHEET] = -1.0f;
     if (ctx != NULL) {
+        // However the keyboard went away, it lets go of what it held
+        if (!ctx->kbOpen && ctx->kbMods != 0) {
+            LOGI("keyboard modifiers %d -> 0, keyboard closed", ctx->kbMods);
+            ctx->kbMods = 0;
+        }
+        out[IN_KB_MODS] = (float)ctx->kbMods;
+        out[IN_KB_SHEET] = ctx->kbOpen ? (float)ctx->kbState : -1.0f;
         out[IN_CLICK] = ctx->clickPending ? 1.0f : 0.0f;
         ctx->clickPending = 0;
         // The display tab's choices while it is up, fading out included
