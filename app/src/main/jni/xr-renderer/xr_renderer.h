@@ -1506,6 +1506,7 @@ int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);
 void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide);
 void pictureSet(XrCtx* ctx, int row, int units);
+void pictureReset(XrCtx* ctx);
 int lockButtonHit(XrCtx* ctx, float u, float v, float height);
 
 // xr_assets.c: the swapchains the art goes into and the uploads that fill them

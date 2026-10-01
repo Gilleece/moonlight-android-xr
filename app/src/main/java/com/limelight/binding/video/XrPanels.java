@@ -19,6 +19,7 @@ import com.limelight.LimeLog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.Locale;
 
 import static com.limelight.binding.video.XrShared.*;
 
@@ -50,11 +51,11 @@ final class XrPanels {
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout is agreed between the two through the COG_
-    // values in XrShared. Three tabs, a texture each, all uploaded once so
+    // values in XrShared. Four tabs, a texture each, all uploaded once so
     // switching is free, and the sheets a 3d room shows handed over after
     // them, which the native side picks for itself: the Room tab in the first
-    // tab's place, and the other two again with its name over that slot.
-    private static final String[] COG_TABS = { "Screen", "Display", "3D" };
+    // tab's place, and the other three again with its name over that slot.
+    private static final String[] COG_TABS = { "Screen", "Display", "3D", "Picture" };
     private static final String COG_ROOM_TAB = "Room";
     private static final String[] COG_SLIDER_ROWS =
             { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size" };
@@ -93,6 +94,10 @@ final class XrPanels {
     private static final String COG_PRESET_ROW = "Preset";
     private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
     private static final String COG_STEREO_ROW = "3D";
+    // Picture tab: a track for each of the grade's values, in the PICTURE_
+    // order, each ticked where it leaves the picture as streamed
+    private static final String[] COG_PICTURE_ROWS =
+            { "Brightness", "Contrast", "Gamma", "Saturation" };
 
     // The in world keyboard. Three sheets of the same layout, one per state,
     // handed over in state order, along with the geometry that goes with them:
@@ -408,9 +413,10 @@ final class XrPanels {
      * their place, all drawn once here in COG_ART_ order, so changing tab in
      * the session picks another swapchain rather than redrawing anything. Only
      * the labels, tracks and cells live in the texture: thumbs, selection
-     * rings and the Room tab's percents are quads of their own, so using the
-     * panel costs no upload of a whole sheet. The 3D tab's ticks mark the
-     * running model's own pair, in the preferences' units.
+     * rings and the values beside the Room and Picture tabs' tracks are quads
+     * of their own, so using the panel costs no upload of a whole sheet. The
+     * 3D tab's ticks mark the running model's own pair, in the preferences'
+     * units.
      */
     ByteBuffer[] buildCogTabs(boolean curveOk, boolean stereoOk, int defaultSeparation,
                               int defaultConvergence) {
@@ -437,8 +443,8 @@ final class XrPanels {
     }
 
     // One sheet of the panel. The ones past the tabs are what a room shows:
-    // the Room tab with its size row live or greyed, then the display and 3D
-    // tabs with the Room tab's name over the first slot.
+    // the Room tab with its size row live or greyed, then the display, 3D and
+    // Picture tabs with the Room tab's name over the first slot.
     private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk,
                                  int defaultSeparation, int defaultConvergence) {
         Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
@@ -446,6 +452,7 @@ final class XrPanels {
         boolean inRoom = art >= COG_ART_ROOM;
         int tab = art == COG_ART_ROOM_DISPLAY ? COG_TAB_DISPLAY
                 : art == COG_ART_ROOM_3D ? COG_TAB_3D
+                : art == COG_ART_ROOM_PICTURE ? COG_TAB_PICTURE
                 : inRoom ? COG_TAB_SCREEN : art;
         drawCogChrome(canvas, tab, inRoom);
         if (art == COG_ART_ROOM || art == COG_ART_ROOM_FIXED) {
@@ -456,6 +463,9 @@ final class XrPanels {
         }
         else if (tab == COG_TAB_3D) {
             drawCog3dRows(canvas, stereoOk, defaultSeparation, defaultConvergence);
+        }
+        else if (tab == COG_TAB_PICTURE) {
+            drawCogPictureRows(canvas);
         }
         else {
             drawCogOptionRows(canvas);
@@ -705,13 +715,16 @@ final class XrPanels {
     }
 
     /**
-     * The strip of percents beside the Room tab's tracks. Redrawn on the frame
-     * loop whenever one of them moves, into the one bitmap and buffer, which
-     * the upload has finished with by the time the next draw comes round.
+     * The strip of values beside the Room or Picture tab's tracks: the Room
+     * tab's percents, or the Picture tab's values in their own units. Redrawn
+     * on the frame loop whenever one of them moves, into the one bitmap and
+     * buffer, which the upload has finished with by the time the next draw
+     * comes round.
      */
     static final class Readout {
-        // The rows the values in IN_READOUT order sit beside
-        private static final int[] ROWS =
+        // The Room tab's rows the values after the first in IN_READOUT sit
+        // beside. The Picture tab's are its rows in order.
+        private static final int[] ROOM_ROWS =
                 { COG_ROOM_ROW_BRIGHTNESS, COG_ROOM_ROW_LIGHT_LEVEL, COG_ROOM_ROW_SIZE };
 
         private final Bitmap bitmap = Bitmap.createBitmap(COG_READOUT_TEX_W, COG_READOUT_TEX_H,
@@ -727,24 +740,54 @@ final class XrPanels {
             text.setColor(0xB0FFFFFF);
         }
 
-        // Right aligned a little short of the strip's edge, which is where
-        // the thumb at the left end of a track starts. A value under zero
-        // leaves its row blank.
+        // In IN_READOUT order: which tab, then a value a row. Right aligned a
+        // little short of the strip's edge, which is where the thumb at the
+        // left end of a track starts. A Room tab value under zero leaves its
+        // row blank; a Picture tab one is a real value.
         ByteBuffer draw(int[] values) {
             canvas.drawColor(0, PorterDuff.Mode.CLEAR);
             float right = COG_READOUT_TEX_W - 8.0f;
-            for (int i = 0; i < ROWS.length && i < values.length; i++) {
-                if (values[i] < 0) {
+            boolean picture = values.length > 0 && values[0] == READOUT_PICTURE;
+            int rows = picture ? PICTURE_VALUES : ROOM_ROWS.length;
+            for (int i = 0; i < rows && i + 1 < values.length; i++) {
+                int value = values[i + 1];
+                String said;
+                int row;
+                if (picture) {
+                    said = pictureReadout(i, value);
+                    row = i;
+                }
+                else if (values[0] == READOUT_ROOM && value >= 0) {
+                    said = value + "%";
+                    row = ROOM_ROWS[i];
+                }
+                else {
                     continue;
                 }
-                float y = (COG_ROW_V0 + ROWS[i] * COG_ROW_STEP - COG_READOUT_T) * COG_TEX_H;
-                canvas.drawText(values[i] + "%", right,
-                        y - (text.ascent() + text.descent()) * 0.5f, text);
+                float y = (COG_ROW_V0 + row * COG_ROW_STEP - COG_READOUT_T) * COG_TEX_H;
+                canvas.drawText(said, right, y - (text.ascent() + text.descent()) * 0.5f, text);
             }
             pixels.rewind();
             bitmap.copyPixelsToBuffer(pixels);
             pixels.rewind();
             return pixels;
+        }
+    }
+
+    /**
+     * A picture value as the Picture tab says it, from its whole units:
+     * brightness signed, contrast and saturation in percent, gamma to the
+     * hundredth.
+     */
+    static String pictureReadout(int row, int units) {
+        switch (row) {
+            case PICTURE_CONTRAST:
+            case PICTURE_SATURATION:
+                return units + "%";
+            case PICTURE_GAMMA:
+                return String.format(Locale.ROOT, "%.2f", units / 100.0);
+            default:
+                return units > 0 ? "+" + units : String.valueOf(units);
         }
     }
 
@@ -1037,6 +1080,82 @@ final class XrPanels {
         tick.setColor(0xCCFFFFFF);
         float midX = (trackL + trackR) * 0.5f;
         canvas.drawRect(midX - 2.0f, y - cellHalf, midX + 2.0f, y + cellHalf, tick);
+    }
+
+    // Picture tab: a label and a track per value of the grade, each ticked
+    // where it leaves the picture as streamed, and the reset button under
+    // them. What each value is now is on the strip beside the tracks.
+    private void drawCogPictureRows(Canvas canvas) {
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextSize(22.0f);
+        text.setTextAlign(Paint.Align.LEFT);
+        text.setColor(Color.WHITE);
+
+        Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
+        track.setStyle(Paint.Style.STROKE);
+        track.setStrokeWidth(6.0f);
+        track.setStrokeCap(Paint.Cap.ROUND);
+        track.setColor(0x66FFFFFF);
+
+        Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
+        tick.setColor(0xCCFFFFFF);
+
+        final float trackL = COG_RUN_L * COG_TEX_W;
+        final float trackR = COG_RUN_R * COG_TEX_W;
+        final float tickHalf = COG_CELL_HALF * COG_TEX_H;
+
+        for (int row = 0; row < COG_PICTURE_ROWS.length; row++) {
+            float y = cogRowV(COG_TAB_PICTURE, row) * COG_TEX_H;
+            canvas.drawText(COG_PICTURE_ROWS[row], 0.06f * COG_TEX_W,
+                    y - (text.ascent() + text.descent()) * 0.5f, text);
+            canvas.drawLine(trackL, y, trackR, y, track);
+            drawCogChevrons(canvas, y, true, tickHalf);
+
+            float markX = trackL + pictureTickT(row) * (trackR - trackL);
+            canvas.drawRect(markX - 2.0f, y - tickHalf, markX + 2.0f, y + tickHalf, tick);
+        }
+
+        // Back to the picture as streamed, all four at once
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xEEFFFFFF);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(4.0f);
+        RectF reset = new RectF(COG_RESET_L * COG_TEX_W, COG_RESET_T * COG_TEX_H,
+                COG_RESET_R * COG_TEX_W, COG_RESET_B * COG_TEX_H);
+        canvas.drawRoundRect(reset, 14.0f, 14.0f, paint);
+
+        text.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText("Reset", reset.centerX(),
+                reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    // Where a picture row's tick sits along its run, 0 to 1: the place of its
+    // default in its lane
+    static float pictureTickT(int row) {
+        int min, max, def;
+        switch (row) {
+            case PICTURE_CONTRAST:
+                min = PICTURE_CONTRAST_MIN;
+                max = PICTURE_CONTRAST_MAX;
+                def = PICTURE_CONTRAST_DEFAULT;
+                break;
+            case PICTURE_GAMMA:
+                min = PICTURE_GAMMA_MIN;
+                max = PICTURE_GAMMA_MAX;
+                def = PICTURE_GAMMA_DEFAULT;
+                break;
+            case PICTURE_SATURATION:
+                min = PICTURE_SATURATION_MIN;
+                max = PICTURE_SATURATION_MAX;
+                def = PICTURE_SATURATION_DEFAULT;
+                break;
+            default:
+                min = PICTURE_BRIGHTNESS_MIN;
+                max = PICTURE_BRIGHTNESS_MAX;
+                def = PICTURE_BRIGHTNESS_DEFAULT;
+                break;
+        }
+        return (def - min) / (float)(max - min);
     }
 
     // The fallback cog, drawn only when the icon asset is missing. About as

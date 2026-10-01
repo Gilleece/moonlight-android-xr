@@ -183,10 +183,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Every sheet of the settings panel, in COG_ART_ order
     private final AtomicReference<ByteBuffer[]> pendingCogSheets = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingCogButton = new AtomicReference<>();
-    // The percents beside the Room tab's tracks, drawn on the frame loop when
-    // the frame says one has moved, and the values last drawn
-    private XrPanels.Readout roomReadout;
-    private final int[] readoutDrawn = { -1, -1, -1 };
+    // The values beside the Room or Picture tab's tracks, drawn on the frame
+    // loop when the frame says one has moved, and the values last drawn
+    private XrPanels.Readout cogReadout;
+    private final int[] readoutDrawn = new int[READOUT_VALUES];
     private final int[] readoutWanted = new int[READOUT_VALUES];
     // The toast's sheet, drawn on the frame loop when a notice goes up, and
     // the words of the notices this side raises, each a line and the one
@@ -882,7 +882,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
-            updateRoomReadout();
+            updateCogReadout();
             updateCogMarks();
             updateCogClock();
             updateToast();
@@ -1051,7 +1051,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             nativeSetRoomLevels(nativeCtx, roomCell, levels.brightness, levels.glow,
                     levels.light, levels.screen);
         }
-        roomReadout = new XrPanels.Readout();
+        cogReadout = new XrPanels.Readout();
+        // Nothing drawn yet, so the first look at either tab draws it
+        Arrays.fill(readoutDrawn, -2);
         toast = new XrPanels.Toast();
         cogMarks = new XrPanels.Marks();
         cogClock = new XrPanels.ClockStrip();
@@ -1338,12 +1340,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
     }
 
-    // Redraws the percents beside the Room tab's tracks when the frame says
-    // one has moved, and hands the strip straight up, since this is the thread
-    // with the GL context. The native side only shows a strip drawn from the
-    // values in force, so a stale one never reaches the panel.
-    private void updateRoomReadout() {
-        if (inputState[IN_READOUT] < 0.0f || roomReadout == null) {
+    // Redraws the values beside the Room or Picture tab's tracks when the
+    // frame says one has moved, and hands the strip straight up, since this is
+    // the thread with the GL context. The native side only shows a strip drawn
+    // from the values in force, so a stale one never reaches the panel.
+    private void updateCogReadout() {
+        if (inputState[IN_READOUT] < 0.0f || cogReadout == null) {
             return;
         }
         boolean changed = false;
@@ -1354,7 +1356,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (!changed) {
             return;
         }
-        nativeUploadCogReadout(nativeCtx, roomReadout.draw(readoutWanted), readoutWanted);
+        nativeUploadCogReadout(nativeCtx, cogReadout.draw(readoutWanted), readoutWanted);
         System.arraycopy(readoutWanted, 0, readoutDrawn, 0, READOUT_VALUES);
     }
 
@@ -1631,6 +1633,46 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     .apply();
             FileLog.event("3d pair back to the model's own "
                     + PreferenceConfiguration.defaultPairLabel(model));
+        }
+        else if (pictureRow(setting) >= 0) {
+            // The grade is already live on the native side, and this is the
+            // same configuration object the session started from, so only the
+            // preference has to be written
+            int row = pictureRow(setting);
+            int units = PreferenceConfiguration.clampPicture(row, value);
+            if (prefConfig != null) {
+                prefConfig.vrPicture[row] = units;
+            }
+            String key = PreferenceConfiguration.pictureKey(row);
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putInt(key, units)
+                    .apply();
+            FileLog.event("picture setting " + key + " = " + units + " saved");
+        }
+        else if (setting == SETTING_RESET_PICTURE) {
+            // Back to nothing stored, which reads as the picture as streamed,
+            // and which the 2d seekbars show as their defaults
+            SharedPreferences.Editor editor =
+                    PreferenceManager.getDefaultSharedPreferences(prefsContext).edit();
+            for (int row = 0; row < PICTURE_VALUES; row++) {
+                if (prefConfig != null) {
+                    prefConfig.vrPicture[row] = PreferenceConfiguration.pictureDefault(row);
+                }
+                editor.remove(PreferenceConfiguration.pictureKey(row));
+            }
+            editor.apply();
+            FileLog.event("picture back to the picture as streamed");
+        }
+    }
+
+    // Which picture row a setting id writes, or -1 for any other setting
+    private static int pictureRow(int setting) {
+        switch (setting) {
+            case SETTING_PICTURE_BRIGHTNESS: return PICTURE_BRIGHTNESS;
+            case SETTING_PICTURE_CONTRAST: return PICTURE_CONTRAST;
+            case SETTING_PICTURE_GAMMA: return PICTURE_GAMMA;
+            case SETTING_PICTURE_SATURATION: return PICTURE_SATURATION;
+            default: return -1;
         }
     }
 

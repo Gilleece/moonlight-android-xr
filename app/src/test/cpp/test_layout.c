@@ -242,7 +242,9 @@ static void testThePresetAccent(void) {
 // Every tab's rows fit inside the panel below the tab bar, with their hit
 // bands apart and every cell drawn inside its own band
 static void testTheRowsFit(void) {
-    int counts[COG_TAB_COUNT] = { COG_SLIDER_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT };
+    int counts[COG_TAB_COUNT] = {
+        COG_SLIDER_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_VALUES
+    };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         float half = cogRowHalf(tab);
         CHECK(cogCellHalf(tab) < half);
@@ -263,6 +265,22 @@ static void testTheRowsFit(void) {
     CHECK_NEAR(cogRowV(COG_TAB_3D, 3), COG_ROW_V0 + 3 * COG_ROW_STEP, 1e-6);
     CHECK_NEAR(cogRowV(COG_TAB_COUNT, 2), COG_ROW_V0 + 2 * COG_ROW_STEP, 1e-6);
     CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_CELL_HALF, 1e-6);
+    // The Picture tab is the fourth, with the screen tab's spacing, and its
+    // last row's band ends well clear of the reset button
+    CHECK(COG_TAB_PICTURE == 3 && COG_TAB_COUNT == 4);
+    CHECK_NEAR(cogRowV(COG_TAB_PICTURE, PICTURE_SATURATION),
+               COG_ROW_V0 + PICTURE_SATURATION * COG_ROW_STEP, 1e-6);
+    CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_VALUES - 1) + cogRowHalf(COG_TAB_PICTURE)
+          < COG_RESET_T);
+    // Every room sheet follows the tabs, one per tab and the fixed Room tab
+    CHECK(COG_ART_ROOM == COG_TAB_COUNT);
+    CHECK(COG_ART_COUNT == COG_ART_ROOM + COG_TAB_COUNT + 1);
+    // The strip beside the tracks reaches every Picture row
+    float stripB = COG_READOUT_T + (float)COG_READOUT_TEX_H / (float)COG_TEX_H;
+    for (int row = 0; row < PICTURE_VALUES; row++) {
+        CHECK(cogRowV(COG_TAB_PICTURE, row) - COG_CELL_HALF > COG_READOUT_T);
+        CHECK(cogRowV(COG_TAB_PICTURE, row) + COG_CELL_HALF < stripB);
+    }
 }
 
 // The step buttons at each end of a track, the run between them, and where a
@@ -351,6 +369,30 @@ static void testEveryTrackHasItsSteps(void) {
         int off = min + stride * 3 + 1;
         int step = cogStepIndex(lanePlace(off, min, max), steps, -1);
         CHECK(laneUnits((float)step / (float)steps, min, max) == min + stride * 3);
+    }
+
+    // The Picture tab steps in whole units, one a press, and every row's
+    // default, where its tick is, is a step
+    int pictureLanes[PICTURE_VALUES][3] = {
+        { PICTURE_BRIGHTNESS_MIN, PICTURE_BRIGHTNESS_MAX, PICTURE_BRIGHTNESS_DEFAULT },
+        { PICTURE_CONTRAST_MIN, PICTURE_CONTRAST_MAX, PICTURE_CONTRAST_DEFAULT },
+        { PICTURE_GAMMA_MIN, PICTURE_GAMMA_MAX, PICTURE_GAMMA_DEFAULT },
+        { PICTURE_SATURATION_MIN, PICTURE_SATURATION_MAX, PICTURE_SATURATION_DEFAULT }
+    };
+    CHECK(cogTrackSteps(COG_TAB_PICTURE, PICTURE_VALUES) == 0);
+    CHECK(cogTrackSteps(COG_TAB_PICTURE, -1) == 0);
+    for (int row = 0; row < PICTURE_VALUES; row++) {
+        int min = pictureLanes[row][0];
+        int max = pictureLanes[row][1];
+        int def = pictureLanes[row][2];
+        int steps = cogTrackSteps(COG_TAB_PICTURE, row);
+        CHECK(steps == max - min);
+        int up = cogStepIndex(lanePlace(def, min, max), steps, 1);
+        CHECK(laneUnits((float)up / (float)steps, min, max) == def + 1);
+        int down = cogStepIndex(lanePlace(def, min, max), steps, -1);
+        CHECK(laneUnits((float)down / (float)steps, min, max) == def - 1);
+        CHECK(laneUnits(lanePlace(def, min, max), min, max) == def);
+        CHECK(laneUnits(0.0f, min, max) == min && laneUnits(1.0f, min, max) == max);
     }
 
     // The tilt and roll steps clear the snap to level either side of it
