@@ -439,6 +439,10 @@ static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
             break;
         }
         case XR_SESSION_STATE_FOCUSED:
+            if (!ctx->everFocused) {
+                LOGEV("session focused for the first time");
+            }
+            ctx->everFocused = 1;
             displayFocused(ctx);
             break;
         case XR_SESSION_STATE_STOPPING:
@@ -849,9 +853,22 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     }
 
     if (!ctx->sessionRunning) {
+        // However long the runtime takes, a boundary prompt answered slowly
+        // included: nothing here gives up on it, it only says it is waiting
+        long now = nowNs();
+        if (ctx->waitingSinceNs == 0) {
+            ctx->waitingSinceNs = now;
+            ctx->waitingLoggedNs = now;
+        }
+        else if ((now - ctx->waitingLoggedNs) / 1000000L >= 10000L) {
+            ctx->waitingLoggedNs = now;
+            LOGEV("waiting for the headset: session state %d, not running for %ld s",
+                  ctx->sessionState, (now - ctx->waitingSinceNs) / 1000000000L);
+        }
         usleep(10000);
         return FRAME_IDLE;
     }
+    ctx->waitingSinceNs = 0;
 
     XrFrameState frameState = { XR_TYPE_FRAME_STATE };
     if (!checkXr(xrWaitFrame(ctx->session, NULL, &frameState), "xrWaitFrame")) {
@@ -865,6 +882,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     ctx->shouldRender = frameState.shouldRender;
     displayFrameBegun(ctx, &frameState);
     return FRAME_RENDER;
+}
+
+// Whether the session has been focused at least once, which is when the launch
+// is through and the activity's usual rules about stopping apply again
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeHasBeenFocused(JNIEnv* env, jobject thiz,
+                                                                 jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    return (ctx != NULL && ctx->everFocused) ? JNI_TRUE : JNI_FALSE;
 }
 
 // Whether curved screens are available at all, which is what says if the panel

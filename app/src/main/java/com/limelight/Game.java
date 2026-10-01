@@ -166,6 +166,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // Set once the immersive activity has handed the stream to the flat one,
     // so a second failure report cannot start a second copy
     private boolean relaunchedFlat;
+    // Set while this activity is stopped before its VR session was ever
+    // focused, a boundary prompt in the way, with the stream kept for it
+    private boolean stoppedForHeadset;
 
     // Last absolute position sent from the VR pointer, so a still controller
     // does not repeat the same position every frame
@@ -1161,6 +1164,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (decoderRenderer != null) {
             decoderRenderer.stopXrRenderer();
         }
+        // And one held through a stop for the headset never met the stop that
+        // ends it
+        if (stoppedForHeadset) {
+            stopConnection();
+        }
 
         if (controllerHandler != null) {
             controllerHandler.destroy();
@@ -1201,9 +1209,44 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         super.onPause();
     }
 
+    /**
+     * Whether a stop now is the headset holding the launch rather than the
+     * user leaving. A Quest asks "stationary or new boundary" over an app that
+     * starts away from the saved boundary, and that prompt stops this
+     * activity while the session waits behind it. Ending the stream on that
+     * stop, as the stream always has, dropped the user back at the PC list
+     * every time. So until the session has been focused once, a stop is waited
+     * out, and the usual rule holds from then on.
+     */
+    private boolean waitingForHeadset() {
+        if (!(this instanceof GameXR) || relaunchedFlat || isFinishing()
+                || !PreferenceConfiguration.isHeadset(this)) {
+            return false;
+        }
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        return xrRenderer == null || !xrRenderer.hasBeenFocused();
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (stoppedForHeadset) {
+            stoppedForHeadset = false;
+            FileLog.event("activity back after the headset held the launch, carrying on");
+        }
+    }
+
     @Override
     protected void onStop() {
         super.onStop();
+
+        if (waitingForHeadset()) {
+            stoppedForHeadset = true;
+            FileLog.event("activity stopped before the VR session was focused,"
+                    + " waiting for the headset rather than ending the stream");
+            return;
+        }
 
         SpinnerDialog.closeDialogs(this);
         Dialog.closeDialogs();
@@ -2731,6 +2774,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         if (attemptedConnection) {
+            // The stream goes into the VR session rather than this surface,
+            // so losing it while the headset holds the launch costs nothing
+            if (waitingForHeadset()) {
+                FileLog.event("window surface gone before the VR session was focused, stream kept");
+                return;
+            }
+
             // Let the decoder know immediately that the surface is gone
             decoderRenderer.prepareForStop();
 

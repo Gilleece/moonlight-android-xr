@@ -84,6 +84,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final AtomicInteger pendingFrames = new AtomicInteger(0);
     private final float[] texMatrix = new float[16];
     private volatile boolean stopping;
+    // Set once the session has been focused, which is when a launch is through
+    private volatile boolean focusedOnce;
     private long videoFrameIndex;
 
     // The depth pipeline. Each capture travels in one of DEPTH_PAIRS pairs of
@@ -297,6 +299,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * Whether the session has been focused yet. Until it has, the runtime may
+     * still be holding the launch, behind a boundary prompt for one, and the
+     * activity can be stopped meanwhile without the user having left. Any
+     * thread.
+     */
+    public boolean hasBeenFocused() {
+        return focusedOnce;
+    }
+
+    /**
      * Says something on the toast inside the session, where a 2d toast or
      * dialog is never seen: a line, and a quieter one under it or null. Any
      * thread; it goes up once the frame loop next comes round.
@@ -374,6 +386,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadExit(long ctx, ByteBuffer button, ByteBuffer promptPlain,
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
+    private native boolean nativeHasBeenFocused(long ctx);
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
@@ -874,6 +887,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     click.feed();
                 }
                 continue;
+            }
+
+            if (!focusedOnce && nativeHasBeenFocused(nativeCtx)) {
+                focusedOnce = true;
             }
 
             // Read fresh each frame rather than once on the way in: the panel's

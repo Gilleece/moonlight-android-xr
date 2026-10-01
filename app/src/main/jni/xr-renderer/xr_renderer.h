@@ -822,6 +822,12 @@ typedef struct {
     XrSessionState sessionState;
     int sessionRunning;
     int exitRequested;
+    // Whether the session has ever been focused, which Java reads to know the
+    // launch is through, and since when the runtime has kept it from running,
+    // for the line that says it is still waiting
+    int everFocused;
+    long waitingSinceNs;
+    long waitingLoggedNs;
     XrTime predictedDisplayTime;
     int shouldRender;
     int everRendered;

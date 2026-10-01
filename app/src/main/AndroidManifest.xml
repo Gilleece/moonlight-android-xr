@@ -242,11 +242,13 @@
         <!-- The same activity subclassed, so the immersive path can be marked
              vr while the flat one above stays a panel. An alias cannot do this:
              Pico reads the app type from the target activity, so whichever
-             value Game carried won both launches -->
+             value Game carried won both launches. Unlike Game it keeps its
+             history: a boundary prompt stops it before the session starts,
+             and a no history activity is finished by the system on any stop.
+             Game.onStop still ends the stream once the session is through -->
         <activity
             android:name=".GameXR"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
-            android:noHistory="true"
             android:resizeableActivity="false"
             android:enableOnBackInvokedCallback="false"
             android:launchMode="singleTask"
