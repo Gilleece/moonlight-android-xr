@@ -279,6 +279,72 @@ static void testPoseInFrame(void) {
     CHECK_NEAR(v, 0.5, 1e-5);
 }
 
+// The same yaw, then pitch, then roll the screen's orientation is built from
+static XrQuaternionf screenAngles(float yaw, float pitch, float roll) {
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 right = { 1.0f, 0.0f, 0.0f };
+    Vec3 fwd = { 0.0f, 0.0f, 1.0f };
+    XrQuaternionf q = quatMul(axisAngleQuat(up, yaw), axisAngleQuat(right, -pitch));
+    return quatNorm(quatMul(q, axisAngleQuat(fwd, roll)));
+}
+
+// A quaternion and its negation are the same turn
+static double quatAgreement(XrQuaternionf a, XrQuaternionf b) {
+    return fabs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+}
+
+static void testRecentre(void) {
+    // Swung 40 degrees to the left, 2 m out and 0.3 m up, facing the viewer,
+    // tipped back 10 degrees and rolled 5
+    float turn = 40.0f * (float)M_PI / 180.0f;
+    float tilt = 10.0f * (float)M_PI / 180.0f;
+    float roll = 5.0f * (float)M_PI / 180.0f;
+    XrPosef swung;
+    swung.position.x = -2.0f * sinf(turn);
+    swung.position.y = 0.3f;
+    swung.position.z = -2.0f * cosf(turn);
+    swung.orientation = screenAngles(turn, tilt, roll);
+    XrPosef back = poseRecentred(swung);
+    CHECK_NEAR(back.position.x, 0.0, 1e-6);
+    CHECK_NEAR(back.position.y, 0.3, 1e-6);
+    CHECK_NEAR(back.position.z, -2.0, 1e-5);
+    // Straight ahead, with the tilt and the roll it had
+    CHECK_NEAR(quatAgreement(back.orientation, screenAngles(0.0f, tilt, roll)), 1.0, 1e-5);
+    float before = sqrtf(swung.position.x * swung.position.x + swung.position.y * swung.position.y
+                         + swung.position.z * swung.position.z);
+    float after = sqrtf(back.position.x * back.position.x + back.position.y * back.position.y
+                        + back.position.z * back.position.z);
+    CHECK_NEAR(after, before, 1e-5);
+
+    // Already straight ahead, so nothing moves
+    XrPosef ahead = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.5f } };
+    XrPosef same = poseRecentred(ahead);
+    CHECK_NEAR(same.position.x, 0.0, 1e-6);
+    CHECK_NEAR(same.position.z, -1.5, 1e-6);
+    CHECK_NEAR(quatAgreement(same.orientation, ahead.orientation), 1.0, 1e-6);
+
+    // Left behind the viewer by the old forward, it comes round to the front
+    XrPosef behind;
+    behind.position.x = 0.0f;
+    behind.position.y = -0.2f;
+    behind.position.z = 2.5f;
+    behind.orientation = screenAngles((float)M_PI, 0.0f, 0.0f);
+    XrPosef front = poseRecentred(behind);
+    CHECK_NEAR(front.position.x, 0.0, 1e-6);
+    CHECK_NEAR(front.position.y, -0.2, 1e-6);
+    CHECK_NEAR(front.position.z, -2.5, 1e-5);
+    CHECK_NEAR(quatAgreement(front.orientation, ahead.orientation), 1.0, 1e-5);
+
+    // Carried off to the side without turning, it still ends square to the
+    // viewer, at the distance it was across the floor
+    XrPosef carried = { { 0.0f, 0.0f, 0.0f, 1.0f }, { 1.0f, 0.1f, -1.0f } };
+    XrPosef squared = poseRecentred(carried);
+    CHECK_NEAR(squared.position.x, 0.0, 1e-6);
+    CHECK_NEAR(squared.position.y, 0.1, 1e-6);
+    CHECK_NEAR(squared.position.z, -sqrt(2.0), 1e-5);
+    CHECK_NEAR(quatAgreement(squared.orientation, ahead.orientation), 1.0, 1e-6);
+}
+
 int main(void) {
     testVectors();
     testQuaternions();
@@ -289,5 +355,6 @@ int main(void) {
     testCurveLocal();
     testYawBetween();
     testPoseInFrame();
+    testRecentre();
     return checksDone("xr_math");
 }

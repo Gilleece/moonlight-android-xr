@@ -633,6 +633,42 @@ int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature
     return reseeded;
 }
 
+// Recentring is the user saying where forward is. The screen comes round to
+// straight ahead of the new forward, and how far away, how big and how curved
+// it is stay as they were set. A room hangs its own picture on its wall, so
+// there it is the placement waiting behind the room that comes round.
+void recentreScreen(XrCtx* ctx) {
+    ctx->grabMode = GRAB_NONE;
+    if (!ctx->placementValid) {
+        // Nothing placed yet, and the first frame places it ahead anyway
+        LOGI("recentred before the screen was placed");
+        return;
+    }
+    int inRoom = ctx->roomHoldingScreen;
+    XrPosef* pose = inRoom ? &ctx->savedScreenPose : &ctx->screenPose;
+    XrPosef was = *pose;
+    *pose = poseRecentred(was);
+    if (inRoom) {
+        // Written when the room hands it back, since what is saved from a
+        // room's frames is the wall's placement rather than the user's
+        ctx->recentredInRoom = 1;
+    }
+    else {
+        ctx->poseDirty = 1;
+    }
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 fwd = quatRotate(was.orientation, back);
+    XrVector3f p = pose->position;
+    LOGEV("recentred%s: screen from %.2f %.2f %.2f, turned %.1f deg, to %.2f %.2f %.2f;"
+          " kept distance %.2f m, width %.2f m, radius %.2f m, curve %.2f, head lock %d",
+          inRoom ? " behind the room" : "", was.position.x, was.position.y, was.position.z,
+          atan2f(fwd.x, fwd.z) * 180.0f / (float)M_PI, p.x, p.y, p.z,
+          sqrtf(p.x * p.x + p.y * p.y + p.z * p.z),
+          inRoom ? ctx->savedScreenWidth : ctx->screenWidth,
+          inRoom ? ctx->savedScreenRadius : ctx->screenRadius, effectiveCurvature(ctx),
+          ctx->headLockedPref);
+}
+
 // Handed back only when a grab ends, so preferences are written once per move
 // rather than every frame of it
 static void writeInputPose(XrCtx* ctx, float* out) {

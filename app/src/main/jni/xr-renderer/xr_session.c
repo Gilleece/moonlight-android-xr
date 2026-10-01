@@ -474,12 +474,7 @@ static void pollEvents(XrCtx* ctx) {
                 XrEventDataReferenceSpaceChangePending* change =
                         (XrEventDataReferenceSpaceChangePending*)&event;
                 if (change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL) {
-                    // Recentring is the user saying where forward is, so the
-                    // screen goes back to the placement a fresh install has
-                    // rather than keeping an offset from the old origin
-                    ctx->placementValid = 0;
-                    ctx->grabMode = GRAB_NONE;
-                    LOGI("recentred, screen placement reset");
+                    recentreScreen(ctx);
                 }
                 break;
             }

@@ -779,6 +779,9 @@ typedef struct {
     XrPosef savedScreenPose;
     float savedScreenWidth;
     float savedScreenRadius;
+    // A recentre turned the placement put aside, which is saved once the room
+    // hands it back
+    int recentredInRoom;
     // What the runtime asks for per eye, and the most it will accept, read once
     // at startup. Only the room has any use for either.
     int recommendedEyeWidth;
@@ -1457,6 +1460,7 @@ int initXrInput(XrCtx* ctx);
 void destroyXrInput(XrCtx* ctx);
 void refreshInputSource(XrCtx* ctx);
 int updatePlacement(XrCtx* ctx, float distance, float quadWidth, float curvature);
+void recentreScreen(XrCtx* ctx);
 
 // xr_ui.c: where the furniture and the panels sit, and what the ray is over
 int furnitureOnStandIn(XrCtx* ctx);
