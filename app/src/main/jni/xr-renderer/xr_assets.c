@@ -509,54 +509,85 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCogClock(JNIEnv* env, jo
 
 // The keyboard: a sheet of art per state, the button that opens it, and the
 // layout itself. Drawing and layout both live in Java so they cannot disagree,
-// and this side keeps only the rectangles and the codes behind them.
+// and this side keeps only the rectangles and the codes behind them. The
+// sheets and the code tables arrive in KB_STATE_ order.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboard(JNIEnv* env, jobject thiz,
-                                                                  jlong handle, jobject lower,
-                                                                  jobject upper, jobject symbols,
+                                                                  jlong handle, jobjectArray sheets,
                                                                   jobject buttonIcon,
                                                                   jfloatArray keyRects,
-                                                                  jintArray codesLower,
-                                                                  jintArray codesUpper,
-                                                                  jintArray codesSymbols) {
+                                                                  jobjectArray codes) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     if (ctx == NULL) {
         return;
     }
 
-    jobject sheets[KB_STATE_COUNT] = { lower, upper, symbols };
-    for (int state = 0; state < KB_STATE_COUNT; state++) {
-        uploadSheet(env, ctx, sheets[state], ctx->kbPanelSwapchains[state],
+    int sheetCount = sheets != NULL ? (*env)->GetArrayLength(env, sheets) : 0;
+    for (int state = 0; state < KB_STATE_COUNT && state < sheetCount; state++) {
+        jobject sheet = (*env)->GetObjectArrayElement(env, sheets, state);
+        uploadSheet(env, ctx, sheet, ctx->kbPanelSwapchains[state],
                     ctx->kbPanelImages[state], KB_TEX_W, KB_TEX_H, &ctx->kbPanelReady[state]);
+        if (sheet != NULL) {
+            (*env)->DeleteLocalRef(env, sheet);
+        }
     }
     uploadSheet(env, ctx, buttonIcon, ctx->kbButtonSwapchain, ctx->kbButtonImages,
                 BUTTON_TEX, BUTTON_TEX, &ctx->kbButtonReady);
 
-    jintArray tables[KB_STATE_COUNT] = { codesLower, codesUpper, codesSymbols };
-    if (keyRects != NULL && codesLower != NULL && codesUpper != NULL && codesSymbols != NULL) {
+    if (keyRects != NULL && codes != NULL
+            && (*env)->GetArrayLength(env, codes) >= KB_STATE_COUNT) {
+        jintArray tables[KB_STATE_COUNT];
         int count = (*env)->GetArrayLength(env, keyRects) / 4;
+        int ok = 1;
         for (int state = 0; state < KB_STATE_COUNT; state++) {
-            int codes = (*env)->GetArrayLength(env, tables[state]);
-            if (codes < count) {
-                count = codes;
+            tables[state] = (jintArray)(*env)->GetObjectArrayElement(env, codes, state);
+            if (tables[state] == NULL) {
+                ok = 0;
+                continue;
+            }
+            int length = (*env)->GetArrayLength(env, tables[state]);
+            if (length < count) {
+                count = length;
             }
         }
         if (count > KB_MAX_KEYS) {
             LOGW("keyboard layout has %d keys, keeping the first %d", count, KB_MAX_KEYS);
             count = KB_MAX_KEYS;
         }
-        (*env)->GetFloatArrayRegion(env, keyRects, 0, count * 4, ctx->kbKeyRects);
-        for (int state = 0; state < KB_STATE_COUNT; state++) {
-            (*env)->GetIntArrayRegion(env, tables[state], 0, count, ctx->kbCodes[state]);
+        if (ok) {
+            (*env)->GetFloatArrayRegion(env, keyRects, 0, count * 4, ctx->kbKeyRects);
+            for (int state = 0; state < KB_STATE_COUNT; state++) {
+                (*env)->GetIntArrayRegion(env, tables[state], 0, count, ctx->kbCodes[state]);
+            }
+            ctx->kbKeyCount = count;
         }
-        ctx->kbKeyCount = count;
+        for (int state = 0; state < KB_STATE_COUNT; state++) {
+            if (tables[state] != NULL) {
+                (*env)->DeleteLocalRef(env, tables[state]);
+            }
+        }
     }
 
-    LOGI("keyboard art %s, %s and %s, button %s, %d keys",
-         ctx->kbPanelReady[KB_STATE_LOWER] ? "ready" : "missing",
-         ctx->kbPanelReady[KB_STATE_UPPER] ? "ready" : "missing",
-         ctx->kbPanelReady[KB_STATE_SYMBOLS] ? "ready" : "missing",
+    int ready = 0;
+    for (int state = 0; state < KB_STATE_COUNT; state++) {
+        ready += ctx->kbPanelReady[state] ? 1 : 0;
+    }
+    LOGI("keyboard art %d of %d sheets ready, button %s, %d keys", ready, KB_STATE_COUNT,
          ctx->kbButtonReady ? "ready" : "missing", ctx->kbKeyCount);
+}
+
+// One keyboard sheet drawn again, with the modifiers lit as they are now. Only
+// ever the sheet showing, the frame after the lit ones changed.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboardSheet(JNIEnv* env, jobject thiz,
+                                                                       jlong handle, jint state,
+                                                                       jobject sheet) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || sheet == NULL || state < 0 || state >= KB_STATE_COUNT) {
+        return;
+    }
+    uploadSheet(env, ctx, sheet, ctx->kbPanelSwapchains[state], ctx->kbPanelImages[state],
+                KB_TEX_W, KB_TEX_H, &ctx->kbPanelReady[state]);
 }
 
 // The exit button and the prompt behind it. One sheet per lit button, handed

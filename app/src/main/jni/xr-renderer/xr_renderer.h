@@ -45,6 +45,7 @@
 #include "xr_notice.h"
 #include "xr_glow.h"
 #include "xr_grade.h"
+#include "xr_keys.h"
 
 #define TAG "moonlight-xr"
 
@@ -1288,8 +1289,9 @@ typedef struct {
     // would drag the thumb out from under the ray mid drag.
     XrPosef cogPose;
     float cogW, cogH;
-    // The keyboard. One swapchain per state, all three filled at startup, so
-    // shift is a different handle in the layer rather than an upload.
+    // The keyboard. One swapchain per state, all filled at startup, so shift
+    // is a different handle in the layer rather than an upload. A sheet is
+    // drawn again only when the modifiers lit on it change.
     XrSwapchain kbPanelSwapchains[KB_STATE_COUNT];
     XrSwapchain kbButtonSwapchain;
     uint32_t kbPanelImageCounts[KB_STATE_COUNT];
@@ -1301,6 +1303,9 @@ typedef struct {
     int kbOpen;
     int kbButtonHot;
     int kbState;
+    // Ctrl, Alt and Win as lit on the keyboard, KB_MOD_ bits, which Java holds
+    // down on the host for as long as they stay lit
+    int kbMods;
     // The key under the ray, or -1, and whether it is being held down
     int kbHoverKey;
     int kbKeyDown;

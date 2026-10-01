@@ -6,6 +6,7 @@ import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.input.ControllerHandler;
 import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.binding.input.KeyboardTranslator;
+import com.limelight.binding.input.VrKeyboard;
 import com.limelight.binding.input.XrClickAnchor;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
@@ -115,11 +116,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private static final int THREE_FINGER_TAP_THRESHOLD = 300;
 
-    // Held around a capital typed on the in world keyboard
-    private static final short VK_SHIFT = 0x10;
-
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
+    // The in world keyboard's keys and the modifiers it holds, into the host
+    private VrKeyboard vrKeyboard;
     private VirtualController virtualController;
 
     private PreferenceConfiguration prefConfig;
@@ -575,6 +575,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
         keyboardTranslator = new KeyboardTranslator();
+        vrKeyboard = new VrKeyboard(new VrKeyboard.Sink() {
+            @Override
+            public void key(short keyCode, byte action, byte modifiers) {
+                conn.sendKeyboardInput(keyCode, action, modifiers, (byte)0);
+            }
+
+            @Override
+            public void text(String text) {
+                conn.sendUtf8Text(text);
+            }
+        });
 
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
@@ -2348,6 +2359,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             updatePipAutoEnter();
 
             controllerHandler.stop();
+            // A Ctrl or Alt still lit on the in world keyboard is held on the
+            // host, and would stay held there
+            if (vrKeyboard != null) {
+                vrKeyboard.releaseAll();
+            }
 
             // Update GameManager state to indicate we're no longer in game
             UiHelper.notifyStreamEnded(this);
@@ -2913,32 +2929,26 @@ public class Game extends Activity implements SurfaceHolder.Callback,
      * A key pressed on the in world keyboard. The code is Unicode with the
      * shift already applied, and the digits, the capitals and the four control
      * codes happen to share their values with the Windows virtual keys, so
-     * those go as key events and everything else goes as text, which is what
-     * this app already does for characters it cannot map.
+     * those go as key events, as do the Fn sheet's keys, and everything else
+     * goes as text, which is what this app already does for characters it
+     * cannot map. The modifiers are the Ctrl, Alt and Win held with it.
      */
     @Override
-    public void onVrKey(int code) {
+    public void onVrKey(int code, int modifiers) {
         if (!connected) {
             return;
         }
+        vrKeyboard.type(code, modifiers);
+    }
 
-        if (code == 8 || code == 9 || code == 13 || code == 32
-                || (code >= '0' && code <= '9')) {
-            sendVrKeyPress((short)code, (byte)0);
+    // Ctrl, Alt and Win go down on the host as they light on the keyboard and
+    // come up as they go out
+    @Override
+    public void onVrModifiers(int modifiers) {
+        if (!connected) {
+            return;
         }
-        else if (code >= 'a' && code <= 'z') {
-            sendVrKeyPress((short)(code - 32), (byte)0);
-        }
-        else if (code >= 'A' && code <= 'Z') {
-            // Shift is held around the letter and named in the modifier as
-            // well, so hosts that read either one see the capital
-            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_DOWN, (byte)0, (byte)0);
-            sendVrKeyPress((short)code, KeyboardPacket.MODIFIER_SHIFT);
-            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_UP, (byte)0, (byte)0);
-        }
-        else {
-            conn.sendUtf8Text(String.valueOf((char)code));
-        }
+        vrKeyboard.hold(modifiers);
     }
 
     /**
@@ -3007,11 +3017,6 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 finish();
             }
         });
-    }
-
-    private void sendVrKeyPress(short keyMap, byte modifier) {
-        conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, modifier, (byte)0);
-        conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, modifier, (byte)0);
     }
 
     // Words on the notification overlay for a while, put back as they were

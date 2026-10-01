@@ -163,15 +163,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // splash is the exception, drawn before the frame loop starts so it is
     // up from the first frame.
     private final AtomicReference<ByteBuffer> pendingSplash = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingKbLower = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingKbUpper = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingKbSymbols = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer[]> pendingKbSheets = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingKbButton = new AtomicReference<>();
     // Built next to the art and read on the frame loop when it uploads
     private volatile float[] kbKeyRects;
-    private volatile int[] kbCodesLower;
-    private volatile int[] kbCodesUpper;
-    private volatile int[] kbCodesSymbols;
+    private volatile int[][] kbCodes;
+    // The modifiers each keyboard sheet was last drawn with lit, and those the
+    // host has been told are held. Frame loop only, and the sheets are only
+    // drawn again once the first set is up.
+    private final int[] kbSheetMods = new int[KB_STATE_COUNT];
+    private boolean kbArtUp;
+    private int heldKbMods;
 
     private final AtomicReference<ByteBuffer> pendingExitButton = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingExitPlain = new AtomicReference<>();
@@ -261,8 +263,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         void onVrButton(int button, boolean down);
         void onVrScroll(int clicks);
         // A key from the in world keyboard. Unicode with the shift already
-        // applied, or backspace, tab, enter and space as their control codes.
-        void onVrKey(int code);
+        // applied, backspace, tab, enter and space as their control codes, or
+        // a virtual key code over KB_CODE_VK. The modifiers, KB_MOD_ bits, are
+        // the ones held down on the host while it goes.
+        void onVrKey(int code, int modifiers);
+        // Ctrl, Alt and Win as lit on the keyboard now, KB_MOD_ bits, which
+        // are to be held down on the host until they go out
+        void onVrModifiers(int modifiers);
         // The exit prompt was confirmed, so the session is to end
         void onVrExit();
     }
@@ -360,10 +367,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Brightness, contrast, gamma and saturation over the picture, in the
     // PICTURE_ order and units
     private native void nativeSetPicture(long ctx, int[] picture);
-    private native void nativeUploadKeyboard(long ctx, ByteBuffer lower, ByteBuffer upper,
-                                             ByteBuffer symbols, ByteBuffer buttonIcon,
-                                             float[] keyRects, int[] codesLower,
-                                             int[] codesUpper, int[] codesSymbols);
+    // The sheets and the code tables in KB_STATE_ order
+    private native void nativeUploadKeyboard(long ctx, ByteBuffer[] sheets, ByteBuffer buttonIcon,
+                                             float[] keyRects, int[][] codes);
+    private native void nativeUploadKeyboardSheet(long ctx, int state, ByteBuffer sheet);
     private native void nativeUploadExit(long ctx, ByteBuffer button, ByteBuffer promptPlain,
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
@@ -885,6 +892,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             updateCogReadout();
             updateCogMarks();
             updateCogClock();
+            updateKeyboardSheet();
             updateToast();
             updateClickSound(prefs);
 
@@ -959,13 +967,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadCog(nativeCtx, cogSheets, cog);
             }
 
-            ByteBuffer kbLower = pendingKbLower.getAndSet(null);
-            ByteBuffer kbUpper = pendingKbUpper.getAndSet(null);
-            ByteBuffer kbSymbols = pendingKbSymbols.getAndSet(null);
+            ByteBuffer[] kbSheets = pendingKbSheets.getAndSet(null);
             ByteBuffer kbButton = pendingKbButton.getAndSet(null);
-            if (kbLower != null || kbUpper != null || kbSymbols != null || kbButton != null) {
-                nativeUploadKeyboard(nativeCtx, kbLower, kbUpper, kbSymbols, kbButton,
-                        kbKeyRects, kbCodesLower, kbCodesUpper, kbCodesSymbols);
+            if (kbSheets != null || kbButton != null) {
+                nativeUploadKeyboard(nativeCtx, kbSheets, kbButton, kbKeyRects, kbCodes);
+                kbArtUp |= kbSheets != null;
             }
 
             ByteBuffer exitButton = pendingExitButton.getAndSet(null);
@@ -1121,12 +1127,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
         kbKeyRects = keyboard.keyRects;
-        kbCodesLower = keyboard.codesLower;
-        kbCodesUpper = keyboard.codesUpper;
-        kbCodesSymbols = keyboard.codesSymbols;
-        pendingKbLower.set(keyboard.lower);
-        pendingKbUpper.set(keyboard.upper);
-        pendingKbSymbols.set(keyboard.symbols);
+        kbCodes = keyboard.codes;
+        pendingKbSheets.set(keyboard.sheets);
         pendingKbButton.set(keyboard.button);
 
         ByteBuffer[] exit = panels.buildExitArt();
@@ -1307,10 +1309,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
 
             // Every real code is 8 or more, so anything at zero or above is a
-            // key rather than the sentinel
+            // key rather than the sentinel. It goes before the modifiers are
+            // let go of, since it was typed with them held.
             int key = (int)inputState[IN_KEY];
             if (key >= 0) {
-                inputListener.onVrKey(key);
+                inputListener.onVrKey(key, (int)inputState[IN_KEY_MODS]);
+            }
+            int mods = (int)inputState[IN_KB_MODS];
+            if (mods != heldKbMods) {
+                heldKbMods = mods;
+                inputListener.onVrModifiers(mods);
             }
 
             // Cleared here as well as being written once natively, so a frame
@@ -1375,6 +1383,26 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             nativeUploadCogMarks(nativeCtx, cogMarks.draw(marksWanted));
             System.arraycopy(marksWanted, 0, marksDrawn, 0, MARK_VALUES);
         }
+    }
+
+    // Draws the keyboard sheet showing again when the modifiers lit on the
+    // keyboard are not the ones it was drawn with, and hands it straight up,
+    // since this is the thread with the GL context. A press changes them, so
+    // this is once a press at most.
+    private void updateKeyboardSheet() {
+        int sheet = (int)inputState[IN_KB_SHEET];
+        if (!kbArtUp || panels == null || sheet < 0 || sheet >= KB_STATE_COUNT) {
+            return;
+        }
+        int mods = (int)inputState[IN_KB_MODS];
+        if (mods == kbSheetMods[sheet]) {
+            return;
+        }
+        long start = System.nanoTime();
+        nativeUploadKeyboardSheet(nativeCtx, sheet, panels.buildKeyboardSheet(sheet, mods));
+        kbSheetMods[sheet] = mods;
+        LimeLog.info("Keyboard sheet " + sheet + " drawn with modifiers " + mods + " in "
+                + msPer(System.nanoTime() - start, 1) + " ms");
     }
 
     // Keeps the clock line over the settings panel up to the minute while the

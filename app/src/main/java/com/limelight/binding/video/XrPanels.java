@@ -99,13 +99,13 @@ final class XrPanels {
     private static final String[] COG_PICTURE_ROWS =
             { "Brightness", "Contrast", "Gamma", "Saturation" };
 
-    // The in world keyboard. Three sheets of the same layout, one per state,
+    // The in world keyboard. Four sheets of the same layout, one per state,
     // handed over in state order, along with the geometry that goes with them:
     // the native side is given key rectangles and codes and knows nothing else
     // about it. The sheet size and the code values are the KB_ values in
     // XrShared.
     // Key widths per row, in units where a plain key is 1, and where each row
-    // starts. One table for all three states, so every state has to lay its
+    // starts. One table for all the states, so every state has to lay its
     // keys out the same way.
     private static final float[][] KB_ROW_WIDTHS = {
             { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 },
@@ -152,21 +152,59 @@ final class XrPanels {
             { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
     };
     // The brackets row has one slot fewer than a letter row, since the
-    // geometry is shared, so tab takes the place shift had
+    // geometry is shared, so the Fn sheet's key takes the place shift had.
+    // Tab is on that sheet.
     private static final String[][] KB_LABELS_SYMBOLS = {
             { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
             { "@", "#", "$", "%", "&", "*", "-", "+", "(", ")" },
             { "!", "\"", "'", ":", ";", "/", "?", "_", "=" },
-            { "Tab", "<", ">", "[", "]", "{", "}", "\\", "Del" },
+            { "Fn", "<", ">", "[", "]", "{", "}", "\\", "Del" },
             { "ABC", ",", "space", ".", "Enter", "Hide" }
     };
     private static final int[][] KB_CODES_SYMBOLS = {
             { '1', '2', '3', '4', '5', '6', '7', '8', '9', '0' },
             { '@', '#', '$', '%', '&', '*', '-', '+', '(', ')' },
             { '!', '"', '\'', ':', ';', '/', '?', '_', '=' },
-            { 9, '<', '>', '[', ']', '{', '}', '\\', 8 },
+            { KB_CODE_FN, '<', '>', '[', ']', '{', '}', '\\', 8 },
             { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
     };
+    // The keys that type nothing. Esc and Tab lead two rows of F keys with
+    // the editing keys after them as a real keyboard has them, the arrows sit
+    // as an inverted T with up over down, and Ctrl, Win and Alt stay lit until
+    // the next key goes with them. ?123 sits where Fn does on the symbols, so
+    // the one place flips between the two. A null label is a blank with no
+    // key, code 0. Backspace says so here, since Del is the delete key.
+    private static final String[][] KB_LABELS_FN = {
+            { "Esc", "F1", "F2", "F3", "F4", "F5", "F6", "Ins", "Home", "PgUp" },
+            { "Tab", "F7", "F8", "F9", "F10", "F11", "F12", "Del", "End", "PgDn" },
+            { null, null, null, null, null, null, "\u2191", null, null },
+            { "?123", "Ctrl", "Win", "Alt", null, "\u2190", "\u2193", "\u2192", "Bksp" },
+            { "ABC", ",", "space", ".", "Enter", "Hide" }
+    };
+    private static final int[][] KB_CODES_FN = {
+            { vk(0x1B), vk(0x70), vk(0x71), vk(0x72), vk(0x73), vk(0x74), vk(0x75),
+              vk(0x2D), vk(0x24), vk(0x21) },
+            { 9, vk(0x76), vk(0x77), vk(0x78), vk(0x79), vk(0x7A), vk(0x7B),
+              vk(0x2E), vk(0x23), vk(0x22) },
+            { 0, 0, 0, 0, 0, 0, vk(0x26), 0, 0 },
+            { KB_CODE_FN, KB_CODE_CTRL, KB_CODE_WIN, KB_CODE_ALT, 0, vk(0x25), vk(0x28), vk(0x27), 8 },
+            { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
+    };
+    // Every sheet's labels and codes in KB_STATE_ order
+    private static final String[][][] KB_LABELS = {
+            KB_LABELS_LOWER, KB_LABELS_UPPER, KB_LABELS_SYMBOLS, KB_LABELS_FN
+    };
+    private static final int[][][] KB_CODES = {
+            KB_CODES_LOWER, KB_CODES_UPPER, KB_CODES_SYMBOLS, KB_CODES_FN
+    };
+    // The names the held modifiers go by, in KB_MOD_ bit order
+    private static final int[] KB_MOD_BITS = { KB_MOD_CTRL, KB_MOD_ALT, KB_MOD_WIN };
+    private static final String[] KB_MOD_NAMES = { "Ctrl", "Alt", "Win" };
+
+    // A Windows virtual key code as the keyboard carries it
+    private static int vk(int code) {
+        return KB_CODE_VK + code;
+    }
 
     // The button that ends the stream and the prompt it opens. One sheet per
     // lit button, in zone order, so which one shows is a swapchain handle on
@@ -184,28 +222,20 @@ final class XrPanels {
         this.context = context;
     }
 
-    // Everything the keyboard hands over: the three sheets in state order, the
-    // button that opens it, and the geometry they were all drawn from
+    // Everything the keyboard hands over: the sheets and their codes in state
+    // order, the button that opens it, and the geometry they were all drawn
+    // from
     static final class Keyboard {
-        final ByteBuffer lower;
-        final ByteBuffer upper;
-        final ByteBuffer symbols;
+        final ByteBuffer[] sheets;
         final ByteBuffer button;
         final float[] keyRects;
-        final int[] codesLower;
-        final int[] codesUpper;
-        final int[] codesSymbols;
+        final int[][] codes;
 
-        Keyboard(ByteBuffer lower, ByteBuffer upper, ByteBuffer symbols, ByteBuffer button,
-                 float[] keyRects, int[] codesLower, int[] codesUpper, int[] codesSymbols) {
-            this.lower = lower;
-            this.upper = upper;
-            this.symbols = symbols;
+        Keyboard(ByteBuffer[] sheets, ByteBuffer button, float[] keyRects, int[][] codes) {
+            this.sheets = sheets;
             this.button = button;
             this.keyRects = keyRects;
-            this.codesLower = codesLower;
-            this.codesUpper = codesUpper;
-            this.codesSymbols = codesSymbols;
+            this.codes = codes;
         }
     }
 
@@ -1194,34 +1224,51 @@ final class XrPanels {
 
     /**
      * The in world keyboard: one sheet of art per state, the button that opens
-     * it, and the layout the native side hit tests against. All three sheets
+     * it, and the layout the native side hit tests against. All the sheets
      * share one set of key rectangles, so the art and the hit test are built
-     * from the same numbers and cannot drift apart.
+     * from the same numbers and cannot drift apart. Nothing is held when it
+     * opens, so every sheet starts with no modifier lit.
      */
     Keyboard buildKeyboard() {
         float[] keyRects = buildKeyRects();
-        int[] codesLower = flatten(KB_CODES_LOWER);
-        int[] codesUpper = flatten(KB_CODES_UPPER);
-        int[] codesSymbols = flatten(KB_CODES_SYMBOLS);
-
-        Bitmap lower = buildKeyboardSheet(KB_LABELS_LOWER, keyRects);
-        ByteBuffer lowerPixels = toBuffer(lower);
-        lower.recycle();
-
-        Bitmap upper = buildKeyboardSheet(KB_LABELS_UPPER, keyRects);
-        ByteBuffer upperPixels = toBuffer(upper);
-        upper.recycle();
-
-        Bitmap symbols = buildKeyboardSheet(KB_LABELS_SYMBOLS, keyRects);
-        ByteBuffer symbolsPixels = toBuffer(symbols);
-        symbols.recycle();
+        int[][] codes = new int[KB_STATE_COUNT][];
+        ByteBuffer[] sheets = new ByteBuffer[KB_STATE_COUNT];
+        for (int state = 0; state < KB_STATE_COUNT; state++) {
+            codes[state] = flatten(KB_CODES[state]);
+            sheets[state] = buildKeyboardSheet(state, 0);
+        }
 
         Bitmap button = buildKeyboardButton();
         ByteBuffer buttonPixels = toBuffer(button);
         button.recycle();
 
-        return new Keyboard(lowerPixels, upperPixels, symbolsPixels, buttonPixels,
-                keyRects, codesLower, codesUpper, codesSymbols);
+        return new Keyboard(sheets, buttonPixels, keyRects, codes);
+    }
+
+    /**
+     * One keyboard sheet with the modifiers in mods, KB_MOD_ bits, drawn lit:
+     * the keys themselves on the Fn sheet, and a tag naming them on the
+     * space bar of the others, since they hold over every sheet.
+     */
+    ByteBuffer buildKeyboardSheet(int state, int mods) {
+        Bitmap sheet = buildKeyboardSheet(KB_LABELS[state], KB_CODES[state], buildKeyRects(), mods);
+        ByteBuffer pixels = toBuffer(sheet);
+        sheet.recycle();
+        return pixels;
+    }
+
+    // The held modifiers by name, "Ctrl Alt", or null with none
+    static String heldModifiers(int mods) {
+        StringBuilder names = new StringBuilder();
+        for (int i = 0; i < KB_MOD_BITS.length; i++) {
+            if ((mods & KB_MOD_BITS[i]) != 0) {
+                if (names.length() > 0) {
+                    names.append(' ');
+                }
+                names.append(KB_MOD_NAMES[i]);
+            }
+        }
+        return names.length() > 0 ? names.toString() : null;
     }
 
     // Left, top, right and bottom of every key as fractions of the panel, rows
@@ -1268,8 +1315,9 @@ final class XrPanels {
     }
 
     // One state's worth of keys, drawn as caps on the same dark rounded panel
-    // the settings use
-    private Bitmap buildKeyboardSheet(String[][] labels, float[] rects) {
+    // the settings use. A lit modifier is a white cap with dark letters, the
+    // way a pressed key reads.
+    private Bitmap buildKeyboardSheet(String[][] labels, int[][] codes, float[] rects, int mods) {
         Bitmap bitmap = Bitmap.createBitmap(KB_TEX_W, KB_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
 
@@ -1281,32 +1329,83 @@ final class XrPanels {
 
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
         text.setTextAlign(Paint.Align.CENTER);
-        text.setColor(Color.WHITE);
+
+        // Whether this sheet has the modifier keys on it, which then show
+        // what is held themselves
+        boolean modifierKeys = false;
+        for (int[] row : codes) {
+            for (int code : row) {
+                modifierKeys |= modifierBit(code) != 0;
+            }
+        }
+        String held = modifierKeys ? null : heldModifiers(mods);
 
         int at = 0;
-        for (String[] row : labels) {
-            for (String label : row) {
+        for (int r = 0; r < labels.length; r++) {
+            for (int k = 0; k < labels[r].length; k++) {
+                String label = labels[r][k];
                 RectF box = new RectF(rects[at] * KB_TEX_W, rects[at + 1] * KB_TEX_H,
                         rects[at + 2] * KB_TEX_W, rects[at + 3] * KB_TEX_H);
                 at += 4;
+                if (label == null) {
+                    continue;
+                }
+                int code = codes[r][k];
+                boolean lit = (mods & modifierBit(code)) != 0;
 
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(0x28FFFFFF);
+                paint.setColor(lit ? 0xEEFFFFFF : 0x28FFFFFF);
                 canvas.drawRoundRect(box, 10.0f, 10.0f, paint);
                 paint.setStyle(Paint.Style.STROKE);
                 paint.setStrokeWidth(2.0f);
-                paint.setColor(0x50FFFFFF);
+                paint.setColor(lit ? 0xFFFFFFFF : 0x50FFFFFF);
                 canvas.drawRoundRect(box, 10.0f, 10.0f, paint);
 
                 // A single character is what the key types, so it gets the
                 // room. The named keys are wordier and have to fit.
+                text.setColor(lit ? 0xFF141416 : Color.WHITE);
                 text.setTextSize(label.length() == 1 ? 34.0f : 22.0f);
                 canvas.drawText(label, box.centerX(),
                         box.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+
+                if (held != null && code == 32) {
+                    drawHeldTag(canvas, box, held);
+                }
             }
         }
 
         return bitmap;
+    }
+
+    // The modifiers still held, lit at the left end of the space bar
+    private static void drawHeldTag(Canvas canvas, RectF space, String held) {
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setTextSize(20.0f);
+        text.setColor(0xFF141416);
+        float pad = 10.0f;
+        float w = text.measureText(held) + 2.0f * pad;
+        float h = space.height() - 16.0f;
+        RectF tag = new RectF(space.left + 8.0f, space.top + 8.0f, space.left + 8.0f + w,
+                space.top + 8.0f + h);
+        Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        fill.setColor(0xEEFFFFFF);
+        canvas.drawRoundRect(tag, 8.0f, 8.0f, fill);
+        canvas.drawText(held, tag.left + pad,
+                tag.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    // The KB_MOD_ bit a modifier key's code lights, or 0
+    private static int modifierBit(int code) {
+        switch (code) {
+            case KB_CODE_CTRL:
+                return KB_MOD_CTRL;
+            case KB_CODE_ALT:
+                return KB_MOD_ALT;
+            case KB_CODE_WIN:
+                return KB_MOD_WIN;
+            default:
+                return 0;
+        }
     }
 
     // A keyboard outline with a few keys in it, which is about as much as reads

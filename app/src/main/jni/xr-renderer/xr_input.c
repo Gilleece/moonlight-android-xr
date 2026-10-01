@@ -2246,28 +2246,21 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         ctx->kbKeyDown = key >= 0 && ctx->triggerDown[f->hand];
         if (key >= 0 && ctx->triggerEdge[f->hand]) {
             int code = ctx->kbCodes[ctx->kbState][key];
-            if (code == KB_CODE_SHIFT) {
-                // Shift off the symbols page goes to the capitals rather than
-                // back where it came from
-                ctx->kbState = ctx->kbState == KB_STATE_UPPER
-                        ? KB_STATE_LOWER : KB_STATE_UPPER;
+            KbPress press = kbPress(ctx->kbState, ctx->kbMods, code);
+            if (press.code > 0) {
+                // One key a frame, which is as fast as anyone presses them
+                f->out[IN_KEY] = (float)press.code;
+                f->out[IN_KEY_MODS] = (float)press.codeMods;
             }
-            else if (code == KB_CODE_SYMBOLS) {
-                ctx->kbState = ctx->kbState == KB_STATE_SYMBOLS
-                        ? KB_STATE_LOWER : KB_STATE_SYMBOLS;
+            if (press.mods != ctx->kbMods) {
+                LOGI("keyboard modifiers %d -> %d%s", ctx->kbMods, press.mods,
+                     press.code > 0 ? ", let go after the key" : "");
             }
-            else if (code == KB_CODE_HIDE) {
+            ctx->kbState = press.sheet;
+            ctx->kbMods = press.mods;
+            if (press.hide) {
                 ctx->kbOpen = 0;
                 LOGI("keyboard closed");
-            }
-            else if (code > 0) {
-                // One key a frame, which is as fast as anyone presses them
-                f->out[IN_KEY] = (float)code;
-                // Shift is one shot over the letters, the way a phone keyboard
-                // behaves, and sticky over the punctuation row above them
-                if (ctx->kbState == KB_STATE_UPPER && code >= 'A' && code <= 'Z') {
-                    ctx->kbState = KB_STATE_LOWER;
-                }
             }
         }
     }
@@ -2550,7 +2543,16 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     out[IN_CLICK] = 0.0f;
     out[IN_MARKS] = -1.0f;
     out[IN_COG_OPEN] = 0.0f;
+    out[IN_KB_MODS] = 0.0f;
+    out[IN_KB_SHEET] = -1.0f;
     if (ctx != NULL) {
+        // However the keyboard went away, it lets go of what it held
+        if (!ctx->kbOpen && ctx->kbMods != 0) {
+            LOGI("keyboard modifiers %d -> 0, keyboard closed", ctx->kbMods);
+            ctx->kbMods = 0;
+        }
+        out[IN_KB_MODS] = (float)ctx->kbMods;
+        out[IN_KB_SHEET] = ctx->kbOpen ? (float)ctx->kbState : -1.0f;
         out[IN_CLICK] = ctx->clickPending ? 1.0f : 0.0f;
         ctx->clickPending = 0;
         // The display tab's choices while it is up, fading out included
