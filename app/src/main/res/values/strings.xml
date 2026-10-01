@@ -283,6 +283,12 @@
     <string name="summary_vr_show_ray">The beam from a controller to the screen. Switch it off for lightgun games: the dot where it lands stays and presses land as before, the ray comes back while a panel is open, and the ray button under the screen switches it for the session.</string>
     <string name="title_vr_controller_model">Show the controllers</string>
     <string name="summary_vr_controller_model">Draws a simple controller in each hand, where the real one is. Not in passthrough, where the real ones are in view, nor while your hands are tracked instead.</string>
+    <string name="title_vr_head_aim">Head aims the mouse</string>
+    <string name="summary_vr_head_aim">Only while the screen is locked to your head: turning your head moves the mouse like a game\'s look control, for first person games. The controller pointer and a real mouse still work on top. It pauses while a panel is open, and the head aim button under the screen switches it for the session.</string>
+    <string name="title_seekbar_vr_head_aim_sensitivity">Head aim sensitivity</string>
+    <string name="summary_seekbar_vr_head_aim_sensitivity">How far the mouse moves for each degree your head turns. Tune it together with the game\'s own mouse sensitivity until the view turns as far as your head does. The Screen tab on the settings panel in the headset changes the same value.</string>
+    <string name="title_seekbar_vr_head_aim_deadzone">Head aim dead zone</string>
+    <string name="summary_seekbar_vr_head_aim_deadzone">A head turning slower than this sends nothing, which keeps tracking jitter from moving the mouse while you hold still. 0 sends every movement.</string>
     <string name="title_vr_click_sound">Click when a panel is pressed</string>
     <string name="summary_vr_click_sound">A short tick when a press in the headset lands on a panel, a button or a key. It plays on the system sounds, apart from the stream\'s audio.</string>
     <string name="title_vr_reset_pose">Reset screen position</string>
@@ -333,6 +339,9 @@
     <string name="vr_toast_hands_unlocked">Hands unlocked</string>
     <string name="vr_toast_3d_off">3D off</string>
     <string name="vr_toast_3d_on">3D on</string>
+    <string name="vr_toast_head_aim_on">Head aim on</string>
+    <string name="vr_toast_head_aim_on_more">Turning your head moves the mouse</string>
+    <string name="vr_toast_head_aim_off">Head aim off</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">What were you doing when it went wrong?</string>
     <string name="vr_report_optional">Optional</string>
@@ -369,6 +378,8 @@
     <string name="title_seekbar_vr_separation">Stereo separation</string>
     <string name="summary_seekbar_vr_separation">How far apart the two eye views are, as a percent of frame width. Above about 0.5 the picture does not look any deeper but is harder on the eyes.</string>
     <string name="suffix_seekbar_vr_percent">%</string>
+    <string name="suffix_seekbar_vr_head_aim_sensitivity">px per degree</string>
+    <string name="suffix_seekbar_vr_head_aim_deadzone">degrees per second</string>
     <string name="gen1_warning_title">Older headset detected</string>
     <string name="gen1_warning_text">This app is intended for Quest 3 / Pico 4 Ultra or newer headsets. Performance on Quest 2 / Pico 4 generation headsets or earlier has not been tested and is expected to be poor. A lower performance profile has been applied to help keep the experience enjoyable. Turning off realtime 3D will give a huge performance boost, but it\'s likely the reason you downloaded this app! Just a heads up. Thanks and enjoy!</string>
     <string name="warning_dialog_never_again">Don\'t show this again</string>

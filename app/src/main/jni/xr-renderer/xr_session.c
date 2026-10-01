@@ -788,6 +788,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     for (int state = 0; state < 2; state++) {
         destroyArtSwapchain(&ctx->stereoButtonSwapchains[state], &ctx->stereoButtonImages[state]);
         destroyArtSwapchain(&ctx->rayButtonSwapchains[state], &ctx->rayButtonImages[state]);
+        destroyArtSwapchain(&ctx->aimButtonSwapchains[state], &ctx->aimButtonImages[state]);
     }
     destroyArtSwapchain(&ctx->lockSwapchain, &ctx->lockImages);
     destroyArtSwapchain(&ctx->unlockSwapchain, &ctx->unlockImages);

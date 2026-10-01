@@ -68,8 +68,10 @@ public class PictureTabTest {
         // The About tab comes after it
         assertEquals(5, COG_TAB_COUNT);
         assertEquals(COG_TAB_COUNT, COG_ART_ROOM);
-        assertEquals(COG_ART_ROOM + COG_TAB_COUNT + 1, COG_ART_COUNT);
-        // Its rows sit where the screen tab's do, clear of the reset button
+        // Then the room's sheets, the tabs and the fixed Room tab, then the
+        // screen and display tabs for a screen not locked to the head
+        assertEquals(COG_ART_ROOM + COG_TAB_COUNT + 1 + 2, COG_ART_COUNT);
+        // Its rows sit where the 3D and Room tabs' do, clear of the reset button
         for (int row = 0; row < PICTURE_VALUES; row++) {
             assertEquals(COG_ROW_V0 + row * COG_ROW_STEP, XrPanels.cogRowV(COG_TAB_PICTURE, row),
                     1e-6f);

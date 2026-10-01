@@ -5,21 +5,56 @@ import android.content.SharedPreferences;
 import com.limelight.binding.video.XrShared;
 
 import org.junit.Test;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import javax.xml.parsers.DocumentBuilderFactory;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
  * Head aim: its switch, its pixels a degree and its dead zone, their keys,
- * where they start and the lanes they are held to, and the slots the frame
- * hands its motion back in.
+ * where they start and the lanes they are held to, the slots the frame hands
+ * its motion back in, where the settings screen has them, how the log lines
+ * say them and that every language words them.
  */
 public class HeadAimPrefsTest {
+
+    private static final String ANDROID = "http://schemas.android.com/apk/res/android";
+    private static final String SEEKBAR = "http://schemas.moonlight-stream.com/apk/res/seekbar";
+
+    private static File res(String path) {
+        File f = new File("src/main/res/" + path);
+        return f.isFile() ? f : new File("app/src/main/res/" + path);
+    }
+
+    // The entry a key names in the settings screen, of that kind
+    private static Element entry(String tag, String key) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        NodeList all = factory.newDocumentBuilder().parse(res("xml/preferences.xml"))
+                .getElementsByTagName(tag);
+        Element found = null;
+        for (int i = 0; i < all.getLength(); i++) {
+            Element e = (Element) all.item(i);
+            if (key.equals(e.getAttributeNS(ANDROID, "key"))) {
+                found = e;
+            }
+        }
+        return found;
+    }
 
     @Test
     public void itIsOffUntilSwitchedOn() {
@@ -76,6 +111,87 @@ public class HeadAimPrefsTest {
         assertEquals(XrShared.IN_HEAD_AIM + 1, XrShared.IN_MOUSE_DX);
         assertEquals(XrShared.IN_MOUSE_DX + 1, XrShared.IN_MOUSE_DY);
         assertEquals(XrShared.IN_MOUSE_DY + 1, XrShared.IN_SLOTS);
+    }
+
+    @Test
+    public void theSettingAndItsTwoSeekbarsSitInTheVrSettings() throws Exception {
+        Element box = entry("CheckBoxPreference", PreferenceConfiguration.VR_HEAD_AIM_PREF_STRING);
+        assertNotNull(box);
+        assertEquals("false", box.getAttributeNS(ANDROID, "defaultValue"));
+        // The bar can switch head aim on for a session with the setting off,
+        // so nothing here waits on another setting
+        assertEquals("", box.getAttributeNS(ANDROID, "dependency"));
+        assertEquals("category_vr_settings",
+                ((Element) box.getParentNode()).getAttributeNS(ANDROID, "key"));
+
+        String seekbar = "com.limelight.preferences.SeekBarPreference";
+        Element sens = entry(seekbar, PreferenceConfiguration.VR_HEAD_AIM_SENSITIVITY_PREF_STRING);
+        assertNotNull(sens);
+        assertEquals(String.valueOf(XrShared.HEAD_AIM_SENSITIVITY_DEFAULT),
+                sens.getAttributeNS(ANDROID, "defaultValue"));
+        assertEquals(String.valueOf(XrShared.HEAD_AIM_SENSITIVITY_MIN),
+                sens.getAttributeNS(SEEKBAR, "min"));
+        assertEquals(String.valueOf(XrShared.HEAD_AIM_SENSITIVITY_MAX),
+                sens.getAttributeNS(ANDROID, "max"));
+        assertEquals("", sens.getAttributeNS(ANDROID, "dependency"));
+
+        Element dead = entry(seekbar, PreferenceConfiguration.VR_HEAD_AIM_DEADZONE_PREF_STRING);
+        assertNotNull(dead);
+        assertEquals(String.valueOf(XrShared.HEAD_AIM_DEADZONE_DEFAULT),
+                dead.getAttributeNS(ANDROID, "defaultValue"));
+        assertEquals(String.valueOf(XrShared.HEAD_AIM_DEADZONE_MIN),
+                dead.getAttributeNS(SEEKBAR, "min"));
+        assertEquals(String.valueOf(XrShared.HEAD_AIM_DEADZONE_MAX),
+                dead.getAttributeNS(ANDROID, "max"));
+
+        // Right under the setting, in that order
+        assertTrue(box.getNextSibling() != null);
+        Element after = nextElement(box);
+        assertEquals(PreferenceConfiguration.VR_HEAD_AIM_SENSITIVITY_PREF_STRING,
+                after.getAttributeNS(ANDROID, "key"));
+        assertEquals(PreferenceConfiguration.VR_HEAD_AIM_DEADZONE_PREF_STRING,
+                nextElement(after).getAttributeNS(ANDROID, "key"));
+    }
+
+    private static Element nextElement(Element e) {
+        org.w3c.dom.Node n = e.getNextSibling();
+        while (n != null && !(n instanceof Element)) {
+            n = n.getNextSibling();
+        }
+        return (Element) n;
+    }
+
+    @Test
+    public void theLogLinesSayHeadAim() {
+        assertEquals("headAim=true headAimSensitivity=8 headAimDeadZone=2",
+                PreferenceConfiguration.headAimLabel(true, 8, 2, "="));
+        assertEquals("headAim false headAimSensitivity 30 headAimDeadZone 0",
+                PreferenceConfiguration.headAimLabel(false, 30, 0, " "));
+    }
+
+    @Test
+    public void itIsWordedInEveryLanguage() throws Exception {
+        for (String dir : new String[] { "values", "values-fr", "values-zh-rCN", "values-zh-rTW" }) {
+            String strings = new String(Files.readAllBytes(res(dir + "/strings.xml").toPath()),
+                    StandardCharsets.UTF_8);
+            for (String key : new String[] { "title_vr_head_aim", "summary_vr_head_aim",
+                    "title_seekbar_vr_head_aim_sensitivity",
+                    "summary_seekbar_vr_head_aim_sensitivity",
+                    "suffix_seekbar_vr_head_aim_sensitivity",
+                    "title_seekbar_vr_head_aim_deadzone", "summary_seekbar_vr_head_aim_deadzone",
+                    "suffix_seekbar_vr_head_aim_deadzone", "vr_toast_head_aim_on",
+                    "vr_toast_head_aim_on_more", "vr_toast_head_aim_off" }) {
+                Matcher m = Pattern.compile("name=\"" + key + "\">([^<]+)<").matcher(strings);
+                assertTrue(dir + " " + key, m.find());
+            }
+        }
+    }
+
+    @Test
+    public void theBarSaysWhenItSwitches() {
+        assertEquals(6, XrShared.TOAST_HEAD_AIM_OFF);
+        assertEquals(7, XrShared.TOAST_HEAD_AIM_ON);
+        assertTrue(XrShared.TOAST_HEAD_AIM_OFF >= XrShared.TOAST_TEXT + 1);
     }
 
     private static final class FakePrefs implements SharedPreferences, SharedPreferences.Editor {

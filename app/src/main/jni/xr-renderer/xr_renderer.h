@@ -1442,6 +1442,14 @@ typedef struct {
     int rayButtonReady;
     int rayButtonHot;
 
+    // Head aim's switch on the bar, the same again, only shown while head
+    // aim can act
+    XrSwapchain aimButtonSwapchains[2];
+    uint32_t aimButtonImageCounts[2];
+    XrSwapchainImageOpenGLESKHR* aimButtonImages[2];
+    int aimButtonReady;
+    int aimButtonHot;
+
     // The exit button and its prompt. One sheet per lit button, all filled at
     // startup, so hovering one costs a handle rather than an upload.
     XrSwapchain exitButtonSwapchain;
@@ -1628,6 +1636,10 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int exitButtonHit(XrCtx* ctx, float u, float v, float height);
+int headAimCanAct(XrCtx* ctx);
+void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
+int aimButtonHit(XrCtx* ctx, float u, float v, float height);
+void setHeadAimOn(XrCtx* ctx, int on, const char* from);
 void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);

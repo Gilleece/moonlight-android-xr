@@ -63,8 +63,15 @@ final class XrPanels {
     // tab's place, and the other four again with its name over that slot.
     private static final String[] COG_TABS = { "Screen", "Display", "3D", "Picture", "About" };
     private static final String COG_ROOM_TAB = "Room";
+    // Screen tab: the six that place the screen, then head aim's two, which
+    // only act with the screen locked to the head and are greyed otherwise
     private static final String[] COG_SLIDER_ROWS =
-            { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size" };
+            { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size", "Aim sensitivity",
+              "Aim dead zone" };
+    // In place of a row's track or cells where head aim cannot act: the
+    // screen not locked to the head, or a room up, which hangs it on a wall
+    private static final String COG_NEEDS_HEAD_LOCK = "needs Head locked";
+    private static final String COG_NOT_IN_ROOM = "not in a room";
     // Room tab: a track, two rows of cells and two more tracks, in the
     // COG_ROOM_ROW_ order. The screen light is one switch for every room and
     // the rest are the room's own.
@@ -74,19 +81,21 @@ final class XrPanels {
     // Under the size row where the room keeps its picture whole
     private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Head locked, pointer sleep, the ray,
-    // the controllers and the click sit with the picture rows so the two light rows and the level
-    // track they belong with stay together at the bottom. Screen light is the
-    // wash the picture throws over a 3d room, which only shows in one, and
-    // head lock is ignored in one, but both stay live here like the rest: the
-    // picker can put a room up at any moment. The ray row is the bar's ray
-    // button, for the session only.
+    // the glow level track under them. Head locked, head aim, pointer sleep,
+    // the ray, the controllers and the click sit with the picture rows so the
+    // two light rows and the level track they belong with stay together at the
+    // bottom. Screen light is the wash the picture throws over a 3d room,
+    // which only shows in one, and head lock is ignored in one, but both stay
+    // live here like the rest: the picker can put a room up at any moment.
+    // The head aim and ray rows are the bar's buttons, for the session only,
+    // and head aim's is greyed where it cannot act.
     private static final String[] COG_OPTION_ROWS = { "Sharpen", "Supersample", "Stats",
-            "Head locked", "Pointer sleep", "Ray", "Controllers", "Click sound", "Glow",
-            "Screen light" };
+            "Head locked", "Head aim", "Pointer sleep", "Ray", "Controllers", "Click sound",
+            "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
@@ -487,22 +496,26 @@ final class XrPanels {
     // One sheet of the panel. The ones past the tabs are what a room shows:
     // the Room tab with its size row live or greyed, then the display, 3D,
     // Picture and About tabs with the Room tab's name over the first slot.
+    // Last come the screen and display tabs for a screen not locked to the
+    // head, with head aim's rows greyed, as the room's display tab has them.
     private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk,
                                  int defaultSeparation, int defaultConvergence) {
         Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
-        boolean inRoom = art >= COG_ART_ROOM;
-        int tab = art == COG_ART_ROOM_DISPLAY ? COG_TAB_DISPLAY
+        boolean inRoom = art >= COG_ART_ROOM && art <= COG_ART_ROOM_ABOUT;
+        boolean aimLive = art == COG_TAB_SCREEN || art == COG_TAB_DISPLAY;
+        int tab = art == COG_ART_ROOM_DISPLAY || art == COG_ART_DISPLAY_WORLD ? COG_TAB_DISPLAY
                 : art == COG_ART_ROOM_3D ? COG_TAB_3D
                 : art == COG_ART_ROOM_PICTURE ? COG_TAB_PICTURE
                 : art == COG_ART_ROOM_ABOUT ? COG_TAB_ABOUT
+                : art == COG_ART_SCREEN_WORLD ? COG_TAB_SCREEN
                 : inRoom ? COG_TAB_SCREEN : art;
         drawCogChrome(canvas, tab, inRoom);
         if (art == COG_ART_ROOM || art == COG_ART_ROOM_FIXED) {
             drawCogRoomRows(canvas, art == COG_ART_ROOM);
         }
         else if (tab == COG_TAB_SCREEN) {
-            drawCogSliderRows(canvas, curveOk);
+            drawCogSliderRows(canvas, curveOk, aimLive);
         }
         else if (tab == COG_TAB_3D) {
             drawCog3dRows(canvas, stereoOk, defaultSeparation, defaultConvergence);
@@ -514,7 +527,7 @@ final class XrPanels {
             drawCogAbout(canvas);
         }
         else {
-            drawCogOptionRows(canvas);
+            drawCogOptionRows(canvas, aimLive, inRoom ? COG_NOT_IN_ROOM : COG_NEEDS_HEAD_LOCK);
         }
         return bitmap;
     }
@@ -562,8 +575,10 @@ final class XrPanels {
         canvas.drawRect(20.0f, barB, COG_TEX_W - 20.0f, barB + 2.0f, paint);
     }
 
-    // Screen tab: a label and a track per row, and the reset button under them
-    private void drawCogSliderRows(Canvas canvas, boolean curveOk) {
+    // Screen tab: a label and a track per row, and the reset button under
+    // them. Head aim's two rows are greyed with the reason in place of their
+    // tracks where the screen is not locked to the head.
+    private void drawCogSliderRows(Canvas canvas, boolean curveOk, boolean aimLive) {
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
         text.setTextSize(22.0f);
         text.setTextAlign(Paint.Align.LEFT);
@@ -576,9 +591,11 @@ final class XrPanels {
         Paint tick = new Paint(Paint.ANTI_ALIAS_FLAG);
         tick.setColor(0xCCFFFFFF);
 
+        final float cellHalf = COG_SCREEN_CELL_HALF * COG_TEX_H;
         for (int row = 0; row < COG_SLIDER_ROWS.length; row++) {
-            boolean live = row != COG_SLIDER_CURVE || curveOk;
-            float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
+            boolean aimRow = row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE;
+            boolean live = aimRow ? aimLive : row != COG_SLIDER_CURVE || curveOk;
+            float y = cogRowV(COG_TAB_SCREEN, row) * COG_TEX_H;
 
             text.setColor(live ? Color.WHITE : 0x30FFFFFF);
             // Centred on the row rather than sitting on it, so the label lines
@@ -586,16 +603,31 @@ final class XrPanels {
             canvas.drawText(COG_SLIDER_ROWS[row], 0.06f * COG_TEX_W,
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
+            if (aimRow && !live) {
+                drawGreyedReason(canvas, y, COG_NEEDS_HEAD_LOCK);
+                continue;
+            }
+
             track.setColor(live ? 0x66FFFFFF : 0x30FFFFFF);
             canvas.drawLine(COG_RUN_L * COG_TEX_W, y, COG_RUN_R * COG_TEX_W, y, track);
-            drawCogChevrons(canvas, y, live, COG_CELL_HALF * COG_TEX_H);
+            drawCogChevrons(canvas, y, live, cellHalf);
 
             if (row == COG_SLIDER_TILT || row == COG_SLIDER_ROTATE) {
                 // Marks level, which is where the middle of these two tracks
-                // snaps to. The rows that do not snap stay unmarked.
+                // snaps to. The placement rows that do not snap stay unmarked.
                 float midX = (COG_RUN_L + COG_RUN_R) * 0.5f * COG_TEX_W;
-                float tickHalf = COG_CELL_HALF * COG_TEX_H;
-                canvas.drawRect(midX - 2.0f, y - tickHalf, midX + 2.0f, y + tickHalf, tick);
+                canvas.drawRect(midX - 2.0f, y - cellHalf, midX + 2.0f, y + cellHalf, tick);
+            }
+            else if (aimRow) {
+                // Head aim's defaults, as the Picture tab marks the picture
+                // as streamed
+                float t = row == COG_SLIDER_AIM_SENSITIVITY
+                        ? (HEAD_AIM_SENSITIVITY_DEFAULT - HEAD_AIM_SENSITIVITY_MIN)
+                                / (float)(HEAD_AIM_SENSITIVITY_MAX - HEAD_AIM_SENSITIVITY_MIN)
+                        : (HEAD_AIM_DEADZONE_DEFAULT - HEAD_AIM_DEADZONE_MIN)
+                                / (float)(HEAD_AIM_DEADZONE_MAX - HEAD_AIM_DEADZONE_MIN);
+                float markX = (COG_RUN_L + t * (COG_RUN_R - COG_RUN_L)) * COG_TEX_W;
+                canvas.drawRect(markX - 2.0f, y - cellHalf, markX + 2.0f, y + cellHalf, tick);
             }
         }
 
@@ -675,12 +707,25 @@ final class XrPanels {
 
     // Where a row sits down the panel, as a fraction of its height: the same
     // as cogRowV in xr_layout.c, which hit tests and rings what this draws.
-    // The display tab packs its rows closer than the other tabs.
+    // The display and screen tabs pack their rows closer than the other tabs.
     static float cogRowV(int tab, int row) {
         if (tab == COG_TAB_DISPLAY) {
             return COG_DISPLAY_ROW_V0 + row * COG_DISPLAY_ROW_STEP;
         }
+        if (tab == COG_TAB_SCREEN) {
+            return COG_SCREEN_ROW_V0 + row * COG_SCREEN_ROW_STEP;
+        }
         return COG_ROW_V0 + row * COG_ROW_STEP;
+    }
+
+    // Why a head aim row is greyed, across where its track or cells would be
+    private static void drawGreyedReason(Canvas canvas, float y, String reason) {
+        Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        hint.setTextSize(19.0f);
+        hint.setTextAlign(Paint.Align.CENTER);
+        hint.setColor(0x50FFFFFF);
+        canvas.drawText(reason, (COG_TRACK_L + COG_TRACK_R) * 0.5f * COG_TEX_W,
+                y - (hint.ascent() + hint.descent()) * 0.5f, hint);
     }
 
     // One row of cells, one press wide each, as the display tab draws them
@@ -761,11 +806,11 @@ final class XrPanels {
     }
 
     /**
-     * The strip of values beside the Room or Picture tab's tracks: the Room
-     * tab's percents, or the Picture tab's values in their own units. Redrawn
-     * on the frame loop whenever one of them moves, into the one bitmap and
-     * buffer, which the upload has finished with by the time the next draw
-     * comes round.
+     * The strip of values beside the Room, Picture or Screen tab's tracks: the
+     * Room tab's percents, the Picture tab's values in their own units, or
+     * head aim's two on the Screen tab. Redrawn on the frame loop whenever one
+     * of them moves, into the one bitmap and buffer, which the upload has
+     * finished with by the time the next draw comes round.
      */
     static final class Readout {
         // The Room tab's rows the values after the first in IN_READOUT sit
@@ -794,7 +839,8 @@ final class XrPanels {
             canvas.drawColor(0, PorterDuff.Mode.CLEAR);
             float right = COG_READOUT_TEX_W - 8.0f;
             boolean picture = values.length > 0 && values[0] == READOUT_PICTURE;
-            int rows = picture ? PICTURE_VALUES : ROOM_ROWS.length;
+            boolean screen = values.length > 0 && values[0] == READOUT_SCREEN;
+            int rows = picture ? PICTURE_VALUES : screen ? 2 : ROOM_ROWS.length;
             for (int i = 0; i < rows && i + 1 < values.length; i++) {
                 int value = values[i + 1];
                 String said;
@@ -803,6 +849,10 @@ final class XrPanels {
                     said = pictureReadout(i, value);
                     row = i;
                 }
+                else if (screen) {
+                    row = COG_SLIDER_AIM_SENSITIVITY + i;
+                    said = headAimReadout(row, value);
+                }
                 else if (values[0] == READOUT_ROOM && value >= 0) {
                     said = value + "%";
                     row = ROOM_ROWS[i];
@@ -810,7 +860,9 @@ final class XrPanels {
                 else {
                     continue;
                 }
-                float y = (COG_ROW_V0 + row * COG_ROW_STEP - COG_READOUT_T) * COG_TEX_H;
+                float rowV = screen ? cogRowV(COG_TAB_SCREEN, row)
+                        : COG_ROW_V0 + row * COG_ROW_STEP;
+                float y = (rowV - COG_READOUT_T) * COG_TEX_H;
                 canvas.drawText(said, right, y - (text.ascent() + text.descent()) * 0.5f, text);
             }
             pixels.rewind();
@@ -818,6 +870,14 @@ final class XrPanels {
             pixels.rewind();
             return pixels;
         }
+    }
+
+    /**
+     * One of head aim's values as the Screen tab says it, by its row: pixels
+     * a degree, or the dead zone in degrees a second.
+     */
+    static String headAimReadout(int row, int units) {
+        return row == COG_SLIDER_AIM_SENSITIVITY ? units + " px/\u00b0" : units + "\u00b0/s";
     }
 
     /**
@@ -1121,23 +1181,32 @@ final class XrPanels {
 
     // Display tab: a label and a row of cells, one press wide each. Which cell
     // is in force and which is under the ray are rings the native side puts
-    // over them, so nothing here has to be redrawn when one is chosen.
-    private void drawCogOptionRows(Canvas canvas) {
+    // over them, so nothing here has to be redrawn when one is chosen. Head
+    // aim's row is greyed with the reason in place of its cells where it
+    // cannot act.
+    private void drawCogOptionRows(Canvas canvas, boolean headAimLive, String headAimReason) {
         Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
         label.setTextSize(22.0f);
         label.setTextAlign(Paint.Align.LEFT);
-        label.setColor(Color.WHITE);
 
         final float trackL = COG_RUN_L * COG_TEX_W;
         final float trackR = COG_RUN_R * COG_TEX_W;
         final float cellHalf = COG_DISPLAY_CELL_HALF * COG_TEX_H;
 
         for (int row = 0; row < COG_OPTION_ROWS.length; row++) {
+            boolean live = row != COG_OPTION_HEAD_AIM || headAimLive;
             float y = cogRowV(COG_TAB_DISPLAY, row) * COG_TEX_H;
+            label.setColor(live ? Color.WHITE : 0x30FFFFFF);
             canvas.drawText(COG_OPTION_ROWS[row], 0.06f * COG_TEX_W,
                     y - (label.ascent() + label.descent()) * 0.5f, label);
-            drawCogCells(canvas, COG_OPTION_CELLS[row], y, true, cellHalf);
+            if (live) {
+                drawCogCells(canvas, COG_OPTION_CELLS[row], y, true, cellHalf);
+            }
+            else {
+                drawGreyedReason(canvas, y, headAimReason);
+            }
         }
+        label.setColor(Color.WHITE);
 
         // How strong the glow is, a track under the cells and the only row on
         // this tab that is dragged rather than pressed
@@ -1854,6 +1923,56 @@ final class XrPanels {
 
         if (!on) {
             // Struck through like the 3D switch, at full strength so it reads
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setColor(0xEEFFFFFF);
+            paint.setStrokeWidth(7.0f);
+            canvas.drawLine(30.0f, 30.0f, 98.0f, 98.0f, paint);
+        }
+        return button;
+    }
+
+    /**
+     * Head aim's switch on the bar, off and then on, a swapchain each on the
+     * native side like the ray's. A crosshair in the frame the other buttons
+     * are drawn in, bright while head aim is on and dimmed with a stroke
+     * through it while it is off.
+     */
+    ByteBuffer[] buildAimButtons() {
+        ByteBuffer[] faces = new ByteBuffer[2];
+        for (int on = 0; on < 2; on++) {
+            Bitmap button = buildAimButton(on == 1);
+            faces[on] = toBuffer(button);
+            button.recycle();
+        }
+        return faces;
+    }
+
+    private Bitmap buildAimButton(boolean on) {
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        int ink = on ? 0xEEFFFFFF : 0x80FFFFFF;
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(ink);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6.0f);
+        canvas.drawRoundRect(new RectF(14.0f, 14.0f, 114.0f, 114.0f), 22.0f, 22.0f, paint);
+
+        // A sight: a ring with a tick out from each side and a dot in it
+        final float mid = BUTTON_TEX * 0.5f;
+        canvas.drawCircle(mid, mid, 18.0f, paint);
+        paint.setStrokeCap(Paint.Cap.ROUND);
+        canvas.drawLine(mid, mid - 38.0f, mid, mid - 25.0f, paint);
+        canvas.drawLine(mid, mid + 25.0f, mid, mid + 38.0f, paint);
+        canvas.drawLine(mid - 38.0f, mid, mid - 25.0f, mid, paint);
+        canvas.drawLine(mid + 25.0f, mid, mid + 38.0f, mid, paint);
+        paint.setStyle(Paint.Style.FILL);
+        canvas.drawCircle(mid, mid, 5.0f, paint);
+
+        if (!on) {
+            // Struck through like the ray's and the 3D switch
             paint.setStyle(Paint.Style.STROKE);
             paint.setColor(0xEEFFFFFF);
             paint.setStrokeWidth(7.0f);

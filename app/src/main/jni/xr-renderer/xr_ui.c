@@ -59,10 +59,18 @@ int cogFace(XrCtx* ctx) {
 
 // Which sheet shows them. In a room every tab is drawn with the Room tab's
 // name over the first slot, and the Room tab itself greys its size row where
-// the room will not have the picture resized.
+// the room will not have the picture resized. Outside one, a screen not
+// locked to the head has the screen and display tabs with head aim's rows
+// greyed, which the room's display tab always has.
 int cogArt(XrCtx* ctx) {
     int style = roomEffective(ctx);
     if (style <= 0) {
+        if (!ctx->headLockedPref && ctx->cogTab == COG_TAB_SCREEN) {
+            return COG_ART_SCREEN_WORLD;
+        }
+        if (!ctx->headLockedPref && ctx->cogTab == COG_TAB_DISPLAY) {
+            return COG_ART_DISPLAY_WORLD;
+        }
         return ctx->cogTab;
     }
     if (ctx->cogTab == COG_TAB_DISPLAY) {
@@ -314,6 +322,49 @@ int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
     return buttonHit(ctx, local, side, u, v, height);
 }
 
+// Whether head aim can act at all: the screen locked to the head, which a
+// room overrides. Its bar button only shows then, and its rows on the panel
+// are greyed otherwise.
+int headAimCanAct(XrCtx* ctx) {
+    return ctx->headLockedPref && roomEffective(ctx) <= 0;
+}
+
+// Head aim's switch is one place further out on the left, past the exit
+// button, so it comes and goes with head lock without moving any other
+void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    float gap = width * ENV_GAP_FRAC;
+    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap + side + gap);
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+// Only where it is drawn: once its art has arrived, while head aim can act
+int aimButtonHit(XrCtx* ctx, float u, float v, float height) {
+    if (!ctx->aimButtonReady || !headAimCanAct(ctx)) {
+        return 0;
+    }
+    Vec3 local;
+    float side;
+    aimButtonPlacement(ctx, height, &local, &side);
+    return buttonHit(ctx, local, side, u, v, height);
+}
+
+// Head aim on or off for the rest of the session, from the bar or the Display
+// tab. Nothing is stored: the setting is what the next session starts from.
+void setHeadAimOn(XrCtx* ctx, int on, const char* from) {
+    on = on ? 1 : 0;
+    if (headAimSwitchOn(ctx->headAimSetting, ctx->headAimFlipped) == on) {
+        return;
+    }
+    ctx->headAimFlipped = headAimFlipFor(ctx->headAimSetting, on);
+    LOGEV("head aim %s from %s", on ? "on" : "off", from);
+}
+
 // The ray's switch is one place further out on the right, past the keyboard
 void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
     float width = furnitureWidth(ctx);
@@ -474,7 +525,7 @@ int exitPromptZone(float u, float v) {
 // How many rows a face has, whatever kind they are
 int cogTabRowCount(int face) {
     if (face == COG_TAB_SCREEN) {
-        return COG_SLIDER_COUNT;
+        return COG_SCREEN_ROW_COUNT;
     }
     if (face == COG_TAB_3D) {
         return COG_ROW3D_COUNT;
@@ -523,6 +574,15 @@ int cogRowLive(XrCtx* ctx, int face, int row) {
     // Curving needs a layer type this runtime may not have
     if (face == COG_TAB_SCREEN && row == COG_SLIDER_CURVE) {
         return ctx->cylinderSupported;
+    }
+    // Head aim only acts with the screen locked to the head, which on the
+    // screen tab is never in a room, since that face is the Room tab there
+    if (face == COG_TAB_SCREEN
+            && (row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE)) {
+        return ctx->headLockedPref;
+    }
+    if (face == COG_TAB_DISPLAY && row == COG_OPTION_HEAD_AIM) {
+        return headAimCanAct(ctx);
     }
     // With stereo off there is nothing for any 3D row to move or switch
     if (face == COG_TAB_3D) {
@@ -602,6 +662,13 @@ float cogSliderValue(XrCtx* ctx, int face, int slider) {
     else if (slider == COG_SLIDER_SIZE) {
         t = (ctx->screenWidth - SCREEN_MIN_WIDTH) / (SCREEN_MAX_WIDTH - SCREEN_MIN_WIDTH);
     }
+    else if (slider == COG_SLIDER_AIM_SENSITIVITY) {
+        t = lanePlace(ctx->headAimSensitivity, HEAD_AIM_SENSITIVITY_MIN,
+                      HEAD_AIM_SENSITIVITY_MAX);
+    }
+    else if (slider == COG_SLIDER_AIM_DEADZONE) {
+        t = lanePlace(ctx->headAimDeadZone, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
+    }
 
     return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
 }
@@ -665,6 +732,18 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
             int units = (int)roundf(t * 100.0f);
             ctx->convergence = units / 100.0f;
         }
+        return;
+    }
+
+    // Head aim's two, in the whole units they are stored in, read every
+    // frame, so the next turn already goes at what the thumb shows
+    if (slider == COG_SLIDER_AIM_SENSITIVITY) {
+        ctx->headAimSensitivity = laneUnits(t, HEAD_AIM_SENSITIVITY_MIN,
+                                            HEAD_AIM_SENSITIVITY_MAX);
+        return;
+    }
+    if (slider == COG_SLIDER_AIM_DEADZONE) {
+        ctx->headAimDeadZone = laneUnits(t, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX);
         return;
     }
 
@@ -765,6 +844,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_HEAD_LOCK) {
         return COG_HEAD_LOCK_CELLS;
     }
+    if (option == COG_OPTION_HEAD_AIM) {
+        return COG_HEAD_AIM_CELLS;
+    }
     if (option == COG_OPTION_POINTER_SLEEP) {
         return COG_POINTER_SLEEP_CELLS;
     }
@@ -798,6 +880,10 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     }
     if (option == COG_OPTION_HEAD_LOCK) {
         return headLocked ? 1 : 0;
+    }
+    if (option == COG_OPTION_HEAD_AIM) {
+        // The switch as it stands, whether or not it can act just now
+        return headAimSwitchOn(ctx->headAimSetting, ctx->headAimFlipped);
     }
     if (option == COG_OPTION_POINTER_SLEEP) {
         return ctx->pointerSleepOn ? 1 : 0;
@@ -847,6 +933,12 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         // stays put whatever this says.
         LOGEV("head lock %s from the panel", cell != 0 ? "on" : "off");
         return SETTING_HEAD_LOCK;
+    }
+    if (option == COG_OPTION_HEAD_AIM) {
+        // The bar button's switch, for this session only, so nothing goes to
+        // Java to store
+        setHeadAimOn(ctx, cell != 0, "the Display tab");
+        return -1;
     }
     if (option == COG_OPTION_POINTER_SLEEP) {
         // Set here as well as handed to Java, which hands it back down with
@@ -993,7 +1085,17 @@ void cogDragEnded(XrCtx* ctx, float* out) {
     if (slider < 0) {
         return;
     }
-    if (face == COG_TAB_SCREEN) {
+    if (face == COG_TAB_SCREEN && slider == COG_SLIDER_AIM_SENSITIVITY) {
+        out[IN_SETTING] = (float)SETTING_HEAD_AIM_SENSITIVITY;
+        out[IN_SETTING_VALUE] = (float)ctx->headAimSensitivity;
+        LOGEV("head aim %d px a degree from the panel", ctx->headAimSensitivity);
+    }
+    else if (face == COG_TAB_SCREEN && slider == COG_SLIDER_AIM_DEADZONE) {
+        out[IN_SETTING] = (float)SETTING_HEAD_AIM_DEADZONE;
+        out[IN_SETTING_VALUE] = (float)ctx->headAimDeadZone;
+        LOGEV("head aim dead zone %d deg/s from the panel", ctx->headAimDeadZone);
+    }
+    else if (face == COG_TAB_SCREEN) {
         // The placement is saved from the pose the frame hands back
         ctx->poseDirty = 1;
     }
@@ -1083,10 +1185,11 @@ int cogCellAt(float pu, int cells) {
     return cell;
 }
 
-// What the strip beside the Room or Picture tab's tracks should say, in
-// IN_READOUT order: which tab it is for, or -1 first while neither is up, then
+// What the strip beside the Room, Picture or Screen tab's tracks should say,
+// in IN_READOUT order: which tab it is for, or -1 first while none is up, then
 // a value a row and -1 past the rows. The Room tab's size says nothing in a
-// room that keeps its picture whole, where its row is greyed.
+// room that keeps its picture whole, where its row is greyed, and the Screen
+// tab says nothing while head aim's rows are.
 void cogReadouts(XrCtx* ctx, int* values) {
     for (int i = 0; i < READOUT_VALUES; i++) {
         values[i] = -1;
@@ -1101,6 +1204,15 @@ void cogReadouts(XrCtx* ctx, int* values) {
         values[0] = READOUT_PICTURE;
         for (int row = 0; row < PICTURE_VALUES; row++) {
             values[1 + row] = ctx->pictureUnits[row];
+        }
+        return;
+    }
+    // Head aim's two, while their rows are live; the placement rows have none
+    if (face == COG_TAB_SCREEN) {
+        if (cogRowLive(ctx, face, COG_SLIDER_AIM_SENSITIVITY)) {
+            values[0] = READOUT_SCREEN;
+            values[1] = ctx->headAimSensitivity;
+            values[2] = ctx->headAimDeadZone;
         }
         return;
     }

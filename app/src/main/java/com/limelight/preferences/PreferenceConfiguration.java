@@ -642,6 +642,15 @@ public class PreferenceConfiguration {
                 + " showRay" + join + showRay + " controllerModel" + join + controllerModel;
     }
 
+    /**
+     * Head aim's switch, pixels a degree and dead zone for a log line, joined
+     * the way that line joins its keys to their values
+     */
+    public static String headAimLabel(boolean on, int sensitivity, int deadZone, String join) {
+        return "headAim" + join + on + " headAimSensitivity" + join + sensitivity
+                + " headAimDeadZone" + join + deadZone;
+    }
+
     /** Which of the 3D tab's presets a separation is under that model, or none, for the logs. */
     public static String presetLabel(int separation, String depthModel) {
         return DepthPresets.name(DepthPresets.presetFor(separation, defaultSeparation(depthModel)));

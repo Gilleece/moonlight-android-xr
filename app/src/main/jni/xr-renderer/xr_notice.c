@@ -87,6 +87,9 @@ int noticeGroup(int kind) {
         case TOAST_3D_OFF:
         case TOAST_3D_ON:
             return TOAST_3D_OFF;
+        case TOAST_HEAD_AIM_OFF:
+        case TOAST_HEAD_AIM_ON:
+            return TOAST_HEAD_AIM_OFF;
         default:
             return kind;
     }

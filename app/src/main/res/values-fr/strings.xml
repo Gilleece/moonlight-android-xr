@@ -318,6 +318,12 @@
     <string name="summary_vr_show_ray">Le faisceau qui va de la manette à l\'écran. Désactivez-le pour les jeux au pistolet : le point où il arrive reste et les appuis fonctionnent comme avant, le rayon revient tant qu\'un panneau est ouvert, et le bouton du rayon sous l\'écran le change pour la session.</string>
     <string name="title_vr_controller_model">Afficher les manettes</string>
     <string name="summary_vr_controller_model">Dessine une manette simple dans chaque main, là où se trouve la vraie. Pas en mode passthrough, où les vraies sont visibles, ni quand vos mains sont suivies à la place.</string>
+    <string name="title_vr_head_aim">La tête dirige la souris</string>
+    <string name="summary_vr_head_aim">Seulement quand l\'écran est verrouillé à la tête : tourner la tête déplace la souris comme la visée d\'un jeu, pour les jeux à la première personne. Le pointeur de la manette et une vraie souris fonctionnent toujours en plus. Elle se met en pause tant qu\'un panneau est ouvert, et le bouton de visée sous l\'écran la change pour la session.</string>
+    <string name="title_seekbar_vr_head_aim_sensitivity">Sensibilité de la visée par la tête</string>
+    <string name="summary_seekbar_vr_head_aim_sensitivity">De combien la souris se déplace pour chaque degré dont la tête tourne. Ajustez-la avec la sensibilité de la souris du jeu jusqu\'à ce que la vue tourne autant que votre tête. L\'onglet Screen du panneau de réglages dans le casque modifie la même valeur.</string>
+    <string name="title_seekbar_vr_head_aim_deadzone">Zone morte de la visée par la tête</string>
+    <string name="summary_seekbar_vr_head_aim_deadzone">Quand la tête tourne plus lentement que cette vitesse, rien n\'est envoyé, ce qui empêche les petits tremblements du suivi de déplacer la souris quand vous restez immobile. 0 envoie chaque mouvement.</string>
     <string name="title_vr_click_sound">Clic à l\'appui sur un panneau</string>
     <string name="summary_vr_click_sound">Un bref tic quand un appui dans le casque touche un panneau, un bouton ou une touche. Il est joué sur les sons système, à part de l\'audio du stream.</string>
     <string name="title_vr_gaze">Regarder pour pointer</string>
@@ -370,6 +376,9 @@
     <string name="vr_toast_hands_unlocked">Mains déverrouillées</string>
     <string name="vr_toast_3d_off">3D désactivée</string>
     <string name="vr_toast_3d_on">3D activée</string>
+    <string name="vr_toast_head_aim_on">Visée par la tête activée</string>
+    <string name="vr_toast_head_aim_on_more">Tourner la tête déplace la souris</string>
+    <string name="vr_toast_head_aim_off">Visée par la tête désactivée</string>
     <string name="vr_report_note_hint">Que faisiez-vous quand le problème est survenu ?</string>
     <string name="vr_report_optional">Facultatif</string>
     <string name="vr_report_email_bad">Cela ne ressemble pas à une adresse e-mail</string>
@@ -388,6 +397,8 @@
     <string name="title_seekbar_vr_separation">Séparation stéréo</string>
     <string name="summary_seekbar_vr_separation">L\'écart entre les deux vues des yeux, en pourcentage de la largeur de l\'image. Au-delà d\'environ 0,5, l\'image ne paraît pas plus profonde mais devient plus fatigante pour les yeux.</string>
     <string name="suffix_seekbar_vr_percent">%</string>
+    <string name="suffix_seekbar_vr_head_aim_sensitivity">px par degré</string>
+    <string name="suffix_seekbar_vr_head_aim_deadzone">degrés par seconde</string>
     <string name="gen1_warning_title">Casque plus ancien détecté</string>
     <string name="gen1_warning_text">Cette application est conçue pour les casques Quest 3 / Pico 4 Ultra ou plus récents. Les performances sur les casques de génération Quest 2 / Pico 4 ou antérieure n\'ont pas été testées et devraient être médiocres. Un profil de performance réduit a été appliqué pour préserver une expérience agréable. Désactiver la 3D en temps réel apportera un gain de performance énorme, mais c\'est probablement la raison pour laquelle vous avez téléchargé cette application ! Juste pour vous prévenir. Merci et profitez-en bien !</string>
     <string name="warning_dialog_never_again">Ne plus afficher ce message</string>

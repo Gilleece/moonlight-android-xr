@@ -141,6 +141,14 @@ int createPointerSwapchain(XrCtx* ctx) {
                            &ctx->rayButtonImageCounts[state]);
     }
 
+    // Head aim's switch, off and on, in every session, since head lock can
+    // come on at any time
+    for (int state = 0; state < 2; state++) {
+        createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create head aim button swapchain",
+                           &ctx->aimButtonSwapchains[state], &ctx->aimButtonImages[state],
+                           &ctx->aimButtonImageCounts[state]);
+    }
+
     // Two padlocks rather than one, since a quad layer has no way to swap
     // its own texture and open and shut have to read differently
     createArtSwapchain(ctx, LOCK_TEX, LOCK_TEX, "create lock swapchain",
@@ -737,6 +745,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRayButton(JNIEnv* env, j
                 BUTTON_TEX, BUTTON_TEX, &onReady);
     ctx->rayButtonReady = offReady && onReady;
     LOGI("ray button art %s", ctx->rayButtonReady ? "ready" : "missing");
+}
+
+// Head aim's switch's two faces, off and on, both or neither
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadAimButton(JNIEnv* env, jobject thiz,
+                                                                  jlong handle, jobject off,
+                                                                  jobject on) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || off == NULL || on == NULL) {
+        return;
+    }
+    int offReady = 0;
+    int onReady = 0;
+    uploadSheet(env, ctx, off, ctx->aimButtonSwapchains[0], ctx->aimButtonImages[0],
+                BUTTON_TEX, BUTTON_TEX, &offReady);
+    uploadSheet(env, ctx, on, ctx->aimButtonSwapchains[1], ctx->aimButtonImages[1],
+                BUTTON_TEX, BUTTON_TEX, &onReady);
+    ctx->aimButtonReady = offReady && onReady;
+    LOGI("head aim button art %s", ctx->aimButtonReady ? "ready" : "missing");
 }
 
 // The two padlocks, shut and open. Both or neither, since one on its own

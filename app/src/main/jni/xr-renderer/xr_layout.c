@@ -142,15 +142,27 @@ float cogRowV(int tab, int row) {
     if (tab == COG_TAB_DISPLAY) {
         return COG_DISPLAY_ROW_V0 + row * COG_DISPLAY_ROW_STEP;
     }
+    if (tab == COG_TAB_SCREEN) {
+        return COG_SCREEN_ROW_V0 + row * COG_SCREEN_ROW_STEP;
+    }
     return COG_ROW_V0 + row * COG_ROW_STEP;
 }
 
 float cogRowHalf(int tab) {
-    return tab == COG_TAB_DISPLAY ? COG_DISPLAY_ROW_HALF : COG_ROW_HALF;
+    return tab == COG_TAB_DISPLAY ? COG_DISPLAY_ROW_HALF
+            : tab == COG_TAB_SCREEN ? COG_SCREEN_ROW_HALF : COG_ROW_HALF;
 }
 
 float cogCellHalf(int tab) {
-    return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF : COG_CELL_HALF;
+    return tab == COG_TAB_DISPLAY ? COG_DISPLAY_CELL_HALF
+            : tab == COG_TAB_SCREEN ? COG_SCREEN_CELL_HALF : COG_CELL_HALF;
+}
+
+// The screen tab's eight tracks sit closer than a full size thumb, so its
+// thumbs are a little smaller and two at the same place on neighbouring rows
+// stay apart. The display tab has only the one.
+float cogThumbSize(int tab) {
+    return tab == COG_TAB_SCREEN ? 0.075f : 0.085f;
 }
 
 int cogTrackPart(float pu) {
@@ -190,9 +202,14 @@ int cogTrackSteps(int tab, int row) {
     if (tab == COG_TAB_SCREEN) {
         // Tenths of a metre out, five centimetres up, two and a half degrees
         // of tilt and six of roll, which both step clear of the snap to level
-        // either side of it, a twentieth of the curve, tenths of a metre wide
-        static const int SCREEN_STEPS[COG_SLIDER_COUNT] = { 78, 80, 32, 30, 20, 72 };
-        return row >= 0 && row < COG_SLIDER_COUNT ? SCREEN_STEPS[row] : 0;
+        // either side of it, a twentieth of the curve, tenths of a metre wide,
+        // then head aim's two in their own whole units
+        static const int SCREEN_STEPS[COG_SCREEN_ROW_COUNT] = {
+            78, 80, 32, 30, 20, 72,
+            HEAD_AIM_SENSITIVITY_MAX - HEAD_AIM_SENSITIVITY_MIN,
+            HEAD_AIM_DEADZONE_MAX - HEAD_AIM_DEADZONE_MIN
+        };
+        return row >= 0 && row < COG_SCREEN_ROW_COUNT ? SCREEN_STEPS[row] : 0;
     }
     if (tab == COG_TAB_DISPLAY) {
         // The glow level's five percent steps

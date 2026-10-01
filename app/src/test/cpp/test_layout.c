@@ -243,7 +243,7 @@ static void testThePresetAccent(void) {
 // bands apart and every cell drawn inside its own band
 static void testTheRowsFit(void) {
     int counts[COG_TAB_COUNT] = {
-        COG_SLIDER_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_VALUES, 0
+        COG_SCREEN_ROW_COUNT, COG_DISPLAY_SLIDER_ROW + 1, COG_ROW3D_COUNT, PICTURE_VALUES, 0
     };
     for (int tab = 0; tab < COG_TAB_COUNT; tab++) {
         // The About tab has no rows, only its button
@@ -261,12 +261,29 @@ static void testTheRowsFit(void) {
         CHECK(last + 0.0425f < 1.0f - 0.03f);
         CHECK(last + half <= 1.0f);
     }
-    // The display tab's eleven rows, the glow level track last
-    CHECK(COG_DISPLAY_SLIDER_ROW == 10);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.205, 1e-6);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.925, 1e-5);
+    // The display tab's twelve rows, head aim's after head locked, the glow
+    // level track last
+    CHECK(COG_DISPLAY_SLIDER_ROW == 11);
+    CHECK(COG_OPTION_HEAD_AIM == COG_OPTION_HEAD_LOCK + 1);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.2, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.926, 1e-5);
+    // The screen tab's eight, head aim's two last, all clear of the reset
+    // button, with chevrons and ticks shallower than the rows are apart
+    CHECK(COG_SCREEN_ROW_COUNT == 8);
+    CHECK(COG_SLIDER_AIM_SENSITIVITY == COG_SLIDER_COUNT);
+    CHECK(COG_SLIDER_AIM_DEADZONE == COG_SLIDER_COUNT + 1);
+    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, 0), 0.22, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, COG_SLIDER_AIM_DEADZONE), 0.815, 1e-5);
+    CHECK(cogRowV(COG_TAB_SCREEN, COG_SCREEN_ROW_COUNT - 1) + cogRowHalf(COG_TAB_SCREEN)
+          < COG_RESET_T);
+    CHECK(2.0f * cogCellHalf(COG_TAB_SCREEN) < COG_SCREEN_ROW_STEP);
+    // Its thumbs leave a gap between neighbouring rows, and every other tab
+    // keeps the size its thumbs always had
+    CHECK(cogThumbSize(COG_TAB_SCREEN) < COG_SCREEN_ROW_STEP);
+    CHECK_NEAR(cogThumbSize(COG_TAB_DISPLAY), 0.085, 1e-6);
+    CHECK_NEAR(cogThumbSize(COG_TAB_3D), 0.085, 1e-6);
+    CHECK_NEAR(cogThumbSize(COG_TAB_COUNT), 0.085, 1e-6);
     // The other tabs keep the rows they always had
-    CHECK_NEAR(cogRowV(COG_TAB_SCREEN, 5), COG_ROW_V0 + 5 * COG_ROW_STEP, 1e-6);
     CHECK_NEAR(cogRowV(COG_TAB_3D, 3), COG_ROW_V0 + 3 * COG_ROW_STEP, 1e-6);
     CHECK_NEAR(cogRowV(COG_TAB_COUNT, 2), COG_ROW_V0 + 2 * COG_ROW_STEP, 1e-6);
     CHECK_NEAR(cogCellHalf(COG_TAB_3D), COG_CELL_HALF, 1e-6);
@@ -277,15 +294,27 @@ static void testTheRowsFit(void) {
                COG_ROW_V0 + PICTURE_SATURATION * COG_ROW_STEP, 1e-6);
     CHECK(cogRowV(COG_TAB_PICTURE, PICTURE_VALUES - 1) + cogRowHalf(COG_TAB_PICTURE)
           < COG_RESET_T);
-    // Every room sheet follows the tabs, one per tab and the fixed Room tab
+    // Every room sheet follows the tabs, one per tab and the fixed Room tab,
+    // then the screen and display tabs for a screen not locked to the head
     CHECK(COG_ART_ROOM == COG_TAB_COUNT);
-    CHECK(COG_ART_COUNT == COG_ART_ROOM + COG_TAB_COUNT + 1);
-    // The strip beside the tracks reaches every Picture row
+    CHECK(COG_ART_SCREEN_WORLD == COG_ART_ROOM + COG_TAB_COUNT + 1);
+    CHECK(COG_ART_DISPLAY_WORLD == COG_ART_SCREEN_WORLD + 1);
+    CHECK(COG_ART_COUNT == COG_ART_DISPLAY_WORLD + 1);
+    // The strip beside the tracks reaches every Picture and Room row, and
+    // head aim's two on the Screen tab
     float stripB = COG_READOUT_T + (float)COG_READOUT_TEX_H / (float)COG_TEX_H;
     for (int row = 0; row < PICTURE_VALUES; row++) {
         CHECK(cogRowV(COG_TAB_PICTURE, row) - COG_CELL_HALF > COG_READOUT_T);
         CHECK(cogRowV(COG_TAB_PICTURE, row) + COG_CELL_HALF < stripB);
     }
+    for (int row = 0; row < COG_ROOM_ROW_COUNT; row++) {
+        CHECK(cogRowV(COG_TAB_COUNT, row) + COG_CELL_HALF < stripB);
+    }
+    for (int row = COG_SLIDER_AIM_SENSITIVITY; row <= COG_SLIDER_AIM_DEADZONE; row++) {
+        CHECK(cogRowV(COG_TAB_SCREEN, row) - COG_SCREEN_CELL_HALF > COG_READOUT_T);
+        CHECK(cogRowV(COG_TAB_SCREEN, row) + COG_SCREEN_CELL_HALF < stripB);
+    }
+    CHECK(stripB <= 1.0f);
 }
 
 // The step buttons at each end of a track, the run between them, and where a
@@ -337,8 +366,32 @@ static void testTheStepsLandOnTheGrid(void) {
 }
 
 static void testEveryTrackHasItsSteps(void) {
-    for (int row = 0; row < COG_SLIDER_COUNT; row++) {
+    for (int row = 0; row < COG_SCREEN_ROW_COUNT; row++) {
         CHECK(cogTrackSteps(COG_TAB_SCREEN, row) > 0);
+    }
+    CHECK(cogTrackSteps(COG_TAB_SCREEN, COG_SCREEN_ROW_COUNT) == 0);
+
+    // Head aim's two step a whole unit a press, and each default, where its
+    // tick is, is a step
+    int aimLanes[2][4] = {
+        { COG_SLIDER_AIM_SENSITIVITY, HEAD_AIM_SENSITIVITY_MIN, HEAD_AIM_SENSITIVITY_MAX,
+          HEAD_AIM_SENSITIVITY_DEFAULT },
+        { COG_SLIDER_AIM_DEADZONE, HEAD_AIM_DEADZONE_MIN, HEAD_AIM_DEADZONE_MAX,
+          HEAD_AIM_DEADZONE_DEFAULT }
+    };
+    for (int l = 0; l < 2; l++) {
+        int min = aimLanes[l][1];
+        int max = aimLanes[l][2];
+        int def = aimLanes[l][3];
+        int steps = cogTrackSteps(COG_TAB_SCREEN, aimLanes[l][0]);
+        CHECK(steps == max - min);
+        int up = cogStepIndex(lanePlace(def, min, max), steps, 1);
+        CHECK(laneUnits((float)up / (float)steps, min, max) == def + 1);
+        int down = cogStepIndex(lanePlace(def, min, max), steps, -1);
+        CHECK(laneUnits((float)down / (float)steps, min, max) == def - 1);
+        for (int units = min; units <= max; units++) {
+            CHECK(laneUnits(lanePlace(units, min, max), min, max) == units);
+        }
     }
     CHECK(cogTrackSteps(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW) == 20);
     CHECK(cogTrackSteps(COG_TAB_DISPLAY, COG_OPTION_STATS) == 0);

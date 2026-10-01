@@ -250,6 +250,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // The ray's switch's two faces, drawn in every session
     private final AtomicReference<ByteBuffer> pendingRayOff = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingRayOn = new AtomicReference<>();
+    // Head aim's switch's two faces, the same
+    private final AtomicReference<ByteBuffer> pendingAimOff = new AtomicReference<>();
+    private final AtomicReference<ByteBuffer> pendingAimOn = new AtomicReference<>();
     // A baked room on its way to the GPU, read off the frame loop like the art
     // above. The native side shows the void in its place until it has landed.
     // The mesh, the atlases and the cell they belong to travel as one, so a
@@ -460,6 +463,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadRayButton(long ctx, ByteBuffer off, ByteBuffer on);
+    private native void nativeUploadAimButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadSplash(long ctx, ByteBuffer sheet);
     // The toast's words for a notice just gone up, and a notice of this
     // side's own to be queued, a TOAST_TEXT under its slot
@@ -1125,6 +1129,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadRayButton(nativeCtx, rayOff, rayOn);
             }
 
+            ByteBuffer aimOff = pendingAimOff.getAndSet(null);
+            ByteBuffer aimOn = pendingAimOn.getAndSet(null);
+            if (aimOff != null && aimOn != null) {
+                nativeUploadAimButton(nativeCtx, aimOff, aimOn);
+            }
+
             ByteBuffer controller = pendingControllerModel.getAndSet(null);
             if (controller != null) {
                 nativeUploadControllerModel(nativeCtx, controller, controller.remaining());
@@ -1268,6 +1278,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         ByteBuffer[] rayFaces = panels.buildRayButtons();
         pendingRayOff.set(rayFaces[0]);
         pendingRayOn.set(rayFaces[1]);
+        ByteBuffer[] aimFaces = panels.buildAimButtons();
+        pendingAimOff.set(aimFaces[0]);
+        pendingAimOn.set(aimFaces[1]);
 
         XrPanels.Keyboard keyboard = panels.buildKeyboard();
         kbKeyRects = keyboard.keyRects;
@@ -1865,6 +1878,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             case TOAST_3D_ON:
                 text = prefsContext.getString(R.string.vr_toast_3d_on);
                 break;
+            case TOAST_HEAD_AIM_OFF:
+                text = prefsContext.getString(R.string.vr_toast_head_aim_off);
+                break;
+            case TOAST_HEAD_AIM_ON:
+                text = prefsContext.getString(R.string.vr_toast_head_aim_on);
+                more = prefsContext.getString(R.string.vr_toast_head_aim_on_more);
+                break;
             case TOAST_TEXT:
                 NoticeWords words = arg >= 0 && arg < TOAST_TEXT_SLOTS ? noticeTexts[arg] : null;
                 if (words == null) {
@@ -1984,6 +2004,25 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     .putBoolean(PreferenceConfiguration.VR_CONTROLLER_MODEL_PREF_STRING, on)
                     .apply();
             FileLog.event("controller model " + (on ? "on" : "off") + " saved");
+        }
+        else if (setting == SETTING_HEAD_AIM_SENSITIVITY) {
+            // The native side already turns at it; this is for next time
+            if (prefConfig != null) {
+                prefConfig.vrHeadAimSensitivity = value;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putInt(PreferenceConfiguration.VR_HEAD_AIM_SENSITIVITY_PREF_STRING, value)
+                    .apply();
+            FileLog.event("head aim sensitivity " + value + " saved");
+        }
+        else if (setting == SETTING_HEAD_AIM_DEADZONE) {
+            if (prefConfig != null) {
+                prefConfig.vrHeadAimDeadZone = value;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putInt(PreferenceConfiguration.VR_HEAD_AIM_DEADZONE_PREF_STRING, value)
+                    .apply();
+            FileLog.event("head aim dead zone " + value + " saved");
         }
         else if (setting == SETTING_AMBI_LEVEL) {
             if (prefConfig != null) {

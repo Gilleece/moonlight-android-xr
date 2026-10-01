@@ -32,6 +32,27 @@
             android:summary="@string/summary_vr_controller_model"
             android:defaultValue="false"/>
         <CheckBoxPreference
+            android:key="checkbox_vr_head_aim"
+            android:title="@string/title_vr_head_aim"
+            android:summary="@string/summary_vr_head_aim"
+            android:defaultValue="false"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_head_aim_sensitivity"
+            android:defaultValue="8"
+            seekbar:min="1"
+            android:max="30"
+            android:summary="@string/summary_seekbar_vr_head_aim_sensitivity"
+            android:text="@string/suffix_seekbar_vr_head_aim_sensitivity"
+            android:title="@string/title_seekbar_vr_head_aim_sensitivity"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_head_aim_deadzone"
+            android:defaultValue="2"
+            seekbar:min="0"
+            android:max="20"
+            android:summary="@string/summary_seekbar_vr_head_aim_deadzone"
+            android:text="@string/suffix_seekbar_vr_head_aim_deadzone"
+            android:title="@string/title_seekbar_vr_head_aim_deadzone"/>
+        <CheckBoxPreference
             android:key="checkbox_vr_click_sound"
             android:title="@string/title_vr_click_sound"
             android:summary="@string/summary_vr_click_sound"
