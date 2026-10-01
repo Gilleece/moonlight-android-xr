@@ -277,6 +277,8 @@
     <string name="summary_vr_pointer">Point at the screen with a controller to move the host mouse. Trigger clicks, A or X right clicks, thumbstick scrolls. Click the thumbstick to switch pointing off in a game that needs the mouse itself.</string>
     <string name="title_vr_pointer_sleep">Pause the pointer when the controller is still</string>
     <string name="summary_vr_pointer_sleep">A controller\'s pointer goes away after a few seconds held still and comes back when it moves or its thumbstick is pushed. Switch this off to keep it on, so the thumbstick scrolls even with the pointer off the screen.</string>
+    <string name="title_vr_click_sound">Click when a panel is pressed</string>
+    <string name="summary_vr_click_sound">A short tick when a press in the headset lands on a panel, a button or a key. It plays on the system sounds, apart from the stream\'s audio.</string>
     <string name="title_vr_reset_pose">Reset screen position</string>
     <string name="summary_vr_reset_pose">Put the screen back to the distance and width above, undoing any move or resize done with the controllers</string>
     <string name="toast_vr_reset_pose">Screen position reset</string>

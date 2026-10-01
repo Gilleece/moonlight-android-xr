@@ -672,6 +672,9 @@ int cogOptionCells(int option) {
     if (option == COG_OPTION_POINTER_SLEEP) {
         return COG_POINTER_SLEEP_CELLS;
     }
+    if (option == COG_OPTION_CLICK_SOUND) {
+        return COG_CLICK_SOUND_CELLS;
+    }
     if (option == COG_OPTION_AMBILIGHT) {
         return COG_AMBI_CELLS;
     }
@@ -696,6 +699,9 @@ int cogOptionValue(XrCtx* ctx, int option, int headLocked) {
     }
     if (option == COG_OPTION_POINTER_SLEEP) {
         return ctx->pointerSleepOn ? 1 : 0;
+    }
+    if (option == COG_OPTION_CLICK_SOUND) {
+        return ctx->clickSoundOn ? 1 : 0;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         // The switch in force, which in a room is the room's own
@@ -738,6 +744,12 @@ int cogApplyOption(XrCtx* ctx, int option, int cell) {
         ctx->pointerSleepOn = cell != 0;
         LOGEV("pointer sleep %s from the panel", cell != 0 ? "on" : "off");
         return SETTING_POINTER_SLEEP;
+    }
+    if (option == COG_OPTION_CLICK_SOUND) {
+        // Java plays it, and takes the switch from the setting this hands it
+        ctx->clickSoundOn = cell != 0;
+        LOGEV("click sound %s from the panel", cell != 0 ? "on" : "off");
+        return SETTING_CLICK_SOUND;
     }
     if (option == COG_OPTION_AMBILIGHT) {
         // In a room this is the same switch the Room tab's glow row is, so the
@@ -984,4 +996,15 @@ int lockButtonHit(XrCtx* ctx, float u, float v, float height) {
     float side;
     lockButtonPlacement(ctx, &local, &side);
     return buttonHit(ctx, local, side, u, v, height);
+}
+
+// Whether a press ticks, which only the display tab's ring reads on this
+// side. Handed down before the first frame.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetClickSound(JNIEnv* env, jobject thiz,
+                                                                jlong handle, jboolean on) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx != NULL) {
+        ctx->clickSoundOn = on;
+    }
 }

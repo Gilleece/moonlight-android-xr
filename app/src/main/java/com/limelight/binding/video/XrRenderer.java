@@ -10,6 +10,7 @@ import android.graphics.Paint;
 import android.graphics.PorterDuff;
 import android.graphics.SurfaceTexture;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Process;
 import android.preference.PreferenceManager;
 import android.text.TextUtils;
@@ -28,6 +29,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -191,6 +193,18 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // under it: queued from any thread, then kept in slots the native side
     // names them by
     private XrPanels.Toast toast;
+    // The marks on the display tab's cells, drawn on the frame loop when one
+    // moves, and the cells they were last drawn for
+    private XrPanels.Marks cogMarks;
+    private final int[] marksDrawn = new int[MARK_VALUES];
+    private final int[] marksWanted = new int[MARK_VALUES];
+    // The tick a press on the panels makes, built once off the frame loop and
+    // fed from it, whether one is on its way, and whether the session is over,
+    // which a late one is let go for. Handed over under the lock.
+    private final Object clickLock = new Object();
+    private volatile XrClickSound clickSound;
+    private boolean clickSoundStarting;
+    private boolean clickSessionOver;
     private final ConcurrentLinkedQueue<String[]> pendingNotices = new ConcurrentLinkedQueue<>();
     private final String[][] noticeTexts = new String[TOAST_TEXT_SLOTS][];
     private int noticeSlot;
@@ -352,6 +366,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // side's own to be queued, a TOAST_TEXT under its slot
     private native void nativeUploadToast(long ctx, ByteBuffer sheet, int kind, int arg);
     private native void nativePushNotice(long ctx, int kind, int arg);
+    private native void nativeUploadCogMarks(long ctx, ByteBuffer strip);
+    // Whether a press ticks, which the display tab's row reads back
+    private native void nativeSetClickSound(long ctx, boolean on);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -454,6 +471,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 runFrameLoop(prefs);
 
                 stopDepthThread();
+                XrClickSound click;
+                synchronized (clickLock) {
+                    clickSessionOver = true;
+                    click = clickSound;
+                    clickSound = null;
+                }
+                if (click != null) {
+                    click.release();
+                }
 
                 // Tear down on the same thread that owns the GL context, and
                 // under the lock so a stats report cannot land on a context
@@ -823,7 +849,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 break;
             }
             if (r == FRAME_IDLE) {
-                // Native side slept already while the session is not running
+                // Native side slept already while the session is not running.
+                // The click's track is kept fed regardless, so it is playing
+                // when the session comes back.
+                XrClickSound click = clickSound;
+                if (click != null) {
+                    click.feed();
+                }
                 continue;
             }
 
@@ -841,7 +873,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateRoomReadout();
+            updateCogMarks();
             updateToast();
+            updateClickSound(prefs);
 
             // Switched off, the warp draws flat and the model is left idle.
             // Back on, it wants a map of what is showing now, so the frame in
@@ -1008,15 +1042,28 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         }
         roomReadout = new XrPanels.Readout();
         toast = new XrPanels.Toast();
+        cogMarks = new XrPanels.Marks();
+        // Nothing drawn yet, so the first look at the tab draws them
+        Arrays.fill(marksDrawn, -2);
+        nativeSetClickSound(nativeCtx, prefs.vrClickSound);
 
         final int startRoom = cell;
         final int roomTicketAtStart;
         synchronized (roomLock) {
             roomTicketAtStart = ++roomTicket;
         }
+        final boolean click = prefs.vrClickSound;
+        if (click) {
+            synchronized (clickLock) {
+                clickSoundStarting = true;
+            }
+        }
         Thread loader = new Thread() {
             @Override
             public void run() {
+                if (click) {
+                    startClickSound();
+                }
                 buildPanelArt();
                 loadRoomAssets(startRoom, roomTicketAtStart);
             }
@@ -1298,6 +1345,74 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         System.arraycopy(readoutWanted, 0, readoutDrawn, 0, READOUT_VALUES);
     }
 
+    // Redraws the display tab's marks when the frame says one has moved, and
+    // hands the strip straight up, since this is the thread with the GL context
+    private void updateCogMarks() {
+        if (inputState[IN_MARKS] < 0.0f || cogMarks == null) {
+            return;
+        }
+        boolean changed = false;
+        for (int i = 0; i < MARK_VALUES; i++) {
+            marksWanted[i] = (int)inputState[IN_MARKS + i];
+            changed |= marksWanted[i] != marksDrawn[i];
+        }
+        if (changed) {
+            nativeUploadCogMarks(nativeCtx, cogMarks.draw(marksWanted));
+            System.arraycopy(marksWanted, 0, marksDrawn, 0, MARK_VALUES);
+        }
+    }
+
+    // Keeps the click's track fed every frame and ticks for a press, while the
+    // setting is on. Switched on part way, the track is built off the frame
+    // loop and used from the frame it is ready.
+    private void updateClickSound(PreferenceConfiguration prefs) {
+        XrClickSound click = clickSound;
+        if (click == null) {
+            if (!prefs.vrClickSound) {
+                return;
+            }
+            synchronized (clickLock) {
+                if (clickSoundStarting) {
+                    return;
+                }
+                clickSoundStarting = true;
+            }
+            Thread starter = new Thread() {
+                @Override
+                public void run() {
+                    startClickSound();
+                }
+            };
+            starter.setName("Video - XR Click");
+            starter.start();
+            return;
+        }
+        click.feed();
+        if (inputState[IN_CLICK] != 0.0f && prefs.vrClickSound) {
+            click.click();
+        }
+    }
+
+    // Off the frame loop, once: the track talks to the audio system as it is
+    // built. A session already over by the time it is ready lets it go.
+    private void startClickSound() {
+        // The track's non blocking write arrived in M
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return;
+        }
+        XrClickSound click = XrClickSound.start();
+        if (click == null) {
+            return;
+        }
+        synchronized (clickLock) {
+            if (!clickSessionOver) {
+                clickSound = click;
+                return;
+            }
+        }
+        click.release();
+    }
+
     // Queues the notices raised on this side since the last frame, then draws
     // whichever notice the frame says has just gone up and hands it straight
     // up, since this is the thread with the GL context
@@ -1429,6 +1544,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     .putBoolean(PreferenceConfiguration.VR_POINTER_SLEEP_PREF_STRING, on)
                     .apply();
             FileLog.event("pointer sleep " + (on ? "on" : "off") + " saved");
+        }
+        else if (setting == SETTING_CLICK_SOUND) {
+            boolean on = value != 0;
+            // The frame loop reads this off the same configuration object
+            if (prefConfig != null) {
+                prefConfig.vrClickSound = on;
+            }
+            PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
+                    .putBoolean(PreferenceConfiguration.VR_CLICK_SOUND_PREF_STRING, on)
+                    .apply();
+            FileLog.event("click sound " + (on ? "on" : "off") + " saved");
         }
         else if (setting == SETTING_AMBI_LEVEL) {
             if (prefConfig != null) {

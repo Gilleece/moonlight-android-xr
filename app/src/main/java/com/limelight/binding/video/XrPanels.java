@@ -67,17 +67,18 @@ final class XrPanels {
     // Under the size row where the room keeps its picture whole
     private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
     // Display tab: a label and a row of cells, one of which is in force, and
-    // the glow level track under them. Head locked and pointer sleep sit with
-    // the picture rows so the two light rows and the level track they belong
-    // with stay together at the bottom. Screen light is the wash the picture
-    // throws over a 3d room, which only shows in one, and head lock is ignored
-    // in one, but both stay live here like the rest: the picker can put a room
-    // up at any moment.
+    // the glow level track under them. Head locked, pointer sleep and the
+    // click sit with the picture rows so the two light rows and the level
+    // track they belong with stay together at the bottom. Screen light is the
+    // wash the picture throws over a 3d room, which only shows in one, and
+    // head lock is ignored in one, but both stay live here like the rest: the
+    // picker can put a room up at any moment.
     private static final String[] COG_OPTION_ROWS = { "Sharpen", "Supersample", "Stats",
-            "Head locked", "Pointer sleep", "Glow", "Screen light" };
+            "Head locked", "Pointer sleep", "Click sound", "Glow", "Screen light" };
     private static final String[][] COG_OPTION_CELLS = {
             { "Off", "Normal", "Quality" },
             { "Off", "Normal", "Quality" },
+            { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
             { "Off", "On" },
@@ -701,6 +702,56 @@ final class XrPanels {
                 float y = (COG_ROW_V0 + ROWS[i] * COG_ROW_STEP - COG_READOUT_T) * COG_TEX_H;
                 canvas.drawText(values[i] + "%", right,
                         y - (text.ascent() + text.descent()) * 0.5f, text);
+            }
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
+    }
+
+    /**
+     * The marks on the display tab's cells: a ring round the cell in force on
+     * each row, all in one strip over the column of cells, so the tab costs
+     * one layer for them however many rows it has. Redrawn on the frame loop
+     * whenever one moves, into the one bitmap and buffer, which the upload has
+     * finished with by the time the next draw comes round. The ring under the
+     * ray stays the native side's own, since it moves with every frame.
+     */
+    static final class Marks {
+        private final Bitmap bitmap = Bitmap.createBitmap(COG_MARKS_TEX_W, COG_MARKS_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ByteBuffer pixels =
+                ByteBuffer.allocateDirect(COG_MARKS_TEX_W * COG_MARKS_TEX_H * 4);
+
+        Marks() {
+            ring.setStyle(Paint.Style.STROKE);
+            ring.setStrokeWidth(3.0f);
+            ring.setColor(Color.WHITE);
+        }
+
+        // One cell per row, by its place in the row, in COG_OPTION_ order. A
+        // row under zero has nothing in force and goes unmarked.
+        ByteBuffer draw(int[] cells) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            float left = COG_MARKS_L * COG_TEX_W;
+            float top = COG_MARKS_T * COG_TEX_H;
+            float trackL = COG_TRACK_L * COG_TEX_W;
+            float trackR = COG_TRACK_R * COG_TEX_W;
+            float half = COG_DISPLAY_CELL_HALF * COG_TEX_H;
+            for (int row = 0; row < COG_OPTION_COUNT && row < cells.length; row++) {
+                int count = COG_OPTION_CELLS[row].length;
+                if (cells[row] < 0 || cells[row] >= count) {
+                    continue;
+                }
+                float span = (trackR - trackL) / count;
+                float y = cogRowV(COG_TAB_DISPLAY, row) * COG_TEX_H - top;
+                // On the edge of the cell the sheet draws, inset the same way
+                float l = trackL + cells[row] * span + 3.0f - left;
+                canvas.drawRoundRect(new RectF(l + 1.5f, y - half + 1.5f, l + span - 6.0f - 1.5f,
+                        y + half - 1.5f), 10.0f, 10.0f, ring);
             }
             pixels.rewind();
             bitmap.copyPixelsToBuffer(pixels);

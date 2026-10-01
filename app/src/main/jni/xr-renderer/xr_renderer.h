@@ -1237,6 +1237,19 @@ typedef struct {
     XrSwapchainImageOpenGLESKHR* cogReadoutImages;
     int cogReadoutReady;
     int cogReadoutDrawn[READOUT_VALUES];
+    // The marks on the display tab's cells, one strip for all its rows,
+    // redrawn in Java whenever one of them moves
+    XrSwapchain cogMarksSwapchain;
+    uint32_t cogMarksImageCount;
+    XrSwapchainImageOpenGLESKHR* cogMarksImages;
+    int cogMarksReady;
+    // Whether a press on a panel ticks, the setting the display tab's row
+    // also writes, and a press this frame for Java to tick for
+    int clickSoundOn;
+    int clickPending;
+    // The head lock preference as the last frame handed it down, for the
+    // display tab's marks
+    int headLockedPref;
     // The row under the ray, and on the display tab the cell within it
     int cogHoverSlider;
     int cogHoverCell;

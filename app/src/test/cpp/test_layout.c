@@ -255,9 +255,9 @@ static void testTheRowsFit(void) {
         CHECK(last + 0.0425f < 1.0f - 0.03f);
         CHECK(last + half <= 1.0f);
     }
-    // The display tab's eight rows, the glow level track last
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.235, 1e-6);
-    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.907, 1e-5);
+    // The display tab's nine rows, the glow level track last
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, 0), 0.215, 1e-6);
+    CHECK_NEAR(cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW), 0.911, 1e-5);
     // The other tabs keep the rows they always had
     CHECK_NEAR(cogRowV(COG_TAB_SCREEN, 5), COG_ROW_V0 + 5 * COG_ROW_STEP, 1e-6);
     CHECK_NEAR(cogRowV(COG_TAB_3D, 3), COG_ROW_V0 + 3 * COG_ROW_STEP, 1e-6);

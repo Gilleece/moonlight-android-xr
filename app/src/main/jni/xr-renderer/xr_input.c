@@ -1849,6 +1849,7 @@ static void updatePicker(XrCtx* ctx, InputFrame* f) {
             ctx->pickerPick = ctx->pickerHover;
             ctx->pickerChoice = ctx->pickerHover;
             ctx->pickerOpen = 0;
+            ctx->clickPending = 1;
             swallowTrigger(ctx, h);
         }
         break;
@@ -1974,6 +1975,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 int t = (int)(pu * COG_TAB_COUNT);
                 if (t >= COG_TAB_COUNT) t = COG_TAB_COUNT - 1;
                 ctx->cogTab = t;
+                ctx->clickPending = 1;
                 ctx->cogDragSlider = -1;
                 ctx->cogDragHand = -1;
                 ctx->cogDragFace = -1;
@@ -2003,6 +2005,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
                 cogApplyCell(ctx, face, row, cell, f->out);
+                ctx->clickPending = 1;
             }
             break;
         }
@@ -2018,6 +2021,9 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         int onReset = (face == COG_TAB_SCREEN || face == COG_TAB_3D)
                 && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
+        if (onReset && ctx->triggerEdge[h]) {
+            ctx->clickPending = 1;
+        }
         if (onReset && ctx->triggerEdge[h] && face == COG_TAB_3D) {
             // The running model's own pair, handed down when the session
             // started, so the button works the same way whatever the
@@ -2045,6 +2051,7 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         }
         else if (row >= 0 && ctx->triggerEdge[h]) {
             cogStartDrag(ctx, f, h, face, row, pu, pv);
+            ctx->clickPending = 1;
         }
     }
 
@@ -2086,6 +2093,10 @@ static void updateExitPrompt(XrCtx* ctx, InputFrame* f) {
         ctx->exitHoverZone = exitPromptZone(pu, pv);
 
         if (ctx->triggerEdge[h]) {
+            // The two buttons tick, and the rest of the sheet only closes it
+            if (ctx->exitHoverZone != EXIT_ZONE_NONE) {
+                ctx->clickPending = 1;
+            }
             if (ctx->exitHoverZone == EXIT_ZONE_EXIT) {
                 // Said once. Java takes the session down from here, and
                 // the prompt closes either way so a refused exit leaves
@@ -2111,8 +2122,18 @@ static void updateExitPrompt(XrCtx* ctx, InputFrame* f) {
     }
 }
 
-// Lights whichever piece of furniture the ray is on, and acts on a press there
+// Lights whichever piece of furniture the ray is on, and acts on a press there.
+// A press on any of them, a key included, ticks.
 static void updateFurniture(XrCtx* ctx, InputFrame* f) {
+    int pressed = f->hand >= 0 && ctx->triggerEdge[f->hand];
+    if (pressed && (f->hover == HOVER_ENVBUTTON || f->hover == HOVER_COGBUTTON
+            || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
+            || f->hover == HOVER_STEREOBUTTON
+            || (f->hover == HOVER_LOCK && ctx->lockArmed[f->hand])
+            || (f->hover == HOVER_KBPANEL
+                && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
+        ctx->clickPending = 1;
+    }
     if (f->hover == HOVER_ENVBUTTON) {
         ctx->envButtonHot = 1;
         if (ctx->triggerEdge[f->hand]) {
@@ -2468,7 +2489,18 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     out[IN_STEREO] = 0.0f;
     out[IN_TOAST] = -1.0f;
     out[IN_TOAST_ARG] = 0.0f;
+    out[IN_CLICK] = 0.0f;
+    out[IN_MARKS] = -1.0f;
     if (ctx != NULL) {
+        out[IN_CLICK] = ctx->clickPending ? 1.0f : 0.0f;
+        ctx->clickPending = 0;
+        // The display tab's choices while it is up, fading out included
+        int showing = ctx->cogOpen || ctx->panelFades[FADE_COG].level > 0.0f;
+        if (showing && cogFace(ctx) == COG_TAB_DISPLAY) {
+            for (int m = 0; m < COG_OPTION_COUNT; m++) {
+                out[IN_MARKS + m] = (float)cogOptionValue(ctx, m, ctx->headLockedPref);
+            }
+        }
         // The next notice goes up once its turn comes and the splash has
         // gone, and Java draws it the same frame
         Notice up;
@@ -2508,6 +2540,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         ctx->gazeEnabled = gazeEnabled;
         ctx->lockIconShown = lockIcon;
         ctx->pointerSleepOn = pointerSleep;
+        ctx->headLockedPref = headLocked;
         // Before anything asks who is pointing, off the last frame's clocks and
         // gaze, which are the only ones there are until the sources are read
         updateControllerAwake(ctx);

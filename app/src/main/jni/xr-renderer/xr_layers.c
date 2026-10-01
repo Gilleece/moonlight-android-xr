@@ -32,6 +32,9 @@
 // the margin costs five pointers.
 #define FRAME_MAX_LAYERS 20
 
+// The display tab's marks go back to Java one value a row
+_Static_assert(MARK_VALUES == COG_OPTION_COUNT, "a mark for every display tab row");
+
 // Every composition layer a frame can carry, on nativeEndFrame's stack for as
 // long as xrEndFrame needs them
 typedef struct {
@@ -55,6 +58,7 @@ typedef struct {
     // One per option row for what is chosen, plus one for the hover
     XrCompositionLayerQuad cogMark[COG_OPTION_COUNT + 1];
     XrCompositionLayerQuad cogReadout;
+    XrCompositionLayerQuad cogMarks;
     // One per row of whichever tab has the most. The display tab's glow level
     // track is its seventh row, so it is the one that sets the size.
     XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SLIDER_COUNT
@@ -678,19 +682,29 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
         pushLayer(ctx, layers, &layers->cogPanel);
 
         // The cells are drawn into the texture, so what is chosen and what is
-        // under the ray are rings over them. One per row for the choice, then
-        // a wider one for the hover.
-        if (face == COG_TAB_DISPLAY && ctx->outlineReady) {
-            for (int m = 0; m <= COG_OPTION_COUNT; m++) {
-                int hoverMark = m == COG_OPTION_COUNT;
-                int option = hoverMark ? ctx->cogHoverSlider : m;
-                int cell = hoverMark ? ctx->cogHoverCell
-                        : cogOptionValue(ctx, m, view->headLocked);
-                if (option < 0 || option >= COG_OPTION_COUNT || cell < 0) {
-                    continue;
-                }
-                addCogRing(ctx, view, layers, &layers->cogMark[m], face, option, cell,
-                           cogOptionCells(option), hoverMark ? 1.12f : 1.0f);
+        // under the ray are marks over them. On the display tab the choices
+        // are one strip Java draws for every row at once, then a ring for the
+        // hover.
+        if (face == COG_TAB_DISPLAY) {
+            if (ctx->cogMarksReady) {
+                float stripW = (float)COG_MARKS_TEX_W / (float)COG_TEX_W;
+                float stripH = (float)COG_MARKS_TEX_H / (float)COG_TEX_H;
+                Vec3 local;
+                local.x = (COG_MARKS_L + stripW * 0.5f - 0.5f) * ctx->cogW;
+                local.y = (0.5f - (COG_MARKS_T + stripH * 0.5f)) * ctx->cogH;
+                local.z = 0.003f;
+                quadLayer(&layers->cogMarks, fadeNext(ctx, layers, FADE_COG, 0, level),
+                          XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                          ctx->cogMarksSwapchain, COG_MARKS_TEX_W, COG_MARKS_TEX_H, view->space,
+                          poseOffset(ctx->cogPose, local), stripW * ctx->cogW,
+                          stripH * ctx->cogH);
+                pushLayer(ctx, layers, &layers->cogMarks);
+            }
+            int option = ctx->cogHoverSlider;
+            if (ctx->outlineReady && option >= 0 && option < COG_OPTION_COUNT
+                    && ctx->cogHoverCell >= 0) {
+                addCogRing(ctx, view, layers, &layers->cogMark[COG_OPTION_COUNT], face, option,
+                           ctx->cogHoverCell, cogOptionCells(option), 1.12f);
             }
         }
         else if ((face == COG_FACE_ROOM || face == COG_TAB_3D) && ctx->outlineReady) {
