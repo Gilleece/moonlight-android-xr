@@ -466,8 +466,39 @@ static void buildHandRay(XrCtx* ctx, int hand, const XrPosef* head,
     ctx->handRayValid[hand] = 1;
 }
 
+// How far one joint is from another, or -1 where either is not where the
+// runtime can say
+static float tipGap(const XrHandJointLocationEXT* a, const XrHandJointLocationEXT* b) {
+    if (!(a->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
+            || !(b->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
+        return -1.0f;
+    }
+    float dx = a->pose.position.x - b->pose.position.x;
+    float dy = a->pose.position.y - b->pose.position.y;
+    float dz = a->pose.position.z - b->pose.position.z;
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+// The tips the lock gesture is judged on: the ring tip to the thumb, with the
+// index and middle tips' own gaps to it, which have to stay clear
+static void readRingTips(XrCtx* ctx, int hand, const XrHandJointLocationEXT* joints) {
+    const XrSpaceLocationFlags tracked = XR_SPACE_LOCATION_POSITION_VALID_BIT
+            | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
+    const XrHandJointLocationEXT* thumb = &joints[XR_HAND_JOINT_THUMB_TIP_EXT];
+    const XrHandJointLocationEXT* ring = &joints[XR_HAND_JOINT_RING_TIP_EXT];
+    ctx->ringGap[hand] = tipGap(thumb, ring);
+    ctx->indexGap[hand] = tipGap(thumb, &joints[XR_HAND_JOINT_INDEX_TIP_EXT]);
+    ctx->middleGap[hand] = tipGap(thumb, &joints[XR_HAND_JOINT_MIDDLE_TIP_EXT]);
+    // A deliberate gesture wants the two tips that touch actually seen, and
+    // the other two at least placed
+    ctx->ringTipsTracked[hand] = (thumb->locationFlags & tracked) == tracked
+            && (ring->locationFlags & tracked) == tracked
+            && ctx->indexGap[hand] >= 0.0f && ctx->middleGap[hand] >= 0.0f;
+}
+
 static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* head,
                          int headValid, long nowNs) {
+    ctx->ringTipsTracked[hand] = 0;
     if (!ctx->jointTracking || ctx->handTrackers[hand] == XR_NULL_HANDLE) {
         ctx->handRayValid[hand] = 0;
         return 0;
@@ -497,6 +528,7 @@ static int jointPinching(XrCtx* ctx, int hand, XrSpace space, const XrPosef* hea
         // No shoulder to cast from, and last frame's ray is stale
         ctx->handRayValid[hand] = 0;
     }
+    readRingTips(ctx, hand, joints);
 
     const XrSpaceLocationFlags tracked = XR_SPACE_LOCATION_POSITION_VALID_BIT
             | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
@@ -1162,7 +1194,7 @@ static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, 
     }
     // Off the left edge, so the halo owns that ground until the padlock claims
     // it back
-    if (ctx->handsEnabled && hover != HOVER_ENVBUTTON
+    if (ctx->handsEnabled && ctx->lockIconShown && hover != HOVER_ENVBUTTON
             && (hover == HOVER_NONE || hover == HOVER_HALO)
             && lockButtonHit(ctx, u, v, height)) {
         hover = HOVER_LOCK;
@@ -1436,6 +1468,61 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             continue;
         }
         hoverSource(ctx, f, h);
+    }
+}
+
+// Locks the hands out or lets them back in, from the padlock or the gesture
+static void setHandsLocked(XrCtx* ctx, int locked, const char* from) {
+    ctx->handsLocked = locked;
+    LOGEV("hands %s by %s", locked ? "locked" : "unlocked", from);
+    if (locked) {
+        // Put the ray away and let go of anything held, so locking mid drag
+        // does not leave the screen stuck to a hand or a button down on the
+        // host
+        ctx->pointerAwake = 0;
+        ctx->buttonsDown = 0;
+        ctx->stillFor = 0.0f;
+        ctx->movingFor = 0.0f;
+        if (ctx->grabMode != GRAB_NONE) {
+            ctx->grabMode = GRAB_NONE;
+            ctx->grabByGaze = 0;
+            ctx->poseDirty = 1;
+        }
+    }
+}
+
+// The thumb to ring finger gesture, which turns the lock the way the padlock
+// does and works whether the padlock is shown or not. Read before the lock is
+// applied, since a locked hand has to be able to use it to get back.
+static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
+    static const char* const REFUSED[] = {
+        "", "the index tip is near the thumb", "the middle tip is near the thumb",
+        "the hand is pressing", "the hand is gripping"
+    };
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (!ctx->handsEnabled || ctx->profileKind[h] == PROFILE_CONTROLLER) {
+            ringGateReset(&ctx->ringGate[h]);
+            ctx->ringRefusalSaid[h] = RING_OK;
+            continue;
+        }
+        // An index pinch or a grab under way is something else being done
+        // with that hand, and in a fist the thumb is near every tip
+        int busy = f->grab[h] > PRESS_ON ? RING_GRAB
+                : (ctx->triggerDown[h] || ctx->pinchGate[h].down) ? RING_PRESSED : RING_OK;
+        int refused = RING_OK;
+        int fired = ringGateStep(&ctx->ringGate[h], ctx->ringTipsTracked[h], ctx->ringGap[h],
+                                 ctx->indexGap[h], ctx->middleGap[h], busy, f->now, &refused);
+        if (!ctx->ringGate[h].closed) {
+            ctx->ringRefusalSaid[h] = RING_OK;
+        }
+        else if (refused != RING_OK && refused != ctx->ringRefusalSaid[h]) {
+            ctx->ringRefusalSaid[h] = refused;
+            LOGI("ring pinch on hand %d refused: %s", h, REFUSED[refused]);
+        }
+        if (fired) {
+            setHandsLocked(ctx, !ctx->handsLocked, "the ring pinch");
+            ctx->lockFlashNs = f->now;
+        }
     }
 }
 
@@ -2060,21 +2147,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
         ctx->lockHot = 1;
         if (ctx->triggerEdge[f->hand] && ctx->lockArmed[f->hand]) {
             ctx->lockArmed[f->hand] = 0;
-            ctx->handsLocked = !ctx->handsLocked;
-            LOGI("hands %s", ctx->handsLocked ? "locked" : "unlocked");
-            if (ctx->handsLocked) {
-                // Put the ray away and let go of anything held, so locking
-                // mid drag does not leave the screen stuck to a hand or a
-                // button down on the host
-                ctx->pointerAwake = 0;
-                ctx->buttonsDown = 0;
-                ctx->stillFor = 0.0f;
-                ctx->movingFor = 0.0f;
-                if (ctx->grabMode != GRAB_NONE) {
-                    ctx->grabMode = GRAB_NONE;
-                    ctx->poseDirty = 1;
-                }
-            }
+            setHandsLocked(ctx, !ctx->handsLocked, "the padlock");
         }
     }
 }
@@ -2359,12 +2432,14 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                                                               jboolean headLocked,
                                                               jboolean pointerEnabled,
                                                               jboolean gazeEnabled,
+                                                              jboolean lockIcon,
                                                               jfloatArray outArr) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
     float out[IN_SLOTS];
     memset(out, 0, sizeof(out));
     if (ctx != NULL) {
         ctx->gazeEnabled = gazeEnabled;
+        ctx->lockIconShown = lockIcon;
         // Before anything asks who is pointing, off the last frame's clocks and
         // gaze, which are the only ones there are until the sources are read
         updateControllerAwake(ctx);
@@ -2448,6 +2523,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
 
     readSources(ctx, &f);
     gazeBridgeTrack(&ctx->gazeBridge, f.gazeAsked, f.gazeUsable, f.now);
+    updateLockGesture(ctx, &f);
     applyHandLock(ctx, &f);
     updatePointerWake(ctx, &f);
     pickPointingSource(ctx, &f);

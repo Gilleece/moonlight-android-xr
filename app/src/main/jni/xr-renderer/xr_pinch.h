@@ -1,5 +1,6 @@
-// When a hand's pinch is a press, and how a drag the eyes started is carried
-// by the hand that pinched. Plain arithmetic over numbers handed in, no
+// When a hand's pinch is a press, the thumb to ring finger gesture that locks
+// the hands, and how a drag the eyes started is carried by the hand that
+// pinched. Plain arithmetic over numbers handed in, no
 // OpenXR calls and no context, so the host tests reach all of it.
 
 #ifndef XR_PINCH_H
@@ -54,6 +55,42 @@ int pinchHoldStep(long* wantSince, int want, int wasDown, long nowNs);
 // An analog value with a gap between pressing and letting go, so a value
 // sitting near one threshold does not chatter
 int pressHysteresis(float value, int wasDown, float on, float off);
+
+// The hand lock gesture: the thumb to the ring finger, held half a second.
+// Looser than an index pinch, since the ring finger reaches the thumb less
+// surely. The index and middle tips have to be clear of the thumb by a margin,
+// which is what keeps a pinch or a fist from setting it off, and a press or a
+// grab on that hand refuses it outright.
+#define RING_PINCH_ON_M 0.018f
+#define RING_PINCH_OFF_M 0.030f
+#define RING_CLEAR_M 0.035f
+#define RING_HOLD_NS 500000000L
+
+// Why a ring pinch was refused
+#define RING_OK      0
+#define RING_INDEX   1
+#define RING_MIDDLE  2
+#define RING_PRESSED 3
+#define RING_GRAB    4
+
+typedef struct {
+    // Since when the gesture has been held cleanly, 0 while it is not
+    long since;
+    // The thumb and ring tips together, with their own hysteresis
+    int closed;
+    // Fired on this closing already, so it waits for the fingers to part
+    int fired;
+} RingGate;
+
+void ringGateReset(RingGate* g);
+
+// One frame of it. tracked says the four tips are there to measure, the gaps
+// are each tip to the thumb tip, and busy a RING_ reason the hand is already
+// doing something else (a press or a grab), RING_OK when it is not. Says 1 on
+// the frame the hold completes, and outRefused why a closed ring was refused
+// this frame, RING_OK when it was not.
+int ringGateStep(RingGate* g, int tracked, float ringGap, float indexGap, float middleGap,
+                 int busy, long nowNs, int* outRefused);
 
 // A drag the eyes started is carried by the hand that pinched. It comes up to
 // speed over half a second from the pinch, so a pinch that wanders as it

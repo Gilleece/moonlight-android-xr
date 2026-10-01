@@ -72,6 +72,7 @@ public class PreferenceConfiguration {
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
     private static final String VR_GAZE_PREF_STRING = "checkbox_vr_gaze";
     private static final String VR_HAND_TRACKING_PREF_STRING = "checkbox_vr_hand_tracking";
+    static final String VR_SHOW_HAND_LOCK_PREF_STRING = "checkbox_vr_show_hand_lock";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on. Legacy, and
@@ -184,6 +185,9 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
     private static final boolean DEFAULT_VR_HAND_TRACKING = true;
+    // The padlock beside the screen. The thumb to ring finger gesture turns
+    // the same lock with or without it.
+    static final boolean DEFAULT_VR_SHOW_HAND_LOCK = true;
     private static final boolean DEFAULT_VR_POINTER = true;
     // MiDaS's separation, tenths of a percent of frame width. 5 measured
     // comfortable on device and 7 already strained, once the depth map started
@@ -293,6 +297,7 @@ public class PreferenceConfiguration {
     public boolean vrPointer;
     public boolean vrGaze;
     public boolean vrHandTracking;
+    public boolean vrShowHandLock;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -532,6 +537,18 @@ public class PreferenceConfiguration {
      */
     public static String stereoAtStartLabel(int depthMode) {
         return depthMode != XrShared.DEPTH_MODE_OFF ? "on" : "off";
+    }
+
+    static boolean handLockIconShown(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_SHOW_HAND_LOCK_PREF_STRING, DEFAULT_VR_SHOW_HAND_LOCK);
+    }
+
+    /**
+     * The pointer's own switches for a log line, joined the way that line
+     * joins its keys to their values
+     */
+    public static String inputLabel(boolean handLockIcon, String join) {
+        return "handLockIcon" + join + handLockIcon;
     }
 
     /** Which of the 3D tab's presets a separation is under that model, or none, for the logs. */
@@ -1126,6 +1143,7 @@ public class PreferenceConfiguration {
         config.vrPointer = prefs.getBoolean(VR_POINTER_PREF_STRING, DEFAULT_VR_POINTER);
         config.vrGaze = prefs.getBoolean(VR_GAZE_PREF_STRING, DEFAULT_VR_GAZE);
         config.vrHandTracking = prefs.getBoolean(VR_HAND_TRACKING_PREF_STRING, DEFAULT_VR_HAND_TRACKING);
+        config.vrShowHandLock = handLockIconShown(prefs);
         config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

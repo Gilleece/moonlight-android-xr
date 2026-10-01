@@ -1,5 +1,5 @@
-// The pinch and its hold, and the drag the eyes start, checked a frame at a
-// time
+// The pinch and its hold, the ring finger lock gesture, and the drag the eyes
+// start, checked a frame at a time
 #include "check.h"
 #include "xr_pinch.h"
 
@@ -95,6 +95,75 @@ static void testPinchHold(void) {
     CHECK(!pressHysteresis(0.69f, 1, PINCH_VALUE_ON, PINCH_VALUE_OFF));
 }
 
+// Holds a ring pinch with the other tips where they are told, for a time, and
+// says how many times it fired and the last refusal seen
+static int holdRing(RingGate* g, long* t, long forNs, float ring, float index, float middle,
+                    int busy, int* refused) {
+    int fired = 0;
+    *refused = RING_OK;
+    for (long done = 0; done < forNs; done += FRAME_NS) {
+        *t += FRAME_NS;
+        int r;
+        fired += ringGateStep(g, 1, ring, index, middle, busy, *t, &r);
+        if (r != RING_OK) {
+            *refused = r;
+        }
+    }
+    return fired;
+}
+
+static void testRingGesture(void) {
+    RingGate g;
+    long t = 0;
+    int refused;
+
+    // Held cleanly for half a second it fires once, and only once however
+    // long it is held
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 480 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 0);
+    CHECK(holdRing(&g, &t, 30 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 1);
+    CHECK(holdRing(&g, &t, 2000 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 0);
+    // Parting the fingers lets it fire again
+    holdRing(&g, &t, 50 * MS, 0.040f, 0.070f, 0.050f, RING_OK, &refused);
+    CHECK(holdRing(&g, &t, 520 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 1);
+
+    // A fist: the index and middle tips are near the thumb too
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.025f, 0.020f, RING_OK, &refused) == 0);
+    CHECK(refused == RING_INDEX);
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.060f, 0.020f, RING_OK, &refused) == 0);
+    CHECK(refused == RING_MIDDLE);
+
+    // During an index pinch or a grab the hand is busy
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.060f, 0.050f, RING_GRAB, &refused) == 0);
+    CHECK(refused == RING_GRAB);
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.060f, 0.050f, RING_PRESSED, &refused) == 0);
+    CHECK(refused == RING_PRESSED);
+
+    // A refusal partway through starts the hold again
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 400 * MS, 0.012f, 0.060f, 0.050f, RING_OK, &refused) == 0);
+    CHECK(holdRing(&g, &t, 30 * MS, 0.012f, 0.020f, 0.050f, RING_OK, &refused) == 0);
+    CHECK(holdRing(&g, &t, 400 * MS, 0.012f, 0.060f, 0.050f, RING_OK, &refused) == 0);
+    CHECK(holdRing(&g, &t, 200 * MS, 0.012f, 0.060f, 0.050f, RING_OK, &refused) == 1);
+
+    // Its own hysteresis: closes under 18 mm, stays closed up to 30
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 0.019f, 0.060f, 0.050f, RING_OK, &refused) == 0);
+    holdRing(&g, &t, 20 * MS, 0.015f, 0.060f, 0.050f, RING_OK, &refused);
+    CHECK(holdRing(&g, &t, 600 * MS, 0.028f, 0.060f, 0.050f, RING_OK, &refused) == 1);
+
+    // Tips lost resets it
+    ringGateReset(&g);
+    holdRing(&g, &t, 400 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused);
+    t += FRAME_NS;
+    CHECK(!ringGateStep(&g, 0, 0.0f, 0.0f, 0.0f, RING_OK, t, &refused));
+    CHECK(holdRing(&g, &t, 400 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 0);
+}
+
 static void testDragRamp(void) {
     CHECK_NEAR(dragRampGain(0), 0.0, 1e-6);
     CHECK_NEAR(dragRampGain(GAZE_DRAG_RAMP_NS / 2), 0.5, 1e-6);
@@ -181,6 +250,7 @@ static void testDragRamp(void) {
 int main(void) {
     testPinchGate();
     testPinchHold();
+    testRingGesture();
     testDragRamp();
     return checksDone("xr_pinch");
 }

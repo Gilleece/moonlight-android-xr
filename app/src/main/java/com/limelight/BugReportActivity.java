@@ -343,6 +343,7 @@ public class BugReportActivity extends Activity {
                 + " " + (prefs.vrRoomLevels == null ? "room none"
                         : prefs.vrRoomLevels.describe(" "))
                 + " hands " + prefs.vrHandTracking + " gaze " + prefs.vrGaze
+                + " " + PreferenceConfiguration.inputLabel(prefs.vrShowHandLock, " ")
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"
                 + "fileLog " + prefs.fileLogLevel + "\n";
     }

@@ -511,9 +511,12 @@ static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     // The padlock. Comes and goes like the rest of the furniture rather
     // than sitting there permanently, so it costs nothing to look at while
     // playing. Reaching for the bar shows it too, since that is where
-    // people go looking when they want to change something.
-    if (ctx->handsEnabled && ctx->lockArtReady
-            && (ctx->hoverKind == HOVER_LOCK || view->barArea)) {
+    // people go looking when they want to change something, and so does the
+    // ring finger gesture turning it, for a moment. A setting can hide it
+    // altogether, which leaves the gesture as the way to the lock.
+    int flashing = ctx->lockFlashNs != 0 && nowNs() - ctx->lockFlashNs < LOCK_FLASH_NS;
+    if (ctx->handsEnabled && ctx->lockIconShown && ctx->lockArtReady
+            && (ctx->hoverKind == HOVER_LOCK || view->barArea || flashing)) {
         Vec3 local;
         float side;
         float lockYaw = 0.0f;
@@ -949,9 +952,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // the ray all up, is one layer past the Pico's sixteen, and a frame over
     // the limit is refused whole. Its hover ring is what goes, and the Room
     // and 3D tabs' are the same slot: the cursor already shows where the ray
-    // is.
+    // is. The padlock shown for a moment after the ring finger gesture can
+    // land on top of that, and goes next.
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogMark[COG_OPTION_COUNT]);
+    }
+    if (layers.count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(&layers, &layers.lock);
     }
 
     // Said once and only once, since a frame that crowds the limit is usually

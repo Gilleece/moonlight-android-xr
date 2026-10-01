@@ -296,7 +296,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
                                           float curvature, boolean headLocked,
                                           boolean pointerEnabled, boolean gazeEnabled,
-                                          float[] out);
+                                          boolean lockIcon, float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     // The room's assets name the picker cell they belong to, which the native
     // side turns into its own room style
@@ -795,7 +795,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             boolean headLocked = prefs.vrHeadLocked;
 
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
-                    pointer, gaze && gazeAllowed, inputState);
+                    pointer, gaze && gazeAllowed, prefs.vrShowHandLock, inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateRoomReadout();

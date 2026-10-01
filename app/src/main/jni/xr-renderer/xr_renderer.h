@@ -153,6 +153,9 @@ static inline long nowNs(void) {
 // thing left to aim at, so it has to be findable without a ray to guide you.
 #define LOCK_BUTTON_FRAC 0.09f
 #define LOCK_GAP_FRAC 0.025f
+// How long the padlock shows after the ring finger gesture has turned it, so
+// the change can be seen without having to go looking for it
+#define LOCK_FLASH_NS 1500000000L
 
 #define COG_WIDTH_FRAC 0.36f
 // The button that opens it, sitting to the right of the move bar, the same
@@ -918,6 +921,20 @@ typedef struct {
     // held would otherwise read as a press, because a locked hand has its
     // trigger cleared every frame and so arrives looking like a fresh edge.
     int lockArmed[SRC_COUNT];
+    // The thumb to ring finger gesture that turns the lock, per hand, read off
+    // the joints whether the hands are locked or not, since it is the way
+    // back. The tip gaps it is judged on, each tip to the thumb tip, and the
+    // refusal last said, so each is said once per closing.
+    RingGate ringGate[HAND_COUNT];
+    int ringTipsTracked[HAND_COUNT];
+    float ringGap[HAND_COUNT];
+    float indexGap[HAND_COUNT];
+    float middleGap[HAND_COUNT];
+    int ringRefusalSaid[HAND_COUNT];
+    // The padlock is shown at all, which a setting can turn off while the
+    // gesture still works, and when the gesture last turned the lock
+    int lockIconShown;
+    long lockFlashNs;
     XrSwapchain lockSwapchain;
     XrSwapchain unlockSwapchain;
     uint32_t lockImageCount;

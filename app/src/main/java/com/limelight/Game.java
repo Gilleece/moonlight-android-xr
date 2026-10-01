@@ -544,6 +544,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " " + (prefConfig.vrRoomLevels == null ? "room=none"
                         : prefConfig.vrRoomLevels.describe("="))
                 + " hands=" + prefConfig.vrHandTracking
+                + " gaze=" + prefConfig.vrGaze
+                + " " + PreferenceConfiguration.inputLabel(prefConfig.vrShowHandLock, "=")
                 + " audio=" + prefConfig.audioConfiguration.channelCount
                 + " virtualSurround=" + prefConfig.vrVirtualSurround);
 

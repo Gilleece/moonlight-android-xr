@@ -1,4 +1,5 @@
-// The pinch and the drag the eyes start, as plain arithmetic, see xr_pinch.h
+// The pinch, the ring finger gesture and the drag the eyes start, as plain
+// arithmetic, see xr_pinch.h
 #include "xr_pinch.h"
 
 #include <string.h>
@@ -74,6 +75,49 @@ int pinchHoldStep(long* wantSince, int want, int wasDown, long nowNs) {
 
 int pressHysteresis(float value, int wasDown, float on, float off) {
     return value > (wasDown ? off : on);
+}
+
+void ringGateReset(RingGate* g) {
+    memset(g, 0, sizeof(*g));
+}
+
+int ringGateStep(RingGate* g, int tracked, float ringGap, float indexGap, float middleGap,
+                 int busy, long nowNs, int* outRefused) {
+    *outRefused = RING_OK;
+    if (!tracked) {
+        ringGateReset(g);
+        return 0;
+    }
+    g->closed = ringGap < (g->closed ? RING_PINCH_OFF_M : RING_PINCH_ON_M);
+    if (!g->closed) {
+        g->since = 0;
+        g->fired = 0;
+        return 0;
+    }
+    if (g->fired) {
+        return 0;
+    }
+    int refused = busy;
+    if (refused == RING_OK && indexGap < RING_CLEAR_M) {
+        refused = RING_INDEX;
+    }
+    if (refused == RING_OK && middleGap < RING_CLEAR_M) {
+        refused = RING_MIDDLE;
+    }
+    if (refused != RING_OK) {
+        // The hold has to be clean from end to end
+        g->since = 0;
+        *outRefused = refused;
+        return 0;
+    }
+    if (g->since == 0) {
+        g->since = nowNs;
+    }
+    if (nowNs - g->since >= RING_HOLD_NS) {
+        g->fired = 1;
+        return 1;
+    }
+    return 0;
 }
 
 float dragRampGain(long elapsedNs) {
