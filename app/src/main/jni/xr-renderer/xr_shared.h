@@ -91,7 +91,11 @@
 // last is -1 in a room whose size is fixed.
 #define IN_READOUT  24
 #define READOUT_VALUES 3
-#define IN_SLOTS    (IN_READOUT + READOUT_VALUES)
+// 1 while the 3D is on, and 0 once the bar or the 3D tab has switched it off
+// for the rest of the session, or in a session started without it. Every
+// frame, since it says whether the model is to be fed.
+#define IN_STEREO   (IN_READOUT + READOUT_VALUES)
+#define IN_SLOTS    (IN_STEREO + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -246,12 +250,25 @@
 #define COG_READOUT_L 0.26f
 #define COG_READOUT_T 0.19f
 
-// 3D tab rows, sliders like the screen tab's. Only values that take effect the
-// moment they move belong here: the depth source itself is settled when the
-// session starts, so it stays in the 2d settings.
-#define COG_ROW3D_SEPARATION 0
-#define COG_ROW3D_CONVERGENCE 1
-#define COG_ROW3D_COUNT 2
+// 3D tab rows, in the order they are drawn: a row of preset cells over two
+// sliders like the screen tab's, then the switch the bar's 3D button also
+// works. Only values that take effect the moment they move belong here: the
+// depth source itself is settled when the session starts, so it stays in the
+// 2d settings, and the switch only pauses a session that started with 3D.
+#define COG_ROW3D_PRESET 0
+#define COG_ROW3D_SEPARATION 1
+#define COG_ROW3D_CONVERGENCE 2
+#define COG_ROW3D_SWITCH 3
+#define COG_ROW3D_COUNT 4
+#define COG_STEREO_CELLS 2
+// The presets, in the order their cells are drawn. Each is a separation on the
+// depth track: Balanced is the running model's default, and Comfort and Strong
+// are this many steps of the track under and over it, kept on the track.
+#define COG_PRESET_COMFORT 0
+#define COG_PRESET_BALANCED 1
+#define COG_PRESET_STRONG 2
+#define COG_PRESET_CELLS 3
+#define COG_PRESET_STEPS 3
 // Right hand end of the separation track, as a fraction of frame width. Three
 // times the 0.5 percent that phase 6 measured as the useful maximum: past
 // there depth stops growing and only the strain does, so the far end of the

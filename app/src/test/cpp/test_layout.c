@@ -1,5 +1,6 @@
-// The hover zones, the stand in screen and the Room tab's lanes, checked
-// against answers that can be worked out by hand
+// The hover zones, the stand in screen, the Room tab's lanes and the 3D tab's
+// depth track and presets, checked against answers that can be worked out by
+// hand
 #include "check.h"
 #include "xr_layout.h"
 #include "xr_shared.h"
@@ -180,6 +181,64 @@ static void testTheCornerDrag(void) {
     CHECK(inside);
 }
 
+static void testTheDepthTrack(void) {
+    // Every step of the track survives the trip to the fraction the warp
+    // takes and back, and to a thumb's place and back, so what the thumb
+    // shows is what gets written
+    int trips = 0;
+    for (int units = 0; units <= COG_SEP_STEPS; units++) {
+        trips += separationUnits(separationOf(units)) == units;
+        trips += laneUnits(lanePlace(units, 0, COG_SEP_STEPS), 0, COG_SEP_STEPS) == units;
+    }
+    CHECK(trips == 2 * (COG_SEP_STEPS + 1));
+    CHECK(separationUnits(COG_SEP_MAX) == COG_SEP_STEPS);
+    CHECK_NEAR(separationOf(5), 0.005f, 1e-7);
+
+    // A drag lands on the nearest step and never off either end
+    CHECK(laneUnits(0.39f, 0, COG_SEP_STEPS) == 6);
+    CHECK(laneUnits(0.36f, 0, COG_SEP_STEPS) == 5);
+    CHECK(laneUnits(-0.2f, 0, COG_SEP_STEPS) == 0);
+    CHECK(laneUnits(1.3f, 0, COG_SEP_STEPS) == COG_SEP_STEPS);
+
+    // The debug property can ask for more than the track shows, and that is
+    // read as it is rather than pulled back onto the track
+    CHECK(separationUnits(0.04f) == 40);
+}
+
+static void testThePresetAccent(void) {
+    // ZipDepth's three, and MiDaS's
+    int zip[COG_PRESET_CELLS] = { 3, 6, 9 };
+    int midas[COG_PRESET_CELLS] = { 2, 5, 8 };
+    CHECK(cogPresetAt(3, zip) == COG_PRESET_COMFORT);
+    CHECK(cogPresetAt(6, zip) == COG_PRESET_BALANCED);
+    CHECK(cogPresetAt(9, zip) == COG_PRESET_STRONG);
+    CHECK(cogPresetAt(2, midas) == COG_PRESET_COMFORT);
+    CHECK(cogPresetAt(5, midas) == COG_PRESET_BALANCED);
+    CHECK(cogPresetAt(8, midas) == COG_PRESET_STRONG);
+
+    // Anywhere else on the track, or past it, rings nothing
+    int elsewhere = 0;
+    for (int units = 0; units <= COG_SEP_STEPS; units++) {
+        if (units != 3 && units != 6 && units != 9) {
+            elsewhere += cogPresetAt(units, zip) == -1;
+        }
+    }
+    CHECK(elsewhere == COG_SEP_STEPS + 1 - 3);
+    CHECK(cogPresetAt(40, zip) == -1);
+
+    // A default at an end clamps another preset onto it, and that is Balanced
+    int low[COG_PRESET_CELLS] = { 0, 0, 3 };
+    int high[COG_PRESET_CELLS] = { 12, 15, 15 };
+    CHECK(cogPresetAt(0, low) == COG_PRESET_BALANCED);
+    CHECK(cogPresetAt(15, high) == COG_PRESET_BALANCED);
+    CHECK(cogPresetAt(3, low) == COG_PRESET_STRONG);
+
+    // Read back off the fraction the warp holds, the way the ring reads it
+    CHECK(cogPresetAt(separationUnits(separationOf(9)), zip) == COG_PRESET_STRONG);
+    CHECK(cogPresetAt(separationUnits(0.0061f), zip) == COG_PRESET_BALANCED);
+    CHECK(cogPresetAt(separationUnits(0.0068f), zip) == -1);
+}
+
 int main(void) {
     testCornersFollowTheirArt();
     testNoCornersWhereThereAreNone();
@@ -189,5 +248,7 @@ int main(void) {
     testLanes();
     testTheSizeClamp();
     testTheCornerDrag();
+    testTheDepthTrack();
+    testThePresetAccent();
     return checksDone("xr_layout");
 }

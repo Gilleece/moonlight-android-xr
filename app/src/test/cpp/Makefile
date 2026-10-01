@@ -36,8 +36,8 @@ $(OUT)/test_roommesh: test_roommesh.c check.h $(SRC)/xr_roommesh.c $(SRC)/xr_roo
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_roommesh.c $(SRC)/xr_roommesh.c -lm
 
-# The hover zones, the stand in and the Room tab's lanes, with the screen maths
-# the stand in is hit tested through
+# The hover zones, the stand in, the Room tab's lanes and the 3D tab's track
+# and presets, with the screen maths the stand in is hit tested through
 $(OUT)/test_layout: test_layout.c check.h $(SRC)/xr_layout.c $(SRC)/xr_layout.h $(SRC)/xr_math.c \
                     $(SRC)/xr_math.h $(SRC)/xr_shared.h
 	@mkdir -p $(OUT)

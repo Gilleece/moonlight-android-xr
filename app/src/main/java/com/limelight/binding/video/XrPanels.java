@@ -12,9 +12,9 @@ import android.graphics.Path;
 import android.graphics.PorterDuff;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.Typeface;
 
 import com.limelight.LimeLog;
-import com.limelight.preferences.PreferenceConfiguration;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -24,8 +24,8 @@ import static com.limelight.binding.video.XrShared.*;
 
 /**
  * The flat panels reachable from inside the session: the environment picker,
- * the settings sheets, the keyboard and the exit prompt, and the buttons that
- * open them. Java is the only place Android will lay out text, so their art
+ * the settings sheets, the keyboard and the exit prompt, and the buttons along
+ * the bar that open them or switch the 3D. Java is the only place Android will lay out text, so their art
  * is drawn to bitmaps here and handed back as pixels for the frame loop to
  * upload, since that thread owns the GL context. Nothing in here touches the
  * session, so it can run on whichever thread has the time.
@@ -81,14 +81,14 @@ final class XrPanels {
             { "Off", "On" },
             { "Off", "On" }
     };
-    // 3D tab: two sliders, drawn the same way the screen tab's are. Only
-    // values that take effect the moment they move belong on the panel, which
-    // is why the depth source itself stays in the 2d settings.
+    // 3D tab: a row of presets over two sliders, then the switch the bar's 3D
+    // button works too, drawn the same way the display tab's cells and the
+    // screen tab's tracks are, in the COG_ROW3D_ order. Only values that take
+    // effect the moment they move belong on the panel, which is why the depth
+    // source itself stays in the 2d settings.
+    private static final String COG_PRESET_ROW = "Preset";
     private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
-    // Where the measured comfort cap, which is also the shipped default, falls
-    // along the separation track
-    private static final float COG_SEP_CAP_T =
-            PreferenceConfiguration.DEFAULT_VR_SEPARATION / (float)COG_SEP_STEPS;
+    private static final String COG_STEREO_ROW = "3D";
 
     // The in world keyboard. Three sheets of the same layout, one per state,
     // handed over in state order, along with the geometry that goes with them:
@@ -401,12 +401,15 @@ final class XrPanels {
      * the session picks another swapchain rather than redrawing anything. Only
      * the labels, tracks and cells live in the texture: thumbs, selection
      * rings and the Room tab's percents are quads of their own, so using the
-     * panel costs no upload of a whole sheet.
+     * panel costs no upload of a whole sheet. The 3D tab's ticks mark the
+     * running model's own pair, in the preferences' units.
      */
-    ByteBuffer[] buildCogTabs(boolean curveOk, boolean stereoOk) {
+    ByteBuffer[] buildCogTabs(boolean curveOk, boolean stereoOk, int defaultSeparation,
+                              int defaultConvergence) {
         ByteBuffer[] sheets = new ByteBuffer[COG_ART_COUNT];
         for (int art = 0; art < COG_ART_COUNT; art++) {
-            Bitmap sheet = buildCogSheet(art, curveOk, stereoOk);
+            Bitmap sheet = buildCogSheet(art, curveOk, stereoOk, defaultSeparation,
+                    defaultConvergence);
             sheets[art] = toBuffer(sheet);
             sheet.recycle();
         }
@@ -428,7 +431,8 @@ final class XrPanels {
     // One sheet of the panel. The ones past the tabs are what a room shows:
     // the Room tab with its size row live or greyed, then the display and 3D
     // tabs with the Room tab's name over the first slot.
-    private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk) {
+    private Bitmap buildCogSheet(int art, boolean curveOk, boolean stereoOk,
+                                 int defaultSeparation, int defaultConvergence) {
         Bitmap bitmap = Bitmap.createBitmap(COG_TEX_W, COG_TEX_H, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
         boolean inRoom = art >= COG_ART_ROOM;
@@ -443,7 +447,7 @@ final class XrPanels {
             drawCogSliderRows(canvas, curveOk);
         }
         else if (tab == COG_TAB_3D) {
-            drawCog3dRows(canvas, stereoOk);
+            drawCog3dRows(canvas, stereoOk, defaultSeparation, defaultConvergence);
         }
         else {
             drawCogOptionRows(canvas);
@@ -605,10 +609,15 @@ final class XrPanels {
 
     // One row of cells, one press wide each, as the display tab draws them
     private static void drawCogCells(Canvas canvas, String[] names, float y) {
+        drawCogCells(canvas, names, y, true);
+    }
+
+    // The same, greyed like a dead track where the row can do nothing
+    private static void drawCogCells(Canvas canvas, String[] names, float y, boolean live) {
         Paint cellText = new Paint(Paint.ANTI_ALIAS_FLAG);
         cellText.setTextSize(19.0f);
         cellText.setTextAlign(Paint.Align.CENTER);
-        cellText.setColor(Color.WHITE);
+        cellText.setColor(live ? Color.WHITE : 0x30FFFFFF);
 
         Paint cell = new Paint(Paint.ANTI_ALIAS_FLAG);
         final float trackL = COG_TRACK_L * COG_TEX_W;
@@ -622,11 +631,11 @@ final class XrPanels {
                     trackL + (i + 1) * span - 3.0f, y + cellHalf);
 
             cell.setStyle(Paint.Style.FILL);
-            cell.setColor(0x28FFFFFF);
+            cell.setColor(live ? 0x28FFFFFF : 0x10FFFFFF);
             canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
             cell.setStyle(Paint.Style.STROKE);
             cell.setStrokeWidth(2.0f);
-            cell.setColor(0x50FFFFFF);
+            cell.setColor(live ? 0x50FFFFFF : 0x20FFFFFF);
             canvas.drawRoundRect(box, 10.0f, 10.0f, cell);
 
             canvas.drawText(names[i], box.centerX(),
@@ -678,10 +687,15 @@ final class XrPanels {
         }
     }
 
-    // 3D tab: the two values worth reaching mid stream. Depth runs past the
-    // comfortable range on purpose, with the far end marked, since where that
-    // range ends is a matter of eyes rather than of hardware.
-    private void drawCog3dRows(Canvas canvas, boolean stereoOk) {
+    // 3D tab: three presets, then the two values worth reaching mid stream,
+    // then the switch. Depth runs past the comfortable range on purpose, with
+    // the far end marked, since where that range ends is a matter of eyes
+    // rather than of hardware. The ticks and the start of the marked end are
+    // the running model's own pair, which is also where Balanced sits. Which
+    // preset is in force, and which way the switch is set, are rings the
+    // native side puts over their cells.
+    private void drawCog3dRows(Canvas canvas, boolean stereoOk, int defaultSeparation,
+                               int defaultConvergence) {
         Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
         text.setTextSize(22.0f);
         text.setTextAlign(Paint.Align.LEFT);
@@ -699,20 +713,31 @@ final class XrPanels {
         final float trackR = COG_TRACK_R * COG_TEX_W;
         final float tickHalf = COG_CELL_HALF * COG_TEX_H;
 
-        for (int row = 0; row < COG_SLIDER3D_ROWS.length; row++) {
+        float presetY = (COG_ROW_V0 + COG_ROW3D_PRESET * COG_ROW_STEP) * COG_TEX_H;
+        canvas.drawText(COG_PRESET_ROW, 0.06f * COG_TEX_W,
+                presetY - (text.ascent() + text.descent()) * 0.5f, text);
+        String[] presets = new String[COG_PRESET_CELLS];
+        for (int preset = 0; preset < COG_PRESET_CELLS; preset++) {
+            presets[preset] = DepthPresets.name(preset);
+        }
+        drawCogCells(canvas, presets, presetY, stereoOk);
+
+        for (int i = 0; i < COG_SLIDER3D_ROWS.length; i++) {
+            int row = COG_ROW3D_SEPARATION + i;
             float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
-            canvas.drawText(COG_SLIDER3D_ROWS[row], 0.06f * COG_TEX_W,
+            canvas.drawText(COG_SLIDER3D_ROWS[i], 0.06f * COG_TEX_W,
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
-            // The default sits a third along the depth track and halfway along
-            // convergence, and a tick says so on both
-            float markT = row == 0 ? COG_SEP_CAP_T : 0.5f;
+            // A tick at the model's default on both tracks
+            float markT = row == COG_ROW3D_SEPARATION ? defaultSeparation / (float)COG_SEP_STEPS
+                    : defaultConvergence / 100.0f;
             float markX = trackL + markT * (trackR - trackL);
 
-            if (row == 0) {
-                // Measured on device: past 0.5 percent the depth stops growing
-                // and only the strain does, so the rest of the track is drawn
-                // as a place you can go rather than one you should
+            if (row == COG_ROW3D_SEPARATION) {
+                // Measured on device: past the model's default the depth
+                // stops growing and only the strain does, so the rest of the
+                // track is drawn as a place you can go rather than one you
+                // should
                 track.setColor(stereoOk ? 0x66FFFFFF : 0x30FFFFFF);
                 canvas.drawLine(trackL, y, markX, y, track);
                 track.setColor(stereoOk ? 0x66FFB74D : 0x30FFB74D);
@@ -735,6 +760,13 @@ final class XrPanels {
             canvas.drawRect(markX - 2.0f, y - tickHalf, markX + 2.0f, y + tickHalf, tick);
         }
 
+        // The switch, which only lasts the session, the same one the bar's
+        // button works, so the two never disagree
+        float switchY = (COG_ROW_V0 + COG_ROW3D_SWITCH * COG_ROW_STEP) * COG_TEX_H;
+        canvas.drawText(COG_STEREO_ROW, 0.06f * COG_TEX_W,
+                switchY - (text.ascent() + text.descent()) * 0.5f, text);
+        drawCogCells(canvas, COG_ROOM_SWITCH, switchY, stereoOk);
+
         // A way back from a pair of values that turned out to be unwatchable
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         paint.setColor(0xEEFFFFFF);
@@ -750,13 +782,14 @@ final class XrPanels {
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
 
         if (!stereoOk) {
-            // Otherwise two dead sliders with no explanation
+            // Otherwise a tab of dead rows with no explanation. Under the
+            // last of them, where the Room tab says why its size row is dead.
             Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
             hint.setTextSize(17.0f);
             hint.setTextAlign(Paint.Align.CENTER);
             hint.setColor(0x50FFFFFF);
             canvas.drawText("3D is off in settings", COG_TEX_W * 0.5f,
-                    0.62f * COG_TEX_H, hint);
+                    (COG_ROW_V0 + COG_ROW3D_COUNT * COG_ROW_STEP) * COG_TEX_H, hint);
         }
     }
 
@@ -975,6 +1008,55 @@ final class XrPanels {
         }
         canvas.drawRoundRect(new RectF(44.0f, 74.0f, 84.0f, 86.0f), 3.0f, 3.0f, paint);
 
+        return button;
+    }
+
+    /**
+     * The 3D switch on the bar, off and then on, a swapchain each on the
+     * native side so flipping it is a handle rather than an upload. The
+     * letters sit in the frame the environment button is drawn in, bright
+     * while the picture is in 3D and dimmed with a stroke through them while
+     * it is flat.
+     */
+    ByteBuffer[] buildStereoButtons() {
+        ByteBuffer[] faces = new ByteBuffer[2];
+        for (int on = 0; on < 2; on++) {
+            Bitmap button = buildStereoButton(on == 1);
+            faces[on] = toBuffer(button);
+            button.recycle();
+        }
+        return faces;
+    }
+
+    private Bitmap buildStereoButton(boolean on) {
+        Bitmap button = Bitmap.createBitmap(BUTTON_TEX, BUTTON_TEX,
+                                            Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(button);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        int ink = on ? 0xEEFFFFFF : 0x80FFFFFF;
+
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(ink);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(6.0f);
+        canvas.drawRoundRect(new RectF(14.0f, 14.0f, 114.0f, 114.0f), 22.0f, 22.0f, paint);
+
+        Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        text.setColor(ink);
+        text.setTextSize(48.0f);
+        text.setTypeface(Typeface.DEFAULT_BOLD);
+        text.setTextAlign(Paint.Align.CENTER);
+        final float mid = BUTTON_TEX * 0.5f;
+        canvas.drawText("3D", mid, mid - (text.ascent() + text.descent()) * 0.5f, text);
+
+        if (!on) {
+            // Corner to corner through the letters, the way a muted speaker
+            // is struck through, and at full strength so it reads at a glance
+            paint.setColor(0xEEFFFFFF);
+            paint.setStrokeWidth(7.0f);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            canvas.drawLine(30.0f, 98.0f, 98.0f, 30.0f, paint);
+        }
         return button;
     }
 

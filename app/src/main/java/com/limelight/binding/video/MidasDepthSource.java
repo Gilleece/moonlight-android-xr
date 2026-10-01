@@ -58,19 +58,29 @@ public class MidasDepthSource implements DepthSource {
     }
 
     /**
-     * One model: the list_vr_depth_source value that picks it and the route
-     * each headset generation takes. The two generations do not run the same
-     * export, so the size belongs to the route.
+     * One model: the list_vr_depth_source value that picks it, the 3D pair it
+     * starts on, and the route each headset generation takes. How far the eyes
+     * can be pulled apart before it strains depends on the map the model
+     * makes, so the separation and convergence nobody has chosen belong to the
+     * model. The two generations do not run the same export, so the size
+     * belongs to the route.
      */
     public static final class Spec {
         public final String key;
         public final String name;
+        // In the preferences' units: tenths of a percent of frame width, and
+        // percent
+        public final int defaultSeparation;
+        public final int defaultConvergence;
         private final Route gen2Route;
         private final Route gen1Route;
 
-        Spec(String key, String name, Route gen2Route, Route gen1Route) {
+        Spec(String key, String name, int defaultSeparation, int defaultConvergence,
+             Route gen2Route, Route gen1Route) {
             this.key = key;
             this.name = name;
+            this.defaultSeparation = defaultSeparation;
+            this.defaultConvergence = defaultConvergence;
             this.gen2Route = gen2Route;
             this.gen1Route = gen1Route;
         }
@@ -87,18 +97,25 @@ public class MidasDepthSource implements DepthSource {
     // What a delegate that will not load falls back to
     private static final int FALLBACK_CPU_THREADS = 2;
 
+    // A step past MiDaS's pair. Its map holds up further apart: in a blind
+    // comparison on this model 6 read clearly deeper than 5 for a little more
+    // strain, and 7 and 8 strained more again for no more depth.
+    public static final int ZIPDEPTH_SEPARATION = 6;
+
     // 16:9, so a 16:9 frame is not squashed on the way in, with the pixels of
     // the 384 square ZipDepth is trained and published at
     public static final Spec ZIPDEPTH = new Spec(PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH,
-            "ZipDepth",
+            "ZipDepth", ZIPDEPTH_SEPARATION, PreferenceConfiguration.DEFAULT_VR_CONVERGENCE,
             new Route("zipdepth_512x288_fp16.tflite", new DepthSize(512, 288), true, CPU_THREADS),
             // A Gen 1 GPU will not take this graph, so those headsets run an
             // int8 dynamic range copy on the CPU instead
             new Route("zipdepth_256_int8dr.tflite", DepthSize.square(256), false, CPU_THREADS));
 
-    // The same on both generations, though a Gen 1 headset is never offered it
+    // The same on both generations, though a Gen 1 headset is never offered it.
+    // The pair every session started on before there was a second model.
     public static final Spec MIDAS = new Spec(PreferenceConfiguration.VR_DEPTH_SOURCE_MIDAS,
-            "MiDaS",
+            "MiDaS", PreferenceConfiguration.DEFAULT_VR_SEPARATION,
+            PreferenceConfiguration.DEFAULT_VR_CONVERGENCE,
             new Route("midas_v21_small_256_fp16.tflite", DepthSize.square(256), true, CPU_THREADS),
             new Route("midas_v21_small_256_fp16.tflite", DepthSize.square(256), true, CPU_THREADS));
 

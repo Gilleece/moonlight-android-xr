@@ -733,7 +733,8 @@ static void swallowTrigger(XrCtx* ctx, int src) {
 // rather than the picture itself
 static int onFurniture(int hover) {
     return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
-            || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK;
+            || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK
+            || hover == HOVER_STEREOBUTTON;
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
@@ -863,6 +864,12 @@ static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, 
     if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
             && exitButtonHit(ctx, u, v, height)) {
         hover = HOVER_EXITBUTTON;
+    }
+    // The 3D switch, one further out than the keyboard, on the same halo
+    // ground
+    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+            && stereoButtonHit(ctx, u, v, height)) {
+        hover = HOVER_STEREOBUTTON;
     }
     // Off the left edge, so the halo owns that ground until the padlock claims
     // it back
@@ -1214,6 +1221,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->kbKeyDown = 0;
     ctx->exitButtonHot = 0;
     ctx->exitHoverZone = EXIT_ZONE_NONE;
+    ctx->stereoButtonHot = 0;
 }
 
 // The picker is modal: while it is open the ray belongs to it and nothing
@@ -1358,21 +1366,11 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
 
         if (row >= 0 && !cogRowIsTrack(face, row)) {
             // Cells, so a press picks one rather than starting a drag
-            int cells = face == COG_FACE_ROOM ? COG_ROOM_SWITCH_CELLS : cogOptionCells(row);
-            int cell = cogCellAt(pu, cells);
+            int cell = cogCellAt(pu, cogRowCells(face, row));
             ctx->cogHoverSlider = cell >= 0 ? row : -1;
             ctx->cogHoverCell = cell;
             if (cell >= 0 && ctx->triggerEdge[h]) {
-                if (face == COG_FACE_ROOM) {
-                    cogApplyRoomCell(ctx, row, cell, f->out);
-                }
-                else {
-                    int id = cogApplyOption(ctx, row, cell);
-                    if (id >= 0) {
-                        f->out[IN_SETTING] = (float)id;
-                        f->out[IN_SETTING_VALUE] = (float)cell;
-                    }
-                }
+                cogApplyCell(ctx, face, row, cell, f->out);
             }
             break;
         }
@@ -1389,17 +1387,19 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
                 && pu >= COG_RESET_L && pu <= COG_RESET_R
                 && pv >= COG_RESET_T && pv <= COG_RESET_B;
         if (onReset && ctx->triggerEdge[h] && face == COG_TAB_3D) {
-            // The shipped defaults, 0.5 percent and half convergence, said
-            // here rather than read back so the button works the same way
-            // whatever the preferences were left on. Still allowed while
-            // stereo is off, where it does no harm and keeps the button
-            // from being a dead rectangle.
-            ctx->panelSeparation = 0.005f;
-            ctx->separationCurrent = 0.005f;
-            ctx->convergence = 0.5f;
+            // The running model's own pair, handed down when the session
+            // started, so the button works the same way whatever the
+            // preferences were left on. Still allowed while stereo is off,
+            // where it does no harm and keeps the button from being a dead
+            // rectangle.
+            ctx->panelSeparation = ctx->defaultSeparation;
+            ctx->separationCurrent = ctx->defaultSeparation;
+            ctx->convergence = ctx->defaultConvergence;
             f->out[IN_SETTING] = (float)SETTING_RESET_3D;
             f->out[IN_SETTING_VALUE] = 0.0f;
-            LOGI("3d settings reset from the panel");
+            LOGEV("3d settings reset from the panel to separation %d, convergence %d",
+                  separationUnits(ctx->defaultSeparation),
+                  (int)roundf(ctx->defaultConvergence * 100.0f));
         }
         else if (onReset && ctx->triggerEdge[h]) {
             // Hands the curve back to the preference and drops the
@@ -1526,6 +1526,12 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             // The press belonged to the button, not to the host behind it
             swallowTrigger(ctx, f->hand);
             LOGI("exit prompt open");
+        }
+    }
+    else if (f->hover == HOVER_STEREOBUTTON) {
+        ctx->stereoButtonHot = 1;
+        if (ctx->triggerEdge[f->hand]) {
+            setStereoLive(ctx, !ctx->stereoLive, "the bar button");
         }
     }
     else if (f->hover == HOVER_KBPANEL) {
@@ -1836,11 +1842,13 @@ static void emitRoomScreen(XrCtx* ctx, float* out) {
 static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     int readouts[READOUT_VALUES] = { -1, -1, -1 };
     out[IN_SETTING_ROOM] = -1.0f;
+    out[IN_STEREO] = 0.0f;
     if (ctx != NULL) {
         emitRoomScreen(ctx, out);
         // Every room keeps its own values, so a room setting says whose it is
         out[IN_SETTING_ROOM] = (float)roomCellForStyle(roomEffective(ctx));
         cogReadouts(ctx, readouts);
+        out[IN_STEREO] = ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive ? 1.0f : 0.0f;
     }
     for (int i = 0; i < READOUT_VALUES; i++) {
         out[IN_READOUT + i] = (float)readouts[i];
@@ -2016,7 +2024,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             || f.hover == HOVER_LOCK || f.hover == HOVER_HALO || f.hover == HOVER_COGBUTTON
             || f.hover == HOVER_COGPANEL || f.hover == HOVER_KBBUTTON
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_EXITBUTTON
-            || f.hover == HOVER_EXITPROMPT) && f.headValid && f.hand >= 0) {
+            || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON)
+            && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }
     sendPointer(ctx, &f, hit);

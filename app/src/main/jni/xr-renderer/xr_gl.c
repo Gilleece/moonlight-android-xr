@@ -371,8 +371,14 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     // what makes the fence stored alongside the index visible here; the wait
     // on it belongs to the site that samples the texture.
     ctx->depthReadIndex = atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire);
+    ctx->warpRedraw = 0;
 
-    int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
+    // Both eyes warped, unless the 3D is switched off for the session or has
+    // only just come back on and is waiting for a fresh map. Then the frame
+    // is drawn once, flat, at zero disparity, and none of the depth passes
+    // run.
+    int warping = ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive && !ctx->stereoWaiting;
+    int upsampling = warping && ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
 
     // Capture frames do readbacks and file writes inside what would be the
@@ -461,10 +467,11 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     glUniform1f(ctx->lowResWidthUniform, (float)ctx->upsampleWidth);
     glUniform1f(ctx->frameWidthUniform, (float)ctx->videoWidth);
 
-    // Mono is a single full width draw with zero disparity. Stereo draws the
-    // left eye into the left half and the right eye into the right half,
-    // with opposite disparity signs
-    int eyes = ctx->stereoMode != DEPTH_MODE_OFF ? 2 : 1;
+    // Mono is a single full width draw with zero disparity, which with the 3D
+    // switched off lands in the left half of the double wide chain. Stereo
+    // draws the left eye into the left half and the right eye into the right
+    // half, with opposite disparity signs
+    int eyes = warping ? 2 : 1;
 
     // Half a texel of the frame, which the shifted sample is held inside, or
     // with the clamp off a whole frame outside either edge, so nothing is held
@@ -524,14 +531,15 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
 
-    // Measure where the bar actually landed in each half. Positive shift
-    // means content moved right in that eye
+    // Measure where the bar actually landed in each half drawn. Positive
+    // shift means content moved right in that eye. Flat, only the left half
+    // is drawn, and both eyes are shown it.
     if (ctx->stereoMode == DEPTH_MODE_SHIFTTEST && ctx->barTestFramesLogged < 3) {
-        int rowWidth = ctx->videoWidth * 2;
+        int rowWidth = ctx->videoWidth * eyes;
         unsigned char* row = malloc((size_t)rowWidth * 4);
         if (row != NULL) {
             glReadPixels(0, ctx->videoHeight / 2, rowWidth, 1, GL_RGBA, GL_UNSIGNED_BYTE, row);
-            for (int half = 0; half < 2; half++) {
+            for (int half = 0; half < eyes; half++) {
                 long sum = 0, count = 0;
                 for (int x = 0; x < ctx->videoWidth; x++) {
                     if (row[(size_t)((half * ctx->videoWidth) + x) * 4] > 128) {
@@ -541,8 +549,9 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                 }
                 if (count > 0) {
                     double center = (double)sum / (double)count / (double)ctx->videoWidth;
-                    LOGI("bar test: half %d (%s eye) bar center %.4f, shift %+.4f",
-                         half, half == 0 ? "left" : "right", center, center - 0.5);
+                    LOGI("bar test: half %d (%s) bar center %.4f, shift %+.4f",
+                         half, eyes == 1 ? "flat, both eyes" : (half == 0 ? "left eye" : "right eye"),
+                         center, center - 0.5);
                 }
                 else {
                     LOGI("bar test: half %d no bar found", half);
@@ -594,6 +603,8 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
 
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(ctx->swapchain, &releaseInfo);
+    // What the layers show from here on
+    ctx->drawnEyes = eyes;
 
     // Close this frame's query and collect whichever earlier one has landed.
     // Never blocks: an unfinished query is simply left for a later frame.

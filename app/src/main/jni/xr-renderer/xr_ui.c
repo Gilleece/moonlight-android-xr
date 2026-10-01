@@ -305,6 +305,53 @@ int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
     return buttonHit(ctx, local, side, u, v, height);
 }
 
+// The 3D switch is one place further out again on the right, past the
+// keyboard, so a session without it loses only the last button and every
+// other one stays where it always is
+void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
+    float width = furnitureWidth(ctx);
+    float side = width * COG_BUTTON_FRAC;
+    float barW = width * BAR_WIDTH_FRAC;
+    float barH = width * BAR_HEIGHT_FRAC;
+    float gap = width * ENV_GAP_FRAC;
+    outLocal->x = barW * 0.5f + gap + side * 1.5f + gap + side + gap;
+    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+// Only where it is drawn, which is a session with stereo to switch once its
+// art has arrived
+int stereoButtonHit(XrCtx* ctx, float u, float v, float height) {
+    if (!ctx->stereoButtonReady) {
+        return 0;
+    }
+    Vec3 local;
+    float side;
+    stereoButtonPlacement(ctx, height, &local, &side);
+    return buttonHit(ctx, local, side, u, v, height);
+}
+
+// The 3D on or off for the rest of the session, from the bar or the 3D tab.
+// Takes effect on the next draw, which is asked for now so a picture standing
+// still shows it too. Coming back on with a model running, the warp waits
+// flat for a map of what is on screen now rather than picking up with the
+// one left from whenever it went off.
+void setStereoLive(XrCtx* ctx, int on, const char* from) {
+    on = on ? 1 : 0;
+    if (ctx->stereoMode == DEPTH_MODE_OFF || ctx->stereoLive == on) {
+        return;
+    }
+    ctx->stereoLive = on;
+    ctx->warpRedraw = 1;
+    ctx->stereoWaiting = on && ctx->stereoMode == DEPTH_MODE_MODEL;
+    ctx->stereoWaitIndex = atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire);
+    ctx->stereoWaitNs = nowNs();
+    // The shift test measures again in the new state
+    ctx->barTestFramesLogged = 0;
+    LOGEV("3d %s from %s", on ? "on" : "off", from);
+}
+
 // The prompt stands on the button that opened it, the way the settings panel
 // stands on the cog. Frozen for as long as it is up for the same reason: the
 // screen can still be dragged behind it, and the two buttons must not move out
@@ -371,7 +418,21 @@ int cogRowIsTrack(int face, int row) {
     if (face == COG_FACE_ROOM) {
         return row != COG_ROOM_ROW_GLOW && row != COG_ROOM_ROW_LIGHT;
     }
+    if (face == COG_TAB_3D) {
+        return row == COG_ROW3D_SEPARATION || row == COG_ROW3D_CONVERGENCE;
+    }
     return 1;
+}
+
+// How many cells a row of cells has, on whichever face it is
+int cogRowCells(int face, int row) {
+    if (face == COG_FACE_ROOM) {
+        return COG_ROOM_SWITCH_CELLS;
+    }
+    if (face == COG_TAB_3D) {
+        return row == COG_ROW3D_PRESET ? COG_PRESET_CELLS : COG_STEREO_CELLS;
+    }
+    return cogOptionCells(row);
 }
 
 // Whether a row can do anything here. A dead row is drawn greyed, carries no
@@ -381,7 +442,7 @@ int cogRowLive(XrCtx* ctx, int face, int row) {
     if (face == COG_TAB_SCREEN && row == COG_SLIDER_CURVE) {
         return ctx->cylinderSupported;
     }
-    // With stereo off there is nothing for either 3D row to move
+    // With stereo off there is nothing for any 3D row to move or switch
     if (face == COG_TAB_3D) {
         return ctx->stereoMode != DEPTH_MODE_OFF;
     }
@@ -494,11 +555,13 @@ void cogApplySlider(XrCtx* ctx, int face, int slider, float pu) {
     }
 
     if (face == COG_TAB_3D) {
+        // Both tracks move something only the 3D shows, so taking hold of
+        // either brings it back if it was switched off
+        setStereoLive(ctx, 1, "the 3D tab's tracks");
         if (slider == COG_ROW3D_SEPARATION) {
             // Snapped to the units the preference is stored in, so what the
             // thumb shows is exactly what gets written when the drag ends
-            int units = (int)roundf(t * COG_SEP_STEPS);
-            ctx->panelSeparation = units * 0.001f;
+            ctx->panelSeparation = separationOf(laneUnits(t, 0, COG_SEP_STEPS));
             ctx->separationCurrent = ctx->panelSeparation;
         }
         else if (slider == COG_ROW3D_CONVERGENCE) {
@@ -702,6 +765,64 @@ void cogApplyRoomCell(XrCtx* ctx, int row, int cell, float* out) {
     out[IN_SETTING_VALUE] = (float)cell;
 }
 
+// Which cell of a row of cells on the Room or 3D tab is in force, or -1 where
+// none is. A separation dragged to somewhere between the presets is none of
+// them, so their row carries no ring.
+int cogCellInForce(XrCtx* ctx, int face, int row) {
+    if (face == COG_FACE_ROOM) {
+        return cogRoomCellValue(ctx, row);
+    }
+    if (face == COG_TAB_3D && row == COG_ROW3D_PRESET) {
+        return cogPresetAt(separationUnits(ctx->separationCurrent), ctx->presetUnits);
+    }
+    if (face == COG_TAB_3D && row == COG_ROW3D_SWITCH) {
+        return ctx->stereoLive ? 1 : 0;
+    }
+    return -1;
+}
+
+// The switch is the bar button's, for this session only, so nothing goes to
+// Java to store. A preset writes its separation the way letting go of the
+// track there would, so it goes to the preference by the same road, and it
+// brings the 3D back if it was off, since a strength is something to see.
+static void cogApply3dCell(XrCtx* ctx, int row, int cell, float* out) {
+    static const char* const PRESET_NAMES[COG_PRESET_CELLS] = {
+        "Comfort", "Balanced", "Strong"
+    };
+    if (row == COG_ROW3D_SWITCH) {
+        setStereoLive(ctx, cell != 0, "the 3D tab");
+        return;
+    }
+    if (row != COG_ROW3D_PRESET || cell < 0 || cell >= COG_PRESET_CELLS) {
+        return;
+    }
+    int units = ctx->presetUnits[cell];
+    ctx->panelSeparation = separationOf(units);
+    ctx->separationCurrent = ctx->panelSeparation;
+    out[IN_SETTING] = (float)SETTING_SEPARATION;
+    out[IN_SETTING_VALUE] = (float)units;
+    LOGEV("3d preset %s from the panel, separation %d", PRESET_NAMES[cell], units);
+    setStereoLive(ctx, 1, "a preset");
+}
+
+// A press on a cell, whichever tab it is on, applied here and now and handed
+// to Java to store in the same frame
+void cogApplyCell(XrCtx* ctx, int face, int row, int cell, float* out) {
+    if (face == COG_FACE_ROOM) {
+        cogApplyRoomCell(ctx, row, cell, out);
+        return;
+    }
+    if (face == COG_TAB_3D) {
+        cogApply3dCell(ctx, row, cell, out);
+        return;
+    }
+    int id = cogApplyOption(ctx, row, cell);
+    if (id >= 0) {
+        out[IN_SETTING] = (float)id;
+        out[IN_SETTING_VALUE] = (float)cell;
+    }
+}
+
 // Letting go of a slider, either on purpose or because focus went away mid
 // drag. Persisting where it ended up rather than every frame on the way there
 // is the same policy a grab uses, so this is where the writing happens.
@@ -754,7 +875,7 @@ void cogDragEnded(XrCtx* ctx, float* out) {
         if (slider == COG_ROW3D_SEPARATION) {
             out[IN_SETTING] = (float)SETTING_SEPARATION;
             // Tenths of a percent of frame width, the preference's units
-            out[IN_SETTING_VALUE] = roundf(ctx->separationCurrent * 1000.0f);
+            out[IN_SETTING_VALUE] = (float)separationUnits(ctx->separationCurrent);
         }
         else if (slider == COG_ROW3D_CONVERGENCE) {
             out[IN_SETTING] = (float)SETTING_CONVERGENCE;
@@ -794,6 +915,39 @@ void cogReadouts(XrCtx* ctx, int* values) {
                             ROOM_BRIGHTNESS_MAX);
     values[1] = lanePercent(ctx->roomLightLevel[style], ROOM_LIGHT_MIN, ROOM_LIGHT_MAX);
     values[2] = roomResizable(style) ? roomScreenPercent(ctx, style) : -1;
+}
+
+// Held on the depth track, which is all the panel can show or write
+static int onSeparationTrack(int units) {
+    return units < 0 ? 0 : (units > COG_SEP_STEPS ? COG_SEP_STEPS : units);
+}
+
+// The running model's own pair and the separations its presets write, all in
+// the preferences' units and the presets in cell order, handed down once
+// before the first frame. The 3D tab's reset goes back to the pair.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetDepthDefaults(JNIEnv* env, jobject thiz,
+                                                                   jlong handle, jint separation,
+                                                                   jint convergence,
+                                                                   jintArray presets) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    int units = onSeparationTrack(separation);
+    int percent = convergence < 0 ? 0 : (convergence > 100 ? 100 : convergence);
+    ctx->defaultSeparation = separationOf(units);
+    ctx->defaultConvergence = percent / 100.0f;
+    if (presets != NULL && (*env)->GetArrayLength(env, presets) >= COG_PRESET_CELLS) {
+        int values[COG_PRESET_CELLS];
+        (*env)->GetIntArrayRegion(env, presets, 0, COG_PRESET_CELLS, values);
+        for (int i = 0; i < COG_PRESET_CELLS; i++) {
+            ctx->presetUnits[i] = onSeparationTrack(values[i]);
+        }
+    }
+    LOGEV("3d defaults: separation %d, convergence %d, presets %d %d %d", units, percent,
+          ctx->presetUnits[COG_PRESET_COMFORT], ctx->presetUnits[COG_PRESET_BALANCED],
+          ctx->presetUnits[COG_PRESET_STRONG]);
 }
 
 // Padlock sits clear of the left edge, halfway up, in the furniture's flat

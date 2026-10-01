@@ -27,6 +27,26 @@ public class DepthModelSpecTest {
         assertSame(MidasDepthSource.ZIPDEPTH, MidasDepthSource.specFor(null));
     }
 
+    // Tenths of a percent and percent, as the preferences hold them
+    @Test
+    public void eachModelCarriesItsOwnPair() {
+        assertEquals(6, MidasDepthSource.ZIPDEPTH.defaultSeparation);
+        assertEquals(50, MidasDepthSource.ZIPDEPTH.defaultConvergence);
+        assertEquals(5, MidasDepthSource.MIDAS.defaultSeparation);
+        assertEquals(50, MidasDepthSource.MIDAS.defaultConvergence);
+    }
+
+    // Both on the panel's tracks, so the reset and the ticks can show them
+    @Test
+    public void bothPairsSitOnTheTracks() {
+        for (MidasDepthSource.Spec spec : new MidasDepthSource.Spec[] {
+                MidasDepthSource.ZIPDEPTH, MidasDepthSource.MIDAS }) {
+            assertTrue(spec.defaultSeparation >= 0
+                    && spec.defaultSeparation <= XrShared.COG_SEP_STEPS);
+            assertTrue(spec.defaultConvergence >= 0 && spec.defaultConvergence <= 100);
+        }
+    }
+
     @Test
     public void zipDepthIs512x288OnTheGen2Gpu() {
         MidasDepthSource.Route route = MidasDepthSource.ZIPDEPTH.route(false);
