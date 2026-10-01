@@ -31,6 +31,7 @@
 #define HOVER_STEREOBUTTON 14
 #define HOVER_REPORT    15
 #define HOVER_RAYBUTTON 16
+#define HOVER_AIMBUTTON 17
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 
@@ -82,12 +83,16 @@ int lanePercent(int units, int min, int max);
 
 // Where a row sits down the settings panel, as a fraction of its height, how
 // far either side of that the row's hit band reaches, and how tall a row of
-// cells is drawn, half of it. The display tab packs its rows closer than the
-// rest. tab is one of the COG_TAB_ values, or anything past them for a face
-// that is not a tab.
+// cells is drawn, half of it. The display and screen tabs pack their rows
+// closer than the rest. tab is one of the COG_TAB_ values, or anything past
+// them for a face that is not a tab.
 float cogRowV(int tab, int row);
 float cogRowHalf(int tab);
 float cogCellHalf(int tab);
+
+// How big a track's thumb is drawn, as a fraction of the panel's height,
+// before it grows under the ray
+float cogThumbSize(int tab);
 
 // Which part of a track's row a point across the panel is on: the button at
 // the left end that steps down, the one at the right that steps up, the run

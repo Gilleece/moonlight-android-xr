@@ -9,7 +9,9 @@
 // it is always up, and a step button under the ray takes the hover ring a
 // cell would. The toast can land on any of these, one layer more.
 //   Screen tab: the glow, both eyes, the stats, the cog button, the panel,
-//     the clock, six thumbs, the hover ring, ray and cursor: 16.
+//     the clock, six thumbs, the hover ring, ray and cursor: 16. With the
+//     screen locked to the head head aim's two rows are live, two thumbs more
+//     and the strip of values beside them: 19, three past.
 //   Room tab, in a room where it takes the screen tab's place: the room, the
 //     glow, both eyes, the stats, the cog button, the panel, the clock, the
 //     strip of percents, two rings on its rows of cells and the hover ring,
@@ -30,16 +32,20 @@
 //     ray, 3D) and the padlock over the glow, both eyes, the stats, ray and
 //     cursor: 14, and 14 in a room, where the pill gives way to the room's
 //     own layer. 15 with the toast. With the ray switched off it is one
-//     fewer, since the bar is not a panel and brings no beam back.
+//     fewer, since the bar is not a panel and brings no beam back. With the
+//     screen locked to the head, outside a room, head aim's button is a
+//     seventh: 15, 16 with the toast.
 //   The controller models are a projection layer of their own, over the
 //     picture and the panels and under the beam, one more on any of these
-//     while a model shows: the bar to 15, 16 with the toast, the Display tab
-//     to 15 and the About tab to 12, and the screen, 3D and Picture tabs to
-//     17 and the Room tab to 18, which go over.
+//     while a model shows: the bar to 15, 16 with the toast (16 and 17 with
+//     head aim's button), the Display tab to 15 and the About tab to 12, and
+//     the screen, 3D and Picture tabs to 17 and the Room tab to 18, which go
+//     over, and the head locked screen tab to 20.
 // So a frame over the runtime's limit sheds, in this order, the toast, the
 // controller models, the hover ring, the cog button and the clock strip (see
 // nativeEndFrame), which brings every case above to 16 or under with the
-// toast up.
+// toast up. The head locked screen tab at its fullest, models and toast
+// included, is 21 and comes down to exactly 16.
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the bar furniture and adds only its panel and one ring,
 // so it comes to 9. The report sheet puts the settings panel away and brings
@@ -78,6 +84,7 @@ typedef struct {
     XrCompositionLayerQuad exitButton;
     XrCompositionLayerQuad stereoButton;
     XrCompositionLayerQuad rayButton;
+    XrCompositionLayerQuad aimButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad lock;
@@ -91,8 +98,8 @@ typedef struct {
     XrCompositionLayerQuad cogClock;
     // One per row of whichever tab has the most. The display tab's glow level
     // track is its last row, so it is the one that sets the size.
-    XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SLIDER_COUNT
-                                    ? COG_DISPLAY_SLIDER_ROW + 1 : COG_SLIDER_COUNT];
+    XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SCREEN_ROW_COUNT
+                                    ? COG_DISPLAY_SLIDER_ROW + 1 : COG_SCREEN_ROW_COUNT];
     XrCompositionLayerQuad kbPanel;
     XrCompositionLayerQuad kbMark;
     XrCompositionLayerQuad beam;
@@ -613,6 +620,15 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
                      exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
     }
 
+    // Head aim's switch, past the exit button, showing which way it is set.
+    // Only where head aim can act, so it is never a button that does nothing.
+    if (ctx->aimButtonReady && view->barArea && headAimCanAct(ctx)) {
+        addBarButton(ctx, view, layers, &layers->aimButton,
+                     ctx->aimButtonSwapchains[headAimSwitchOn(ctx->headAimSetting,
+                                                              ctx->headAimFlipped)],
+                     aimButtonPlacement, ctx->aimButtonHot, NULL);
+    }
+
     // The ray's switch, past the keyboard, showing which way it is set
     if (ctx->rayButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->rayButton,
@@ -759,7 +775,7 @@ static void addCogRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
 }
 
 // The settings panel, the rings on its rows of cells, the thumbs on its
-// sliders, and on the Room and Picture tabs the values beside them
+// sliders, and on the Room, Picture and Screen tabs the values beside them
 static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The settings panel, at the pose it was opened with. The tab is a
     // choice of swapchain, all were filled at startup, and a room has its
@@ -874,14 +890,16 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             pushLayer(ctx, layers, mark);
         }
 
-        // The Room tab's percents or the Picture tab's values, once the strip
-        // says what the rows do now. A strip still showing another tab's or
-        // another room's values, or a value a drag has just moved past, stays
-        // down until Java has drawn it again.
-        if ((face == COG_FACE_ROOM || face == COG_TAB_PICTURE) && ctx->cogReadoutReady) {
+        // The Room tab's percents, the Picture tab's values or head aim's on
+        // the Screen tab, once the strip says what the rows do now. A strip
+        // still showing another tab's or another room's values, or a value a
+        // drag has just moved past, stays down until Java has drawn it again.
+        if ((face == COG_FACE_ROOM || face == COG_TAB_PICTURE || face == COG_TAB_SCREEN)
+                && ctx->cogReadoutReady) {
             int readouts[READOUT_VALUES];
             cogReadouts(ctx, readouts);
-            if (memcmp(readouts, ctx->cogReadoutDrawn, sizeof(readouts)) == 0) {
+            if (readouts[0] >= 0
+                    && memcmp(readouts, ctx->cogReadoutDrawn, sizeof(readouts)) == 0) {
                 float stripW = (float)COG_READOUT_TEX_W / (float)COG_TEX_W;
                 float stripH = (float)COG_READOUT_TEX_H / (float)COG_TEX_H;
                 Vec3 local;
@@ -898,7 +916,7 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
         }
 
         if (ctx->cogThumbReady) {
-            float thumbSize = ctx->cogH * 0.085f;
+            float thumbSize = ctx->cogH * cogThumbSize(face);
             int rowCount = cogTabRowCount(face);
             for (int s = 0; s < rowCount; s++) {
                 // No thumb on a row that cannot be dragged, or on a row of
@@ -1361,7 +1379,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
                 || ctx->hoverKind == HOVER_KBBUTTON
                 || ctx->hoverKind == HOVER_EXITBUTTON
                 || ctx->hoverKind == HOVER_STEREOBUTTON
-                || ctx->hoverKind == HOVER_RAYBUTTON);
+                || ctx->hoverKind == HOVER_RAYBUTTON
+                || ctx->hoverKind == HOVER_AIMBUTTON);
 
     XrFrameEndInfo endInfo = { XR_TYPE_FRAME_END_INFO };
     endInfo.displayTime = ctx->predictedDisplayTime;

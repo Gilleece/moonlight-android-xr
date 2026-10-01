@@ -47,6 +47,7 @@
 #include "xr_grade.h"
 #include "xr_keys.h"
 #include "xr_controller.h"
+#include "xr_headaim.h"
 
 #define TAG "moonlight-xr"
 
@@ -226,6 +227,12 @@ static inline long nowNs(void) {
 
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
+
+// How long head aim drops frames after the local space is recentred, past the
+// last frame, however soon the runtime says the change lands
+#define HEAD_AIM_RECENTRE_HOLD_NS 100000000LL
+// How often the log says how far head aim has moved the mouse
+#define HEAD_AIM_COUNT_NS 10000000000L
 
 // Ambilight. The frame is boiled down to a tiny colour texture once a frame,
 // and a soft quad behind the screen is filled from it, so whatever the picture
@@ -1158,6 +1165,31 @@ typedef struct {
     // Whether the beam went up last frame, -1 before the first, for the line
     // that says when that changes
     int rayDrawnSaid;
+    // Head aim: the switch, the setting a session starts from and whether the
+    // bar button or the Display tab's row has turned it over since; pixels a
+    // degree and the dead zone in degrees a second, in the preferences' whole
+    // units; the head as last measured; and the controller's pointer as last
+    // fed while head aim is on. Only acts with the screen locked to the head.
+    int headAimSetting;
+    int headAimFlipped;
+    int headAimSensitivity;
+    int headAimDeadZone;
+    HeadAim headAim;
+    PointerNudge headAimNudge;
+    // On and able to act this frame, which makes the pointer relative
+    int headAimActive;
+    // A recentre still landing: frames are dropped until one is displayed at
+    // or after this time
+    int headAimRecentring;
+    XrTime headAimRecentreAt;
+    // What the log last said it was doing, -1 before the first frame, and the
+    // pixels sent since the last line that counted them
+    int headAimSaid;
+    long headAimSentX;
+    long headAimSentY;
+    XrTime headAimCountNs;
+    // Counts the input passes, so the pointer can tell when it missed one
+    long inputFrames;
     // The bundled controller model, drawn at each hand's grip into a
     // projection layer of its own over the picture: whether it is wanted, the
     // setting the Display tab's row also writes, and its buffers once Java has
@@ -1410,6 +1442,14 @@ typedef struct {
     int rayButtonReady;
     int rayButtonHot;
 
+    // Head aim's switch on the bar, the same again, only shown while head
+    // aim can act
+    XrSwapchain aimButtonSwapchains[2];
+    uint32_t aimButtonImageCounts[2];
+    XrSwapchainImageOpenGLESKHR* aimButtonImages[2];
+    int aimButtonReady;
+    int aimButtonHot;
+
     // The exit button and its prompt. One sheet per lit button, all filled at
     // startup, so hovering one costs a handle rather than an upload.
     XrSwapchain exitButtonSwapchain;
@@ -1596,6 +1636,10 @@ XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int kbKeyAt(XrCtx* ctx, float u, float v);
 void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int exitButtonHit(XrCtx* ctx, float u, float v, float height);
+int headAimCanAct(XrCtx* ctx);
+void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
+int aimButtonHit(XrCtx* ctx, float u, float v, float height);
+void setHeadAimOn(XrCtx* ctx, int on, const char* from);
 void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);

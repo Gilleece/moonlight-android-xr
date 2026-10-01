@@ -78,6 +78,8 @@
 #define TOAST_3D_ON 4
 #define TOAST_TEXT 5
 #define TOAST_TEXT_SLOTS 4
+#define TOAST_HEAD_AIM_OFF 6
+#define TOAST_HEAD_AIM_ON 7
 
 // Slots in the float array handed back to Java each frame
 #define IN_HIT      0
@@ -110,16 +112,18 @@
 // Which room a room's own setting belongs to, as the picker cell showing it,
 // or -1 with no room up. Every frame, since each room keeps its own values.
 #define IN_SETTING_ROOM 23
-// What the strip beside the Room or Picture tab's tracks says. First which of
-// the two it is for, READOUT_ROOM or READOUT_PICTURE, or -1 while neither is
-// up, then a value a row. The Room tab's three are the percent drawn beside
-// each: brightness and light level as the place along their lanes, the size
-// as the share of the room's screen, -1 in a room whose size is fixed. The
-// Picture tab's four are its values in their own whole units.
+// What the strip beside the Room, Picture or Screen tab's tracks says. First
+// which of them it is for, one of the READOUT_ values, or -1 while none is up,
+// then a value a row. The Room tab's three are the percent drawn beside each:
+// brightness and light level as the place along their lanes, the size as the
+// share of the room's screen, -1 in a room whose size is fixed. The Picture
+// tab's four are its values in their own whole units. The Screen tab's two
+// are head aim's pixels a degree and dead zone, only while its rows are live.
 #define IN_READOUT  24
 #define READOUT_VALUES 5
 #define READOUT_ROOM 0
 #define READOUT_PICTURE 1
+#define READOUT_SCREEN 2
 // 1 while the 3D is on, and 0 once the bar or the 3D tab has switched it off
 // for the rest of the session, or in a session started without it. Every
 // frame, since it says whether the model is to be fed.
@@ -133,10 +137,10 @@
 #define IN_CLICK    (IN_TOAST_ARG + 1)
 // The display tab's cell in force on each of its option rows, in row order,
 // which Java draws the marks over them from, or -1 first while the tab is not
-// up. Every frame. As many as COG_OPTION_COUNT below, which the native side
-// checks when it builds.
+// up, and -1 for a row greyed where it can do nothing. Every frame. As many as
+// COG_OPTION_COUNT below, which the native side checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
-#define MARK_VALUES 10
+#define MARK_VALUES 11
 // 1 while the settings panel is up, fading out included, so Java keeps the
 // clock line over it up to the minute
 #define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
@@ -153,7 +157,17 @@
 // rather than to the host.
 #define IN_REPORT   (IN_KB_SHEET + 1)
 #define IN_REPORT_ZONE (IN_REPORT + 1)
-#define IN_SLOTS    (IN_REPORT_ZONE + 1)
+// 1 while head aim is on and can act: switched on, with the screen locked to
+// the head and no room up. Every frame. Paused for a panel it still reads 1,
+// since the controller's pointer stays relative.
+#define IN_HEAD_AIM (IN_REPORT_ZONE + 1)
+// Whole pixels to move the host's mouse by this frame, right and down
+// positive: the head's turn while head aim is on, plus the controller's
+// pointer nudging it, since in that mode the ray moves the cursor by how far
+// its point moved rather than to it. 0 and 0 for none.
+#define IN_MOUSE_DX (IN_HEAD_AIM + 1)
+#define IN_MOUSE_DY (IN_MOUSE_DX + 1)
+#define IN_SLOTS    (IN_MOUSE_DY + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -184,6 +198,10 @@
 #define SETTING_RESET_PICTURE 20
 // Whether the bundled controller model is drawn at each hand, Off 0 or On 1
 #define SETTING_CONTROLLER_MODEL 21
+// Head aim's pixels a degree and its dead zone in degrees a second, in the
+// HEAD_AIM_ lanes below
+#define SETTING_HEAD_AIM_SENSITIVITY 22
+#define SETTING_HEAD_AIM_DEADZONE 23
 
 // The lanes the Room tab's rows move along, in the units the preferences
 // hold. Brightness is the room's own in hundredths of the room as baked, from
@@ -241,6 +259,17 @@
 #define PICTURE_SATURATION 3
 #define PICTURE_VALUES 4
 
+// Head aim, in the whole units its preferences hold: how far the mouse moves
+// for a degree the head turns, in pixels, and how slowly the head can turn,
+// in degrees a second, before nothing is sent, which swallows tracking
+// jitter while the head is held still
+#define HEAD_AIM_SENSITIVITY_MIN 1
+#define HEAD_AIM_SENSITIVITY_MAX 30
+#define HEAD_AIM_SENSITIVITY_DEFAULT 8
+#define HEAD_AIM_DEADZONE_MIN 0
+#define HEAD_AIM_DEADZONE_MAX 20
+#define HEAD_AIM_DEADZONE_DEFAULT 2
+
 // Which Environment Res tier the room draws at
 #define ENV_RES_LOW 0
 #define ENV_RES_STANDARD 1
@@ -296,8 +325,8 @@
 #define COG_RUN_R (COG_TRACK_R - COG_RUN_INSET)
 // Anything above this is the tab bar, split evenly between the tabs
 #define COG_TAB_BAR_B 0.16f
-// Six rows on the screen tab, so they start a little higher and sit closer
-// together than they did at five
+// Where the rows of the 3D, Picture and Room tabs sit. The screen tab and the
+// display tab carry more rows and have spacings of their own below.
 #define COG_ROW_V0 0.25f
 #define COG_ROW_STEP 0.11f
 // Half height of a row's hit band. Under half the pitch, so neighbouring
@@ -328,9 +357,15 @@
 #define COG_ART_ROOM_3D      8
 #define COG_ART_ROOM_PICTURE 9
 #define COG_ART_ROOM_ABOUT   10
-#define COG_ART_COUNT        11
+// And the screen and display tabs for a screen that is not locked to the head,
+// where head aim's rows are greyed, since it only acts on one that is
+#define COG_ART_SCREEN_WORLD 11
+#define COG_ART_DISPLAY_WORLD 12
+#define COG_ART_COUNT        13
 
-// Screen tab rows, in the order they are drawn
+// Screen tab rows, in the order they are drawn: the six that place the
+// screen, which the reset button under them puts back, then head aim's two,
+// live only with the screen locked to the head
 #define COG_SLIDER_DISTANCE 0
 #define COG_SLIDER_HEIGHT   1
 #define COG_SLIDER_TILT     2
@@ -338,6 +373,16 @@
 #define COG_SLIDER_CURVE    4
 #define COG_SLIDER_SIZE     5
 #define COG_SLIDER_COUNT    6
+#define COG_SLIDER_AIM_SENSITIVITY 6
+#define COG_SLIDER_AIM_DEADZONE 7
+#define COG_SCREEN_ROW_COUNT 8
+// Eight rows over the reset button, so they start higher and sit closer
+// together than the other tabs' with shallower cells. The last row's band
+// ends at 0.8575, clear of the reset button.
+#define COG_SCREEN_ROW_V0 0.22f
+#define COG_SCREEN_ROW_STEP 0.085f
+#define COG_SCREEN_ROW_HALF 0.0425f
+#define COG_SCREEN_CELL_HALF 0.036f
 
 // Room tab rows, in the order they are drawn: a track, two rows of cells and
 // two more tracks, with the screen light's level under its switch. Only in a
@@ -356,7 +401,7 @@
 // size rather than the whole sheet's. Where the strip sits on the panel, as
 // fractions of it.
 #define COG_READOUT_TEX_W 96
-#define COG_READOUT_TEX_H 384
+#define COG_READOUT_TEX_H 448
 #define COG_READOUT_L 0.26f
 #define COG_READOUT_T 0.19f
 
@@ -400,23 +445,26 @@
 #define COG_REPORT_B 0.72f
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
-// dragging a value. The ray row is the bar's ray button for the session, so
-// it is not stored.
+// dragging a value. The head aim and ray rows are the bar's buttons for the
+// session, so they are not stored. Head aim's is greyed unless the screen is
+// locked to the head outside a room.
 #define COG_OPTION_SHARPEN 0
 #define COG_OPTION_SUPERSAMPLE 1
 #define COG_OPTION_STATS   2
 #define COG_OPTION_HEAD_LOCK 3
-#define COG_OPTION_POINTER_SLEEP 4
-#define COG_OPTION_RAY 5
-#define COG_OPTION_CONTROLLERS 6
-#define COG_OPTION_CLICK_SOUND 7
-#define COG_OPTION_AMBILIGHT 8
-#define COG_OPTION_ROOM_LIGHT 9
-#define COG_OPTION_COUNT   10
+#define COG_OPTION_HEAD_AIM 4
+#define COG_OPTION_POINTER_SLEEP 5
+#define COG_OPTION_RAY 6
+#define COG_OPTION_CONTROLLERS 7
+#define COG_OPTION_CLICK_SOUND 8
+#define COG_OPTION_AMBILIGHT 9
+#define COG_OPTION_ROOM_LIGHT 10
+#define COG_OPTION_COUNT   11
 #define COG_SHARPEN_CELLS 3
 #define COG_SUPERSAMPLE_CELLS 3
 #define COG_STATS_CELLS   2
 #define COG_HEAD_LOCK_CELLS 2
+#define COG_HEAD_AIM_CELLS 2
 #define COG_POINTER_SLEEP_CELLS 2
 #define COG_RAY_CELLS 2
 #define COG_CONTROLLERS_CELLS 2
@@ -426,16 +474,16 @@
 // The one row on this tab that is a track rather than cells, under the option
 // rows, so the glow can be turned down without leaving the tab it lives on.
 // This tab has no reset button for it to land on.
-#define COG_DISPLAY_SLIDER_ROW 10
-// Eleven rows on this tab, five more than the screen tab, so its rows start a
-// little higher and sit closer together than the other tabs', with shallower
-// cells to keep a gap between them. The last is centred at 0.925 and its
-// thumb still clears the bottom edge, grown or not. The hit band is half the
-// pitch, so neighbouring bands meet without overlapping.
-#define COG_DISPLAY_ROW_V0 0.205f
-#define COG_DISPLAY_ROW_STEP 0.072f
-#define COG_DISPLAY_ROW_HALF 0.036f
-#define COG_DISPLAY_CELL_HALF 0.03f
+#define COG_DISPLAY_SLIDER_ROW 11
+// Twelve rows on this tab, so its rows start a little higher and sit closer
+// together than the other tabs', with shallower cells to keep a gap between
+// them. The last is centred at 0.926 and its thumb still clears the bottom
+// edge, grown or not. The hit band is half the pitch, so neighbouring bands
+// meet without overlapping.
+#define COG_DISPLAY_ROW_V0 0.2f
+#define COG_DISPLAY_ROW_STEP 0.066f
+#define COG_DISPLAY_ROW_HALF 0.033f
+#define COG_DISPLAY_CELL_HALF 0.027f
 // The marks on the display tab's cells, which of each row's cells is in
 // force, drawn in Java as one strip over the column of cells rather than a
 // ring each, so the tab costs one layer for them however many rows it has.

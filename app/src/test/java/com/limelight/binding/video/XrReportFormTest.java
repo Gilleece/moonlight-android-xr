@@ -120,10 +120,10 @@ public class XrReportFormTest {
     }
 
     @Test
-    public void theReportSlotsComeLast() {
+    public void theReportSlotsFollowTheKeyboards() {
         assertEquals(IN_KB_SHEET + 1, IN_REPORT);
         assertEquals(IN_REPORT + 1, IN_REPORT_ZONE);
-        assertEquals(IN_REPORT_ZONE + 1, IN_SLOTS);
+        assertEquals(IN_REPORT_ZONE + 1, IN_HEAD_AIM);
         // The opening is told apart from every part a press can land on
         assertTrue(REPORT_OPENED > REPORT_ZONE_SEND);
         assertTrue(REPORT_ZONE_NOTE != REPORT_ZONE_EMAIL);

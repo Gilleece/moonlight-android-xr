@@ -93,7 +93,7 @@ typedef struct {
 void noticeInit(NoticeBoard* board);
 
 // Which notices are about the same thing: a lock and an unlock, the 3D going
-// off and on, two display rates, two messages
+// off and on, head aim going off and on, two display rates, two messages
 int noticeGroup(int kind);
 
 // Queued to be said. One about the same thing already waiting is replaced

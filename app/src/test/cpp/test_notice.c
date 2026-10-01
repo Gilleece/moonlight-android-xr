@@ -212,6 +212,10 @@ static void testNoticeOfTheSameKindReplacesAtOnce(void) {
     CHECK(noticeGroup(TOAST_RATE) != noticeGroup(TOAST_3D_ON));
     CHECK(noticeGroup(TOAST_HANDS_LOCKED) != noticeGroup(TOAST_3D_OFF));
     CHECK(noticeGroup(TOAST_TEXT) != noticeGroup(TOAST_RATE));
+    // And head aim going off and on, which is not the 3D
+    CHECK(noticeGroup(TOAST_HEAD_AIM_OFF) == noticeGroup(TOAST_HEAD_AIM_ON));
+    CHECK(noticeGroup(TOAST_HEAD_AIM_ON) != noticeGroup(TOAST_3D_ON));
+    CHECK(noticeGroup(TOAST_HEAD_AIM_ON) != noticeGroup(TOAST_TEXT));
 }
 
 static void testAnotherKindWaitsItsTurn(void) {

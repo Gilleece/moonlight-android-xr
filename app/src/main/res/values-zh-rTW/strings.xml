@@ -303,6 +303,12 @@
     <string name="summary_vr_show_ray">從控制器射向螢幕的光束。玩光槍遊戲時可將其關閉：落點處的光點仍會保留，按鍵照常生效；開啟面板時射線會重新出現，螢幕下方的射線按鈕可在本次階段中切換它。</string>
     <string name="title_vr_controller_model">顯示控制器</string>
     <string name="summary_vr_controller_model">在每隻手中真實控制器的位置繪製一個簡單的控制器模型。穿透模式下不顯示，因為此時可以看到真實控制器；改用手勢追蹤時也不顯示。</string>
+    <string name="title_vr_head_aim">頭部控制滑鼠</string>
+    <string name="summary_vr_head_aim">僅在螢幕鎖定到頭部時生效：轉動頭部會像遊戲的視角控制一樣移動滑鼠，適合第一人稱遊戲。控制器游標和實體滑鼠仍可同時使用。開啟面板時會暫停，螢幕下方的頭部控制按鈕可在本次階段中切換它。</string>
+    <string name="title_seekbar_vr_head_aim_sensitivity">頭部控制靈敏度</string>
+    <string name="summary_seekbar_vr_head_aim_sensitivity">頭部每轉動一度時滑鼠移動的距離。配合遊戲本身的滑鼠靈敏度調整，直到視角轉動的幅度與頭部一致。頭戴裝置內設定面板的 Screen 分頁調整的是同一個數值。</string>
+    <string name="title_seekbar_vr_head_aim_deadzone">頭部控制死區</string>
+    <string name="summary_seekbar_vr_head_aim_deadzone">頭部轉動慢於此速度時不傳送任何移動，可避免頭部靜止時追蹤抖動移動滑鼠。設為 0 則傳送所有移動。</string>
     <string name="title_vr_click_sound">按下面板時發出點擊聲</string>
     <string name="summary_vr_click_sound">在頭戴裝置中按下面板、按鈕或按鍵時發出短促的點擊聲。它透過系統音效播放，與串流音訊分開。</string>
     <string name="title_vr_gaze">注視瞄準 (Look to point)</string>
@@ -355,6 +361,9 @@
     <string name="vr_toast_hands_unlocked">手部已解鎖</string>
     <string name="vr_toast_3d_off">3D 已關閉</string>
     <string name="vr_toast_3d_on">3D 已開啟</string>
+    <string name="vr_toast_head_aim_on">頭部控制已開啟</string>
+    <string name="vr_toast_head_aim_on_more">轉動頭部即可移動滑鼠</string>
+    <string name="vr_toast_head_aim_off">頭部控制已關閉</string>
     <string name="vr_report_note_hint">發生問題時您正在做什麼？</string>
     <string name="vr_report_optional">選填</string>
     <string name="vr_report_email_bad">這看起來不像電子郵件地址</string>
@@ -394,6 +403,8 @@
     <string name="title_seekbar_vr_separation">雙眼立體視差</string>
     <string name="summary_seekbar_vr_separation">兩眼視野相隔多遠 (以影格寬度的百分比表示)。超過約 0.5% 後畫面看起來不會更深，反而更容易造成眼睛疲勞。</string>
     <string name="suffix_seekbar_vr_percent">％</string>
+    <string name="suffix_seekbar_vr_head_aim_sensitivity">像素/度</string>
+    <string name="suffix_seekbar_vr_head_aim_deadzone">度/秒</string>
     <string name="gen1_warning_title">偵測到上一代頭戴裝置</string>
     <string name="gen1_warning_text">此應用程式專為 Quest 3 / Pico 4 Ultra 或更新的頭戴裝置設計。在 Quest 2 / Pico 4 等早期世代頭戴裝置上的效能尚未充分測試，預期表現可能不佳。已自動套用較低的效能設定檔以協助維持良好體驗。關閉即時 3D 能大幅提升效能，但這可能正是您下載此應用程式的原因！特此溫馨提醒，祝您使用愉快！</string>
     <string name="warning_dialog_never_again">不再顯示此提示</string>
