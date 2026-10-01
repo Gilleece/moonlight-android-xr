@@ -59,6 +59,7 @@ typedef struct {
     XrCompositionLayerQuad cogMark[COG_OPTION_COUNT + 1];
     XrCompositionLayerQuad cogReadout;
     XrCompositionLayerQuad cogMarks;
+    XrCompositionLayerQuad cogClock;
     // One per row of whichever tab has the most. The display tab's glow level
     // track is its seventh row, so it is the one that sets the size.
     XrCompositionLayerQuad cogThumb[COG_DISPLAY_SLIDER_ROW + 1 > COG_SLIDER_COUNT
@@ -681,6 +682,19 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
                   ctx->cogPose, ctx->cogW, ctx->cogH);
         pushLayer(ctx, layers, &layers->cogPanel);
 
+        // The time and the battery, on a strip just over the top edge, so a
+        // long session has a clock somewhere without the stats up
+        if (ctx->cogClockReady) {
+            float stripW = (float)COG_CLOCK_TEX_W / (float)COG_TEX_W * ctx->cogW;
+            float stripH = (float)COG_CLOCK_TEX_H / (float)COG_TEX_H * ctx->cogH;
+            Vec3 local = { 0.0f, ctx->cogH * 0.5f + stripH * 0.75f, 0.0f };
+            quadLayer(&layers->cogClock, fadeNext(ctx, layers, FADE_COG, 1, level),
+                      XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                      ctx->cogClockSwapchain, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H, view->space,
+                      poseOffset(ctx->cogPose, local), stripW, stripH);
+            pushLayer(ctx, layers, &layers->cogClock);
+        }
+
         // The cells are drawn into the texture, so what is chosen and what is
         // under the ray are marks over them. On the display tab the choices
         // are one strip Java draws for every row at once, then a ring for the
@@ -1227,6 +1241,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     }
     if (layers.count > (uint32_t)ctx->maxLayerCount) {
         dropLayer(&layers, &layers.cogButton);
+    }
+    if (layers.count > (uint32_t)ctx->maxLayerCount) {
+        dropLayer(&layers, &layers.cogClock);
     }
 
     // Said once and only once, since a frame that crowds the limit is usually

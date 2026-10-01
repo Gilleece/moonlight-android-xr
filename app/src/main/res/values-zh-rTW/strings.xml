@@ -328,6 +328,7 @@
     <string name="vr_toast_hands_unlocked">手部已解鎖</string>
     <string name="vr_toast_3d_off">3D 已關閉</string>
     <string name="vr_toast_3d_on">3D 已開啟</string>
+    <string name="vr_battery">電量 %1$d%%</string>
 
     <!-- Bug Report strings -->
     <string name="title_bug_report">回報問題</string>

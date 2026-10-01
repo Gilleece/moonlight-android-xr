@@ -196,6 +196,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // The marks on the display tab's cells, drawn on the frame loop when one
     // moves, and the cells they were last drawn for
     private XrPanels.Marks cogMarks;
+    // The time and the battery, for the first line of the stats and the strip
+    // over the settings panel, and what the strip last said
+    private volatile XrClock clock;
+    private XrPanels.ClockStrip cogClock;
+    private String cogClockDrawn;
     private final int[] marksDrawn = new int[MARK_VALUES];
     private final int[] marksWanted = new int[MARK_VALUES];
     // The tick a press on the panels makes, built once off the frame loop and
@@ -367,6 +372,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUploadToast(long ctx, ByteBuffer sheet, int kind, int arg);
     private native void nativePushNotice(long ctx, int kind, int arg);
     private native void nativeUploadCogMarks(long ctx, ByteBuffer strip);
+    private native void nativeUploadCogClock(long ctx, ByteBuffer strip);
     // Whether a press ticks, which the display tab's row reads back
     private native void nativeSetClickSound(long ctx, boolean on);
     // The depth model will make no map this session, so the splash stops
@@ -874,6 +880,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             dispatchInput();
             updateRoomReadout();
             updateCogMarks();
+            updateCogClock();
             updateToast();
             updateClickSound(prefs);
 
@@ -1043,6 +1050,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         roomReadout = new XrPanels.Readout();
         toast = new XrPanels.Toast();
         cogMarks = new XrPanels.Marks();
+        cogClock = new XrPanels.ClockStrip();
+        clock = new XrClock(prefsContext);
         // Nothing drawn yet, so the first look at the tab draws them
         Arrays.fill(marksDrawn, -2);
         nativeSetClickSound(nativeCtx, prefs.vrClickSound);
@@ -1359,6 +1368,21 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (changed) {
             nativeUploadCogMarks(nativeCtx, cogMarks.draw(marksWanted));
             System.arraycopy(marksWanted, 0, marksDrawn, 0, MARK_VALUES);
+        }
+    }
+
+    // Keeps the clock line over the settings panel up to the minute while the
+    // panel is up, and draws it as it comes up if the minute moved while it
+    // was down
+    private void updateCogClock() {
+        XrClock now = clock;
+        if (inputState[IN_COG_OPEN] == 0.0f || now == null || cogClock == null) {
+            return;
+        }
+        String line = now.line(System.currentTimeMillis());
+        if (!line.equals(cogClockDrawn)) {
+            nativeUploadCogClock(nativeCtx, cogClock.draw(line));
+            cogClockDrawn = line;
         }
     }
 
@@ -1753,7 +1777,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         overlayCanvas.translate(0.0f, OVERLAY_HEIGHT);
         overlayCanvas.scale(1.0f, -1.0f);
         float y = OVERLAY_LINE_HEIGHT;
-        for (String line : (text + '\n' + rendererStats()).split("\n")) {
+        // The time and the battery first, so a long session has both in view
+        XrClock now = clock;
+        String first = now != null ? now.line(System.currentTimeMillis()) + '\n' : "";
+        for (String line : (first + text + '\n' + rendererStats()).split("\n")) {
             overlayCanvas.drawText(line, 8.0f, y, overlayPaint);
             y += OVERLAY_LINE_HEIGHT;
             if (y > OVERLAY_HEIGHT) {

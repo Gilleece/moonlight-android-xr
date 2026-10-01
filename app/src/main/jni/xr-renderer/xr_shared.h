@@ -133,7 +133,10 @@
 // checks when it builds.
 #define IN_MARKS    (IN_CLICK + 1)
 #define MARK_VALUES 8
-#define IN_SLOTS    (IN_MARKS + MARK_VALUES)
+// 1 while the settings panel is up, fading out included, so Java keeps the
+// clock line over it up to the minute
+#define IN_COG_OPEN (IN_MARKS + MARK_VALUES)
+#define IN_SLOTS    (IN_COG_OPEN + 1)
 
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
@@ -360,6 +363,10 @@
 #define COG_MARKS_TEX_H 448
 #define COG_MARKS_L 0.41f
 #define COG_MARKS_T 0.17f
+// The time and the battery on a strip just over the panel's top edge, drawn
+// in Java when the minute or the battery moves. Half the panel's width.
+#define COG_CLOCK_TEX_W 384
+#define COG_CLOCK_TEX_H 48
 
 // In world keyboard, for the login boxes and chat windows that turn up mid
 // stream. One sheet of art per state, drawn in Java like the other panels, and

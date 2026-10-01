@@ -96,6 +96,8 @@ int createPointerSwapchain(XrCtx* ctx) {
                        &ctx->cogReadoutImageCount);
     createArtSwapchain(ctx, COG_MARKS_TEX_W, COG_MARKS_TEX_H, "create cog marks swapchain",
                        &ctx->cogMarksSwapchain, &ctx->cogMarksImages, &ctx->cogMarksImageCount);
+    createArtSwapchain(ctx, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H, "create cog clock swapchain",
+                       &ctx->cogClockSwapchain, &ctx->cogClockImages, &ctx->cogClockImageCount);
 
     for (int state = 0; state < KB_STATE_COUNT; state++) {
         createArtSwapchain(ctx, KB_TEX_W, KB_TEX_H, "create keyboard swapchain",
@@ -489,6 +491,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCogMarks(JNIEnv* env, jo
     }
     uploadSheet(env, ctx, strip, ctx->cogMarksSwapchain, ctx->cogMarksImages, COG_MARKS_TEX_W,
                 COG_MARKS_TEX_H, &ctx->cogMarksReady);
+}
+
+// The clock line over the settings panel, drawn in Java when the panel comes
+// up and whenever the minute or the battery moves while it is
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadCogClock(JNIEnv* env, jobject thiz,
+                                                                 jlong handle, jobject strip) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || strip == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, strip, ctx->cogClockSwapchain, ctx->cogClockImages, COG_CLOCK_TEX_W,
+                COG_CLOCK_TEX_H, &ctx->cogClockReady);
 }
 
 // The keyboard: a sheet of art per state, the button that opens it, and the

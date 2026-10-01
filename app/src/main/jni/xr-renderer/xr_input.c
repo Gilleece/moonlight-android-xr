@@ -2491,11 +2491,13 @@ static void handBack(JNIEnv* env, XrCtx* ctx, float* out, jfloatArray outArr) {
     out[IN_TOAST_ARG] = 0.0f;
     out[IN_CLICK] = 0.0f;
     out[IN_MARKS] = -1.0f;
+    out[IN_COG_OPEN] = 0.0f;
     if (ctx != NULL) {
         out[IN_CLICK] = ctx->clickPending ? 1.0f : 0.0f;
         ctx->clickPending = 0;
         // The display tab's choices while it is up, fading out included
         int showing = ctx->cogOpen || ctx->panelFades[FADE_COG].level > 0.0f;
+        out[IN_COG_OPEN] = showing ? 1.0f : 0.0f;
         if (showing && cogFace(ctx) == COG_TAB_DISPLAY) {
             for (int m = 0; m < COG_OPTION_COUNT; m++) {
                 out[IN_MARKS + m] = (float)cogOptionValue(ctx, m, ctx->headLockedPref);

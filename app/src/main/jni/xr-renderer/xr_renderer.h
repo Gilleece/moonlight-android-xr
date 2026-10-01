@@ -1243,6 +1243,11 @@ typedef struct {
     uint32_t cogMarksImageCount;
     XrSwapchainImageOpenGLESKHR* cogMarksImages;
     int cogMarksReady;
+    // The clock line over the panel
+    XrSwapchain cogClockSwapchain;
+    uint32_t cogClockImageCount;
+    XrSwapchainImageOpenGLESKHR* cogClockImages;
+    int cogClockReady;
     // Whether a press on a panel ticks, the setting the display tab's row
     // also writes, and a press this frame for Java to tick for
     int clickSoundOn;

@@ -577,6 +577,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyArtSwapchain(&ctx->cogThumbSwapchain, &ctx->cogThumbImages);
     destroyArtSwapchain(&ctx->cogReadoutSwapchain, &ctx->cogReadoutImages);
     destroyArtSwapchain(&ctx->cogMarksSwapchain, &ctx->cogMarksImages);
+    destroyArtSwapchain(&ctx->cogClockSwapchain, &ctx->cogClockImages);
     for (int state = 0; state < KB_STATE_COUNT; state++) {
         destroyArtSwapchain(&ctx->kbPanelSwapchains[state], &ctx->kbPanelImages[state]);
     }

@@ -761,6 +761,40 @@ final class XrPanels {
     }
 
     /**
+     * The clock line over the settings panel: the time and the battery on a
+     * small dark strip, drawn on the frame loop when the line changes, into
+     * the one bitmap and buffer like the toast's.
+     */
+    static final class ClockStrip {
+        private final Bitmap bitmap = Bitmap.createBitmap(COG_CLOCK_TEX_W, COG_CLOCK_TEX_H,
+                Bitmap.Config.ARGB_8888);
+        private final Canvas canvas = new Canvas(bitmap);
+        private final Paint sheet = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final ByteBuffer pixels =
+                ByteBuffer.allocateDirect(COG_CLOCK_TEX_W * COG_CLOCK_TEX_H * 4);
+
+        ClockStrip() {
+            sheet.setColor(0xF0141416);
+            text.setColor(0xD0FFFFFF);
+            text.setTextSize(26.0f);
+            text.setTextAlign(Paint.Align.CENTER);
+        }
+
+        ByteBuffer draw(String line) {
+            canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+            canvas.drawRoundRect(new RectF(1.0f, 1.0f, COG_CLOCK_TEX_W - 1.0f,
+                    COG_CLOCK_TEX_H - 1.0f), 20.0f, 20.0f, sheet);
+            canvas.drawText(line, COG_CLOCK_TEX_W * 0.5f,
+                    COG_CLOCK_TEX_H * 0.5f - (text.ascent() + text.descent()) * 0.5f, text);
+            pixels.rewind();
+            bitmap.copyPixelsToBuffer(pixels);
+            pixels.rewind();
+            return pixels;
+        }
+    }
+
+    /**
      * The toast: a line, and a quieter one under it when there is more to
      * say, on the same dark sheet the panels sit on. Redrawn on the frame loop
      * whenever a notice goes up, into the one bitmap and buffer, which the
