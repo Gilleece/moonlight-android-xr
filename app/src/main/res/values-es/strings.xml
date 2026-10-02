@@ -499,6 +499,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licencia: GPLv3</string>
+    <string name="title_checkbox_check_updates">Buscar actualizaciones</string>
+    <string name="summary_checkbox_check_updates">Una vez al día la aplicación pregunta a GitHub por la última versión y muestra un aviso si hay una más reciente. Solo se envía la versión de la aplicación, y no se descarga nada.</string>
+    <string name="update_notice">Moonlight XR %1$s está disponible</string>
+    <string name="update_notice_view">Ver</string>
+    <string name="update_notice_dismiss">Descartar</string>
     <string name="bug_report_intro">Describe qué salió mal y qué esperabas. El informe reúne tu mensaje con la versión de la aplicación, el visor, la configuración de transmisión y el archivo de registro, que puede incluir el nombre y la dirección de tu PC en la red, y se envía a %1$s.\n\nRegistro: %2$s</string>
     <string name="bug_report_log_off">desactivado. Activa «Guardar un archivo de registro» y reproduce el problema primero, o el informe no llevará registro.</string>
     <string name="bug_report_email_hint">Tu correo electrónico, para responderte</string>

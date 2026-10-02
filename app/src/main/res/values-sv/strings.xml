@@ -486,6 +486,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licens: GPLv3</string>
+    <string name="title_checkbox_check_updates">Sök efter uppdateringar</string>
+    <string name="summary_checkbox_check_updates">En gång om dagen frågar appen GitHub efter den senaste versionen och visar ett meddelande om det finns en nyare. Inget skickas utom appens version, och inget laddas ner.</string>
+    <string name="update_notice">Moonlight XR %1$s finns tillgänglig</string>
+    <string name="update_notice_view">Visa</string>
+    <string name="update_notice_dismiss">Stäng</string>
     <string name="bug_report_intro">Beskriv vad som gick fel och vad du väntade dig. Rapporten paketerar ditt meddelande med appversionen, headsetet, strömningsinställningarna och loggfilen, som kan innehålla datorns namn och adress i nätverket, och skickas till %1$s.\n\nLogg: %2$s</string>
     <string name="bug_report_log_off">av. Slå på ”Spara en loggfil” och återskapa problemet först, annars får rapporten ingen logg.</string>
     <string name="bug_report_email_hint">Din e-postadress, för ett svar</string>

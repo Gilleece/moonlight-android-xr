@@ -501,6 +501,11 @@
     <string name="about_version">Moonlight XR %1$s, 커밋 %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">라이선스: GPLv3</string>
+    <string name="title_checkbox_check_updates">업데이트 확인</string>
+    <string name="summary_checkbox_check_updates">하루에 한 번 GitHub에 최신 릴리스를 확인하고, 더 새로운 버전이 있으면 알림을 표시합니다. 앱 버전 외에는 아무것도 보내지 않으며, 아무것도 다운로드하지 않습니다.</string>
+    <string name="update_notice">Moonlight XR %1$s 버전을 사용할 수 있습니다</string>
+    <string name="update_notice_view">보기</string>
+    <string name="update_notice_dismiss">닫기</string>
     <string name="bug_report_intro">무엇이 잘못되었고 무엇을 기대했는지 적어 주세요. 보고서는 메시지와 함께 앱 버전, 헤드셋, 스트리밍 설정, 로그 파일을 묶어 %1$s(으)로 보냅니다. 로그에는 네트워크상 PC의 이름과 주소가 포함될 수 있습니다.\n\n로그: %2$s</string>
     <string name="bug_report_log_off">꺼짐. ‘로그 파일 저장’을 켜고 먼저 문제를 재현하세요. 그렇지 않으면 보고서에 로그가 포함되지 않습니다.</string>
     <string name="bug_report_email_hint">답장을 받을 이메일 주소</string>

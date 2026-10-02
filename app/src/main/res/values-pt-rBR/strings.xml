@@ -479,6 +479,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licença: GPLv3</string>
+    <string name="title_checkbox_check_updates">Verificar atualizações</string>
+    <string name="summary_checkbox_check_updates">Uma vez por dia o app pergunta ao GitHub qual é a versão mais recente e mostra um aviso se houver uma mais nova. Nada é enviado além da versão do app, e nada é baixado.</string>
+    <string name="update_notice">Moonlight XR %1$s está disponível</string>
+    <string name="update_notice_view">Ver</string>
+    <string name="update_notice_dismiss">Dispensar</string>
     <string name="bug_report_intro">Descreva o que deu errado e o que você esperava. O relatório junta sua mensagem com a versão do app, o headset, as configurações de transmissão e o arquivo de log, que pode incluir o nome e o endereço do seu PC na rede, e vai para %1$s.\n\nLog: %2$s</string>
     <string name="bug_report_log_off">desligado. Ative “Salvar um arquivo de log” e reproduza o problema primeiro, ou o relatório não terá log.</string>
     <string name="bug_report_email_hint">Seu e-mail, para uma resposta</string>

@@ -486,6 +486,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Lisans: GPLv3</string>
+    <string name="title_checkbox_check_updates">Güncellemeleri denetle</string>
+    <string name="summary_checkbox_check_updates">Uygulama günde bir kez GitHub\'a en son sürümü sorar ve daha yenisi varsa bir bildirim gösterir. Uygulamanın sürümünden başka hiçbir şey gönderilmez ve hiçbir şey indirilmez.</string>
+    <string name="update_notice">Moonlight XR %1$s kullanılabilir</string>
+    <string name="update_notice_view">Görüntüle</string>
+    <string name="update_notice_dismiss">Kapat</string>
     <string name="bug_report_intro">Neyin ters gittiğini ve ne beklediğinizi anlatın. Rapor, mesajınızı uygulama sürümü, başlık, akış ayarları ve bilgisayarınızın ağdaki adını ve adresini içerebilen günlük dosyasıyla birleştirir ve %1$s adresine gider.\n\nGünlük: %2$s</string>
     <string name="bug_report_log_off">kapalı. Önce “Günlük dosyası kaydet” seçeneğini açıp sorunu yeniden oluşturun, aksi hâlde raporda günlük olmaz.</string>
     <string name="bug_report_email_hint">Yanıt için e-posta adresiniz</string>
