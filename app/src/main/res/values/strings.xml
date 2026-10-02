@@ -307,6 +307,13 @@
     <string name="toast_vr_reset_pose">Screen position reset</string>
     <string name="title_vr_passthrough">Passthrough mode</string>
     <string name="summary_vr_passthrough">Turn on passthrough. Please note this uses more system resources, please disable if you find the stream performing poorly</string>
+    <string name="title_vr_environment">Environment</string>
+    <string name="summary_vr_environment">Now: %s. What surrounds the screen when a session starts. Picking one in the headset, from the button under the screen, changes this too.</string>
+    <string name="vr_environment_passthrough">Passthrough</string>
+    <string name="vr_environment_void">Black void</string>
+    <string name="vr_environment_home_theater">Home Theater</string>
+    <string name="vr_environment_grand_cinema">Grand Cinema</string>
+    <string name="vr_environment_synthwave">Synthwave</string>
     <string name="title_vr_depth_source">Realtime 3D mode</string>
     <string name="summary_vr_depth_source">Choose the realtime 3D mode, including test patterns.</string>
     <string name="title_vr_env_res">Environment Res</string>

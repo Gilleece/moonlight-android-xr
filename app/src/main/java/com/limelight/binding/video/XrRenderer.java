@@ -1440,12 +1440,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         nativeSetEnvironment(nativeCtx, cell);
 
         // The grid is a second way to reach the passthrough switch, so the
-        // setting follows it rather than disagreeing with what is on screen
-        PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING,
-                        EnvironmentIds.idForCell(cell))
-                .putBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING, passthroughOn)
-                .apply();
+        // setting follows it rather than disagreeing with what is on screen.
+        // The 2D settings' list keeps its choice the same way.
+        EnvironmentIds.store(PreferenceManager.getDefaultSharedPreferences(prefsContext),
+                EnvironmentIds.idForCell(cell));
     }
 
     // The mesh a baked room is built from, by the cell that shows it, or null

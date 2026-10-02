@@ -1,5 +1,7 @@
 package com.limelight.binding.video;
 
+import android.content.SharedPreferences;
+
 import com.limelight.preferences.PreferenceConfiguration;
 
 import static com.limelight.binding.video.XrShared.*;
@@ -9,9 +11,10 @@ import static com.limelight.binding.video.XrShared.*;
  * A cell is only where something sits in the grid today; an id names an
  * environment for good, so rearranging the grid never scrambles what anyone
  * picked. Everything else in the renderer works in cells, and only the
- * preference speaks ids.
+ * preference speaks ids, as does the 2D settings' list, whose values are the
+ * ids themselves.
  */
-final class EnvironmentIds {
+public final class EnvironmentIds {
 
     // Ids that named environments since removed: the generated minimal room,
     // PSX Cinema, and the 360 photos from 100 up. Never handed out again, so a
@@ -79,5 +82,54 @@ final class EnvironmentIds {
     // never had
     static int idForLegacyCell(int legacy) {
         return legacy >= 0 && legacy < LEGACY_CELL_IDS.length ? LEGACY_CELL_IDS[legacy] : -1;
+    }
+
+    /**
+     * The 2D settings' list value for the environment the next session opens
+     * with, read the way the session reads it: the saved id, else an old
+     * install's cell, else the passthrough checkbox. Nothing is written.
+     */
+    public static String listValue(SharedPreferences prefs) {
+        return listValue(prefs, prefs.getBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING,
+                PreferenceConfiguration.DEFAULT_VR_PASSTHROUGH));
+    }
+
+    /** The same with the passthrough checkbox as given, for one about to change. */
+    public static String listValue(SharedPreferences prefs, boolean passthrough) {
+        int id = prefs.getInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, -1);
+        if (id < 0) {
+            id = idForLegacyCell(prefs.getInt(PreferenceConfiguration.VR_ENVIRONMENT_PREF_STRING, -1));
+        }
+        return Integer.toString(idForCell(startCell(id, passthrough)));
+    }
+
+    /** The id a list value names, or -1 for one that names nothing offered. */
+    public static int idForListValue(String value) {
+        if (value == null) {
+            return -1;
+        }
+        try {
+            int id = Integer.parseInt(value.trim());
+            return cellForId(id) >= 0 ? id : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /**
+     * Keeps a choice the way the picker keeps it: the id, with the passthrough
+     * checkbox following it. False, and nothing written, for an id that names
+     * nothing offered.
+     */
+    public static boolean store(SharedPreferences prefs, int id) {
+        if (cellForId(id) < 0) {
+            return false;
+        }
+        prefs.edit()
+                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, id)
+                .putBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING,
+                        id == PreferenceConfiguration.VR_ENV_PASSTHROUGH)
+                .apply();
+        return true;
     }
 }

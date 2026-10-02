@@ -101,6 +101,9 @@ public class PreferenceConfiguration {
     // cell is only where it currently sits in the grid, so rearranging the grid
     // cannot scramble what anyone had picked.
     public static final String VR_ENVIRONMENT_ID_PREF_STRING = "vr_environment_id";
+    // The 2D settings' list for that same choice, which keeps nothing under its
+    // own key and reads and writes the id above, so it and the picker agree
+    public static final String VR_ENVIRONMENT_LIST_PREF_STRING = "list_vr_environment";
     // 2 and 3, and everything from 100 up, named environments that have since
     // gone (see EnvironmentIds) and are never handed out again
     public static final int VR_ENV_PASSTHROUGH = 0;
@@ -214,7 +217,7 @@ public class PreferenceConfiguration {
     // Off until the owner has judged it worn: it costs compositor GPU time
     static final String DEFAULT_VR_SUPERSAMPLING = "off";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
-    private static final boolean DEFAULT_VR_PASSTHROUGH = false;
+    public static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
     private static final boolean DEFAULT_VR_HAND_TRACKING = true;
     // A controller's pointer goes to sleep after a few still seconds and wakes
