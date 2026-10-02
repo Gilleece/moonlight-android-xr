@@ -76,6 +76,7 @@
         <item>Polski</item>
         <item>Dansk</item>
         <item>Suomi</item>
+        <item>Türkçe</item>
     </string-array>
     <string-array name="language_values" translatable="false">
         <item>default</item>
@@ -107,6 +108,7 @@
         <item>pl</item>
         <item>da</item>
         <item>fi</item>
+        <item>tr</item>
     </string-array>
 
     <string-array name="video_format_names">
