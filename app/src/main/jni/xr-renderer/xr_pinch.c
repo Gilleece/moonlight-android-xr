@@ -4,73 +4,28 @@
 
 #include <string.h>
 
-void pinchGateReset(PinchGate* g) {
-    memset(g, 0, sizeof(*g));
+int pinchSource(int valueBound, int aimOffered, int jointsOffered) {
+    if (valueBound) {
+        return PINCH_SRC_VALUE;
+    }
+    if (aimOffered) {
+        return PINCH_SRC_AIM;
+    }
+    return jointsOffered ? PINCH_SRC_JOINTS : PINCH_SRC_NONE;
 }
 
-// How far the tips have closed within the window: the widest gap seen in it
-// less this one
-static float pinchClosing(const PinchGate* g, float gap, int64_t nowNs) {
-    int64_t from = nowNs - PINCH_CLOSE_WINDOW_NS;
-    float widest = gap;
-    for (int k = 1; k <= g->count; k++) {
-        int i = (g->next - k + PINCH_RING) % PINCH_RING;
-        if (g->at[i] < from) {
-            break;
-        }
-        if (g->gap[i] > widest) {
-            widest = g->gap[i];
-        }
+int pinchStep(int source, int wasDown, float value, int aimPinching, int tipsValid, float gap) {
+    switch (source) {
+        case PINCH_SRC_VALUE:
+            return pressHysteresis(value, wasDown, PINCH_VALUE_ON, PINCH_VALUE_OFF);
+        case PINCH_SRC_AIM:
+            // The runtime has already judged it
+            return aimPinching != 0;
+        case PINCH_SRC_JOINTS:
+            return tipsValid && gap < (wasDown ? PINCH_OFF_M : PINCH_ON_M);
+        default:
+            return 0;
     }
-    return widest - gap;
-}
-
-int pinchGateStep(PinchGate* g, int valid, int tracked, float gap, int64_t nowNs,
-                  float* outClosed) {
-    *outClosed = 0.0f;
-    if (!valid) {
-        pinchGateReset(g);
-        return 0;
-    }
-    float closed = pinchClosing(g, gap, nowNs);
-    g->gap[g->next] = gap;
-    g->at[g->next] = nowNs;
-    g->next = (g->next + 1) % PINCH_RING;
-    if (g->count < PINCH_RING) {
-        g->count++;
-    }
-
-    if (!tracked) {
-        // Estimated tips: the plain distance with its old hysteresis
-        g->down = gap < (g->down ? PINCH_LOOSE_OFF_M : PINCH_LOOSE_ON_M);
-        return g->down;
-    }
-    // A pinch that is down stays down, through a drag, until the tips part.
-    // One that is not needs them close and closing fast, checked every frame
-    // they are inside the on distance, so a pinch that crosses it still
-    // closing counts as it finishes.
-    if (g->down) {
-        g->down = gap < PINCH_OFF_M;
-    }
-    else if (gap < PINCH_ON_M) {
-        g->down = closed >= PINCH_CLOSE_M;
-        *outClosed = closed;
-    }
-    return g->down;
-}
-
-int pinchHoldStep(int64_t* wantSince, int want, int wasDown, int64_t nowNs) {
-    if (!want) {
-        *wantSince = 0;
-        return 0;
-    }
-    if (wasDown) {
-        return 1;
-    }
-    if (*wantSince == 0) {
-        *wantSince = nowNs;
-    }
-    return nowNs - *wantSince >= PINCH_HOLD_NS;
 }
 
 int pressHysteresis(float value, int wasDown, float on, float off) {

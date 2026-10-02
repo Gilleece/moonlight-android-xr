@@ -3,9 +3,9 @@
 // presses and host mouse events.
 #include "xr_renderer.h"
 
-// A pinch is how these headsets click, but it is not always offered as an
-// input to bind to. The joints always are, so it is measured here instead:
-// thumb tip to index tip, gated in xr_pinch.c so it has to be meant.
+// A pinch is how these headsets click. The runtime's own pinch is used
+// wherever it gives one, and where it does not the joints always are there,
+// so it is measured instead: thumb tip to index tip, see xr_pinch.h.
 
 static void initJointTracking(XrCtx* ctx) {
     if (!ctx->handTracking) {
@@ -34,7 +34,9 @@ static void initJointTracking(XrCtx* ctx) {
         }
     }
     ctx->jointTracking = 1;
-    LOGI("reading hand joints for pinch");
+    ctx->handAim = ctx->handAimOffered;
+    LOGI("reading hand joints for pinch%s",
+         ctx->handAim ? ", with the runtime's pinch flags beside them" : "");
 }
 
 // Which kind of thing is driving each hand. Hands are never still enough for
@@ -56,6 +58,7 @@ void refreshInputSource(XrCtx* ctx) {
         // those hands stay on the movement gate rather than becoming unusable
         ctx->usingHands[h] = ctx->handClickOk && kind == PROFILE_HANDS;
         ctx->onExtHands[h] = kind == PROFILE_HANDS && profile == ctx->handProfile;
+        ctx->onMsftHands[h] = kind == PROFILE_HANDS && profile == ctx->msftHandProfile;
         if (kind != ctx->profileKind[h]) {
             ctx->profileKind[h] = kind;
             // The rest clock belongs to whatever was on that hand, so a
@@ -364,8 +367,9 @@ int initXrInput(XrCtx* ctx) {
     if (ctx->msftHandInteraction) {
         static const char* const clicks[] = { "input/select/value" };
         const char* profile = "/interaction_profiles/microsoft/hand_interaction";
-        ctx->handClickOk |= suggestHandBindings(ctx, profile, "input/aim/pose",
-                                                clicks, 1, "input/squeeze/value");
+        ctx->msftHandClick = suggestHandBindings(ctx, profile, "input/aim/pose",
+                                                 clicks, 1, "input/squeeze/value");
+        ctx->handClickOk |= ctx->msftHandClick;
         ctx->msftHandProfile = toPath(ctx, profile);
     }
 
@@ -421,13 +425,6 @@ int initXrInput(XrCtx* ctx) {
          ctx->handClickOk ? "bound" : (ctx->jointTracking ? "from joints" : "unavailable"),
          ctx->menuBound ? "bound" : "not bound, so gamepad mode has no Start or switch",
          ctx->hapticBound ? "bound" : "not bound, so gamepad mode has no rumble");
-    LOGEV("pinch: joints on %.0f mm, off %.0f mm, closing %.0f mm in %ld ms (untracked tips "
-          "%.0f / %.0f mm), hold %ld ms; runtime value on %.1f off %.1f, %s",
-          PINCH_ON_M * 1000.0f, PINCH_OFF_M * 1000.0f, PINCH_CLOSE_M * 1000.0f,
-          PINCH_CLOSE_WINDOW_NS / 1000000L, PINCH_LOOSE_ON_M * 1000.0f,
-          PINCH_LOOSE_OFF_M * 1000.0f, PINCH_HOLD_NS / 1000000L, PINCH_VALUE_ON,
-          PINCH_VALUE_OFF, ctx->extHandClick ? "the EXT profile's alone where it is on a hand"
-                                             : "or the joints, with the hold");
     LOGEV("hand lock: three pinches on one hand, the third within %ld ms of the first, the "
           "third held back from the host", TRIPLE_PINCH_WINDOW_NS / 1000000L);
     return 1;
@@ -603,35 +600,47 @@ static int intoFrame(const FrameXform* x, XrPosef* p) {
     return 1;
 }
 
-static int jointPinching(XrCtx* ctx, int hand, const FrameXform* xform, const XrPosef* head,
-                         int headValid, int64_t nowNs) {
+// One hand's joints: the ray built out of them, the gap between the thumb and
+// index tips and where the pinch is, and the runtime's pinch flag where it
+// gives one beside them
+static void readJoints(XrCtx* ctx, int hand, const FrameXform* xform, const XrPosef* head,
+                       int headValid) {
+    ctx->tipsValid[hand] = 0;
+    ctx->aimPinch[hand] = 0;
     if (!ctx->jointTracking || ctx->handTrackers[hand] == XR_NULL_HANDLE) {
+        ctx->pinchPointValid[hand] = 0;
         ctx->handRayValid[hand] = 0;
-        return 0;
+        return;
     }
 
     XrHandJointLocationEXT joints[XR_HAND_JOINT_COUNT_EXT];
     XrHandJointLocationsEXT locations = { XR_TYPE_HAND_JOINT_LOCATIONS_EXT };
     locations.jointCount = XR_HAND_JOINT_COUNT_EXT;
     locations.jointLocations = joints;
+    XrHandTrackingAimStateFB aim = { XR_TYPE_HAND_TRACKING_AIM_STATE_FB };
+    if (ctx->handAim) {
+        locations.next = &aim;
+    }
 
     XrHandJointsLocateInfoEXT locate = { XR_TYPE_HAND_JOINTS_LOCATE_INFO_EXT };
     locate.baseSpace = ctx->localSpace;
     locate.time = ctx->predictedDisplayTime;
-    float closed = 0.0f;
     int located = XR_SUCCEEDED(ctx->pfnLocateHandJoints(ctx->handTrackers[hand], &locate,
                                                          &locations))
             && locations.isActive;
+    if (located && ctx->handAim) {
+        ctx->aimPinch[hand] = (aim.status & XR_HAND_TRACKING_AIM_VALID_BIT_FB)
+                && (aim.status & XR_HAND_TRACKING_AIM_INDEX_PINCHING_BIT_FB);
+    }
     // Into the screen's frame, all of them, so the ray and the pinch point
     // come out where the aim poses are
     for (int j = 0; located && j < XR_HAND_JOINT_COUNT_EXT; j++) {
         located = intoFrame(xform, &joints[j].pose);
     }
     if (!located) {
-        pinchGateStep(&ctx->pinchGate[hand], 0, 0, 0.0f, nowNs, &closed);
         ctx->pinchPointValid[hand] = 0;
         ctx->handRayValid[hand] = 0;
-        return 0;
+        return;
     }
 
     if (headValid) {
@@ -642,45 +651,25 @@ static int jointPinching(XrCtx* ctx, int hand, const FrameXform* xform, const Xr
         ctx->handRayValid[hand] = 0;
     }
 
-    const XrSpaceLocationFlags tracked = XR_SPACE_LOCATION_POSITION_VALID_BIT
-            | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
     const XrHandJointLocationEXT* thumb = &joints[XR_HAND_JOINT_THUMB_TIP_EXT];
     const XrHandJointLocationEXT* index = &joints[XR_HAND_JOINT_INDEX_TIP_EXT];
-    int valid = (thumb->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
-            && (index->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT);
-    if (!valid) {
-        pinchGateStep(&ctx->pinchGate[hand], 0, 0, 0.0f, nowNs, &closed);
+    if (!(thumb->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)
+            || !(index->locationFlags & XR_SPACE_LOCATION_POSITION_VALID_BIT)) {
         ctx->pinchPointValid[hand] = 0;
-        return 0;
+        return;
     }
 
     float dx = thumb->pose.position.x - index->pose.position.x;
     float dy = thumb->pose.position.y - index->pose.position.y;
     float dz = thumb->pose.position.z - index->pose.position.z;
-    float gap = sqrtf(dx * dx + dy * dy + dz * dz);
+    ctx->tipGap[hand] = sqrtf(dx * dx + dy * dy + dz * dz);
+    ctx->tipsValid[hand] = 1;
 
     // Where the pinch happened, which is what a drag follows
     ctx->pinchPoint[hand].x = (thumb->pose.position.x + index->pose.position.x) * 0.5f;
     ctx->pinchPoint[hand].y = (thumb->pose.position.y + index->pose.position.y) * 0.5f;
     ctx->pinchPoint[hand].z = (thumb->pose.position.z + index->pose.position.z) * 0.5f;
     ctx->pinchPointValid[hand] = 1;
-
-    // Tracked as well as valid takes the strict rule. A runtime estimating
-    // the tips gives nothing trustworthy to judge the closing by.
-    PinchGate* gate = &ctx->pinchGate[hand];
-    int both = (thumb->locationFlags & tracked) == tracked
-            && (index->locationFlags & tracked) == tracked;
-    int was = gate->down;
-    float lastGap = gate->count > 0 ? gate->gap[(gate->next + PINCH_RING - 1) % PINCH_RING]
-                                    : 1.0f;
-    int down = pinchGateStep(gate, 1, both, gap, nowNs, &closed);
-    // Said where the tips first come inside the on distance, so a refusal
-    // shows once per approach rather than every frame a hand rests closed
-    if (both && !was && gap < PINCH_ON_M && lastGap >= PINCH_ON_M) {
-        LOGI("hand %d joint pinch %s, tips closed %.0f mm in the last %ld ms", hand,
-             down ? "on" : "refused", closed * 1000.0f, PINCH_CLOSE_WINDOW_NS / 1000000L);
-    }
-    return down;
 }
 
 // The sliders place the screen, the grab moves it from there. Moving either
@@ -804,17 +793,17 @@ static int pinchingHand(XrCtx* ctx) {
     return -1;
 }
 
-// Whether the joints are still giving a pinch to follow. Where the runtime's
-// value is the press, the pinch is whatever it says, and the joints only give
-// the point.
+// Whether the joints are still giving a pinch to follow. Where the runtime
+// says what a pinch is, the pinch is whatever it says, and the joints only
+// give the point.
 static int pinchTracked(XrCtx* ctx, int hand) {
     if (hand < 0 || hand >= HAND_COUNT || !ctx->pinchPointValid[hand]) {
         return 0;
     }
-    if (ctx->extHandClick && ctx->onExtHands[hand]) {
+    if (ctx->pinchSrc[hand] != PINCH_SRC_JOINTS) {
         return ctx->triggerDown[hand];
     }
-    return ctx->pinchGate[hand].down;
+    return ctx->pinchDown[hand];
 }
 
 // Where the hand carrying a drag is: the pinch itself, since that is the part
@@ -1232,7 +1221,7 @@ static void padHandAway(XrCtx* ctx, int h) {
     ctx->triggerDown[h] = 0;
     ctx->triggerEdge[h] = 0;
     ctx->triggerValue[h] = 0.0f;
-    ctx->pinchWantNs[h] = 0;
+    ctx->pinchDown[h] = 0;
     ctx->aimTracked[h] = 0;
     ctx->aimFilterPos[h][0].valid = 0;
     ctx->aimFilterPos[h][1].valid = 0;
@@ -1482,6 +1471,38 @@ static void updateHeadTurn(XrCtx* ctx, InputFrame* f) {
     ctx->headTurnLastValid = 1;
 }
 
+// Says which source a hand's pinch is read from, the first time a hand uses
+// it in the session: on a hand profile, or with no profile at all and the
+// joints finding a hand
+static void sayPinchSource(XrCtx* ctx, int h) {
+    int src = ctx->pinchSrc[h];
+    int seen = ctx->profileKind[h] == PROFILE_HANDS
+            || (ctx->profileKind[h] == PROFILE_NONE && ctx->tipsValid[h]);
+    if (!seen || (ctx->pinchSrcSaid & (1u << src))) {
+        return;
+    }
+    ctx->pinchSrcSaid |= 1u << src;
+    switch (src) {
+        case PINCH_SRC_VALUE:
+            LOGEV("pinch: the runtime's pinch value (%s), on %.2f, off %.2f", ctx->onExtHands[h]
+                  ? "hand_interaction_ext" : "microsoft hand_interaction select",
+                  PINCH_VALUE_ON, PINCH_VALUE_OFF);
+            break;
+        case PINCH_SRC_AIM:
+            LOGEV("pinch: the runtime's pinching flag (XR_FB_hand_tracking_aim), no hand "
+                  "profile with a pinch on hand %d", h);
+            break;
+        case PINCH_SRC_JOINTS:
+            LOGEV("pinch: thumb to index tip off the joints, on %.0f mm, off %.0f mm, the "
+                  "runtime giving no pinch on hand %d", PINCH_ON_M * 1000.0f,
+                  PINCH_OFF_M * 1000.0f, h);
+            break;
+        default:
+            LOGEV("pinch: nothing to read one from on hand %d", h);
+            break;
+    }
+}
+
 // Reads every source: the triggers, the aim poses and where each ray lands
 static void readSources(XrCtx* ctx, InputFrame* f) {
     int gazeSpace = ctx->aimSpaces[SRC_GAZE] != XR_NULL_HANDLE;
@@ -1509,26 +1530,24 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             float value = seenTrigger(ctx, h);
             // The joints are read whatever is on the hand, since the ray and
             // the point a drag follows come out of them too
-            int joints = jointPinching(ctx, h, &f->xform, &f->headPose, f->headValid, f->now);
-            // A hand's pinch, however the runtime reports how hard it is, has
-            // its own pair of thresholds rather than the trigger's
-            int byHand = ctx->profileKind[h] != PROFILE_CONTROLLER;
-            float on = byHand ? PINCH_VALUE_ON : PRESS_ON;
-            float off = byHand ? PINCH_VALUE_OFF : PRESS_OFF;
-            // Where the EXT profile's pinch value is bound and on the hand it
-            // is the press on its own, and the runtime has decided already.
-            // Otherwise a bound value or a measured pinch will do, held for
-            // PINCH_HOLD_NS first. Runtimes that offer neither leave this at
-            // rest, which is what a headset with nothing in its hands should
-            // report.
-            int byValue = byHand && ctx->extHandClick && ctx->onExtHands[h];
-            int want = pressHysteresis(value, wasDown, on, off) || (!byValue && joints);
-            if (byHand && !byValue) {
-                ctx->triggerDown[h] = pinchHoldStep(&ctx->pinchWantNs[h], want, wasDown, f->now);
+            readJoints(ctx, h, &f->xform, &f->headPose, f->headValid);
+            if (ctx->profileKind[h] == PROFILE_CONTROLLER) {
+                ctx->pinchDown[h] = 0;
+                ctx->triggerDown[h] = pressHysteresis(value, wasDown, PRESS_ON, PRESS_OFF);
             }
             else {
-                ctx->pinchWantNs[h] = 0;
-                ctx->triggerDown[h] = want;
+                // A hand's pinch comes from one source, the runtime's own
+                // where it gives one, and is a press the frame it crosses.
+                // Runtimes that offer nothing leave it at rest, which is what
+                // a headset with nothing in its hands should report.
+                int bound = (ctx->extHandClick && ctx->onExtHands[h])
+                        || (ctx->msftHandClick && ctx->onMsftHands[h]);
+                ctx->pinchSrc[h] = pinchSource(bound, ctx->handAim, ctx->jointTracking);
+                ctx->pinchDown[h] = pinchStep(ctx->pinchSrc[h], ctx->pinchDown[h], value,
+                                              ctx->aimPinch[h], ctx->tipsValid[h],
+                                              ctx->tipGap[h]);
+                ctx->triggerDown[h] = ctx->pinchDown[h];
+                sayPinchSource(ctx, h);
             }
             ctx->triggerEdge[h] = ctx->triggerDown[h] && !wasDown;
 

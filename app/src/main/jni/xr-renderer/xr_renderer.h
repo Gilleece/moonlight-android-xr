@@ -1027,11 +1027,12 @@ typedef struct {
     XrPath msftHandProfile;
     int handTracking;
     int handClickOk;
-    // The EXT profile bound its pinch value, which is the whole of a hand's
-    // press wherever that profile is the one on the hand, and which hands it
-    // is on. The runtime has decided by then, so its value is not held back.
+    // Which hand profiles bound their pinch value, and which hands each is
+    // current on. Where one is, its value is the whole of that hand's pinch.
     int extHandClick;
     int onExtHands[HAND_COUNT];
+    int msftHandClick;
+    int onMsftHands[HAND_COUNT];
     // Looking at something instead of pointing at it. While the eyes point,
     // tracked hands only pinch, and a controller points once it is in use.
     int eyeGaze;
@@ -1042,11 +1043,21 @@ typedef struct {
     // input. Thumb to fingertip is the whole of it.
     int jointTracking;
     XrHandTrackerEXT handTrackers[HAND_COUNT];
-    // The pinch the joints read, close and closing fast, and since when a
-    // pinch has been wanted on each hand, which it has to be for
-    // PINCH_HOLD_NS before it is a press
-    PinchGate pinchGate[HAND_COUNT];
-    int64_t pinchWantNs[HAND_COUNT];
+    // XR_FB_hand_tracking_aim, read beside the joints: offered by the runtime,
+    // in use, and whether its flag says each hand is pinching this frame
+    int handAimOffered;
+    int handAim;
+    int aimPinch[HAND_COUNT];
+    // The gap between the thumb and index tips this frame, and whether the
+    // tips were located at all
+    float tipGap[HAND_COUNT];
+    int tipsValid[HAND_COUNT];
+    // Each hand's pinch as its source says, before anything swallows it, so
+    // the release is always judged against the source's own off threshold.
+    // The source in use, and the sources already named in the log.
+    int pinchDown[HAND_COUNT];
+    int pinchSrc[HAND_COUNT];
+    unsigned pinchSrcSaid;
     // Where the pinch is, which is what a drag the eyes started follows
     Vec3 pinchPoint[HAND_COUNT];
     int pinchPointValid[HAND_COUNT];
