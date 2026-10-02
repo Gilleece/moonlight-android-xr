@@ -165,3 +165,10 @@ int rateBudgetTick(RateBudget* b, long nowNs, float hz) {
     b->overWindows = 0;
     return RATE_WINDOW_OVER;
 }
+
+int rateSettled(int settled, int focusedFrame, float asked, int confirmed) {
+    if (settled) {
+        return 1;
+    }
+    return focusedFrame && (!(asked > 0.0f) || confirmed);
+}

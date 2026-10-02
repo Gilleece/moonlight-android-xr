@@ -210,8 +210,14 @@ void displayRateChanged(XrCtx* ctx, float from, float to) {
           hzText(to, toHz, sizeof(toHz)));
     ctx->displayRate = to;
     rateBudgetStart(&ctx->rateBudget, nowNs(), RATE_SETTLE_WINDOWS);
-    // Said on the toast as well, whoever moved it
-    noticePush(&ctx->notices, TOAST_RATE, (int)roundf(to));
+    // Said on the toast as well, whoever moved it, once the session's own
+    // first rate has landed: the session start is no news
+    if (ctx->rateSettled) {
+        noticePush(&ctx->notices, TOAST_RATE, (int)roundf(to));
+    }
+    else {
+        LOGI("display rate change not toasted, the session's first rate is still landing");
+    }
     if (ctx->rateAsked <= 0.0f) {
         return;
     }
@@ -285,6 +291,17 @@ void displayFrameEnded(XrCtx* ctx) {
     if (ctx->frameBeganNs > 0) {
         rateBudgetCpu(&ctx->rateBudget, now - ctx->frameBeganNs);
         ctx->frameBeganNs = 0;
+    }
+    if (!ctx->rateSettled
+            && rateSettled(0, ctx->sessionState == XR_SESSION_STATE_FOCUSED,
+                           ctx->refreshRateSupported ? ctx->rateAsked : 0.0f,
+                           ctx->rateConfirmed)) {
+        char settledHz[16];
+        float hz = ctx->displayRate > 0.0f ? ctx->displayRate
+                : ctx->displayPeriodNs > 0 ? 1e9f / (float)ctx->displayPeriodNs : 0.0f;
+        ctx->rateSettled = 1;
+        LOGI("display rate settled on %s Hz, a change from here on goes on the toast",
+             hzText(hz, settledHz, sizeof(settledHz)));
     }
     if (!ctx->refreshRateSupported || ctx->rateAsked <= 0.0f) {
         return;

@@ -923,6 +923,9 @@ typedef struct {
     float displayRate;
     long rateAskedNs;
     int rateConfirmed;
+    // The session's first rate has landed with focus, so a change from here
+    // on goes on the toast; the one it starts on never does
+    int rateSettled;
     // The rate the warp was stepped down to, 0 while it has not been, kept
     // for the session so switching the 3D off and on does not try again
     float warpRateHeld;

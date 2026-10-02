@@ -276,6 +276,48 @@ static void testBudgetWithNothingMeasured(void) {
     CHECK_NEAR(b.frameMs, 30.0f, 0.01);
 }
 
+// The rate a session starts on is never news: a change only goes on the toast
+// once the session has drawn a focused frame and its first request has landed
+static void testTheFirstRateIsNoNews(void) {
+    // Asked for 90, not focused yet, landed or not: not settled
+    CHECK(!rateSettled(0, 0, 90.0f, 0));
+    CHECK(!rateSettled(0, 0, 90.0f, 1));
+    // Focused but the request still on its way: not yet, so its landing is
+    // not toasted
+    CHECK(!rateSettled(0, 1, 90.0f, 0));
+    // Focused with it landed, found in force or given up on
+    CHECK(rateSettled(0, 1, 90.0f, 1));
+    // Nothing asked for, as without the extension: the focused frame will do
+    CHECK(rateSettled(0, 1, 0.0f, 0));
+    CHECK(!rateSettled(0, 0, 0.0f, 0));
+    CHECK(rateSettled(0, 1, NAN, 0));
+    // And once settled a later request on its way, a step down or a forced
+    // rate, does not unsettle it, so its landing is toasted
+    CHECK(rateSettled(1, 1, 72.0f, 0));
+    CHECK(rateSettled(1, 0, 72.0f, 0));
+
+    // A session start frame by frame, the way the frame loop latches it
+    int settled = 0;
+    int toasts = 0;
+    // Asked at session begin, before focus; lands while visible
+    float asked = 90.0f;
+    int confirmed = 0;
+    settled = rateSettled(settled, 0, asked, confirmed);
+    confirmed = 1;
+    toasts += settled;
+    settled = rateSettled(settled, 0, asked, confirmed);
+    CHECK(!settled);
+    // The first focused frame settles it
+    settled = rateSettled(settled, 1, asked, confirmed);
+    CHECK(settled);
+    // A forced 120 mid session: asked again, its landing toasted
+    asked = 120.0f;
+    confirmed = 0;
+    settled = rateSettled(settled, 1, asked, confirmed);
+    toasts += settled;
+    CHECK(toasts == 1);
+}
+
 int main(void) {
     testStreamGetsItsOwnRate();
     testNoMatchTakesTheNearestAbove();
@@ -296,5 +338,6 @@ int main(void) {
     testBudgetCountsMissedRefreshes();
     testBudgetCountsABusyGpuByItsPace();
     testBudgetWithNothingMeasured();
+    testTheFirstRateIsNoNews();
     return checksDone("xr_rate");
 }
