@@ -5,7 +5,8 @@
 /**
  * Makes the swapchain one piece of art lives in and fetches its images. Fails
  * closed: on any error the handle is left null, so the layer that would show
- * the art stays out of the frame rather than pointing at nothing.
+ * the art stays out of the frame rather than pointing at nothing. A runtime
+ * may cap how many a session holds, so a refusal says how many there were.
  */
 int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
                        XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images,
@@ -26,6 +27,7 @@ int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
 
     XrSwapchain created = XR_NULL_HANDLE;
     if (!checkXr(xrCreateSwapchain(ctx->session, &info, &created), what)) {
+        LOGE("%s failed with %d swapchains alive", what, ctx->swapchainsAlive);
         return 0;
     }
 
@@ -53,14 +55,16 @@ int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
     *chain = created;
     *images = fetched;
     *count = n;
+    ctx->swapchainsAlive++;
     return 1;
 }
 
 // The other half, safe on a chain that was never made
-void destroyArtSwapchain(XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images) {
+void destroyArtSwapchain(XrCtx* ctx, XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images) {
     if (*chain != XR_NULL_HANDLE) {
         xrDestroySwapchain(*chain);
         *chain = XR_NULL_HANDLE;
+        ctx->swapchainsAlive--;
     }
     free(*images);
     *images = NULL;
@@ -68,6 +72,10 @@ void destroyArtSwapchain(XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** image
 
 // Every swapchain the furniture and the panels are shown from. Only the
 // pointer's is required: anything else that fails just leaves its layer out.
+// Kept to as few as will do, since the Pico 4 Ultra makes no more than 32 in
+// a session, and a room and the controller models want two more later: a
+// panel with several sheets shows them all from one chain, and the buttons
+// along the bar share one texture.
 int createPointerSwapchain(XrCtx* ctx) {
     if (!createArtSwapchain(ctx, PTR_TEX_W, PTR_TEX_H, "create pointer swapchain",
                             &ctx->pointerSwapchain, &ctx->pointerImages,
@@ -83,11 +91,10 @@ int createPointerSwapchain(XrCtx* ctx) {
     createArtSwapchain(ctx, PICKER_TEX_W, PICKER_TEX_H, "create picker swapchain",
                        &ctx->pickerSwapchain, &ctx->pickerImages, &ctx->pickerImageCount);
 
-    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
-        createArtSwapchain(ctx, COG_TEX_W, COG_TEX_H, "create cog panel swapchain",
-                           &ctx->cogPanelSwapchains[tab], &ctx->cogPanelImages[tab],
-                           &ctx->cogPanelImageCounts[tab]);
-    }
+    createArtSwapchain(ctx, COG_TEX_W, COG_TEX_H, "create cog panel swapchain",
+                       &ctx->cogPanelSwapchain, &ctx->cogPanelImages,
+                       &ctx->cogPanelImageCount);
+    ctx->cogArtShown = -1;
 
     createArtSwapchain(ctx, COG_THUMB_TEX, COG_THUMB_TEX, "create cog thumb swapchain",
                        &ctx->cogThumbSwapchain, &ctx->cogThumbImages, &ctx->cogThumbImageCount);
@@ -99,62 +106,23 @@ int createPointerSwapchain(XrCtx* ctx) {
     createArtSwapchain(ctx, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H, "create cog clock swapchain",
                        &ctx->cogClockSwapchain, &ctx->cogClockImages, &ctx->cogClockImageCount);
 
-    for (int state = 0; state < KB_STATE_COUNT; state++) {
-        createArtSwapchain(ctx, KB_TEX_W, KB_TEX_H, "create keyboard swapchain",
-                           &ctx->kbPanelSwapchains[state], &ctx->kbPanelImages[state],
-                           &ctx->kbPanelImageCounts[state]);
-    }
+    createArtSwapchain(ctx, KB_TEX_W, KB_TEX_H, "create keyboard swapchain",
+                       &ctx->kbPanelSwapchain, &ctx->kbPanelImages, &ctx->kbPanelImageCount);
+    ctx->kbStateShown = -1;
 
-    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
-        createArtSwapchain(ctx, EXIT_TEX_W, EXIT_TEX_H, "create exit prompt swapchain",
-                           &ctx->exitPromptSwapchains[sheet], &ctx->exitPromptImages[sheet],
-                           &ctx->exitPromptImageCounts[sheet]);
-    }
+    createArtSwapchain(ctx, EXIT_TEX_W, EXIT_TEX_H, "create exit prompt swapchain",
+                       &ctx->exitPromptSwapchain, &ctx->exitPromptImages,
+                       &ctx->exitPromptImageCount);
+    ctx->exitArtShown = -1;
 
     // The report sheet, drawn again whenever what it shows changes
     createArtSwapchain(ctx, REPORT_TEX_W, REPORT_TEX_H, "create report sheet swapchain",
                        &ctx->reportSwapchain, &ctx->reportImages, &ctx->reportImageCount);
 
-    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create keyboard button swapchain",
-                       &ctx->kbButtonSwapchain, &ctx->kbButtonImages, &ctx->kbButtonImageCount);
-    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create cog button swapchain",
-                       &ctx->cogButtonSwapchain, &ctx->cogButtonImages, &ctx->cogButtonImageCount);
-    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create env button swapchain",
-                       &ctx->envButtonSwapchain, &ctx->envButtonImages, &ctx->envButtonImageCount);
-    createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create exit button swapchain",
-                       &ctx->exitButtonSwapchain, &ctx->exitButtonImages,
-                       &ctx->exitButtonImageCount);
-    // The 3D switch, off and on, only where there is stereo to switch
-    if (ctx->stereoMode != DEPTH_MODE_OFF) {
-        for (int state = 0; state < 2; state++) {
-            createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create 3d button swapchain",
-                               &ctx->stereoButtonSwapchains[state],
-                               &ctx->stereoButtonImages[state],
-                               &ctx->stereoButtonImageCounts[state]);
-        }
-    }
-
-    // The ray's switch, off and on, in every session
-    for (int state = 0; state < 2; state++) {
-        createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create ray button swapchain",
-                           &ctx->rayButtonSwapchains[state], &ctx->rayButtonImages[state],
-                           &ctx->rayButtonImageCounts[state]);
-    }
-
-    // Head aim's switch, off and on, in every session, since head lock can
-    // come on at any time
-    for (int state = 0; state < 2; state++) {
-        createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create head aim button swapchain",
-                           &ctx->aimButtonSwapchains[state], &ctx->aimButtonImages[state],
-                           &ctx->aimButtonImageCounts[state]);
-    }
-
-    // Gamepad mode's switch, pointer and gamepad, in every session
-    for (int state = 0; state < 2; state++) {
-        createArtSwapchain(ctx, BUTTON_TEX, BUTTON_TEX, "create gamepad button swapchain",
-                           &ctx->padButtonSwapchains[state], &ctx->padButtonImages[state],
-                           &ctx->padButtonImageCounts[state]);
-    }
+    // Every button along the bar and both faces of every switch on it, the
+    // 3D switch's cells left empty where there is no stereo to switch
+    createArtSwapchain(ctx, BTN_ATLAS_W, BTN_ATLAS_H, "create bar button swapchain",
+                       &ctx->buttonSwapchain, &ctx->buttonImages, &ctx->buttonImageCount);
 
     // The hand lock hint, only in a session that may show it
     if (ctx->handsEnabled) {
@@ -177,6 +145,7 @@ int createPointerSwapchain(XrCtx* ctx) {
     createArtSwapchain(ctx, CORNER_TEX_W, CORNER_TEX_H, "create corner swapchain",
                        &ctx->cornerSwapchain, &ctx->cornerImages, &ctx->cornerImageCount);
 
+    LOGEV("swapchains alive %d", ctx->swapchainsAlive);
     return 1;
 }
 
@@ -453,6 +422,138 @@ static void uploadSheet(JNIEnv* env, XrCtx* ctx, jobject buffer, XrSwapchain cha
     }
 }
 
+// A sheet from Java kept in memory the way it goes up, rows flipped, in a
+// slot made the first time one arrives for it. Says whether it was kept: one
+// that never arrived or will not fit leaves the slot as it was.
+static int keepSheet(JNIEnv* env, jobject buffer, unsigned char** slot, int width, int height) {
+    if (buffer == NULL) {
+        return 0;
+    }
+    const unsigned char* px = (*env)->GetDirectBufferAddress(env, buffer);
+    if (!artBufferFits(env, buffer, px, width, height)) {
+        return 0;
+    }
+    size_t stride = (size_t)width * 4;
+    if (*slot == NULL) {
+        *slot = malloc(stride * height);
+        if (*slot == NULL) {
+            LOGE("no memory to keep a sheet of %dx%d", width, height);
+            return 0;
+        }
+    }
+    for (int y = 0; y < height; y++) {
+        memcpy(*slot + stride * y, px + stride * (height - 1 - y), stride);
+    }
+    return 1;
+}
+
+// Puts one kept sheet up in a chain that shows one of several, unless it is
+// the one up already. Every image of the chain may be handed to the
+// compositor, so it is always the whole sheet. One that will not go up is not
+// ready any more, so its layer stays out rather than showing another sheet.
+static int showSheet(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+                     unsigned char* const* sheets, int* ready, int which, int* shown,
+                     int width, int height) {
+    if (!ready[which] || sheets[which] == NULL) {
+        return 0;
+    }
+    if (*shown == which) {
+        return 1;
+    }
+    if (!uploadArt(ctx, chain, images, sheets[which], width, height)) {
+        ready[which] = 0;
+        *shown = -1;
+        return 0;
+    }
+    *shown = which;
+    return 1;
+}
+
+// Frame loop only, with the context current, like every other upload
+int showCogArt(XrCtx* ctx, int art) {
+    if (art < 0 || art >= COG_ART_COUNT) {
+        return 0;
+    }
+    return showSheet(ctx, ctx->cogPanelSwapchain, ctx->cogPanelImages, ctx->cogPanelPixels,
+                     ctx->cogPanelReady, art, &ctx->cogArtShown, COG_TEX_W, COG_TEX_H);
+}
+
+int showKbSheet(XrCtx* ctx, int state) {
+    if (state < 0 || state >= KB_STATE_COUNT) {
+        return 0;
+    }
+    return showSheet(ctx, ctx->kbPanelSwapchain, ctx->kbPanelImages, ctx->kbPanelPixels,
+                     ctx->kbPanelReady, state, &ctx->kbStateShown, KB_TEX_W, KB_TEX_H);
+}
+
+int showExitSheet(XrCtx* ctx, int zone) {
+    if (zone < 0 || zone >= EXIT_ART_COUNT) {
+        return 0;
+    }
+    return showSheet(ctx, ctx->exitPromptSwapchain, ctx->exitPromptImages,
+                     ctx->exitPromptPixels, ctx->exitPromptReady, zone, &ctx->exitArtShown,
+                     EXIT_TEX_W, EXIT_TEX_H);
+}
+
+// One face of a button along the bar into its cell of the kept texture, made
+// the first time a face arrives. Says whether it was written.
+static int putButtonFace(JNIEnv* env, XrCtx* ctx, jobject buffer, int cell) {
+    if (buffer == NULL || ctx->buttonSwapchain == XR_NULL_HANDLE) {
+        return 0;
+    }
+    const unsigned char* px = (*env)->GetDirectBufferAddress(env, buffer);
+    if (!artBufferFits(env, buffer, px, BUTTON_TEX, BUTTON_TEX)) {
+        return 0;
+    }
+    if (ctx->buttonAtlas == NULL) {
+        ctx->buttonAtlas = calloc((size_t)BTN_ATLAS_W * BTN_ATLAS_H * 4, 1);
+        if (ctx->buttonAtlas == NULL) {
+            LOGE("no memory for the bar's buttons");
+            return 0;
+        }
+    }
+    return buttonCellPut(ctx->buttonAtlas, cell, px);
+}
+
+// The whole of the buttons' texture up again, every face in it
+static int uploadButtons(XrCtx* ctx) {
+    return ctx->buttonAtlas != NULL
+            && uploadArt(ctx, ctx->buttonSwapchain, ctx->buttonImages, ctx->buttonAtlas,
+                         BTN_ATLAS_W, BTN_ATLAS_H);
+}
+
+// A button with one face, its ready flag left as it was when none arrived
+static void uploadButton(JNIEnv* env, XrCtx* ctx, jobject buffer, int cell, int* ready) {
+    if (putButtonFace(env, ctx, buffer, cell)) {
+        *ready = uploadButtons(ctx);
+    }
+}
+
+// A switch's two faces, off in its cell and on in the next, both or neither
+static int uploadSwitch(JNIEnv* env, XrCtx* ctx, jobject off, jobject on, int cell) {
+    int put = putButtonFace(env, ctx, off, cell);
+    put = putButtonFace(env, ctx, on, cell + 1) && put;
+    return put && uploadButtons(ctx);
+}
+
+// The kept sheets and the buttons' texture, at the end of the session
+void freeArtSheets(XrCtx* ctx) {
+    for (int art = 0; art < COG_ART_COUNT; art++) {
+        free(ctx->cogPanelPixels[art]);
+        ctx->cogPanelPixels[art] = NULL;
+    }
+    for (int state = 0; state < KB_STATE_COUNT; state++) {
+        free(ctx->kbPanelPixels[state]);
+        ctx->kbPanelPixels[state] = NULL;
+    }
+    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
+        free(ctx->exitPromptPixels[sheet]);
+        ctx->exitPromptPixels[sheet] = NULL;
+    }
+    free(ctx->buttonAtlas);
+    ctx->buttonAtlas = NULL;
+}
+
 // The thumbnail grid and the button that opens it, both drawn as Bitmaps in
 // Java. Same frame loop rule as the rest of the art. Flipped on the way in,
 // since a Bitmap runs top down and a texture does not. Java says how many
@@ -468,16 +569,15 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPicker(JNIEnv* env, jobj
     ctx->pickerCells = cells < 0 ? 0 : (cells > PICKER_CELLS ? PICKER_CELLS : cells);
     uploadSheet(env, ctx, grid, ctx->pickerSwapchain, ctx->pickerImages,
                 PICKER_TEX_W, PICKER_TEX_H, &ctx->pickerReady);
-    uploadSheet(env, ctx, button, ctx->envButtonSwapchain, ctx->envButtonImages,
-                BUTTON_TEX, BUTTON_TEX, &ctx->envButtonReady);
+    uploadButton(env, ctx, button, BTN_CELL_ENV, &ctx->envButtonReady);
     LOGI("picker art %s, button %s, %d of %d cells", ctx->pickerReady ? "ready" : "missing",
          ctx->envButtonReady ? "ready" : "missing", ctx->pickerCells, PICKER_CELLS);
 }
 
 // The settings panel and the cog that opens it, drawn in Java for the same
 // reason the grid is: the labels are text. Every sheet arrives together, in
-// COG_ART_ order, and is uploaded once, so changing tab later touches nothing.
-// The ones after the tabs are what a room shows in their place.
+// COG_ART_ order, and is kept, so changing tab later is one upload out of
+// memory. The ones after the tabs are what a room shows in their place.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject thiz,
                                                             jlong handle, jobjectArray sheets,
@@ -488,17 +588,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadCog(JNIEnv* env, jobject
     }
     int count = sheets != NULL ? (*env)->GetArrayLength(env, sheets) : 0;
     int ready = 0;
+    int shownAgain = 0;
     for (int art = 0; art < COG_ART_COUNT && art < count; art++) {
         jobject sheet = (*env)->GetObjectArrayElement(env, sheets, art);
-        uploadSheet(env, ctx, sheet, ctx->cogPanelSwapchains[art], ctx->cogPanelImages[art],
-                    COG_TEX_W, COG_TEX_H, &ctx->cogPanelReady[art]);
+        if (keepSheet(env, sheet, &ctx->cogPanelPixels[art], COG_TEX_W, COG_TEX_H)) {
+            ctx->cogPanelReady[art] = ctx->cogPanelSwapchain != XR_NULL_HANDLE;
+            shownAgain |= art == ctx->cogArtShown;
+        }
         if (sheet != NULL) {
             (*env)->DeleteLocalRef(env, sheet);
         }
         ready += ctx->cogPanelReady[art] ? 1 : 0;
     }
-    uploadSheet(env, ctx, button, ctx->cogButtonSwapchain, ctx->cogButtonImages,
-                BUTTON_TEX, BUTTON_TEX, &ctx->cogButtonReady);
+    // The sheet up now goes up again at once, the rest when they are shown
+    if (shownAgain) {
+        int art = ctx->cogArtShown;
+        ctx->cogArtShown = -1;
+        showCogArt(ctx, art);
+    }
+    uploadButton(env, ctx, button, BTN_CELL_COG, &ctx->cogButtonReady);
     LOGI("cog sheets %d of %d ready, button %s", ready, COG_ART_COUNT,
          ctx->cogButtonReady ? "ready" : "missing");
 }
@@ -565,16 +673,23 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboard(JNIEnv* env, jo
     }
 
     int sheetCount = sheets != NULL ? (*env)->GetArrayLength(env, sheets) : 0;
+    int shownAgain = 0;
     for (int state = 0; state < KB_STATE_COUNT && state < sheetCount; state++) {
         jobject sheet = (*env)->GetObjectArrayElement(env, sheets, state);
-        uploadSheet(env, ctx, sheet, ctx->kbPanelSwapchains[state],
-                    ctx->kbPanelImages[state], KB_TEX_W, KB_TEX_H, &ctx->kbPanelReady[state]);
+        if (keepSheet(env, sheet, &ctx->kbPanelPixels[state], KB_TEX_W, KB_TEX_H)) {
+            ctx->kbPanelReady[state] = ctx->kbPanelSwapchain != XR_NULL_HANDLE;
+            shownAgain |= state == ctx->kbStateShown;
+        }
         if (sheet != NULL) {
             (*env)->DeleteLocalRef(env, sheet);
         }
     }
-    uploadSheet(env, ctx, buttonIcon, ctx->kbButtonSwapchain, ctx->kbButtonImages,
-                BUTTON_TEX, BUTTON_TEX, &ctx->kbButtonReady);
+    if (shownAgain) {
+        int state = ctx->kbStateShown;
+        ctx->kbStateShown = -1;
+        showKbSheet(ctx, state);
+    }
+    uploadButton(env, ctx, buttonIcon, BTN_CELL_KB, &ctx->kbButtonReady);
 
     if (keyRects != NULL && codes != NULL
             && (*env)->GetArrayLength(env, codes) >= KB_STATE_COUNT) {
@@ -619,7 +734,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboard(JNIEnv* env, jo
 }
 
 // One keyboard sheet drawn again, with the modifiers lit as they are now. Only
-// ever the sheet showing, the frame after the lit ones changed.
+// ever the sheet showing, the frame after the lit ones changed, so it goes up
+// at once.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboardSheet(JNIEnv* env, jobject thiz,
                                                                        jlong handle, jint state,
@@ -628,13 +744,18 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadKeyboardSheet(JNIEnv* en
     if (ctx == NULL || sheet == NULL || state < 0 || state >= KB_STATE_COUNT) {
         return;
     }
-    uploadSheet(env, ctx, sheet, ctx->kbPanelSwapchains[state], ctx->kbPanelImages[state],
-                KB_TEX_W, KB_TEX_H, &ctx->kbPanelReady[state]);
+    if (keepSheet(env, sheet, &ctx->kbPanelPixels[state], KB_TEX_W, KB_TEX_H)) {
+        ctx->kbPanelReady[state] = ctx->kbPanelSwapchain != XR_NULL_HANDLE;
+        if (state == ctx->kbStateShown) {
+            ctx->kbStateShown = -1;
+            showKbSheet(ctx, state);
+        }
+    }
 }
 
 // The exit button and the prompt behind it. One sheet per lit button, handed
-// over in zone order, so which one is showing is a swapchain handle rather than
-// an upload.
+// over in zone order and kept, so lighting one is a small upload out of
+// memory.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobject thiz,
                                                               jlong handle, jobject button,
@@ -645,14 +766,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadExit(JNIEnv* env, jobjec
     if (ctx == NULL) {
         return;
     }
-    uploadSheet(env, ctx, button, ctx->exitButtonSwapchain, ctx->exitButtonImages,
-                BUTTON_TEX, BUTTON_TEX, &ctx->exitButtonReady);
+    uploadButton(env, ctx, button, BTN_CELL_EXIT, &ctx->exitButtonReady);
 
     jobject sheets[EXIT_ART_COUNT] = { promptPlain, promptExitHot, promptCancelHot };
+    int shownAgain = 0;
     for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
-        uploadSheet(env, ctx, sheets[sheet], ctx->exitPromptSwapchains[sheet],
-                    ctx->exitPromptImages[sheet], EXIT_TEX_W, EXIT_TEX_H,
-                    &ctx->exitPromptReady[sheet]);
+        if (keepSheet(env, sheets[sheet], &ctx->exitPromptPixels[sheet], EXIT_TEX_W,
+                      EXIT_TEX_H)) {
+            ctx->exitPromptReady[sheet] = ctx->exitPromptSwapchain != XR_NULL_HANDLE;
+            shownAgain |= sheet == ctx->exitArtShown;
+        }
+    }
+    if (shownAgain) {
+        int sheet = ctx->exitArtShown;
+        ctx->exitArtShown = -1;
+        showExitSheet(ctx, sheet);
     }
 
     // The last of the panels' art to arrive, so the splash has stopped waiting
@@ -732,22 +860,17 @@ Java_com_limelight_binding_video_XrRenderer_nativePushNotice(JNIEnv* env, jobjec
 }
 
 // The 3D switch's two faces, off and on. Both or neither.
-// Never called in a session without stereo, which has no swapchains for them.
+// Never called in a session without stereo, and refused in one all the same,
+// since a switch with nothing to switch must never be ready.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadStereoButton(JNIEnv* env, jobject thiz,
                                                                      jlong handle, jobject off,
                                                                      jobject on) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || off == NULL || on == NULL) {
+    if (ctx == NULL || off == NULL || on == NULL || ctx->stereoMode == DEPTH_MODE_OFF) {
         return;
     }
-    int offReady = 0;
-    int onReady = 0;
-    uploadSheet(env, ctx, off, ctx->stereoButtonSwapchains[0], ctx->stereoButtonImages[0],
-                BUTTON_TEX, BUTTON_TEX, &offReady);
-    uploadSheet(env, ctx, on, ctx->stereoButtonSwapchains[1], ctx->stereoButtonImages[1],
-                BUTTON_TEX, BUTTON_TEX, &onReady);
-    ctx->stereoButtonReady = offReady && onReady;
+    ctx->stereoButtonReady = uploadSwitch(env, ctx, off, on, BTN_CELL_STEREO);
     LOGI("3d button art %s", ctx->stereoButtonReady ? "ready" : "missing");
 }
 
@@ -760,13 +883,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRayButton(JNIEnv* env, j
     if (ctx == NULL || off == NULL || on == NULL) {
         return;
     }
-    int offReady = 0;
-    int onReady = 0;
-    uploadSheet(env, ctx, off, ctx->rayButtonSwapchains[0], ctx->rayButtonImages[0],
-                BUTTON_TEX, BUTTON_TEX, &offReady);
-    uploadSheet(env, ctx, on, ctx->rayButtonSwapchains[1], ctx->rayButtonImages[1],
-                BUTTON_TEX, BUTTON_TEX, &onReady);
-    ctx->rayButtonReady = offReady && onReady;
+    ctx->rayButtonReady = uploadSwitch(env, ctx, off, on, BTN_CELL_RAY);
     LOGI("ray button art %s", ctx->rayButtonReady ? "ready" : "missing");
 }
 
@@ -779,13 +896,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadAimButton(JNIEnv* env, j
     if (ctx == NULL || off == NULL || on == NULL) {
         return;
     }
-    int offReady = 0;
-    int onReady = 0;
-    uploadSheet(env, ctx, off, ctx->aimButtonSwapchains[0], ctx->aimButtonImages[0],
-                BUTTON_TEX, BUTTON_TEX, &offReady);
-    uploadSheet(env, ctx, on, ctx->aimButtonSwapchains[1], ctx->aimButtonImages[1],
-                BUTTON_TEX, BUTTON_TEX, &onReady);
-    ctx->aimButtonReady = offReady && onReady;
+    ctx->aimButtonReady = uploadSwitch(env, ctx, off, on, BTN_CELL_AIM);
     LOGI("head aim button art %s", ctx->aimButtonReady ? "ready" : "missing");
 }
 
@@ -798,13 +909,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPadButton(JNIEnv* env, j
     if (ctx == NULL || off == NULL || on == NULL) {
         return;
     }
-    int offReady = 0;
-    int onReady = 0;
-    uploadSheet(env, ctx, off, ctx->padButtonSwapchains[0], ctx->padButtonImages[0],
-                BUTTON_TEX, BUTTON_TEX, &offReady);
-    uploadSheet(env, ctx, on, ctx->padButtonSwapchains[1], ctx->padButtonImages[1],
-                BUTTON_TEX, BUTTON_TEX, &onReady);
-    ctx->padButtonReady = offReady && onReady;
+    ctx->padButtonReady = uploadSwitch(env, ctx, off, on, BTN_CELL_PAD);
     LOGI("gamepad button art %s", ctx->padButtonReady ? "ready" : "missing");
 }
 

@@ -1,6 +1,9 @@
 // The hover zones, the stand in screen, the Room tab's lanes and the 3D tab's
 // depth track and presets, checked against answers that can be worked out by
 // hand
+#include <stdlib.h>
+#include <string.h>
+
 #include "check.h"
 #include "xr_layout.h"
 #include "xr_shared.h"
@@ -807,7 +810,91 @@ static void testTheKofiButton(void) {
     CHECK(KOFI_QR_T + (float)KOFI_QR_PX / KOFI_TEX_H < 1.0f);
 }
 
+// The bar's buttons share one texture, a cell a face. Every face has a cell
+// of its own inside the texture, all in one row so the image rect never
+// offsets in y, and a face written in lands in its cell the right way up for
+// a texture uploaded bottom row first, touching nothing else.
+static void testTheButtonCells(void) {
+    CHECK(BTN_ATLAS_W == 1536 && BTN_ATLAS_H == BUTTON_TEX);
+    // Every switch has its on face in the cell after its off face, and the
+    // last switch's on face is the last cell
+    CHECK(BTN_CELL_STEREO + 1 < BTN_CELL_RAY && BTN_CELL_RAY + 1 < BTN_CELL_AIM);
+    CHECK(BTN_CELL_AIM + 1 < BTN_CELL_PAD && BTN_CELL_PAD + 1 == BTN_CELLS - 1);
+
+    int seen[BTN_ATLAS_COLS * BTN_ATLAS_ROWS] = { 0 };
+    for (int cell = 0; cell < BTN_CELLS; cell++) {
+        int x = -1, y = -1;
+        CHECK(buttonCellOrigin(cell, &x, &y));
+        CHECK(x >= 0 && x + BUTTON_TEX <= BTN_ATLAS_W);
+        CHECK(y >= 0 && y + BUTTON_TEX <= BTN_ATLAS_H);
+        CHECK(x % BUTTON_TEX == 0 && y == 0);
+        seen[(y / BUTTON_TEX) * BTN_ATLAS_COLS + x / BUTTON_TEX]++;
+    }
+    for (int i = 0; i < BTN_CELLS; i++) {
+        CHECK(seen[i] == 1);
+    }
+    int x = -1, y = -1;
+    CHECK(buttonCellOrigin(0, &x, &y) && x == 0 && y == 0);
+    CHECK(buttonCellOrigin(BTN_CELL_STEREO + 1, &x, &y) && x == 640 && y == 0);
+    CHECK(buttonCellOrigin(BTN_CELL_PAD + 1, &x, &y) && x == 1408 && y == 0);
+    CHECK(!buttonCellOrigin(-1, &x, &y) && x == 0 && y == 0);
+    CHECK(!buttonCellOrigin(BTN_CELLS, &x, &y));
+
+    // A face whose every pixel says where it is, put into the cell of the
+    // ray's on face
+    const size_t faceBytes = (size_t)BUTTON_TEX * BUTTON_TEX * 4;
+    const size_t atlasBytes = (size_t)BTN_ATLAS_W * BTN_ATLAS_H * 4;
+    unsigned char* face = malloc(faceBytes);
+    unsigned char* atlas = calloc(atlasBytes, 1);
+    for (int fy = 0; fy < BUTTON_TEX; fy++) {
+        for (int fx = 0; fx < BUTTON_TEX; fx++) {
+            unsigned char* p = face + ((size_t)fy * BUTTON_TEX + fx) * 4;
+            p[0] = (unsigned char)fx;
+            p[1] = (unsigned char)fy;
+            p[2] = 200;
+            p[3] = 255;
+        }
+    }
+    int cell = BTN_CELL_RAY + 1;
+    CHECK(buttonCellPut(atlas, cell, face));
+    buttonCellOrigin(cell, &x, &y);
+    int right = 1;
+    int written = 0;
+    for (int ty = 0; ty < BTN_ATLAS_H; ty++) {
+        for (int tx = 0; tx < BTN_ATLAS_W; tx++) {
+            const unsigned char* p = atlas + ((size_t)ty * BTN_ATLAS_W + tx) * 4;
+            int inside = tx >= x && tx < x + BUTTON_TEX && ty >= y && ty < y + BUTTON_TEX;
+            if (!inside) {
+                right &= p[0] == 0 && p[1] == 0 && p[2] == 0 && p[3] == 0;
+                continue;
+            }
+            // The face's top row is the cell's last texel row, since the
+            // texture is uploaded bottom row first
+            int fx = tx - x;
+            int fy = BUTTON_TEX - 1 - (ty - y);
+            right &= p[0] == fx && p[1] == fy && p[2] == 200 && p[3] == 255;
+            written++;
+        }
+    }
+    CHECK(right);
+    CHECK(written == BUTTON_TEX * BUTTON_TEX);
+
+    // Nothing is written for a cell past the grid, or with nothing to write
+    unsigned char* before = malloc(atlasBytes);
+    memcpy(before, atlas, atlasBytes);
+    CHECK(!buttonCellPut(atlas, BTN_CELLS, face));
+    CHECK(!buttonCellPut(atlas, -1, face));
+    CHECK(!buttonCellPut(atlas, 0, NULL));
+    CHECK(!buttonCellPut(NULL, 0, face));
+    CHECK(memcmp(before, atlas, atlasBytes) == 0);
+
+    free(before);
+    free(face);
+    free(atlas);
+}
+
 int main(void) {
+    testTheButtonCells();
     testTheRowsFit();
     testTheReportParts();
     testTheHintButtons();

@@ -800,44 +800,30 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     free(ctx->roomModelVerts);
     free(ctx->roomModelIndices);
 
-    destroyArtSwapchain(&ctx->swapchain, &ctx->swapchainImages);
-    destroyArtSwapchain(&ctx->overlaySwapchain, &ctx->overlayImages);
-    destroyArtSwapchain(&ctx->pointerSwapchain, &ctx->pointerImages);
-    destroyArtSwapchain(&ctx->barSwapchain, &ctx->barImages);
-    destroyArtSwapchain(&ctx->cornerSwapchain, &ctx->cornerImages);
-    destroyArtSwapchain(&ctx->pickerSwapchain, &ctx->pickerImages);
-    destroyArtSwapchain(&ctx->envButtonSwapchain, &ctx->envButtonImages);
-    for (int tab = 0; tab < COG_ART_COUNT; tab++) {
-        destroyArtSwapchain(&ctx->cogPanelSwapchains[tab], &ctx->cogPanelImages[tab]);
-    }
-    destroyArtSwapchain(&ctx->cogButtonSwapchain, &ctx->cogButtonImages);
-    destroyArtSwapchain(&ctx->cogThumbSwapchain, &ctx->cogThumbImages);
-    destroyArtSwapchain(&ctx->cogReadoutSwapchain, &ctx->cogReadoutImages);
-    destroyArtSwapchain(&ctx->cogMarksSwapchain, &ctx->cogMarksImages);
-    destroyArtSwapchain(&ctx->cogClockSwapchain, &ctx->cogClockImages);
-    for (int state = 0; state < KB_STATE_COUNT; state++) {
-        destroyArtSwapchain(&ctx->kbPanelSwapchains[state], &ctx->kbPanelImages[state]);
-    }
-    destroyArtSwapchain(&ctx->kbButtonSwapchain, &ctx->kbButtonImages);
-    for (int sheet = 0; sheet < EXIT_ART_COUNT; sheet++) {
-        destroyArtSwapchain(&ctx->exitPromptSwapchains[sheet], &ctx->exitPromptImages[sheet]);
-    }
-    destroyArtSwapchain(&ctx->exitButtonSwapchain, &ctx->exitButtonImages);
-    destroyArtSwapchain(&ctx->reportSwapchain, &ctx->reportImages);
-    for (int state = 0; state < 2; state++) {
-        destroyArtSwapchain(&ctx->stereoButtonSwapchains[state], &ctx->stereoButtonImages[state]);
-        destroyArtSwapchain(&ctx->rayButtonSwapchains[state], &ctx->rayButtonImages[state]);
-        destroyArtSwapchain(&ctx->aimButtonSwapchains[state], &ctx->aimButtonImages[state]);
-        destroyArtSwapchain(&ctx->padButtonSwapchains[state], &ctx->padButtonImages[state]);
-    }
-    destroyArtSwapchain(&ctx->hintSwapchain, &ctx->hintImages);
-    destroyArtSwapchain(&ctx->kofiSwapchain, &ctx->kofiImages);
-    destroyArtSwapchain(&ctx->outlineSwapchain, &ctx->outlineImages);
-    destroyArtSwapchain(&ctx->glowSwapchain, &ctx->glowImages);
-    destroyArtSwapchain(&ctx->roomSwapchain, &ctx->roomImages);
-    destroyArtSwapchain(&ctx->modelSwapchain, &ctx->modelImages);
-    destroyArtSwapchain(&ctx->splashSwapchain, &ctx->splashImages);
-    destroyArtSwapchain(&ctx->toastSwapchain, &ctx->toastImages);
+    destroyArtSwapchain(ctx, &ctx->swapchain, &ctx->swapchainImages);
+    destroyArtSwapchain(ctx, &ctx->overlaySwapchain, &ctx->overlayImages);
+    destroyArtSwapchain(ctx, &ctx->pointerSwapchain, &ctx->pointerImages);
+    destroyArtSwapchain(ctx, &ctx->barSwapchain, &ctx->barImages);
+    destroyArtSwapchain(ctx, &ctx->cornerSwapchain, &ctx->cornerImages);
+    destroyArtSwapchain(ctx, &ctx->pickerSwapchain, &ctx->pickerImages);
+    destroyArtSwapchain(ctx, &ctx->cogPanelSwapchain, &ctx->cogPanelImages);
+    destroyArtSwapchain(ctx, &ctx->cogThumbSwapchain, &ctx->cogThumbImages);
+    destroyArtSwapchain(ctx, &ctx->cogReadoutSwapchain, &ctx->cogReadoutImages);
+    destroyArtSwapchain(ctx, &ctx->cogMarksSwapchain, &ctx->cogMarksImages);
+    destroyArtSwapchain(ctx, &ctx->cogClockSwapchain, &ctx->cogClockImages);
+    destroyArtSwapchain(ctx, &ctx->kbPanelSwapchain, &ctx->kbPanelImages);
+    destroyArtSwapchain(ctx, &ctx->exitPromptSwapchain, &ctx->exitPromptImages);
+    destroyArtSwapchain(ctx, &ctx->reportSwapchain, &ctx->reportImages);
+    destroyArtSwapchain(ctx, &ctx->buttonSwapchain, &ctx->buttonImages);
+    destroyArtSwapchain(ctx, &ctx->hintSwapchain, &ctx->hintImages);
+    destroyArtSwapchain(ctx, &ctx->kofiSwapchain, &ctx->kofiImages);
+    destroyArtSwapchain(ctx, &ctx->outlineSwapchain, &ctx->outlineImages);
+    destroyArtSwapchain(ctx, &ctx->glowSwapchain, &ctx->glowImages);
+    destroyArtSwapchain(ctx, &ctx->roomSwapchain, &ctx->roomImages);
+    destroyArtSwapchain(ctx, &ctx->modelSwapchain, &ctx->modelImages);
+    destroyArtSwapchain(ctx, &ctx->splashSwapchain, &ctx->splashImages);
+    destroyArtSwapchain(ctx, &ctx->toastSwapchain, &ctx->toastImages);
+    freeArtSheets(ctx);
     if (ctx->localSpace != XR_NULL_HANDLE) {
         xrDestroySpace(ctx->localSpace);
     }

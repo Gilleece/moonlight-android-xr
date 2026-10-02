@@ -54,6 +54,7 @@ static int initModelPass(XrCtx* ctx) {
                             &ctx->modelSwapchain, &ctx->modelImages, &ctx->modelImageCount)) {
         return 0;
     }
+    LOGEV("swapchains alive %d with the controller models'", ctx->swapchainsAlive);
     glGenRenderbuffers(1, &ctx->modelDepthBuffer);
     glBindRenderbuffer(GL_RENDERBUFFER, ctx->modelDepthBuffer);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, eyeW * ROOM_EYES, eyeH);

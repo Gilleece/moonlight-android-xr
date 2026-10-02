@@ -120,6 +120,36 @@ void barSlotPlacement(int slot, float width, float height, Vec3* outLocal, float
 // a button, which reaches a little further than it draws
 int barSlotHit(int slot, float u, float v, float width, float height);
 
+// Every face of every button along the bar shares one texture, a strip of
+// BUTTON_TEX cells side by side, so the row costs one swapchain rather than
+// one a face. One row, so a cell is picked by its x offset alone and never
+// depends on which corner a runtime counts an image rect's y from. A switch
+// has its off face in its cell and its on face in the next.
+#define BTN_CELL_KB     0
+#define BTN_CELL_COG    1
+#define BTN_CELL_ENV    2
+#define BTN_CELL_EXIT   3
+#define BTN_CELL_STEREO 4
+#define BTN_CELL_RAY    6
+#define BTN_CELL_AIM    8
+#define BTN_CELL_PAD    10
+#define BTN_CELLS       12
+#define BTN_ATLAS_COLS  12
+#define BTN_ATLAS_ROWS  1
+#define BTN_ATLAS_W     (BTN_ATLAS_COLS * BUTTON_TEX)
+#define BTN_ATLAS_H     (BTN_ATLAS_ROWS * BUTTON_TEX)
+
+// Where a cell starts in that texture, in texels from its first column and
+// its first row as uploaded, which is the image rect's offset. 0 for a cell
+// past the strip.
+int buttonCellOrigin(int cell, int* outX, int* outY);
+
+// Writes one face, BUTTON_TEX square RGBA rows running top down the way a
+// Bitmap does, into its cell of a copy of the whole texture kept in upload
+// order. Flipped on the way, so it shows the right way up. 0 for a cell past
+// the strip, which writes nothing.
+int buttonCellPut(unsigned char* atlas, int cell, const unsigned char* face);
+
 // Which affordance a point on a screen of that size is over, u and v across
 // it from the top left. cornerSide is how big the corner brackets are drawn,
 // in metres, and 0 where there are none, which lets the ray fall through to
