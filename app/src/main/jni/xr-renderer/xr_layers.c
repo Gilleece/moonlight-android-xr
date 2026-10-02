@@ -373,11 +373,13 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     if (glowOn && ctx->glowRendered && ctx->everRendered && ctx->shouldRender) {
         // A curved picture's sides come round toward the viewer and would
         // cover a flat glow's, leaving it only above and below, so the glow
-        // curves with it: the same axis, a little inside the same radius
+        // curves with it: the same axis, a little inside the same radius,
+        // around the picture as drawn
         GlowCylinder shape;
+        float fit = cylinderFit(view->screenWidth, ctx->screenRadius);
         if (view->screenCurved
-                && glowCylinderFor(view->screenWidth, view->screenHeight, ctx->screenRadius,
-                                   &shape)) {
+                && glowCylinderFor(view->screenWidth * fit, view->screenHeight * fit,
+                                   ctx->screenRadius, &shape)) {
             XrCompositionLayerCylinderKHR* cyl = &layers->glowCylinder;
             memset(cyl, 0, sizeof(*cyl));
             cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
@@ -458,8 +460,18 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
             Vec3 axisLocal = { 0.0f, 0.0f, radius };
             cyl->pose = poseOffset(view->screenPose, axisLocal);
             cyl->radius = radius;
-            cyl->centralAngle = view->screenWidth / radius;
+            // Under a full turn, or the runtime can refuse the frame. The
+            // aspect ratio holds, so a picture that would wrap further comes
+            // out smaller rather than squashed.
+            cyl->centralAngle = cylinderAngle(view->screenWidth, radius);
             cyl->aspectRatio = 1.0f / view->aspect;
+            int clamped = cyl->centralAngle < view->screenWidth / radius;
+            if (eye == 0 && clamped != ctx->cylinderClampSaid) {
+                ctx->cylinderClampSaid = clamped;
+                LOGI("screen cylinder %.2f rad, %s %.2f rad at %.0f percent size",
+                     view->screenWidth / radius, clamped ? "held to" : "back to",
+                     cyl->centralAngle, 100.0f * cylinderFit(view->screenWidth, radius));
+            }
             pushLayer(ctx, layers, cyl);
         }
         else {

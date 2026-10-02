@@ -5,6 +5,7 @@
 
 #include "check.h"
 #include "xr_glow.h"
+#include "xr_math.h"
 
 #define N AMBI_SAMPLE_TEX
 
@@ -536,6 +537,17 @@ static void testCylinderEdgeCases(void) {
     // A radius too small to come in by the offset keeps its own
     CHECK(glowCylinderFor(0.08f, 0.045f, 0.08f, &g));
     CHECK_NEAR(g.radius, 0.08, 1e-6);
+    // The nearest screen at full curve, 3 m wide, wraps 15 rad and is drawn
+    // held under a full turn and smaller: the glow goes round that picture
+    // and still stays short of a turn, its middle columns only
+    float held = 0.2f * CYLINDER_MAX_ANGLE;
+    CHECK(glowCylinderFor(held, held * 9.0f / 16.0f, 0.2f, &g));
+    CHECK(g.centralAngle <= GLOW_MAX_ANGLE && g.centralAngle < 2.0f * PI_F);
+    CHECK(g.rectWidth < GLOW_TEX && g.rectWidth >= 2);
+    // So does the size it was asked for
+    CHECK(glowCylinderFor(3.0f, 3.0f * 9.0f / 16.0f, 0.2f, &g));
+    CHECK(g.centralAngle <= GLOW_MAX_ANGLE && g.centralAngle < 2.0f * PI_F);
+    CHECK(GLOW_MAX_ANGLE < CYLINDER_MAX_ANGLE);
     // The default screen at full curve, 3 m off: 1 rad of picture, 1.7 of glow
     CHECK(glowCylinderFor(3.0f, 3.0f * 9.0f / 16.0f, 3.0f, &g));
     CHECK_NEAR(g.centralAngle, 1.7, 1e-5);

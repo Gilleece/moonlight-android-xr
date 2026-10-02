@@ -872,6 +872,8 @@ typedef struct {
     int passthroughBlendSaid;
 
     int cylinderSupported;
+    // The screen's cylinder is held under a full turn, as last said in the log
+    int cylinderClampSaid;
     int layerSettingsSupported;
     // Layer colour scale (XR_KHR_composition_layer_color_scale_bias), which is
     // what fades a layer without drawing anything. Without it the panels and

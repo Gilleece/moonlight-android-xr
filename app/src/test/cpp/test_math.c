@@ -173,6 +173,94 @@ static void testScreenRoundTrip(int curved) {
     }
 }
 
+// A picture asked to wrap further than a cylinder layer may goes just under a
+// full turn, drawn smaller and in proportion, and the pointer finds it as drawn
+static void testCylinderClamp(void) {
+    const float turn = 2.0f * 3.14159265f;
+    // Under the limit nothing changes
+    CHECK_NEAR(cylinderAngle(3.0f, 3.55f), 3.0f / 3.55f, 1e-6);
+    CHECK(cylinderFit(3.0f, 3.55f) == 1.0f);
+    // The panel's nearest screen at full curve, 3 m wide, asks for 15 rad
+    float angle = cylinderAngle(3.0f, 0.2f);
+    CHECK(angle < turn);
+    CHECK(angle > turn - 0.02f);
+    CHECK(angle == CYLINDER_MAX_ANGLE);
+    CHECK_NEAR(cylinderFit(3.0f, 0.2f), 0.2 * CYLINDER_MAX_ANGLE / 3.0, 1e-6);
+    CHECK_NEAR(cylinderFit(3.0f, 0.2f), 0.418, 1e-3);
+    // Nothing to divide by is still a cylinder a runtime takes
+    CHECK(cylinderAngle(3.0f, 0.0f) == CYLINDER_MAX_ANGLE);
+    CHECK(cylinderFit(0.0f, 0.2f) == 1.0f);
+
+    // Every distance the panel reaches, every width and curve, the way the
+    // panel works the radius out: always under a turn, and the arc kept
+    // wherever it fits
+    const float distances[] = { 0.2f, 0.3f, 0.5f, 1.0f, 2.0f, 3.0f, 8.0f };
+    const float widths[] = { 0.8f, 1.5f, 3.0f, 5.0f, 8.0f };
+    const float curves[] = { 0.02f, 0.25f, 0.5f, 0.75f, 1.0f };
+    int over = 0, wrong = 0, held = 0;
+    for (int i = 0; i < (int)(sizeof(distances) / sizeof(distances[0])); i++) {
+        for (int j = 0; j < (int)(sizeof(widths) / sizeof(widths[0])); j++) {
+            for (int k = 0; k < (int)(sizeof(curves) / sizeof(curves[0])); k++) {
+                float r = distances[i] * (1.0f + 3.0f * (1.0f - curves[k]));
+                float w = widths[j];
+                float a = cylinderAngle(w, r);
+                float fit = cylinderFit(w, r);
+                if (!(a > 0.0f && a < turn) || !(fit > 0.0f && fit <= 1.0f)) {
+                    over++;
+                }
+                // The arc drawn is the picture's width at the drawn scale
+                if (fabsf(a * r - w * fit) > 1e-4f * w) {
+                    wrong++;
+                }
+                if (w / r < CYLINDER_MAX_ANGLE) {
+                    if (a != w / r || fit != 1.0f) wrong++;
+                }
+                else {
+                    held++;
+                }
+            }
+        }
+    }
+    CHECK(over == 0);
+    CHECK(wrong == 0);
+    CHECK(held > 10);
+
+    // Points placed on the drawn picture and aimed at from the viewer, who
+    // sits on the axis, come back where they were put, edges included
+    const float width = 3.0f;
+    const float height = 1.6875f;
+    const float radius = 0.2f;
+    XrPosef screen;
+    screen.orientation = identity();
+    screen.position.x = 0.0f;
+    screen.position.y = 0.0f;
+    screen.position.z = -radius;
+    const float points[][2] = { { 0.5f, 0.5f }, { 0.1f, 0.2f }, { 0.9f, 0.8f }, { 0.0f, 0.0f },
+                                { 1.0f, 1.0f } };
+    for (size_t p = 0; p < sizeof(points) / sizeof(points[0]); p++) {
+        Vec3 target = screenPoint(points[p][0], points[p][1], screen, width, height, radius, 1);
+        // On the cylinder, about the viewer
+        CHECK_NEAR(sqrtf(target.x * target.x + target.z * target.z), radius, 1e-5);
+        // At the drawn height
+        CHECK_NEAR(target.y, (0.5f - points[p][1]) * height * cylinderFit(width, radius), 1e-5);
+        Vec3 dir = vecNorm(target);
+        Vec3 minusZ = { 0.0f, 0.0f, -1.0f };
+        Vec3 axis = vecCross(minusZ, dir);
+        float turnTo = acosf(fmaxf(-1.0f, fminf(1.0f, vecDot(minusZ, dir))));
+        XrPosef aim;
+        aim.position.x = aim.position.y = aim.position.z = 0.0f;
+        aim.orientation = vecDot(axis, axis) < 1e-12f ? identity()
+                                                      : axisAngleQuat(vecNorm(axis), turnTo);
+        float u = -1.0f, v = -1.0f;
+        CHECK(screenProject(aim, screen, width, height, radius, 1, &u, &v));
+        CHECK_NEAR(u, points[p][0], 1e-3);
+        CHECK_NEAR(v, points[p][1], 1e-3);
+    }
+    // The drawn edges sit half the held angle round either way
+    Vec3 right = screenPoint(1.0f, 0.5f, screen, width, height, radius, 1);
+    CHECK_NEAR(atan2f(right.x, -right.z), 0.5f * CYLINDER_MAX_ANGLE, 1e-4);
+}
+
 static void testCurveLocal(void) {
     // Flat leaves everything alone
     Vec3 flat = { 1.0f, 0.5f, 0.02f };
@@ -352,6 +440,7 @@ int main(void) {
     testMatrices();
     testScreenRoundTrip(0);
     testScreenRoundTrip(1);
+    testCylinderClamp();
     testCurveLocal();
     testYawBetween();
     testPoseInFrame();
