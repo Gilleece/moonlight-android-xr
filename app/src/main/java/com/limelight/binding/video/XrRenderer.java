@@ -20,6 +20,7 @@ import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.input.EyeTrackingPermission;
+import com.limelight.binding.input.XrPad;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
 import com.limelight.utils.BugReport;
@@ -90,6 +91,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile boolean stopping;
     // Set once the session has been focused, which is when a launch is through
     private volatile boolean focusedOnce;
+    // The session gone to stopping or idle after that, as the listener was
+    // last told. Frame loop only.
+    private boolean sessionAway;
     private long videoFrameIndex;
 
     // The depth pipeline. Each capture travels in one of DEPTH_PAIRS pairs of
@@ -161,6 +165,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // only.
     private boolean padPlugged;
     private final int[] padSent = new int[IN_PAD_RY - IN_PAD_BUTTONS + 1];
+    // The host's rumble on that pad as the last word said it, written from
+    // the connection's thread, and the word last handed down, frame loop only
+    private final Object rumbleLock = new Object();
+    private long rumbleCount;
+    private volatile long rumbleWord;
+    private long rumbleHanded;
     // The head's yaw against the screen, for the virtual surround. Written by
     // the frame loop and read by the audio thread once a block.
     private volatile float headYaw;
@@ -364,6 +374,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * The host's rumble for gamepad mode's pad, the two motors as they came:
+     * the low one on the left controller, the high one on the right, until
+     * the host says otherwise or the pad comes out. Any thread; the frame
+     * loop picks it up.
+     */
+    public void setRumble(short lowFreqMotor, short highFreqMotor) {
+        synchronized (rumbleLock) {
+            rumbleCount++;
+            rumbleWord = XrPad.rumbleWord(rumbleCount, lowFreqMotor, highFreqMotor);
+        }
+    }
+
+    /**
      * Whether the session has been focused yet. Until it has, the runtime may
      * still be holding the launch, behind a boundary prompt for one, and the
      * activity can be stopped meanwhile without the user having left. Any
@@ -417,6 +440,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // stream again. Once at most, from the render thread, and never for
         // a stop the activity asked for. reason is for the log.
         void onVrSessionEnded(String reason);
+
+        // After the first focus the session went to stopping or idle, which
+        // is what a removed headset does, and later came back to focused.
+        // Once each way, in turn, from the render thread.
+        default void onVrSessionAway() {
+        }
+
+        default void onVrSessionBack() {
+        }
     }
 
     // How long a start is waited for before it counts as failed
@@ -494,6 +526,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native boolean nativeHasBeenFocused(long ctx);
+    // A PRESENCE_ value, for a removed headset's hold
+    private native int nativeGetPresence(long ctx);
     // Why the runtime ended the frame loop, or null
     private native String nativeGetExitReason(long ctx);
     private native String nativeGetRuntime(long ctx);
@@ -523,6 +557,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Whether a session starts in gamepad mode, and the sticks' dead zone in
     // the whole percent the settings keep for a real pad
     private native void nativeSetGamepad(long ctx, int shortcut, int deadzonePercent);
+    // The host's rumble on the pad, each motor 0 to 65535
+    private native void nativeSetRumble(long ctx, int lowMotor, int highMotor);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -1062,6 +1098,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (r == FRAME_EXIT) {
                 return !stopping;
             }
+            trackPresence();
             if (r == FRAME_IDLE) {
                 // Native side slept already while the session is not running.
                 // The click's track is kept fed regardless, so it is playing
@@ -1082,6 +1119,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             // from it on both sides of the frame, so a press takes effect on
             // the next one with no native state to keep in step.
             boolean headLocked = prefs.vrHeadLocked;
+
+            // Each word from the host arms the controllers on this pass
+            long rumble = rumbleWord;
+            if (rumble != rumbleHanded) {
+                rumbleHanded = rumble;
+                nativeSetRumble(nativeCtx, XrPad.rumbleLow(rumble), XrPad.rumbleHigh(rumble));
+            }
 
             // The pointer sleep row on the panel writes back to this same
             // object, so it is read fresh each frame like head lock
@@ -1411,12 +1455,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         nativeSetEnvironment(nativeCtx, cell);
 
         // The grid is a second way to reach the passthrough switch, so the
-        // setting follows it rather than disagreeing with what is on screen
-        PreferenceManager.getDefaultSharedPreferences(prefsContext).edit()
-                .putInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING,
-                        EnvironmentIds.idForCell(cell))
-                .putBoolean(PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING, passthroughOn)
-                .apply();
+        // setting follows it rather than disagreeing with what is on screen.
+        // The 2D settings' list keeps its choice the same way.
+        EnvironmentIds.store(PreferenceManager.getDefaultSharedPreferences(prefsContext),
+                EnvironmentIds.idForCell(cell));
     }
 
     // The mesh a baked room is built from, by the cell that shows it, or null
@@ -1624,6 +1666,27 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (setting >= 0) {
             applySetting(setting, (int)inputState[IN_SETTING_VALUE],
                     (int)inputState[IN_SETTING_ROOM]);
+        }
+    }
+
+    // The session leaving after its first focus and coming back, told to the
+    // activity once each way. Frame loop only.
+    private void trackPresence() {
+        int presence = nativeGetPresence(nativeCtx);
+        SessionListener listener = sessionListener;
+        if (presence == PRESENCE_AWAY && !sessionAway) {
+            sessionAway = true;
+            LimeLog.info("VR session stopped after its first focus");
+            if (listener != null) {
+                listener.onVrSessionAway();
+            }
+        }
+        else if (presence == PRESENCE_FOCUSED && sessionAway) {
+            sessionAway = false;
+            LimeLog.info("VR session focused again");
+            if (listener != null) {
+                listener.onVrSessionBack();
+            }
         }
     }
 

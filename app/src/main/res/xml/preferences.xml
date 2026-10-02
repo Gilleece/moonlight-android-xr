@@ -79,6 +79,15 @@
             android:title="@string/title_vr_passthrough"
             android:summary="@string/summary_vr_passthrough"
             android:defaultValue="false"/>
+        <!-- Not stored under its own key: it stands for the environment id the
+             headset's picker saves, which the settings screen reads and writes -->
+        <ListPreference
+            android:key="list_vr_environment"
+            android:title="@string/title_vr_environment"
+            android:entries="@array/vr_environment_names"
+            android:entryValues="@array/vr_environment_values"
+            android:summary="@string/summary_vr_environment"
+            android:persistent="false" />
         <ListPreference
             android:key="list_vr_depth_source"
             android:title="@string/title_vr_depth_source"
@@ -93,6 +102,11 @@
             android:entryValues="@array/vr_env_res_values"
             android:summary="@string/summary_vr_env_res"
             android:defaultValue="standard" />
+        <CheckBoxPreference
+            android:key="checkbox_vr_doff_grace"
+            android:title="@string/title_vr_doff_grace"
+            android:summary="@string/summary_vr_doff_grace"
+            android:defaultValue="true"/>
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_picture_brightness"
             android:defaultValue="0"

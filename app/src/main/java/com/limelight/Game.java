@@ -20,6 +20,7 @@ import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
+import com.limelight.binding.video.XrDoffHold;
 import com.limelight.binding.video.XrRenderer;
 import com.limelight.binding.video.XrStartFailure;
 import com.limelight.nvstream.NvConnection;
@@ -192,6 +193,12 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
     };
 
+    // A headset taken off after the first focus holds the stream for a minute
+    // rather than ending it, with the sound muted and nothing sent, see
+    // XrDoffGrace; and whether pointer input is held back meanwhile
+    private XrDoffHold doffHold;
+    private volatile boolean vrInputHeld;
+
     // Last absolute position sent from the VR pointer, so a still controller
     // does not repeat the same position every frame
     private int lastVrPointerX = -1;
@@ -290,6 +297,32 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         // Read the stream preferences
         prefConfig = PreferenceConfiguration.readPreferences(this);
         tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
+        doffHold = new XrDoffHold(prefConfig.vrDoffGrace, new XrDoffHold.Owner() {
+            @Override
+            public void onDoffHold() {
+                vrInputHeld = true;
+                AndroidAudioRenderer audio = audioRenderer;
+                if (audio != null) {
+                    audio.setMuted(true);
+                }
+            }
+
+            @Override
+            public void onDoffResume() {
+                vrInputHeld = false;
+                AndroidAudioRenderer audio = audioRenderer;
+                if (audio != null) {
+                    audio.setMuted(false);
+                }
+            }
+
+            @Override
+            public void onDoffExpired() {
+                // As the exit button leaves
+                stopConnection();
+                finish();
+            }
+        });
 
         // Enter landscape unless we're on a square screen
         setPreferredOrientationForCurrentDisplay();
@@ -593,7 +626,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                         prefConfig.vrHeadAimSensitivity, prefConfig.vrHeadAimDeadZone, "=")
                 + " " + PreferenceConfiguration.gamepadToggleLabel(prefConfig.vrGamepadToggle, "=")
                 + " clickSound=" + prefConfig.vrClickSound
+                + " doffGrace=" + prefConfig.vrDoffGrace
                 + " " + PreferenceConfiguration.pictureLabel(prefConfig.vrPicture, "=")
+                + " gamepadMask=0x" + Integer.toHexString(gamepadMask)
                 + " audio=" + prefConfig.audioConfiguration.channelCount
                 + " virtualSurround=" + prefConfig.vrVirtualSurround);
 
@@ -612,6 +647,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
+        // Gamepad mode's pad rumbles the session's own controllers
+        controllerHandler.setXrRumble((low, high) -> {
+            MediaCodecDecoderRenderer renderer = decoderRenderer;
+            XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+            if (xrRenderer != null) {
+                xrRenderer.setRumble(low, high);
+            }
+        });
         keyboardTranslator = new KeyboardTranslator();
         vrKeyboard = new VrKeyboard(new VrKeyboard.Sink() {
             @Override
@@ -1200,9 +1243,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             decoderRenderer.stopXrRenderer();
         }
         // And one held through a stop for the headset never met the stop that
-        // ends it
+        // ends it, at the launch or after a doff
         headsetHoldHandler.removeCallbacks(headsetHoldOver);
-        if (stoppedForHeadset) {
+        boolean doffHeld = doffHold != null && doffHold.holding();
+        if (doffHold != null) {
+            doffHold.cancel();
+        }
+        if (stoppedForHeadset || doffHeld) {
             stopConnection();
         }
 
@@ -1264,6 +1311,28 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         return xrRenderer == null || !xrRenderer.hasBeenFocused();
     }
 
+    /**
+     * Whether the stream may be held for a headset taken off now: an immersive
+     * session focused at least once, with the stream still up and nothing on
+     * its way out. Whether it is held is the setting's call, in XrDoffGrace.
+     */
+    private boolean doffMayHold() {
+        if (!(this instanceof GameXR) || relaunchedFlat || isFinishing()
+                || !PreferenceConfiguration.isHeadset(this) || !(connecting || connected)) {
+            return false;
+        }
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        return xrRenderer != null && xrRenderer.hasBeenFocused();
+    }
+
+    // The activity stopped or its window surface went. Returns whether the
+    // stream is held for the headset rather than ended, which with the setting
+    // off it never is.
+    private boolean doffHoldsStop(String why) {
+        return doffHold != null && doffMayHold() && doffHold.activityStopped(why);
+    }
+
     @Override
     protected void onStart() {
         super.onStart();
@@ -1271,6 +1340,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             stoppedForHeadset = false;
             headsetHoldHandler.removeCallbacks(headsetHoldOver);
             FileLog.event("activity back after the headset held the launch, carrying on");
+        }
+        if (doffHold != null) {
+            doffHold.activityStarted();
         }
     }
 
@@ -1286,6 +1358,13 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             headsetHoldHandler.removeCallbacks(headsetHoldOver);
             headsetHoldHandler.postDelayed(headsetHoldOver, HEADSET_HOLD_MS);
             return;
+        }
+        if (doffHoldsStop("the activity stopped")) {
+            return;
+        }
+        // Ending however it ends, so no hold outlives it
+        if (doffHold != null) {
+            doffHold.cancel();
         }
 
         SpinnerDialog.closeDialogs(this);
@@ -2771,6 +2850,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         float desiredFrameRate;
 
         surfaceCreated = true;
+        // The window back counts as the activity back for a held stream
+        if (doffHold != null) {
+            doffHold.activityStarted();
+        }
 
         // Android will pick the lowest matching refresh rate for a given frame rate value, so we want
         // to report the true FPS value if refresh rate reduction is enabled. We also report the true
@@ -2818,6 +2901,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             // so losing it while the headset holds the launch costs nothing
             if (waitingForHeadset()) {
                 FileLog.event("window surface gone before the VR session was focused, stream kept");
+                return;
+            }
+            if (doffHoldsStop("the window surface went")) {
+                FileLog.event("window surface gone with the stream held for the headset, stream kept");
                 return;
             }
 
@@ -2918,7 +3005,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // straight onto an absolute mouse position the host already understands.
     @Override
     public void onVrPointerMove(float u, float v) {
-        if (!connected) {
+        if (!connected || vrInputHeld) {
             return;
         }
 
@@ -2953,7 +3040,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // head aim goes off is always sent, and a click here anchors nothing.
     @Override
     public void onVrMouseMove(int dx, int dy) {
-        if (!connected) {
+        if (!connected || vrInputHeld) {
             return;
         }
         lastVrPointerX = -1;
@@ -2964,7 +3051,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onVrButton(int button, boolean down) {
-        if (!connected) {
+        // A release still goes while the stream is held, so nothing sticks
+        if (!connected || (down && vrInputHeld)) {
             return;
         }
 
@@ -3024,7 +3112,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onVrScroll(int clicks) {
-        if (!connected) {
+        if (!connected || vrInputHeld) {
             return;
         }
         conn.sendMouseHighResScroll((short)(clicks * 120));
@@ -3072,7 +3160,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
      */
     @Override
     public void onVrKey(int code, int modifiers) {
-        if (!connected) {
+        if (!connected || vrInputHeld) {
             return;
         }
         vrKeyboard.type(code, modifiers);
@@ -3153,6 +3241,36 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 }
                 FileLog.event("VR session ended by the runtime (" + reason + "), ending the stream");
                 finish();
+            }
+        });
+    }
+
+    /**
+     * The session went to stopping or idle after its first focus, which a
+     * removed headset does where the activity is not stopped for it as well.
+     * Held like a stop, and with the setting off left as it always was.
+     */
+    @Override
+    public void onVrSessionAway() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (doffHold != null && doffMayHold()) {
+                    doffHold.sessionAway();
+                }
+            }
+        });
+    }
+
+    // Focused again, which with the activity started ends a hold
+    @Override
+    public void onVrSessionBack() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (doffHold != null) {
+                    doffHold.sessionBack();
+                }
             }
         });
     }

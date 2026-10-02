@@ -333,6 +333,15 @@
     <string name="toast_vr_reset_pose">螢幕位置已重設</string>
     <string name="title_vr_passthrough">穿透模式 (Passthrough)</string>
     <string name="summary_vr_passthrough">開啟環境穿透。請注意此模式會消耗更多系統資源，若串流出現延遲或卡頓請停用</string>
+    <string name="title_vr_environment">環境</string>
+    <string name="summary_vr_environment">目前：%s。階段開始時螢幕周圍的環境。在頭戴裝置中透過螢幕下方的按鈕選擇環境，也會變更此設定。</string>
+    <string name="title_vr_doff_grace">摘下頭戴裝置時保留串流一分鐘</string>
+    <string name="summary_vr_doff_grace">短暫摘下頭戴裝置時，串流會靜音等待最多 60 秒，重新戴上後繼續。關閉後，摘下頭戴裝置會立即結束串流。</string>
+    <string name="vr_environment_passthrough">穿透 (Passthrough)</string>
+    <string name="vr_environment_void">黑色虛空 (Black void)</string>
+    <string name="vr_environment_home_theater">家庭劇院 (Home Theater)</string>
+    <string name="vr_environment_grand_cinema">大戲院 (Grand Cinema)</string>
+    <string name="vr_environment_synthwave">合成波 (Synthwave)</string>
     <string name="title_vr_depth_source">即時 3D 模式</string>
     <string name="summary_vr_depth_source">選擇即時 3D 模式，包含多種測試圖樣。</string>
     <string name="title_vr_env_res">虛擬環境解析度</string>

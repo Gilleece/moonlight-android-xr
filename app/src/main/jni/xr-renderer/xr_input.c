@@ -97,11 +97,11 @@ static XrAction makeAction(XrCtx* ctx, XrActionType type, const char* name, cons
 
 // One unsupported path rejects a whole profile, so the full set is offered
 // first and a runtime that does not recognise this controller falls back to
-// aim and trigger, which every profile has. The menu button goes first of
-// all, so a runtime that refused it would cost gamepad mode its Start and
-// switch rather than the pointer anything.
-static void suggestBindings(XrCtx* ctx, const char* profile, int level) {
-    XrActionSuggestedBinding b[20];
+// aim and trigger, which every profile has. The vibration goes first of all,
+// then the menu button, so a runtime that refused either would cost gamepad
+// mode its rumble, or its Start and switch, rather than the pointer anything.
+static void suggestBindings(XrCtx* ctx, const char* profile, int level, int haptic) {
+    XrActionSuggestedBinding b[24];
     uint32_t n = 0;
     int full = level >= BIND_FULL;
     int menu = 0;
@@ -129,6 +129,13 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level) {
         if (full && ctx->gripAction != XR_NULL_HANDLE) {
             snprintf(path, sizeof(path), "%s/input/grip/pose", hands[h]);
             b[n].action = ctx->gripAction;
+            b[n++].binding = toPath(ctx, path);
+        }
+
+        // Every controller profile has an output for it
+        if (haptic && ctx->hapticAction != XR_NULL_HANDLE) {
+            snprintf(path, sizeof(path), "%s/output/haptic", hands[h]);
+            b[n].action = ctx->hapticAction;
             b[n++].binding = toPath(ctx, path);
         }
 
@@ -170,20 +177,27 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level) {
     suggest.countSuggestedBindings = n;
     suggest.suggestedBindings = b;
 
+    int vibration = haptic && ctx->hapticAction != XR_NULL_HANDLE;
     XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
     if (XR_SUCCEEDED(res)) {
-        LOGI("bindings accepted for %s (%s)", profile,
-             menu ? "full, with the menu button" : (full ? "full" : "reduced"));
+        LOGI("bindings accepted for %s (%s%s)", profile,
+             menu ? "full, with the menu button" : (full ? "full" : "reduced"),
+             vibration ? ", with the vibration" : "");
         ctx->menuBound |= menu;
+        ctx->hapticBound |= vibration;
+    }
+    else if (vibration) {
+        LOGW("bindings with the vibration rejected for %s (%d), trying without it", profile, res);
+        suggestBindings(ctx, profile, level, 0);
     }
     else if (menu) {
         LOGW("full bindings with the menu button rejected for %s (%d), trying without it",
              profile, res);
-        suggestBindings(ctx, profile, BIND_FULL);
+        suggestBindings(ctx, profile, BIND_FULL, 0);
     }
     else if (full) {
         LOGW("full bindings rejected for %s (%d), trying aim and trigger only", profile, res);
-        suggestBindings(ctx, profile, BIND_REDUCED);
+        suggestBindings(ctx, profile, BIND_REDUCED, 0);
     }
     else {
         LOGW("bindings rejected for %s (%d)", profile, res);
@@ -282,17 +296,21 @@ int initXrInput(XrCtx* ctx) {
     ctx->gripAction = makeAction(ctx, XR_ACTION_TYPE_POSE_INPUT, "grip", "Controller");
     ctx->menuAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "menu",
                                  "Start, or with the grip the gamepad switch");
+    // Only the host's rumble in gamepad mode drives it
+    ctx->hapticAction = makeAction(ctx, XR_ACTION_TYPE_VIBRATION_OUTPUT, "rumble",
+                                   "Rumble from the game");
 
     if (ctx->aimAction == XR_NULL_HANDLE || ctx->triggerAction == XR_NULL_HANDLE) {
         return 0;
     }
 
     // The simple controller has no thumbstick or face buttons for the
-    // pointer or the pad, so it is offered aim, trigger and grip alone
-    suggestBindings(ctx, "/interaction_profiles/khr/simple_controller", BIND_FULL);
-    suggestBindings(ctx, "/interaction_profiles/oculus/touch_controller", BIND_MENU);
+    // pointer or the pad, so it is offered aim, trigger, grip and the
+    // vibration alone
+    suggestBindings(ctx, "/interaction_profiles/khr/simple_controller", BIND_FULL, 1);
+    suggestBindings(ctx, "/interaction_profiles/oculus/touch_controller", BIND_MENU, 1);
     if (ctx->picoInteraction) {
-        suggestBindings(ctx, "/interaction_profiles/bytedance/pico4_controller", BIND_MENU);
+        suggestBindings(ctx, "/interaction_profiles/bytedance/pico4_controller", BIND_MENU, 1);
     }
 
     // Hands. aim_activate is the spec's own name for pointing at something out
@@ -396,10 +414,13 @@ int initXrInput(XrCtx* ctx) {
     ctx->pointerOn = 1;
     initJointTracking(ctx);
     refreshInputSource(ctx);
-    LOGI("controller input ready (pico bindings %s, hand pinch %s, menu button %s)",
+    padRumbleReset(&ctx->rumble);
+    LOGI("controller input ready (pico bindings %s, hand pinch %s, menu button %s, "
+         "vibration %s)",
          ctx->picoInteraction ? "offered" : "not offered by this runtime",
          ctx->handClickOk ? "bound" : (ctx->jointTracking ? "from joints" : "unavailable"),
-         ctx->menuBound ? "bound" : "not bound, so gamepad mode has no Start or switch");
+         ctx->menuBound ? "bound" : "not bound, so gamepad mode has no Start or switch",
+         ctx->hapticBound ? "bound" : "not bound, so gamepad mode has no rumble");
     LOGEV("pinch: joints on %.0f mm, off %.0f mm, closing %.0f mm in %ld ms (untracked tips "
           "%.0f / %.0f mm), hold %ld ms; runtime value on %.1f off %.1f, %s",
           PINCH_ON_M * 1000.0f, PINCH_OFF_M * 1000.0f, PINCH_CLOSE_M * 1000.0f,
@@ -3111,6 +3132,62 @@ static void restPad(XrCtx* ctx, const char* why) {
     settlePad(ctx, padPlugged(ctx), 0, &s, why);
 }
 
+// One controller's vibration as the frame asks: a pulse at the host's level,
+// or stopped. The first pulse on each controller after the host starts a
+// rumble says how the runtime took it, and so does any failure.
+static void hapticOut(XrCtx* ctx, int h, int action, float amp) {
+    XrHapticActionInfo info = { XR_TYPE_HAPTIC_ACTION_INFO };
+    info.action = ctx->hapticAction;
+    info.subactionPath = ctx->handPaths[h];
+    const char* side = h == HAND_LEFT ? "left" : "right";
+    if (action == PAD_RUMBLE_APPLY) {
+        XrHapticVibration vibration = { XR_TYPE_HAPTIC_VIBRATION };
+        vibration.duration = PAD_RUMBLE_PULSE_NS;
+        vibration.frequency = XR_FREQUENCY_UNSPECIFIED;
+        vibration.amplitude = amp;
+        XrResult res = xrApplyHapticFeedback(ctx->session, &info,
+                                             (const XrHapticBaseHeader*)&vibration);
+        ctx->rumblePulses++;
+        if (!ctx->rumbleResultSaid[h]) {
+            ctx->rumbleResultSaid[h] = 1;
+            LOGI("rumble on the %s controller at %.2f for %ld ms: runtime said %s", side, amp,
+                 (long)(PAD_RUMBLE_PULSE_NS / 1000000LL), xrResultName(res));
+        }
+        else if (XR_FAILED(res)) {
+            LOGW("rumble pulse on the %s controller refused: %s", side, xrResultName(res));
+        }
+        return;
+    }
+    XrResult res = xrStopHapticFeedback(ctx->session, &info);
+    LOGI("rumble stopped on the %s controller: runtime said %s", side, xrResultName(res));
+}
+
+// The host's rumble onto whichever controllers are the pad's this frame, live
+// being 0 where nothing is read this frame, which stops them. What the host
+// asked for stands while the pad is plugged in and goes when it comes out.
+static void updateRumble(XrCtx* ctx, int live) {
+    if (ctx->hapticAction == XR_NULL_HANDLE || !ctx->hapticBound) {
+        return;
+    }
+    int on[HAND_COUNT];
+    int action[HAND_COUNT];
+    float amp[HAND_COUNT];
+    for (int h = 0; h < HAND_COUNT; h++) {
+        on[h] = live && ctx->padAttached && ctx->profileKind[h] == PROFILE_CONTROLLER;
+    }
+    padRumbleStep(&ctx->rumble, on, nowNs(), action, amp);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        if (action[h] != PAD_RUMBLE_KEEP) {
+            hapticOut(ctx, h, action[h], amp[h]);
+        }
+    }
+    if (!ctx->padAttached && ctx->rumbleOn) {
+        LOGI("rumble from the host dropped after %ld pulses: the pad is out", ctx->rumblePulses);
+        ctx->rumbleOn = 0;
+        padRumbleReset(&ctx->rumble);
+    }
+}
+
 // The parts of a chord as the log names them
 static const char* chordPartNames(int parts, char* buf, size_t size) {
     static const char* names[PAD_PART_COUNT] = { "L3", "R3", "LT", "RT", "left grip",
@@ -3361,6 +3438,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         if (ctx != NULL) {
             releaseInput(ctx, out);
             restPad(ctx, "the session is not focused");
+            updateRumble(ctx, 0);
         }
         handBack(env, ctx, out, outArr);
         return;
@@ -3376,6 +3454,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     if (XR_FAILED(xrSyncActions(ctx->session, &sync))) {
         ctx->buttonsDown = 0;
         restPad(ctx, "the controllers could not be read");
+        updateRumble(ctx, 0);
         handBack(env, ctx, out, outArr);
         return;
     }
@@ -3385,6 +3464,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // The pad before anything points, so a switch between the two lands
     // before the controllers are read for the pointer
     updatePad(ctx);
+    updateRumble(ctx, 1);
     if (!pointerEnabled) {
         // The pointer is switched off in the settings, so only the pad and
         // the switch to it are read
@@ -3559,6 +3639,34 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     writeInputPose(ctx, out);
     out[IN_PICKER_PICK] = (float)ctx->pickerPick;
     handBack(env, ctx, out, outArr);
+}
+
+// The host's rumble on gamepad mode's pad, the two motors as the host sent
+// them, each word arming a pulse on the next input pass. Frame loop only.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetRumble(JNIEnv* env, jobject thiz,
+                                                            jlong handle, jint lowMotor,
+                                                            jint highMotor) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    padRumbleAsk(&ctx->rumble, lowMotor, highMotor);
+    int on = ctx->rumble.want[HAND_LEFT] > 0.0f || ctx->rumble.want[HAND_RIGHT] > 0.0f;
+    if (on && !ctx->rumbleOn) {
+        ctx->rumblePulses = 0;
+        for (int h = 0; h < HAND_COUNT; h++) {
+            ctx->rumbleResultSaid[h] = 0;
+        }
+        LOGI("rumble from the host: low %.2f on the left, high %.2f on the right%s",
+             ctx->rumble.want[HAND_LEFT], ctx->rumble.want[HAND_RIGHT],
+             !ctx->hapticBound ? ", but no vibration is bound"
+                               : (ctx->padAttached ? "" : ", the pad not plugged in"));
+    }
+    else if (!on && ctx->rumbleOn) {
+        LOGI("rumble from the host stopped after %ld pulses", ctx->rumblePulses);
+    }
+    ctx->rumbleOn = on;
 }
 
 // Puts back a placement saved from a previous session. Marking the sliders as

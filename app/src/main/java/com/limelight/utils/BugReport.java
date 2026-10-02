@@ -473,7 +473,7 @@ public final class BugReport {
                 + " " + PreferenceConfiguration.headAimLabel(prefs.vrHeadAim,
                         prefs.vrHeadAimSensitivity, prefs.vrHeadAimDeadZone, " ")
                 + " " + PreferenceConfiguration.gamepadToggleLabel(prefs.vrGamepadToggle, " ")
-                + " clickSound " + prefs.vrClickSound
+                + " clickSound " + prefs.vrClickSound + " doffGrace " + prefs.vrDoffGrace
                 + " " + PreferenceConfiguration.pictureLabel(prefs.vrPicture, " ")
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"
                 + "fileLog " + prefs.fileLogLevel + "\n";

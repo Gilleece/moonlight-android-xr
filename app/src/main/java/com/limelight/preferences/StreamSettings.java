@@ -33,6 +33,7 @@ import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
 import com.limelight.R;
+import com.limelight.binding.video.EnvironmentIds;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
@@ -302,6 +303,44 @@ public class StreamSettings extends Activity {
             return view;
         }
 
+        // The environment list stands for the id the headset's picker saves,
+        // so a choice made either way is what the other shows and what the
+        // next session opens with. With the controller pointer off nothing in
+        // a session reaches the picker, so this is the way there. Like the
+        // picker it writes the passthrough checkbox, and the checkbox goes on
+        // deciding between passthrough and the void until something is picked.
+        private void bindEnvironmentList() {
+            final ListPreference envPref = (ListPreference) findPreference(
+                    PreferenceConfiguration.VR_ENVIRONMENT_LIST_PREF_STRING);
+            final CheckBoxPreference passthroughPref = (CheckBoxPreference) findPreference(
+                    PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING);
+            if (envPref == null || passthroughPref == null) {
+                return;
+            }
+            final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getActivity());
+            envPref.setValue(EnvironmentIds.listValue(prefs));
+            envPref.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                @Override
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    int id = EnvironmentIds.idForListValue((String) newValue);
+                    if (!EnvironmentIds.store(prefs, id)) {
+                        return false;
+                    }
+                    passthroughPref.setChecked(id == PreferenceConfiguration.VR_ENV_PASSTHROUGH);
+                    FileLog.event("environment " + id + " chosen in the settings");
+                    return true;
+                }
+            });
+            passthroughPref.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                @Override
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    // Only moves the list where nothing has been picked yet
+                    envPref.setValue(EnvironmentIds.listValue(prefs, (Boolean) newValue));
+                    return true;
+                }
+            });
+        }
+
         @Override
         public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
@@ -352,6 +391,8 @@ public class StreamSettings extends Activity {
                     }
                 });
             }
+
+            bindEnvironmentList();
 
             // Where the log actually is, which is the first thing anyone
             // sending one in has to be told

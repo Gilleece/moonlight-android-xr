@@ -325,3 +325,43 @@ void padChordApply(const PadChord* c, const PadHand* left, const PadHand* right,
         outRight->stickY = 0.0f;
     }
 }
+
+float padRumbleAmplitude(int motor) {
+    return (float)(motor & 0xffff) / 65535.0f;
+}
+
+void padRumbleReset(PadRumble* r) {
+    for (int h = 0; h < 2; h++) {
+        r->want[h] = 0.0f;
+        r->given[h] = 0.0f;
+        r->givenNs[h] = 0;
+    }
+    r->fresh = 0;
+}
+
+void padRumbleAsk(PadRumble* r, int lowMotor, int highMotor) {
+    r->want[0] = padRumbleAmplitude(lowMotor);
+    r->want[1] = padRumbleAmplitude(highMotor);
+    r->fresh = 1;
+}
+
+void padRumbleStep(PadRumble* r, const int live[2], int64_t nowNs, int action[2], float amp[2]) {
+    for (int h = 0; h < 2; h++) {
+        float target = live[h] ? r->want[h] : 0.0f;
+        action[h] = PAD_RUMBLE_KEEP;
+        amp[h] = target;
+        if (target <= 0.0f) {
+            if (r->given[h] > 0.0f) {
+                action[h] = PAD_RUMBLE_STOP;
+                r->given[h] = 0.0f;
+            }
+            continue;
+        }
+        if (r->fresh || r->given[h] != target || nowNs - r->givenNs[h] >= PAD_RUMBLE_REARM_NS) {
+            action[h] = PAD_RUMBLE_APPLY;
+            r->given[h] = target;
+            r->givenNs[h] = nowNs;
+        }
+    }
+    r->fresh = 0;
+}

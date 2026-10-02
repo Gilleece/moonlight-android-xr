@@ -22,6 +22,12 @@
 #define FRAME_IDLE    0
 #define FRAME_RENDER  1
 
+// Where the session stands for the hold a removed headset gets: focused, gone
+// to stopping or idle after a first focus, or anything else
+#define PRESENCE_OTHER   0
+#define PRESENCE_FOCUSED 1
+#define PRESENCE_AWAY    2
+
 // Synthetic depth patterns for the stereo test path
 #define DEPTH_MODE_OFF   0
 #define DEPTH_MODE_FLAT  1
