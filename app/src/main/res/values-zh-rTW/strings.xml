@@ -307,11 +307,11 @@
     <string name="title_vr_head_aim">頭部控制滑鼠</string>
     <string name="summary_vr_head_aim">僅在螢幕鎖定到頭部時生效：轉動頭部會像遊戲的視角控制一樣移動滑鼠，適合第一人稱遊戲。控制器游標和實體滑鼠仍可同時使用。開啟面板時會暫停，螢幕下方的頭部控制按鈕可在本次階段中切換它。</string>
     <string name="title_seekbar_vr_head_aim_sensitivity">頭部控制靈敏度</string>
-    <string name="summary_seekbar_vr_head_aim_sensitivity">頭部每轉動一度時滑鼠移動的距離。配合遊戲本身的滑鼠靈敏度調整，直到視角轉動的幅度與頭部一致。頭戴裝置內設定面板的 Screen 分頁調整的是同一個數值。</string>
+    <string name="summary_seekbar_vr_head_aim_sensitivity">頭部每轉動一度時滑鼠移動的距離。配合遊戲本身的滑鼠靈敏度調整，直到視角轉動的幅度與頭部一致。頭戴裝置內設定面板的「螢幕」分頁調整的是同一個數值。</string>
     <string name="title_seekbar_vr_head_aim_deadzone">頭部控制死區</string>
     <string name="summary_seekbar_vr_head_aim_deadzone">頭部轉動慢於此速度時不傳送任何移動，可避免頭部靜止時追蹤抖動移動滑鼠。設為 0 則傳送所有移動。</string>
     <string name="title_vr_gamepad_toggle">遊戲控制器模式快速鍵</string>
-    <string name="summary_vr_gamepad_toggle">目前：%s。遊戲控制器模式會把兩個控制器合起來在電腦上作為一個 Xbox 控制器：搖桿、A、B、X、Y 鍵、扳機、握把作為肩鍵、搖桿按下，以及左手選單鍵作為 Start。它只能在階段中透過設定面板的 Display 分頁或螢幕下方的遊戲控制器按鈕開啟，每次階段開始時控制器都是游標。之後可以用此快速鍵在兩者之間切換。選擇搖桿或扳機與握把時，這些按鍵傳給遊戲會稍晚一點，因為快速鍵要先判斷它們是不是在按快速鍵。</string>
+    <string name="summary_vr_gamepad_toggle">目前：%s。遊戲控制器模式會把兩個控制器合起來在電腦上作為一個 Xbox 控制器：搖桿、A、B、X、Y 鍵、扳機、握把作為肩鍵、搖桿按下，以及左手選單鍵作為 Start。它只能在階段中透過設定面板的「顯示」分頁或螢幕下方的遊戲控制器按鈕開啟，每次階段開始時控制器都是游標。之後可以用此快速鍵在兩者之間切換。選擇搖桿或扳機與握把時，這些按鍵傳給遊戲會稍晚一點，因為快速鍵要先判斷它們是不是在按快速鍵。</string>
     <string name="vr_gamepad_toggle_menu_grip">按住左手選單鍵和左手握把</string>
     <string name="vr_gamepad_toggle_sticks">同時按下兩個搖桿 (L3 + R3)</string>
     <string name="vr_gamepad_toggle_triggers_grips">同時握緊兩個扳機和兩個握把</string>
@@ -347,7 +347,7 @@
     <string name="title_vr_env_res">虛擬環境解析度</string>
     <string name="summary_vr_env_res">螢幕周圍 3D 虛擬房間的渲染清晰度。畫質越高越消耗 GPU 效能。極致為實驗性功能，可能導致延遲或掉影格。</string>
     <string name="title_seekbar_vr_picture_brightness">畫面亮度</string>
-    <string name="summary_seekbar_vr_picture_brightness">提高或降低頭戴裝置中整個畫面的亮度。0 為串流的原始畫面。頭戴裝置內設定面板的 Picture 分頁調整的是同樣的四個數值。</string>
+    <string name="summary_seekbar_vr_picture_brightness">提高或降低頭戴裝置中整個畫面的亮度。0 為串流的原始畫面。頭戴裝置內設定面板的「畫面」分頁調整的是同樣的四個數值。</string>
     <string name="title_seekbar_vr_picture_contrast">畫面對比</string>
     <string name="summary_seekbar_vr_picture_contrast">以中灰為中心拉開或收攏畫面的明暗層次。100% 為串流的原始畫面。</string>
     <string name="title_seekbar_vr_picture_gamma">畫面伽瑪</string>
@@ -473,4 +473,90 @@
     <string name="vr_file_log_off">關閉</string>
     <string name="vr_file_log_basic">僅警告與錯誤</string>
     <string name="vr_file_log_verbose">詳細記錄</string>
+    <!-- Start application messages -->
+    <string name="error_code_prefix">錯誤代碼：</string>
+    <!-- Preferences -->
+    <string name="title_seekbar_vibrate_fallback_strength">調整仿真震動強度</string>
+    <string name="summary_seekbar_vibrate_fallback_strength">增強或減弱裝置的震動強度</string>
+    <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
+    <!-- The panels inside the session. They are drawn at a fixed size, so keep these short. -->
+    <string name="vr_panel_tab_screen">螢幕</string>
+    <string name="vr_panel_tab_display">顯示</string>
+    <string name="vr_panel_3d">3D</string>
+    <string name="vr_panel_tab_picture">畫面</string>
+    <string name="vr_panel_tab_about">關於</string>
+    <string name="vr_panel_tab_room">房間</string>
+    <string name="vr_panel_distance">距離</string>
+    <string name="vr_panel_height">高度</string>
+    <string name="vr_panel_tilt">傾斜</string>
+    <string name="vr_panel_rotate">旋轉</string>
+    <string name="vr_panel_curve">曲率</string>
+    <string name="vr_panel_size">大小</string>
+    <string name="vr_panel_aim_sensitivity">頭部控制靈敏度</string>
+    <string name="vr_panel_aim_dead_zone">頭部控制死區</string>
+    <!-- Where head aim's rows are greyed out: the screen is not locked to the head. Names the Head locked row. -->
+    <string name="vr_panel_needs_head_lock">需開啟「頭部鎖定」</string>
+    <string name="vr_panel_not_in_room">房間中無法使用</string>
+    <string name="vr_panel_reset">重設</string>
+    <string name="vr_panel_brightness">亮度</string>
+    <string name="vr_panel_glow">光暈</string>
+    <string name="vr_panel_screen_light">螢幕光照</string>
+    <string name="vr_panel_light_level">光照強度</string>
+    <string name="vr_panel_off">關閉</string>
+    <string name="vr_panel_on">開啟</string>
+    <string name="vr_panel_fixed_size">此房間的螢幕大小固定</string>
+    <string name="vr_panel_sharpen">銳化</string>
+    <string name="vr_panel_supersample">超取樣</string>
+    <string name="vr_panel_stats">統計資訊</string>
+    <string name="vr_panel_head_locked">頭部鎖定</string>
+    <string name="vr_panel_head_aim">頭部控制</string>
+    <string name="vr_panel_controllers">控制器</string>
+    <string name="vr_panel_pointer_sleep">游標休眠</string>
+    <string name="vr_panel_ray">射線</string>
+    <string name="vr_panel_controller_model">控制器模型</string>
+    <string name="vr_panel_click_sound">點擊聲</string>
+    <string name="vr_panel_normal">標準</string>
+    <string name="vr_panel_quality">高畫質</string>
+    <string name="vr_panel_pointer">游標</string>
+    <string name="vr_panel_gamepad">遊戲控制器</string>
+    <string name="vr_panel_glow_level">光暈強度</string>
+    <string name="vr_panel_shortcut_menu_grip">快速鍵：左手選單鍵 + 握把</string>
+    <string name="vr_panel_shortcut_sticks">快速鍵：同時按下兩個搖桿</string>
+    <string name="vr_panel_shortcut_triggers_grips">快速鍵：扳機 + 握把</string>
+    <string name="vr_panel_preset">預設組合</string>
+    <string name="vr_panel_comfort">舒適</string>
+    <string name="vr_panel_balanced">均衡</string>
+    <string name="vr_panel_strong">強烈</string>
+    <string name="vr_panel_depth">深度</string>
+    <string name="vr_panel_convergence">匯聚</string>
+    <string name="vr_panel_harder_on_eyes">眼睛較易疲勞</string>
+    <string name="vr_panel_3d_off_in_settings">3D 已在設定中關閉</string>
+    <string name="vr_panel_contrast">對比</string>
+    <string name="vr_panel_gamma">伽瑪</string>
+    <string name="vr_panel_saturation">飽和度</string>
+    <string name="vr_panel_version">版本 %1$s，提交 %2$s</string>
+    <string name="vr_panel_version_no_commit">版本 %1$s</string>
+    <!-- %1$s is where the log file is, like Download/MoonlightXR/moonlight.log -->
+    <string name="vr_panel_log_file">記錄檔：%1$s</string>
+    <string name="vr_panel_log_file_off">記錄檔：已關閉</string>
+    <string name="vr_panel_report_sends">傳送一則附有頭戴裝置資訊、設定和記錄的說明</string>
+    <string name="vr_panel_report_saves">儲存一則附有頭戴裝置資訊、設定和記錄的說明</string>
+    <string name="vr_panel_rooms">房間</string>
+    <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
+    <string name="vr_key_shift">Shift</string>
+    <string name="vr_key_space">空白</string>
+    <string name="vr_key_enter">Enter</string>
+    <string name="vr_key_hide">收起</string>
+    <string name="vr_key_ctrl">Ctrl</string>
+    <string name="vr_key_alt">Alt</string>
+    <string name="vr_key_win">Win</string>
+    <string name="vr_exit_question">結束串流？</string>
+    <string name="vr_exit">結束</string>
+    <string name="vr_splash_loading">載入中</string>
+    <!-- Array strings -->
+    <string name="title_analog_scrolling">使用類比搖桿捲動</string>
+    <string name="summary_analog_scrolling">選擇在滑鼠模式下用來捲動的類比搖桿</string>
+    <string name="analogscroll_none">無（兩個搖桿都移動滑鼠）</string>
+    <string name="analogscroll_right">右類比搖桿</string>
+    <string name="analogscroll_left">左類比搖桿</string>
 </resources>

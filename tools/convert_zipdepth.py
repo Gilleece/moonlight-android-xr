@@ -185,6 +185,10 @@ def edge_pad(x):
 def convex_head(model):
     """
     The base checkpoint's convex upsample in ops the GPU delegate takes.
+    The idea of shipping the learned head on the delegate rather than the
+    npu checkpoint's plain one came from Nightfall (github.com/tB0nE/
+    nightfall, GPLv3), whose export does the same; this restatement is our
+    own.
 
     FastConvexUpsample predicts 9 weights for each pixel of every 2x2 block,
     softmaxes each 9 and sums the 3x3 neighbourhood of the half size depth

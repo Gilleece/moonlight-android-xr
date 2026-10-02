@@ -7,7 +7,6 @@ import org.junit.Test;
 import static com.limelight.binding.video.XrShared.*;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertTrue;
 
 /**
  * The words that say which shortcut leaves gamepad mode: the toast's second
@@ -30,17 +29,14 @@ public class GamepadShortcutWordsTest {
 
     @Test
     public void theDisplayTabNamesIt() {
-        assertEquals("Shortcut: both thumbsticks", XrPanels.controllersHint(PAD_SHORTCUT_STICKS));
-        assertEquals("Shortcut: triggers + grips",
+        assertEquals(R.string.vr_panel_shortcut_sticks,
+                XrPanels.controllersHint(PAD_SHORTCUT_STICKS));
+        assertEquals(R.string.vr_panel_shortcut_triggers_grips,
                 XrPanels.controllersHint(PAD_SHORTCUT_TRIGGERS_GRIPS));
-        assertEquals("Shortcut: left menu + grip",
+        assertEquals(R.string.vr_panel_shortcut_menu_grip,
                 XrPanels.controllersHint(PAD_SHORTCUT_MENU_GRIP));
         assertEquals(XrPanels.controllersHint(PAD_SHORTCUT_MENU_GRIP), XrPanels.controllersHint(9));
         assertNotEquals(XrPanels.controllersHint(PAD_SHORTCUT_STICKS),
                 XrPanels.controllersHint(PAD_SHORTCUT_TRIGGERS_GRIPS));
-        // Short enough for the label column at its size, under the row's label
-        for (int s = PAD_SHORTCUT_MENU_GRIP; s <= PAD_SHORTCUT_TRIGGERS_GRIPS; s++) {
-            assertTrue(XrPanels.controllersHint(s).length() <= 26);
-        }
     }
 }

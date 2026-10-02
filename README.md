@@ -226,7 +226,10 @@ TensorFlow Lite by `tools/convert_midas.py` and committed as an asset.
 The default depth model is [ZipDepth](https://github.com/fabiotosi92/ZipDepth) by Fabio Tosi (MIT),
 converted to TensorFlow Lite by `tools/convert_zipdepth.py` (fp16, 512x288) and
 `tools/quantize_depth.py` (the int8 copy the XR2 Gen 1 headsets run) and committed as assets. Its
-licence ships in the APK as `assets/licenses/zipdepth_LICENSE.txt`.
+licence ships in the APK as `assets/licenses/zipdepth_LICENSE.txt`. Two ideas in the depth path
+came from [Nightfall](https://github.com/tB0nE/nightfall) (GPLv3), another Moonlight client with
+realtime 3D: exporting ZipDepth's learned upsampling head for the GPU delegate, and smoothing the
+depth map over real time rather than per frame. Both are implemented independently here.
 
 Virtual surround uses the KEMAR head related transfer function measurements by Bill Gardner and
 Keith Martin, MIT Media Lab, 1994 ("HRTF Measurements of a KEMAR Dummy-Head Microphone", MIT Media

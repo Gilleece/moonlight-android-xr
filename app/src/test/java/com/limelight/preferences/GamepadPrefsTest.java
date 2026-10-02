@@ -221,8 +221,9 @@ public class GamepadPrefsTest {
             assertTrue(dir, summary.contains("%s"));
             assertEquals(dir, 1, summary.split("%", -1).length - 1);
             assertTrue(dir, String.format(summary, "x").contains("x"));
-            // And says the mode is switched on inside a session
-            assertTrue(dir, summary.contains("Display"));
+            // And says the mode is switched on inside a session, naming the
+            // Display tab the way the panel draws it in that language
+            assertTrue(dir, summary.contains(string(strings, "vr_panel_tab_display")));
         }
     }
 

@@ -140,6 +140,9 @@ int depthSizeOk(int w, int h) {
             && w % 8 == 0 && h % 8 == 0;
 }
 
+// Averaging over real time rather than per map was prompted by Nightfall
+// (github.com/tB0nE/nightfall, GPLv3), which smooths its maps this way; the
+// code here is our own.
 float depthTauAlpha(float dtSec, float tauSec) {
     if (!(tauSec > 0.0f)) {
         return 1.0f;
