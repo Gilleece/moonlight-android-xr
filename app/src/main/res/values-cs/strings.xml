@@ -482,7 +482,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licence: GPLv3</string>
-    <string name="bug_report_intro">Popište, co se pokazilo a co jste očekávali. Hlášení spojí vaši zprávu s verzí aplikace, headsetem, nastavením streamování a souborem protokolu a odejde na %1$s.\n\nProtokol: %2$s</string>
+    <string name="bug_report_intro">Popište, co se pokazilo a co jste očekávali. Hlášení spojí vaši zprávu s verzí aplikace, headsetem, nastavením streamování a souborem protokolu, který může obsahovat název a síťovou adresu vašeho PC, a odejde na %1$s.\n\nProtokol: %2$s</string>
     <string name="bug_report_log_off">vypnuto. Zapněte „Ukládat soubor protokolu“ a nejprve problém zopakujte, jinak hlášení nebude obsahovat protokol.</string>
     <string name="bug_report_email_hint">Vaše e-mailová adresa pro odpověď</string>
     <string name="bug_report_message_hint">Co se stalo?</string>
@@ -499,7 +499,7 @@
     <string name="bug_report_no_mail">V tomto zařízení není e-mailová aplikace, takže hlášení bylo uloženo do\n\n%1$s\n\nZkopírujte ho z headsetu a přiložte k e-mailu na %2$s.</string>
     <string name="bug_report_failed">Hlášení se nepodařilo zapsat: %1$s</string>
     <string name="title_vr_file_log">Ukládat soubor protokolu</string>
-    <string name="summary_vr_file_log">Vede textový protokol v Download/MoonlightXR, kde ho najde správce souborů v headsetu a kde ho můžete přiložit k hlášení chyby. Při 5 MB přejde do moonlight.previous.log, takže oba dohromady nikdy nezaberou víc než 10 MB. Aby se změna projevila, restartujte aplikaci.</string>
+    <string name="summary_vr_file_log">Vede textový protokol v Download/MoonlightXR, kde ho najde správce souborů v headsetu a kde ho můžete přiložit k hlášení chyby. Může obsahovat název a síťovou adresu vašeho PC. Při 5 MB přejde do moonlight.previous.log, takže oba dohromady nikdy nezaberou víc než 10 MB. Aby se změna projevila, restartujte aplikaci.</string>
     <string name="title_seekbar_vr_inference_cadence">Aktualizace hloubky za sekundu</string>
     <string name="summary_seekbar_vr_inference_cadence">Kolik hloubkových map 3D vytvoří každou sekundu. Méně šetří headset, ale hloubka víc zaostává. Když headset nestačí, tato hodnota se na chvíli sníží na polovinu dřív, než se sníží obnovovací frekvence displeje.</string>
     <string name="suffix_seekbar_vr_inference_cadence">za sekundu</string>

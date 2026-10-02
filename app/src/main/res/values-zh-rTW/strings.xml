@@ -408,7 +408,7 @@
     <string name="about_version">Moonlight XR %1$s，提交 %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">授權條款：GPLv3</string>
-    <string name="bug_report_intro">請描述遇到的問題以及預期行為。報告將打包您的訊息、應用程式版本、頭戴裝置型號、串流設定與記錄檔，並傳送至 %1$s。\n\n記錄檔路徑：%2$s</string>
+    <string name="bug_report_intro">請描述遇到的問題以及預期行為。報告將打包您的訊息、應用程式版本、頭戴裝置型號、串流設定與記錄檔（記錄檔中可能包含您電腦在區域網路中的名稱與位址），並傳送至 %1$s。\n\n記錄檔路徑：%2$s</string>
     <string name="bug_report_log_off">已關閉。請先開啟「儲存記錄檔」並重現問題，否則報告將不包含記錄。</string>
     <string name="bug_report_email_hint">您的電子郵件地址 (用於接收回覆)</string>
     <string name="bug_report_message_hint">發生了什麼狀況？</string>
@@ -427,7 +427,7 @@
 
     <!-- VR Debug strings -->
     <string name="title_vr_file_log">儲存記錄檔</string>
-    <string name="summary_vr_file_log">在 Download/MoonlightXR 保留純文字記錄檔，頭戴裝置上的檔案管理器可以找到它，並可將其附加到錯誤回報中。檔案達 5 MB 時會輪替至 moonlight.previous.log，兩者合計絕不超過 10 MB。變更此設定後請重新啟動應用程式以生效。</string>
+    <string name="summary_vr_file_log">在 Download/MoonlightXR 保留純文字記錄檔，頭戴裝置上的檔案管理器可以找到它，並可將其附加到錯誤回報中。記錄檔中可能包含您電腦在區域網路中的名稱與位址。檔案達 5 MB 時會輪替至 moonlight.previous.log，兩者合計絕不超過 10 MB。變更此設定後請重新啟動應用程式以生效。</string>
     <string name="title_seekbar_vr_inference_cadence">每秒深度更新次數</string>
     <string name="summary_seekbar_vr_inference_cadence">3D 每秒產生的深度圖數量。數值越低頭戴裝置負載越小，但深度延遲會更明顯。頭戴裝置跟不上時，會先將此值暫時減半，然後才降低顯示更新率。</string>
     <string name="suffix_seekbar_vr_inference_cadence">次/秒</string>

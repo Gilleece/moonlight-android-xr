@@ -676,7 +676,8 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                             ? "Opening " + desktop.getAppName() + " on " + computer.name + " directly"
                             : "No Desktop to open on " + computer.name + " directly, showing the app list");
                 } catch (XmlPullParserException | IOException e) {
-                    LimeLog.warning("App list for the Desktop check failed: " + e);
+                    LimeLog.warning("App list for the Desktop check failed: "
+                            + DesktopLaunch.describeFailure(e));
                 }
 
                 final NvApp app = desktop;

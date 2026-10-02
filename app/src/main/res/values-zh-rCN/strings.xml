@@ -416,7 +416,7 @@
     <string name="about_version">Moonlight XR %1$s，提交 %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">许可证：GPLv3</string>
-    <string name="bug_report_intro">请描述遇到的问题以及预期表现。报告将打包您的说明、应用版本、头显型号、串流设置与日志文件，并发送至 %1$s。\n\n日志路径：%2$s</string>
+    <string name="bug_report_intro">请描述遇到的问题以及预期表现。报告将打包您的说明、应用版本、头显型号、串流设置与日志文件（日志中可能包含您电脑在局域网中的名称和地址），并发送至 %1$s。\n\n日志路径：%2$s</string>
     <string name="bug_report_log_off">已关闭。请先开启“保存日志文件”并复现问题，否则报告中将不包含日志。</string>
     <string name="bug_report_email_hint">您的电子邮箱（用于接收回复）</string>
     <string name="bug_report_message_hint">请描述具体发生了什么问题…</string>
@@ -435,7 +435,7 @@
 
     <!-- VR Debug strings -->
     <string name="title_vr_file_log">保存日志文件</string>
-    <string name="summary_vr_file_log">在头显的 Download/MoonlightXR 目录下保留纯文本日志，方便文件管理器查找并附入错误报告。单文件达到 5 MB 时会自动轮转为 moonlight.previous.log，两者总占用不会超过 10 MB。更改此设置后需重启应用方可生效。</string>
+    <string name="summary_vr_file_log">在头显的 Download/MoonlightXR 目录下保留纯文本日志，方便文件管理器查找并附入错误报告。日志中可能包含您电脑在局域网中的名称和地址。单文件达到 5 MB 时会自动轮转为 moonlight.previous.log，两者总占用不会超过 10 MB。更改此设置后需重启应用方可生效。</string>
     <string name="title_seekbar_vr_inference_cadence">每秒深度更新次数</string>
     <string name="summary_seekbar_vr_inference_cadence">3D 每秒生成的深度图数量。数值越低头显负载越小，但深度变化的延迟会更明显。头显跟不上时，会先将此值临时减半，然后才降低显示刷新率。</string>
     <string name="suffix_seekbar_vr_inference_cadence">次/秒</string>

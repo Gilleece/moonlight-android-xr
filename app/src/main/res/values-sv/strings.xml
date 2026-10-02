@@ -486,7 +486,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licens: GPLv3</string>
-    <string name="bug_report_intro">Beskriv vad som gick fel och vad du väntade dig. Rapporten paketerar ditt meddelande med appversionen, headsetet, strömningsinställningarna och loggfilen och skickas till %1$s.\n\nLogg: %2$s</string>
+    <string name="bug_report_intro">Beskriv vad som gick fel och vad du väntade dig. Rapporten paketerar ditt meddelande med appversionen, headsetet, strömningsinställningarna och loggfilen, som kan innehålla datorns namn och adress i nätverket, och skickas till %1$s.\n\nLogg: %2$s</string>
     <string name="bug_report_log_off">av. Slå på ”Spara en loggfil” och återskapa problemet först, annars får rapporten ingen logg.</string>
     <string name="bug_report_email_hint">Din e-postadress, för ett svar</string>
     <string name="bug_report_message_hint">Vad hände?</string>
@@ -503,7 +503,7 @@
     <string name="bug_report_no_mail">Det finns ingen e-postapp på den här enheten, så rapporten har sparats i\n\n%1$s\n\nKopiera den från headsetet och bifoga den i ett mejl till %2$s.</string>
     <string name="bug_report_failed">Kunde inte skriva rapporten: %1$s</string>
     <string name="title_vr_file_log">Spara en loggfil</string>
-    <string name="summary_vr_file_log">För en logg i klartext i Download/MoonlightXR, där filhanteraren i headsetet hittar den och du kan bifoga den till en felrapport. Vid 5 MB flyttas den till moonlight.previous.log, så de två tar aldrig mer än 10 MB tillsammans. Starta om appen för att en ändring ska gälla.</string>
+    <string name="summary_vr_file_log">För en logg i klartext i Download/MoonlightXR, där filhanteraren i headsetet hittar den och du kan bifoga den till en felrapport. Den kan innehålla datorns namn och adress i nätverket. Vid 5 MB flyttas den till moonlight.previous.log, så de två tar aldrig mer än 10 MB tillsammans. Starta om appen för att en ändring ska gälla.</string>
     <string name="title_seekbar_vr_inference_cadence">Djupuppdateringar per sekund</string>
     <string name="summary_seekbar_vr_inference_cadence">Hur många djupkartor 3D-effekten gör varje sekund. Färre är lättare för headsetet men djupet släpar efter mer. När headsetet inte hinner med halveras värdet en stund innan skärmens uppdateringsfrekvens sänks.</string>
     <string name="suffix_seekbar_vr_inference_cadence">per sekund</string>

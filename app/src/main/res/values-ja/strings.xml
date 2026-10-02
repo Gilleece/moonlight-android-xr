@@ -460,7 +460,7 @@
     <string name="about_version">Moonlight XR %1$s、コミット %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">ライセンス: GPLv3</string>
-    <string name="bug_report_intro">何が起きたか、どうなるはずだったかを書いてください。レポートはメッセージにアプリのバージョン、ヘッドセット、ストリーミング設定、ログファイルをまとめ、%1$sに送られます。\n\nログ: %2$s</string>
+    <string name="bug_report_intro">何が起きたか、どうなるはずだったかを書いてください。レポートはメッセージにアプリのバージョン、ヘッドセット、ストリーミング設定、ログファイルをまとめ、%1$sに送られます。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。\n\nログ: %2$s</string>
     <string name="bug_report_log_off">オフ。「ログファイルを保存」をオンにして先に問題を再現してください。そうしないとレポートにログが含まれません。</string>
     <string name="bug_report_email_hint">返信用のメールアドレス</string>
     <string name="bug_report_message_hint">何が起きましたか？</string>
@@ -477,7 +477,7 @@
     <string name="bug_report_no_mail">このデバイスにはメールアプリがないため、レポートを次の場所に保存しました:\n\n%1$s\n\nヘッドセットからコピーし、%2$s宛てのメールに添付してください。</string>
     <string name="bug_report_failed">レポートを書き込めませんでした: %1$s</string>
     <string name="title_vr_file_log">ログファイルを保存</string>
-    <string name="summary_vr_file_log">Download/MoonlightXRにテキストのログを記録します。ヘッドセットのファイルマネージャーで見つけられ、バグレポートに添付できます。5 MBに達するとmoonlight.previous.logに切り替わるため、2つ合わせても10 MBを超えません。変更を反映するにはアプリを再起動してください。</string>
+    <string name="summary_vr_file_log">Download/MoonlightXRにテキストのログを記録します。ヘッドセットのファイルマネージャーで見つけられ、バグレポートに添付できます。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。5 MBに達するとmoonlight.previous.logに切り替わるため、2つ合わせても10 MBを超えません。変更を反映するにはアプリを再起動してください。</string>
     <string name="title_seekbar_vr_inference_cadence">1秒あたりの深度更新</string>
     <string name="summary_seekbar_vr_inference_cadence">3Dが1秒間に作る深度マップの数です。少ないほどヘッドセットの負荷は軽くなりますが、深度の遅れが大きくなります。ヘッドセットが追いつかないときは、ディスプレイのリフレッシュレートを下げる前に、この値をしばらく半分にします。</string>
     <string name="suffix_seekbar_vr_inference_cadence">回/秒</string>

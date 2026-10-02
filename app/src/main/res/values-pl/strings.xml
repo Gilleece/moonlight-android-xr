@@ -486,7 +486,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licencja: GPLv3</string>
-    <string name="bug_report_intro">Opisz, co poszło nie tak i jaki był oczekiwany efekt. Zgłoszenie łączy twoją wiadomość z wersją aplikacji, danymi gogli, ustawieniami transmisji i plikiem dziennika, i trafia do %1$s.\n\nDziennik: %2$s</string>
+    <string name="bug_report_intro">Opisz, co poszło nie tak i jaki był oczekiwany efekt. Zgłoszenie łączy twoją wiadomość z wersją aplikacji, danymi gogli, ustawieniami transmisji i plikiem dziennika, który może zawierać nazwę i adres twojego komputera w sieci, i trafia do %1$s.\n\nDziennik: %2$s</string>
     <string name="bug_report_log_off">wyłączony. Włącz „Zapisuj plik dziennika” i najpierw odtwórz problem, inaczej zgłoszenie nie będzie zawierać dziennika.</string>
     <string name="bug_report_email_hint">Twój adres e-mail, do odpowiedzi</string>
     <string name="bug_report_message_hint">Co się stało?</string>
@@ -503,7 +503,7 @@
     <string name="bug_report_no_mail">Na tym urządzeniu nie ma aplikacji pocztowej, więc zgłoszenie zostało zapisane w\n\n%1$s\n\nSkopiuj je z gogli i dołącz do e-maila na adres %2$s.</string>
     <string name="bug_report_failed">Nie udało się zapisać zgłoszenia: %1$s</string>
     <string name="title_vr_file_log">Zapisuj plik dziennika</string>
-    <string name="summary_vr_file_log">Prowadzi tekstowy dziennik w Download/MoonlightXR, gdzie menedżer plików w goglach może go znaleźć, a ty możesz go dołączyć do zgłoszenia błędu. Po osiągnięciu 5 MB przechodzi do moonlight.previous.log, więc oba razem nigdy nie zajmują więcej niż 10 MB. Uruchom aplikację ponownie, aby zmiana zadziałała.</string>
+    <string name="summary_vr_file_log">Prowadzi tekstowy dziennik w Download/MoonlightXR, gdzie menedżer plików w goglach może go znaleźć, a ty możesz go dołączyć do zgłoszenia błędu. Może zawierać nazwę i adres twojego komputera w sieci. Po osiągnięciu 5 MB przechodzi do moonlight.previous.log, więc oba razem nigdy nie zajmują więcej niż 10 MB. Uruchom aplikację ponownie, aby zmiana zadziałała.</string>
     <string name="title_seekbar_vr_inference_cadence">Aktualizacje głębi na sekundę</string>
     <string name="summary_seekbar_vr_inference_cadence">Ile map głębi tworzy 3D w każdej sekundzie. Mniej odciąża gogle, ale głębia bardziej się opóźnia. Gdy gogle nie nadążają, ta wartość jest na jakiś czas zmniejszana o połowę, zanim obniżona zostanie częstotliwość odświeżania ekranu.</string>
     <string name="suffix_seekbar_vr_inference_cadence">na sekundę</string>

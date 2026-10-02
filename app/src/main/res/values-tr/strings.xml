@@ -486,7 +486,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Lisans: GPLv3</string>
-    <string name="bug_report_intro">Neyin ters gittiğini ve ne beklediğinizi anlatın. Rapor, mesajınızı uygulama sürümü, başlık, akış ayarları ve günlük dosyasıyla birleştirir ve %1$s adresine gider.\n\nGünlük: %2$s</string>
+    <string name="bug_report_intro">Neyin ters gittiğini ve ne beklediğinizi anlatın. Rapor, mesajınızı uygulama sürümü, başlık, akış ayarları ve bilgisayarınızın ağdaki adını ve adresini içerebilen günlük dosyasıyla birleştirir ve %1$s adresine gider.\n\nGünlük: %2$s</string>
     <string name="bug_report_log_off">kapalı. Önce “Günlük dosyası kaydet” seçeneğini açıp sorunu yeniden oluşturun, aksi hâlde raporda günlük olmaz.</string>
     <string name="bug_report_email_hint">Yanıt için e-posta adresiniz</string>
     <string name="bug_report_message_hint">Ne oldu?</string>
@@ -503,7 +503,7 @@
     <string name="bug_report_no_mail">Bu cihazda e-posta uygulaması yok, bu yüzden rapor şuraya kaydedildi:\n\n%1$s\n\nBaşlıktan kopyalayıp %2$s adresine gönderilecek bir e-postaya ekleyin.</string>
     <string name="bug_report_failed">Rapor yazılamadı: %1$s</string>
     <string name="title_vr_file_log">Günlük dosyası kaydet</string>
-    <string name="summary_vr_file_log">Download/MoonlightXR içinde düz metin bir günlük tutar; başlıktaki dosya yöneticisi onu bulabilir ve bir hata raporuna ekleyebilirsiniz. 5 MB\'a ulaşınca moonlight.previous.log dosyasına geçer, böylece ikisi birlikte asla 10 MB\'ı aşmaz. Değişikliğin geçerli olması için uygulamayı yeniden başlatın.</string>
+    <string name="summary_vr_file_log">Download/MoonlightXR içinde düz metin bir günlük tutar; başlıktaki dosya yöneticisi onu bulabilir ve bir hata raporuna ekleyebilirsiniz. Günlük, bilgisayarınızın ağdaki adını ve adresini içerebilir. 5 MB\'a ulaşınca moonlight.previous.log dosyasına geçer, böylece ikisi birlikte asla 10 MB\'ı aşmaz. Değişikliğin geçerli olması için uygulamayı yeniden başlatın.</string>
     <string name="title_seekbar_vr_inference_cadence">Saniyede derinlik güncellemesi</string>
     <string name="summary_seekbar_vr_inference_cadence">3D\'nin her saniye kaç derinlik haritası ürettiği. Daha azı başlığı daha az yorar ama derinlik daha çok geride kalır. Başlık yetişemediğinde, ekran yenileme hızı düşürülmeden önce bu değer bir süreliğine yarıya iner.</string>
     <string name="suffix_seekbar_vr_inference_cadence">saniyede</string>

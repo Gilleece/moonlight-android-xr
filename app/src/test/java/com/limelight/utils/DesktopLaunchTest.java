@@ -4,12 +4,16 @@ import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
 
 import org.junit.Test;
+import org.xmlpull.v1.XmlPullParserException;
 
+import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
@@ -90,5 +94,22 @@ public class DesktopLaunchTest {
         } catch (HostHttpResponseException e) {
             assertEquals(401, e.getErrorCode());
         }
+    }
+
+    @Test
+    public void aFailureIsLoggedWithoutTheUrl() {
+        // NvHTTP's 404 carries the request it was for
+        String url = "http://192.0.2.10:47989/applist?uniqueid=0123456789ABCDEF&uuid=abc";
+        String logged = DesktopLaunch.describeFailure(new FileNotFoundException(url));
+        assertEquals("FileNotFoundException, HTTP 404", logged);
+        assertFalse(logged.contains("uniqueid"));
+        assertFalse(logged.contains("192.0.2.10"));
+
+        assertEquals("HostHttpResponseException, HTTP 503",
+                DesktopLaunch.describeFailure(new HostHttpResponseException(503, "busy")));
+        assertEquals("IOException",
+                DesktopLaunch.describeFailure(new IOException("connect to 192.0.2.10 failed")));
+        assertEquals("XmlPullParserException",
+                DesktopLaunch.describeFailure(new XmlPullParserException("Malformed XML")));
     }
 }
