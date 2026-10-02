@@ -1116,7 +1116,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     if (!ctx->sessionRunning) {
         // However long the runtime takes, a boundary prompt answered slowly
         // included: nothing here gives up on it, it only says it is waiting
-        long now = nowNs();
+        int64_t now = nowNs();
         if (ctx->waitingSinceNs == 0) {
             ctx->waitingSinceNs = now;
             ctx->waitingLoggedNs = now;
@@ -1124,7 +1124,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
         else if ((now - ctx->waitingLoggedNs) / 1000000L >= 10000L) {
             ctx->waitingLoggedNs = now;
             LOGEV("waiting for the headset: session state %d, not running for %ld s",
-                  ctx->sessionState, (now - ctx->waitingSinceNs) / 1000000000L);
+                  ctx->sessionState, (long)((now - ctx->waitingSinceNs) / 1000000000L));
         }
         usleep(10000);
         return FRAME_IDLE;

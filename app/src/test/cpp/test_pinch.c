@@ -9,7 +9,8 @@
 
 // Closes the tips from one gap to another over a time, a frame at a time, and
 // says whether the joints read a pinch at the end
-static int closeTips(PinchGate* g, long* t, float from, float to, long overNs, int tracked) {
+static int closeTips(PinchGate* g, int64_t* t, float from, float to, int64_t overNs,
+                     int tracked) {
     int frames = (int)(overNs / FRAME_NS);
     if (frames < 1) {
         frames = 1;
@@ -26,7 +27,7 @@ static int closeTips(PinchGate* g, long* t, float from, float to, long overNs, i
 
 static void testPinchGate(void) {
     PinchGate g;
-    long t = 5000 * MS;
+    int64_t t = 5000 * MS;
     float closed;
 
     // A deliberate pinch, 60 mm to 8 mm in 120 ms, presses
@@ -72,8 +73,8 @@ static void testPinchGate(void) {
 }
 
 static void testPinchHold(void) {
-    long since = 0;
-    long t = 100 * MS;
+    int64_t since = 0;
+    int64_t t = 100 * MS;
     // 80 ms of a wanted pinch before it is a press
     CHECK(!pinchHoldStep(&since, 1, 0, t));
     CHECK(!pinchHoldStep(&since, 1, 0, t + 79 * MS));
@@ -98,12 +99,12 @@ static void testPinchHold(void) {
 // Holds the four fingertips where they are told, in mm from the thumb tip, for
 // a time, and says how many times the gesture fired and why it was not held on
 // the last frame
-static int holdRing(RingGate* g, long* t, long forNs, float index, float middle, float ring,
-                    float little, int* why) {
+static int holdRing(RingGate* g, int64_t* t, int64_t forNs, float index, float middle,
+                    float ring, float little, int* why) {
     const float gaps[TIP_COUNT] = { index * 0.001f, middle * 0.001f, ring * 0.001f,
                                     little * 0.001f };
     int fired = 0;
-    for (long done = 0; done < forNs; done += FRAME_NS) {
+    for (int64_t done = 0; done < forNs; done += FRAME_NS) {
         *t += FRAME_NS;
         fired += ringGateStep(g, 1, gaps, *t, why);
     }
@@ -112,7 +113,7 @@ static int holdRing(RingGate* g, long* t, long forNs, float index, float middle,
 
 static void testRingGesture(void) {
     RingGate g;
-    long t = 0;
+    int64_t t = 0;
     int why;
 
     // Held cleanly for 350 ms it fires once, and only once however long it
@@ -215,8 +216,8 @@ static void testRingNearest(void) {
 }
 
 static void testRingDiagnostic(void) {
-    long last = 0;
-    long t = 1000 * MS;
+    int64_t last = 0;
+    int64_t t = 1000 * MS;
     // Nothing near the thumb, or only tips it cannot place, says nothing
     const float farTips[TIP_COUNT] = { 0.08f, 0.07f, 0.06f, 0.05f };
     CHECK(!ringDiagDue(&last, farTips, t));
@@ -244,7 +245,7 @@ static void testDragRamp(void) {
     // A hand moving steadily: little gets through in the first frames and
     // the full gain once the ramp is over
     DragRamp r;
-    long t = 0;
+    int64_t t = 0;
     dragRampStart(&r, t);
     int held = 0;
     Vec3 d = { 0.0f, 0.0f, 0.0f };

@@ -6,6 +6,8 @@
 #ifndef XR_PINCH_H
 #define XR_PINCH_H
 
+#include <stdint.h>
+
 #include "xr_math.h"
 
 // The press a hand's pinch makes. Off the joints the tips have to come within
@@ -31,7 +33,7 @@
 
 typedef struct {
     float gap[PINCH_RING];
-    long at[PINCH_RING];
+    int64_t at[PINCH_RING];
     int next;
     int count;
     // The pinch as the joints have it, before the hold
@@ -44,13 +46,13 @@ void pinchGateReset(PinchGate* g);
 // tracked as well, and the gap between them. Says whether the joints read a
 // pinch. outClosed says how far the tips had closed when an untracked frame
 // is refused or a tracked one pressed, for the log.
-int pinchGateStep(PinchGate* g, int valid, int tracked, float gap, long nowNs,
+int pinchGateStep(PinchGate* g, int valid, int tracked, float gap, int64_t nowNs,
                   float* outClosed);
 
 // A pinch held long enough to be a press. wantSince is the hand's own clock,
 // want whether the pinch is asked for this frame and wasDown whether the press
 // was down last frame. Letting go is never held back.
-int pinchHoldStep(long* wantSince, int want, int wasDown, long nowNs);
+int pinchHoldStep(int64_t* wantSince, int want, int wasDown, int64_t nowNs);
 
 // An analog value with a gap between pressing and letting go, so a value
 // sitting near one threshold does not chatter
@@ -88,7 +90,7 @@ int pressHysteresis(float value, int wasDown, float on, float off);
 
 typedef struct {
     // Since when the gesture has been held cleanly, 0 while it is not
-    long since;
+    int64_t since;
     // The thumb and ring tips together, with their own hysteresis
     int closed;
     // Fired on this closing already, so it waits for the fingers to part
@@ -101,14 +103,15 @@ void ringGateReset(RingGate* g);
 // three at least placed, and gaps are each fingertip to the thumb tip in TIP_
 // order. Says 1 on the frame the hold completes, and outWhy what kept it from
 // being held this frame, a RING_ reason.
-int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], long nowNs, int* outWhy);
+int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], int64_t nowNs,
+                 int* outWhy);
 
 // The fingertip nearest the thumb, the ring tip on a tie. A gap under zero is a
 // tip the runtime could not place, and is passed over.
 int ringNearestTip(const float gaps[TIP_COUNT]);
 
 // How long the gesture has been held so far, 0 while it is not
-long ringHoldNs(const RingGate* g, long nowNs);
+int64_t ringHoldNs(const RingGate* g, int64_t nowNs);
 
 // A RING_ reason in words, for the log
 const char* ringReasonName(int why);
@@ -118,7 +121,7 @@ const char* ringReasonName(int why);
 // 250 ms ago or more, which it then marks as now
 #define RING_DIAG_NEAR_M 0.040f
 #define RING_DIAG_EVERY_NS 250000000L
-int ringDiagDue(long* lastNs, const float gaps[TIP_COUNT], long nowNs);
+int ringDiagDue(int64_t* lastNs, const float gaps[TIP_COUNT], int64_t nowNs);
 
 // A drag the eyes started is carried by the hand that pinched. It comes up to
 // speed over half a second from the pinch, so a pinch that wanders as it
@@ -137,16 +140,16 @@ int ringDiagDue(long* lastNs, const float gaps[TIP_COUNT], long nowNs);
 typedef struct {
     Vec3 prev;
     Vec3 carried;
-    long startNs;
+    int64_t startNs;
 } DragRamp;
 
 // How much of the hand's motion the ramp lets through, elapsed after the
 // pinch: none at it, all of it once the ramp is through, eased between
-float dragRampGain(long elapsedNs);
-void dragRampStart(DragRamp* r, long nowNs);
+float dragRampGain(int64_t elapsedNs);
+void dragRampStart(DragRamp* r, int64_t nowNs);
 // What the hand has carried the drag by so far, d being its travel since the
 // pinch. outHeld says whether the head held this frame's step back.
-Vec3 dragRampStep(DragRamp* r, Vec3 d, float headTurnDegS, long nowNs, int* outHeld);
+Vec3 dragRampStep(DragRamp* r, Vec3 d, float headTurnDegS, int64_t nowNs, int* outHeld);
 
 // A hand at half a metre cannot reach a target three metres out, so the drag
 // is geared by how much further the target is than the hand, from half to 64

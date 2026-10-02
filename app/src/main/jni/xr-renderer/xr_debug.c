@@ -65,7 +65,7 @@ static void readFadeKnob(XrCtx* ctx) {
     propInt(PROP_FADE_MS, &ms, FADE_KNOB_MAX_MS);
     if (ms != ctx->fadeKnobMs) {
         ctx->fadeKnobMs = ms;
-        ctx->fadeNs = ms > 0 ? ms * 1000000L : FADE_NS;
+        ctx->fadeNs = ms > 0 ? ms * 1000000LL : FADE_NS;
         LOGEV("fade knob %d ms", ms);
     }
 }

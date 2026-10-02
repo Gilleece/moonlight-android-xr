@@ -99,7 +99,7 @@ static void testGazeBridge(void) {
     GazeBridge b;
     memset(&b, 0, sizeof(b));
     float sec = 0.0f;
-    long t = 1000 * MS;
+    int64_t t = 1000 * MS;
 
     // Eyes there: nothing happens
     gazeBridgeTrack(&b, 1, 1, t);
@@ -108,7 +108,7 @@ static void testGazeBridge(void) {
     // Gone for just under ten seconds: still the eyes
     t += FRAME_NS;
     gazeBridgeTrack(&b, 1, 0, t);
-    long lost = t;
+    int64_t lost = t;
     CHECK(gazeBridgeUpdate(&b, 1, 0, 1, 0, lost + 9900 * MS, GAZE_BRIDGE_SEC, &sec)
           == BRIDGE_SAME);
     // A controller in use, an unfocused session or a press held each keep it

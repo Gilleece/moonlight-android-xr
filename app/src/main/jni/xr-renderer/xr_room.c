@@ -1128,7 +1128,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadRoomAtlas(JNIEnv* env, j
         return;
     }
 
-    long started = nowNs();
+    int64_t started = nowNs();
     GLenum format = roomAtlasFormat(info.blockWidth);
     glGenTextures(1, &ctx->roomTextures[slot]);
     glActiveTexture(GL_TEXTURE0);

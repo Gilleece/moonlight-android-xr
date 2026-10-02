@@ -1114,7 +1114,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
 // it reads wherever the picture is and never covers its middle. Nothing hit
 // tests it: a press aimed through it lands on whatever is behind. It shows
 // while the notice it was drawn for is the one up, and fades out after.
-static void addToastLayer(XrCtx* ctx, FrameLayers* layers, long now) {
+static void addToastLayer(XrCtx* ctx, FrameLayers* layers, int64_t now) {
     int shown = ctx->toastArtReady && noticeShowing(&ctx->notices, now)
             && ctx->toastDrawnKind == ctx->notices.current.kind
             && ctx->toastDrawnArg == ctx->notices.current.arg;
@@ -1138,7 +1138,7 @@ static void addToastLayer(XrCtx* ctx, FrameLayers* layers, long now) {
 // Steps each panel's fade toward whether it is showing. A panel opening takes
 // any other still on its way out away at once, so two are never up together,
 // and the keyboard stands down at once for a modal the way it always has.
-static void stepPanelFades(XrCtx* ctx, long now) {
+static void stepPanelFades(XrCtx* ctx, int64_t now) {
     static const char* const NAMES[FADE_PANELS] = {
         "settings panel", "picker", "keyboard", "exit prompt", "report sheet", "hand lock hint"
     };
@@ -1224,7 +1224,7 @@ static void logSplashLift(XrCtx* ctx) {
 
 // One frame of the splash: what has become ready since the last, and whether
 // it lifts now
-static void stepSplash(XrCtx* ctx, long now) {
+static void stepSplash(XrCtx* ctx, int64_t now) {
     if (ctx->splash.phase == SPLASH_GONE) {
         return;
     }
@@ -1237,7 +1237,7 @@ static void stepSplash(XrCtx* ctx, long now) {
             }
         }
     }
-    long fadeNs = ctx->colorScaleSupported ? 2 * ctx->fadeNs : 0;
+    int64_t fadeNs = ctx->colorScaleSupported ? 2 * ctx->fadeNs : 0;
     int phase = ctx->splash.phase;
     if (splashStep(&ctx->splash, now, waiting, fadeNs)) {
         logSplashLift(ctx);
@@ -1251,7 +1251,7 @@ static void stepSplash(XrCtx* ctx, long now) {
 // wider than any view, cut from the black strip under the sheet's rows, and
 // the sheet itself on the row for the dots it is up to. While it is fully up
 // it is all the frame carries.
-static void addSplashLayers(XrCtx* ctx, FrameLayers* layers, long now) {
+static void addSplashLayers(XrCtx* ctx, FrameLayers* layers, int64_t now) {
     if (ctx->splash.phase == SPLASH_GONE || !ctx->splashArtReady) {
         return;
     }
@@ -1335,13 +1335,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // sends nothing while the picture stands still
     int redraw = ctx->warpRedraw && ctx->everRendered;
     if ((newFrame || redraw) && ctx->shouldRender) {
-        long startNs = nowNs();
+        int64_t startNs = nowNs();
 
         float texMatrix[16];
         (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
         renderVideoFrame(ctx, texMatrix, separation);
 
-        long elapsed = nowNs() - startNs;
+        int64_t elapsed = nowNs() - startNs;
         ctx->statFrames++;
         ctx->statTotalNs += elapsed;
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
@@ -1387,7 +1387,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     view.screenCurved = view.curve > 0.01f && ctx->cylinderSupported;
     // A panel on its way out keeps the furniture down until it has gone, the
     // way an open one does, so the two never stack up in one frame
-    long frameNs = nowNs();
+    int64_t frameNs = nowNs();
     stepPanelFades(ctx, frameNs);
     stepSplash(ctx, frameNs);
     int splashUp = ctx->splash.phase == SPLASH_UP;

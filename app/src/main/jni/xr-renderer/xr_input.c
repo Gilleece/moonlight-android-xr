@@ -620,7 +620,7 @@ static void readRingTips(XrCtx* ctx, int hand, const XrHandJointLocationEXT* joi
 }
 
 static int jointPinching(XrCtx* ctx, int hand, const FrameXform* xform, const XrPosef* head,
-                         int headValid, long nowNs) {
+                         int headValid, int64_t nowNs) {
     ctx->ringTipsTracked[hand] = 0;
     // Nothing placed until the joints say otherwise, so a hand that is lost
     // leaves no stale gaps behind it
@@ -868,7 +868,7 @@ static int gazeDragHand(XrCtx* ctx, const XrPosef* aims, const int* valid, Vec3 
 
 // How far the hand carrying a drag the eyes started has taken it, eased in
 // from the pinch and held while the head turns
-static Vec3 gazeDragCarry(XrCtx* ctx, DragRamp* ramp, Vec3 travel, long nowNs) {
+static Vec3 gazeDragCarry(XrCtx* ctx, DragRamp* ramp, Vec3 travel, int64_t nowNs) {
     int held = 0;
     Vec3 carry = dragRampStep(ramp, travel, ctx->headTurnRate, nowNs, &held);
     if (held && !ctx->dragHeldByHead) {
@@ -1182,7 +1182,7 @@ void destroyXrInput(XrCtx* ctx) {
 typedef struct {
     // The IN_ slots handed back to Java
     float* out;
-    long now;
+    int64_t now;
     float dt;
     // Into the frame the screen is in, which is the head's while it is head
     // locked and the local space's otherwise
@@ -1743,7 +1743,7 @@ static void logRingCheck(XrCtx* ctx, const InputFrame* f, int h, int why) {
          "runtime pinch %.2f grip %.2f, refused: %s, hold %ld of %ld ms, hands %s", h,
          tips[TIP_INDEX], tips[TIP_MIDDLE], tips[TIP_RING], tips[TIP_LITTLE],
          ctx->triggerValue[h], f->grab[h], ringReasonName(why),
-         ringHoldNs(&ctx->ringGate[h], f->now) / 1000000L, RING_HOLD_NS / 1000000L,
+         (long)(ringHoldNs(&ctx->ringGate[h], f->now) / 1000000L), RING_HOLD_NS / 1000000L,
          ctx->handsLocked ? "locked" : "unlocked");
 }
 
@@ -3180,7 +3180,7 @@ static void updatePad(XrCtx* ctx) {
     if (parts != ctx->padChord.parts) {
         padChordReset(&ctx->padChord, parts);
     }
-    long now = nowNs();
+    int64_t now = nowNs();
     int chord = padChordStep(&ctx->padChord, &raw[HAND_LEFT], &raw[HAND_RIGHT], now);
     PadHand seen[HAND_COUNT];
     padChordApply(&ctx->padChord, &raw[HAND_LEFT], &raw[HAND_RIGHT], &seen[HAND_LEFT],

@@ -78,7 +78,7 @@ float rateChoose(float fps, const float* rates, int count, int warpOn, float hel
     return want;
 }
 
-static void clearWindow(RateBudget* b, long nowNs) {
+static void clearWindow(RateBudget* b, int64_t nowNs) {
     b->startNs = nowNs;
     b->cpuTotalNs = 0;
     b->cpuFrames = 0;
@@ -89,27 +89,27 @@ static void clearWindow(RateBudget* b, long nowNs) {
     b->missed = 0;
 }
 
-void rateBudgetStart(RateBudget* b, long nowNs, int settle) {
+void rateBudgetStart(RateBudget* b, int64_t nowNs, int settle) {
     clearWindow(b, nowNs);
     b->settle = settle;
     b->overWindows = 0;
 }
 
-void rateBudgetCpu(RateBudget* b, long frameNs) {
+void rateBudgetCpu(RateBudget* b, int64_t frameNs) {
     if (frameNs > 0) {
         b->cpuTotalNs += frameNs;
         b->cpuFrames++;
     }
 }
 
-void rateBudgetGpu(RateBudget* b, long gpuNs) {
+void rateBudgetGpu(RateBudget* b, int64_t gpuNs) {
     if (gpuNs > 0) {
         b->gpuTotalNs += gpuNs;
         b->gpuFrames++;
     }
 }
 
-void rateBudgetRoom(RateBudget* b, long gpuNs) {
+void rateBudgetRoom(RateBudget* b, int64_t gpuNs) {
     if (gpuNs > 0) {
         b->roomTotalNs += gpuNs;
         b->roomFrames++;
@@ -122,7 +122,7 @@ void rateBudgetMissed(RateBudget* b, long refreshes) {
     }
 }
 
-int rateBudgetTick(RateBudget* b, long nowNs, float hz) {
+int rateBudgetTick(RateBudget* b, int64_t nowNs, float hz) {
     if (nowNs - b->startNs < RATE_WINDOW_NS) {
         return RATE_WINDOW_FILLING;
     }

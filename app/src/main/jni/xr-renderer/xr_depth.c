@@ -160,7 +160,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeCaptureDepthInput(JNIEnv* env,
     }
     const int w = ctx->depthTexW;
     const int h = ctx->depthTexH;
-    long startNs = nowNs();
+    int64_t startNs = nowNs();
 
     float texMatrix[16];
     (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
@@ -253,7 +253,7 @@ static void depthCutCheck(XrCtx* ctx, int pair, int w, int h) {
         return;
     }
 
-    long now = nowNs();
+    int64_t now = nowNs();
     if (ctx->depthCutLogNs != 0 && now - ctx->depthCutLogNs < DEPTH_CUT_LOG_NS) {
         ctx->depthCutUnlogged++;
         return;
@@ -286,7 +286,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
     }
     const int w = ctx->depthTexW;
     const int h = ctx->depthTexH;
-    long startNs = nowNs();
+    int64_t startNs = nowNs();
     const int slot = pair;
     // Nothing found yet, so a capture that cannot be mapped carries nothing
     depthResetsSet(&ctx->depthResets, pair, 0);
@@ -412,7 +412,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUnbindDepthStageContext(JNIEnv
 // range, since the range is smoothed over a history of its own and has to be
 // found on the map that is drawn. Hands back the map to normalise, which is
 // the model output itself when the time constant is 0.
-static const float* depthTauMap(XrCtx* ctx, const float* output, int count, long now) {
+static const float* depthTauMap(XrCtx* ctx, const float* output, int count, int64_t now) {
     int tauMs = ctx->depthTauMs;
     if (tauMs <= 0) {
         ctx->depthTauValid = 0;
@@ -457,7 +457,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadDepth(JNIEnv* env, jobje
     }
     const int w = ctx->depthTexW;
     const int h = ctx->depthTexH;
-    long startNs = nowNs();
+    int64_t startNs = nowNs();
 
     // Whatever the cut check found on this map's capture, or on an earlier
     // one whose model run made no map
