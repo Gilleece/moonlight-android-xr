@@ -68,16 +68,26 @@
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512
 
-// The sheet the launch splash shows: the app's name over the loading word,
-// drawn once per number of dots, one under the other, so stepping the dots is
-// a different rectangle of the same image rather than an upload. The words sit
-// on nothing, and a strip of black under the last row, clear of it, is what
-// the quad that blacks out the view is cut from, so the two fade as one.
-#define SPLASH_TEX_W 768
+// The sheet the launch splash shows: the logo over the app's name, drawn once
+// per number of the logo's wedges open, none to all six, one under the other,
+// so ticking the wedges is a different rectangle of the same image rather than
+// an upload. The rows sit on nothing. Under the last, clear of it, is a square
+// of the ground with its glow, which the quad that covers the view is cut
+// from, less an inset all round so filtering never reaches past it, so the
+// two fade as one.
+#define SPLASH_WEDGES 6
+#define SPLASH_ROWS (SPLASH_WEDGES + 1)
+#define SPLASH_TEX_W 384
 #define SPLASH_ROW_H 256
-#define SPLASH_ROWS 3
-#define SPLASH_BLACK_PX 16
-#define SPLASH_TEX_H (SPLASH_ROW_H * SPLASH_ROWS + SPLASH_BLACK_PX + 8)
+#define SPLASH_GROUND_PX 256
+#define SPLASH_GROUND_INSET 8
+#define SPLASH_TEX_H (SPLASH_ROW_H * SPLASH_ROWS + 8 + SPLASH_GROUND_PX)
+// Both locked to the head, in metres: the ground wider than any view, and the
+// sheet a little in front of it at the size that gives a row 0.3 m
+#define SPLASH_GROUND_M 6.0f
+#define SPLASH_GROUND_DISTANCE_M 1.5f
+#define SPLASH_SHEET_W_M 0.45f
+#define SPLASH_SHEET_DISTANCE_M 1.45f
 
 // The toast, a short notice hung off the eyes for a few seconds: one sheet,
 // drawn in Java whenever what it says changes. What a notice is about, which

@@ -554,5 +554,4 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Quitter le stream ?</string>
     <string name="vr_exit">Quitter</string>
-    <string name="vr_splash_loading">Chargement</string>
 </resources>

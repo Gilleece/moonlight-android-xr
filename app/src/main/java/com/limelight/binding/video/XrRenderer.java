@@ -655,7 +655,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 restoreScreenPose();
                 startEnvironment(prefs);
                 // A few milliseconds here, and the first frame has it
+                long splashStartNs = System.nanoTime();
                 pendingSplash.set(panels.buildSplash());
+                LimeLog.info("Splash sheet drawn in "
+                        + msPer(System.nanoTime() - splashStartNs, 1) + " ms, "
+                        + SPLASH_ROWS + " rows");
 
                 File captureDir = activity.getExternalFilesDir(null);
                 if (captureDir != null) {

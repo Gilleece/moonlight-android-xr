@@ -65,11 +65,16 @@ float splashLevel(const Splash* splash, int64_t now, int64_t fadeNs) {
     return level < 0.0f ? 0.0f : (level > 1.0f ? 1.0f : level);
 }
 
-int splashRow(const Splash* splash, int64_t now, int rows) {
-    if (splash->firstNs == 0 || rows <= 0 || now < splash->firstNs) {
+int splashWedges(const Splash* splash, int64_t now) {
+    if (splash->phase != SPLASH_UP) {
+        return SPLASH_WEDGES;
+    }
+    if (splash->firstNs == 0 || now < splash->firstNs) {
         return 0;
     }
-    return (int)(((now - splash->firstNs) / SPLASH_DOT_NS) % rows);
+    int64_t round = SPLASH_WEDGES * SPLASH_TICK_NS + SPLASH_HOLD_NS;
+    int open = (int)(((now - splash->firstNs) % round) / SPLASH_TICK_NS);
+    return open > SPLASH_WEDGES ? SPLASH_WEDGES : open;
 }
 
 void noticeInit(NoticeBoard* board) {

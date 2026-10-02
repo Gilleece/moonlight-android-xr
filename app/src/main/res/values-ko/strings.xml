@@ -481,7 +481,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">스트림을 종료할까요?</string>
     <string name="vr_exit">종료</string>
-    <string name="vr_splash_loading">불러오는 중</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">문제가 생겼을 때 무엇을 하고 있었나요?</string>
     <string name="vr_report_optional">선택 사항</string>

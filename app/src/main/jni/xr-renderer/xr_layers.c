@@ -118,7 +118,7 @@ typedef struct {
     XrCompositionLayerProjection models;
     XrCompositionLayerProjectionView modelViews[ROOM_EYES];
     XrCompositionLayerQuad toast;
-    XrCompositionLayerQuad splashBlack;
+    XrCompositionLayerQuad splashGround;
     XrCompositionLayerQuad splashSheet;
     XrCompositionLayerSettingsFB settings;
     // NULL when sharpening and supersampling are both off or unsupported,
@@ -1344,9 +1344,9 @@ static void stepSplash(XrCtx* ctx, int64_t now) {
     }
 }
 
-// The splash, locked to the head and in front of everything: a black quad
-// wider than any view, cut from the black strip under the sheet's rows, and
-// the sheet itself on the row for the dots it is up to. While it is fully up
+// The splash, locked to the head and in front of everything: the ground, a
+// quad wider than any view cut from the square under the sheet's rows, and
+// the sheet itself on the row for the wedges open now. While it is fully up
 // it is all the frame carries.
 static void addSplashLayers(XrCtx* ctx, FrameLayers* layers, int64_t now) {
     if (ctx->splash.phase == SPLASH_GONE || !ctx->splashArtReady) {
@@ -1358,20 +1358,24 @@ static void addSplashLayers(XrCtx* ctx, FrameLayers* layers, int64_t now) {
     memset(&pose, 0, sizeof(pose));
     pose.orientation.w = 1.0f;
 
-    pose.position.z = -SPLASH_BLACK_DISTANCE_M;
-    quadLayer(&layers->splashBlack, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+    pose.position.z = -SPLASH_GROUND_DISTANCE_M;
+    quadLayer(&layers->splashGround, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
               ctx->splashSwapchain, SPLASH_TEX_W, SPLASH_TEX_H, ctx->viewSpace, pose,
-              SPLASH_BLACK_M, SPLASH_BLACK_M);
-    // Well inside the black strip, which arrives as the bottom rows of the
-    // image, so filtering never reaches past it
-    layers->splashBlack.subImage.imageRect.offset.x = 8;
-    layers->splashBlack.subImage.imageRect.offset.y = 4;
-    layers->splashBlack.subImage.imageRect.extent.width = 8;
-    layers->splashBlack.subImage.imageRect.extent.height = SPLASH_BLACK_PX - 8;
-    pushLayer(ctx, layers, &layers->splashBlack);
+              SPLASH_GROUND_M, SPLASH_GROUND_M);
+    // The ground's square arrives as the bottom left of the image
+    XrRect2Di* ground = &layers->splashGround.subImage.imageRect;
+    ground->offset.x = SPLASH_GROUND_INSET;
+    ground->offset.y = SPLASH_GROUND_INSET;
+    ground->extent.width = SPLASH_GROUND_PX - 2 * SPLASH_GROUND_INSET;
+    ground->extent.height = SPLASH_GROUND_PX - 2 * SPLASH_GROUND_INSET;
+    pushLayer(ctx, layers, &layers->splashGround);
 
     // The rows were drawn top down and arrive bottom up
-    int row = splashRow(&ctx->splash, now, SPLASH_ROWS);
+    int row = splashWedges(&ctx->splash, now);
+    if (row != ctx->splashWedgesShown) {
+        ctx->splashWedgesShown = row;
+        LOGI("splash wedges %d at %ld ms", row, (long)((now - ctx->splash.firstNs) / 1000000L));
+    }
     pose.position.z = -SPLASH_SHEET_DISTANCE_M;
     quadLayer(&layers->splashSheet, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
               ctx->splashSwapchain, SPLASH_TEX_W, SPLASH_ROW_H, ctx->viewSpace, pose,
@@ -1516,7 +1520,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // first frame leaves them off for the whole session. Submitting the first
     // focused frame opaque gives every runtime the transition it wants. Later
     // switches from the picker are long past this point.
-    // The splash is opaque black for as long as it is fully up, so the cameras
+    // The splash is opaque for as long as it is fully up, so the cameras
     // wait for it to start going, which is also after the first focused frame
     int wantPassthrough = ctx->passthrough && ctx->alphaBlendSupported;
     int blendNow = wantPassthrough && ctx->focusedFrames > 0 && !splashUp;

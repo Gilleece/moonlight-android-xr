@@ -462,7 +462,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Ukončit stream?</string>
     <string name="vr_exit">Ukončit</string>
-    <string name="vr_splash_loading">Načítání</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Co se dělo, když nastal problém?</string>
     <string name="vr_report_optional">Volitelné</string>

@@ -36,10 +36,12 @@ int fadeStep(Fade* fade, int shown, int64_t now, int64_t durationNs, int smooth)
 
 // The splash is held for at least the floor, so a warm start does not flash
 // it past, and at most the ceiling, so a model that never answers does not
-// hide the stream. The word under the name gains a dot every DOT_NS.
+// hide the stream. The logo's wedges open one a tick, clockwise, then all of
+// them hold before they clear and go round again.
 #define SPLASH_FLOOR_NS 1500000000LL
 #define SPLASH_CEILING_NS 8000000000LL
-#define SPLASH_DOT_NS 300000000LL
+#define SPLASH_TICK_NS 250000000LL
+#define SPLASH_HOLD_NS 500000000LL
 
 // What the splash can still be waiting on, as bits
 #define SPLASH_WAIT_PANELS 1
@@ -66,8 +68,10 @@ int splashStep(Splash* splash, int64_t now, int waiting, int64_t fadeNs);
 // How opaque it is now: 1 while up, falling to 0 over the fade
 float splashLevel(const Splash* splash, int64_t now, int64_t fadeNs);
 
-// Which of the dot rows is showing: one dot, two, then three, and round again
-int splashRow(const Splash* splash, int64_t now, int rows);
+// How many of the logo's wedges are open, which is also the sheet's row: none
+// for a tick, then one more a tick up to all SPLASH_WEDGES, held, and round
+// again while it is up. All of them once it lifts, so it fades out whole.
+int splashWedges(const Splash* splash, int64_t now);
 
 // The toast says one thing at a time for NOTICE_SHOW_NS. A notice about the
 // same thing as the one up replaces it at once, being the newer word on it,

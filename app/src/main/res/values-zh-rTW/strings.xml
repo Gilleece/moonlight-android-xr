@@ -559,7 +559,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">結束串流？</string>
     <string name="vr_exit">結束</string>
-    <string name="vr_splash_loading">載入中</string>
     <!-- Array strings -->
     <string name="title_analog_scrolling">使用類比搖桿捲動</string>
     <string name="summary_analog_scrolling">選擇在滑鼠模式下用來捲動的類比搖桿</string>

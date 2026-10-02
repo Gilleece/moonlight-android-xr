@@ -477,7 +477,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Завершити трансляцію?</string>
     <string name="vr_exit">Завершити</string>
-    <string name="vr_splash_loading">Завантаження</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Що ви робили, коли виникла проблема?</string>
     <string name="vr_report_optional">Необов\'язково</string>

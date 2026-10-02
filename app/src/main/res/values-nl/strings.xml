@@ -466,7 +466,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Stream beëindigen?</string>
     <string name="vr_exit">Beëindigen</string>
-    <string name="vr_splash_loading">Laden</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Wat deed u toen het misging?</string>
     <string name="vr_report_optional">Optioneel</string>

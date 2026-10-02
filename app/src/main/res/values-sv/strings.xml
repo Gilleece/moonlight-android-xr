@@ -466,7 +466,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Avsluta strömmen?</string>
     <string name="vr_exit">Avsluta</string>
-    <string name="vr_splash_loading">Laddar</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Vad gjorde du när det gick fel?</string>
     <string name="vr_report_optional">Valfritt</string>

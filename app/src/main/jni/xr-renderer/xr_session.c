@@ -601,7 +601,7 @@ static int initSwapchain(XrCtx* ctx) {
     // The stream is worth more than the stats, so carry on without it
     createArtSwapchain(ctx, OVERLAY_WIDTH, OVERLAY_HEIGHT, "create overlay swapchain",
                        &ctx->overlaySwapchain, &ctx->overlayImages, &ctx->overlayImageCount);
-    // Or the splash, whose black still goes up without its sheet
+    // Or the splash, which is left out without it, ground and all
     createArtSwapchain(ctx, SPLASH_TEX_W, SPLASH_TEX_H, "create splash swapchain",
                        &ctx->splashSwapchain, &ctx->splashImages, &ctx->splashImageCount);
     // Or the toast
@@ -968,6 +968,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     for (int i = 0; i < 3; i++) {
         ctx->splashReadyMs[i] = -1;
     }
+    ctx->splashWedgesShown = -1;
     atomic_init(&ctx->depthMapsStaged, 0);
     atomic_init(&ctx->depthGaveUp, 0);
     // Nothing said yet, and kind 0 is a real one
