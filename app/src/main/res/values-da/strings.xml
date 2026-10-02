@@ -1,0 +1,567 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shortcut strings -->
+    <string name="scut_deleted_pc">Pc slettet</string>
+    <string name="scut_not_paired">Pc ikke parret</string>
+    <string name="scut_pc_not_found">Pc ikke fundet</string>
+    <string name="scut_invalid_uuid">Den angivne pc er ikke gyldig</string>
+    <string name="scut_invalid_app_id">Den angivne app er ikke gyldig</string>
+
+    <!-- Help strings -->
+    <string name="help_loading_title">Hjælpeviser</string>
+    <string name="help_loading_msg">Indlæser hjælpeside…</string>
+
+    <!-- PC view menu entries -->
+    <string name="pcview_menu_header_online">Online</string>
+    <string name="pcview_menu_header_offline">Offline</string>
+    <string name="pcview_menu_header_unknown">Opdaterer</string>
+    <string name="pcview_menu_app_list">Vis alle apps</string>
+    <string name="pcview_menu_pair_pc">Par med pc</string>
+    <string name="pcview_menu_unpair_pc">Fjern parring</string>
+    <string name="pcview_menu_send_wol">Send Wake-On-LAN-anmodning</string>
+    <string name="pcview_menu_delete_pc">Slet pc</string>
+    <string name="pcview_menu_test_network">Test netværksforbindelsen</string>
+    <string name="pcview_menu_details">Vis detaljer</string>
+    <string name="pcview_menu_eol">NVIDIA GameStream er udfaset</string>
+
+    <!-- Network test strings -->
+    <string name="nettest_title_waiting">Tester netværksforbindelsen</string>
+    <string name="nettest_text_waiting">Moonlight tester din netværksforbindelse for at finde ud af, om nødvendige porte er blokeret.\n\nDet kan tage et par sekunder…</string>
+    <string name="nettest_title_done">Netværkstest færdig</string>
+    <string name="nettest_text_success">Dit netværk ser ikke ud til at blokere Moonlight. Hvis du stadig har problemer med at oprette forbindelse, så tjek firewallindstillingerne på din pc.\n\nHvis du prøver at streame over internettet, så installer Moonlight Internet Hosting Tool på din pc og kør det medfølgende Internet Streaming Tester for at tjekke pc\'ens internetforbindelse.</string>
+    <string name="nettest_text_inconclusive">Netværkstesten kunne ikke udføres, fordi ingen af Moonlights testservere kunne nås. Tjek din internetforbindelse, eller prøv igen senere.</string>
+    <string name="nettest_text_failure">Din enheds nuværende netværksforbindelse ser ud til at blokere Moonlight. Streaming over internettet virker måske ikke, mens du er forbundet til dette netværk.\n\nFølgende netværksporte blev blokeret:\n</string>
+    <string name="nettest_text_blocked">Din enheds nuværende netværksforbindelse blokerer Moonlight. Streaming over internettet virker måske ikke, mens du er forbundet til dette netværk.</string>
+
+    <!-- Pair messages -->
+    <string name="pairing">Parrer…</string>
+    <string name="pair_pc_offline">Computeren er offline</string>
+    <string name="pair_pc_ingame">Computeren er i gang med et spil. Du skal lukke spillet, før du parrer.</string>
+    <string name="pair_pairing_title">Parring</string>
+    <string name="pair_pairing_msg">Indtast følgende PIN-kode på mål-pc\'en:</string>
+    <string name="pair_pairing_help">Hvis din værts-pc kører Sunshine, så gå til Sunshines webgrænseflade for at indtaste PIN-koden.</string>
+    <string name="pair_incorrect_pin">Forkert PIN-kode</string>
+    <string name="pair_fail">Parring mislykkedes</string>
+    <string name="pair_already_in_progress">Parring er allerede i gang</string>
+
+    <!-- WOL messages -->
+    <string name="wol_pc_online">Computeren er online</string>
+    <string name="wol_no_mac">Pc\'en kan ikke vækkes, fordi der ikke er gemt nogen MAC-adresse</string>
+    <string name="wol_waking_pc">Vækker pc…</string>
+    <string name="wol_waking_msg">Det kan tage et par sekunder, før din pc vågner. Hvis den ikke gør det, så sørg for, at den er sat korrekt op til Wake-On-LAN.</string>
+    <string name="wol_fail">Kunne ikke sende Wake-On-LAN-pakker</string>
+
+    <!-- Unpair messages -->
+    <string name="unpairing">Fjerner parring…</string>
+    <string name="unpair_success">Parringen er fjernet</string>
+    <string name="unpair_fail">Kunne ikke fjerne parringen</string>
+    <string name="unpair_error">Enheden var ikke parret</string>
+
+    <!-- Errors -->
+    <string name="error_pc_offline">Computeren er offline</string>
+    <string name="error_manager_not_running">Tjenesten ComputerManager kører ikke. Vent et par sekunder, eller genstart appen.</string>
+    <string name="error_unknown_host">Kunne ikke slå værten op</string>
+    <string name="error_404">GFE returnerede en HTTP 404-fejl. Sørg for, at din pc har et understøttet grafikkort. Software til fjernskrivebord kan også give denne fejl. Prøv at genstarte maskinen eller geninstallere GFE.</string>
+    <string name="title_decoding_error">Videodekoderen gik ned</string>
+    <string name="message_decoding_error">Moonlight gik ned på grund af en uforenelighed med denne enheds videodekoder. Prøv at justere streamingindstillingerne, hvis nedbruddene fortsætter.</string>
+    <string name="title_decoding_reset">Videoindstillinger nulstillet</string>
+    <string name="message_decoding_reset">Din enheds videodekoder bliver ved med at gå ned med de valgte streamingindstillinger. Dine streamingindstillinger er blevet nulstillet til standard.</string>
+    <string name="error_usb_prohibited">USB-adgang er forbudt af din enhedsadministrator. Tjek dine Knox- eller MDM-indstillinger.</string>
+    <string name="unable_to_pin_shortcut">Din nuværende startskærm tillader ikke fastgjorte genveje.</string>
+    <string name="video_decoder_init_failed">Videodekoderen kunne ikke starte. Din enhed understøtter måske ikke den valgte opløsning eller billedfrekvens.</string>
+    <string name="no_video_received_error">Ingen video modtaget fra værten.</string>
+    <string name="no_frame_received_error">Din netværksforbindelse fungerer ikke godt. Sænk indstillingen for videobithastighed, eller prøv en hurtigere forbindelse.</string>
+    <string name="early_termination_error">Noget gik galt på din værts-pc, da streamen startede.\n\nSørg for, at der ikke er DRM-beskyttet indhold åbent på din værts-pc. Du kan også prøve at genstarte værts-pc\'en.</string>
+    <string name="frame_conversion_error">Værts-pc\'en rapporterede en alvorlig fejl i videokodningen.\n\nPrøv at slå HDR-tilstand fra, ændre streamingopløsningen eller ændre skærmopløsningen på din værts-pc.</string>
+    <string name="check_ports_msg">Tjek din firewall og dine regler for portvideresendelse for port(e):</string>
+
+    <!-- Start application messages -->
+    <string name="conn_establishing_title">Opretter forbindelse</string>
+    <string name="conn_establishing_msg">Starter forbindelsen</string>
+    <string name="conn_metered">Advarsel: Din aktive netværksforbindelse er takseret!</string>
+    <string name="conn_client_latency">Gennemsnitlig forsinkelse ved billedafkodning:</string>
+    <string name="conn_client_latency_hw">forsinkelse i hardwaredekoder:</string>
+    <string name="conn_hardware_latency">Gennemsnitlig forsinkelse ved hardwareafkodning:</string>
+    <string name="conn_starting">Starter</string>
+    <string name="conn_error_title">Forbindelsesfejl</string>
+    <string name="conn_error_msg">Kunne ikke starte</string>
+    <string name="conn_terminated_title">Forbindelsen blev afbrudt</string>
+    <string name="conn_terminated_msg">Forbindelsen blev afbrudt.</string>
+    <string name="error_code_prefix">Fejlkode:</string>
+
+    <!-- General strings -->
+    <string name="ip_hint">IP-adresse på værts-pc\'en</string>
+    <string name="searching_pc">Søger efter værts-pc\'er på dit lokale netværk…\n\nSørg for, at Sunshine kører på din værts-pc, eller at GameStream er slået til i SHIELD-indstillingerne i GeForce Experience.</string>
+    <string name="yes">Ja</string>
+    <string name="no">Nej</string>
+    <string name="lost_connection">Mistede forbindelsen til pc\'en</string>
+    <string name="title_details">Detaljer</string>
+    <string name="help">Hjælp</string>
+    <string name="delete_pc_msg">Er du sikker på, at du vil slette denne pc?</string>
+    <string name="slow_connection_msg">Langsom forbindelse til pc\'en\nSænk din bithastighed</string>
+    <string name="poor_connection_msg">Dårlig forbindelse til pc\'en</string>
+    <string name="perf_overlay_streamdetails">Videostream: %1$s %2$.2f FPS</string>
+    <string name="perf_overlay_decoder">Dekoder: %1$s</string>
+    <string name="perf_overlay_incomingfps">Indgående billedfrekvens fra netværket: %1$.2f FPS</string>
+    <string name="perf_overlay_renderingfps">Billedfrekvens ved gengivelse: %1$.2f FPS</string>
+    <string name="perf_overlay_hostprocessinglatency">Behandlingsforsinkelse på værten min/maks/gns.: %1$.1f/%2$.1f/%3$.1f ms</string>
+    <string name="perf_overlay_netdrops">Billeder tabt af din netværksforbindelse: %1$.2f%%</string>
+    <string name="perf_overlay_netlatency">Gennemsnitlig netværksforsinkelse: %1$d ms (varians: %2$d ms)</string>
+    <string name="perf_overlay_dectime">Gennemsnitlig afkodningstid: %1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">Lydudfald: %1$d</string>
+
+    <!-- AppList activity -->
+    <string name="applist_connect_msg">Forbinder til pc…</string>
+    <string name="applist_menu_resume">Genoptag session</string>
+    <string name="applist_menu_quit">Afslut session</string>
+    <string name="applist_menu_quit_and_start">Afslut det aktuelle spil og start</string>
+    <string name="applist_menu_cancel">Annuller</string>
+    <string name="applist_menu_details">Vis detaljer</string>
+    <string name="applist_menu_scut">Opret genvej</string>
+    <string name="applist_menu_tv_channel">Føj til kanal</string>
+    <string name="applist_menu_hide_app">Skjul app</string>
+    <string name="applist_refresh_title">Appliste</string>
+    <string name="applist_refresh_msg">Opdaterer apps…</string>
+    <string name="applist_refresh_error_title">Fejl</string>
+    <string name="applist_refresh_error_msg">Kunne ikke hente applisten</string>
+    <string name="applist_quit_app">Afslutter</string>
+    <string name="applist_quit_success">Afsluttet</string>
+    <string name="applist_quit_fail">Kunne ikke afslutte</string>
+    <string name="applist_quit_confirmation">Er du sikker på, at du vil afslutte den kørende app? Alle data, der ikke er gemt, går tabt.</string>
+    <string name="applist_details_id">App-id:</string>
+
+    <!-- Add computer manually activity -->
+    <string name="title_add_pc">Tilføj pc manuelt</string>
+    <string name="msg_add_pc">Forbinder til pc\'en…</string>
+    <string name="addpc_fail">Kan ikke forbinde til den angivne computer. Sørg for, at de nødvendige porte er tilladt gennem firewallen.</string>
+    <string name="addpc_success">Computeren blev tilføjet</string>
+    <string name="addpc_unknown_host">Kan ikke slå pc\'ens adresse op. Sørg for, at der ikke er en tastefejl i adressen.</string>
+    <string name="addpc_enter_ip">Du skal indtaste en IP-adresse</string>
+    <string name="addpc_wrong_sitelocal">Den adresse ser ikke rigtig ud. Du skal bruge din routers offentlige IP-adresse for at streame over internettet.</string>
+
+    <!-- Preferences -->
+    <string name="category_basic_settings">Grundlæggende indstillinger</string>
+    <string name="title_resolution_list">Videoopløsning</string>
+    <string name="summary_resolution_list">Øg for et skarpere billede. Sænk for bedre ydeevne på svagere enheder og langsommere netværk.</string>
+    <string name="title_native_res_dialog">Advarsel om oprindelig opløsning</string>
+    <string name="text_native_res_dialog">Oprindelig opløsning og/eller FPS understøttes måske ikke af streamingserveren. Du skal sandsynligvis selv oprette en tilsvarende brugerdefineret skærmtilstand på værts-pc\'en.\n\nHvis du vælger at oprette en brugerdefineret opløsning i NVIDIA Kontrolpanel, så den passer til dine skærmindstillinger, så sørg for at have læst og forstået NVIDIAs advarsel om mulig skade på skærmen, ustabil pc og andre mulige problemer.\n\nVi er ikke ansvarlige for problemer, der opstår, når du opretter en brugerdefineret opløsning på din pc.\n\nDet kan være, at din skærm ikke understøtter en nødvendig skærmkonfiguration. I så fald kan du prøve at oprette en virtuel skærm. Hvis din enhed eller værts-pc ikke understøtter streaming i en bestemt opløsning eller opdateringshastighed, er du desværre uheldig.</string>
+    <string name="title_fps_list">Videobilledfrekvens</string>
+    <string name="summary_fps_list">Øg for en mere flydende videostream. Sænk for bedre ydeevne på svagere enheder.</string>
+    <string name="title_seekbar_bitrate">Videobithastighed</string>
+    <string name="summary_seekbar_bitrate">Øg for bedre billedkvalitet. Sænk for bedre ydeevne på langsommere forbindelser.</string>
+    <string name="suffix_seekbar_bitrate_mbps">Mbps</string>
+    <string name="title_checkbox_stretch_video">Stræk video til fuld skærm</string>
+    <string name="resolution_prefix_native">Oprindelig</string>
+    <string name="resolution_prefix_native_fullscreen">Oprindelig fuld skærm</string>
+    <string name="resolution_prefix_native_landscape">(Liggende)</string>
+    <string name="resolution_prefix_native_portrait">(Stående)</string>
+    <string name="fps_suffix_fps">FPS</string>
+    <string name="title_native_fps_dialog">Advarsel om oprindelig FPS</string>
+
+    <string name="category_audio_settings">Lydindstillinger</string>
+    <string name="title_audio_config_list">Surroundlyd</string>
+    <string name="summary_audio_config_list">Slå 5.1- eller 7.1-surroundlyd til for hjemmebiografanlæg</string>
+    <string name="title_checkbox_vr_virtual_surround">Virtuel surround til headsets</string>
+    <string name="summary_checkbox_vr_virtual_surround">Placerer hver 5.1- eller 7.1-højttaler omkring dig i stereolyd, fastgjort til skærmen, når du drejer hovedet. Kræver, at 5.1 eller 7.1 er valgt ovenfor, og en vært og et spil, der giver surroundlyd.</string>
+    <string name="title_checkbox_enable_audiofx">Slå understøttelse af systemets equalizer til</string>
+    <string name="summary_checkbox_enable_audiofx">Lader lydeffekter virke under streaming, men kan øge lydforsinkelsen</string>
+
+    <string name="category_gamepad_settings">Gamepad-indstillinger</string>
+    <string name="title_checkbox_multi_controller">Automatisk registrering af gamepads</string>
+    <string name="summary_checkbox_multi_controller">Hvis dette fravælges, er der altid en gamepad til stede</string>
+    <string name="title_checkbox_vibrate_fallback">Efterlign rumble med vibration</string>
+    <string name="summary_checkbox_vibrate_fallback">Får din enhed til at vibrere som rumble, hvis din gamepad ikke understøtter det</string>
+    <string name="title_seekbar_vibrate_fallback_strength">Juster styrken på efterlignet rumble</string>
+    <string name="summary_seekbar_vibrate_fallback_strength">Forstærk eller dæmp vibrationen på din enhed</string>
+    <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
+    <string name="title_seekbar_deadzone">Juster dødzonen for analoge pinde</string>
+    <string name="summary_seekbar_deadzone">Bemærk: Nogle spil kan gennemtvinge en større dødzone, end Moonlight er indstillet til.</string>
+    <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_checkbox_xb1_driver">USB-driver til Xbox 360/One-gamepads</string>
+    <string name="summary_checkbox_xb1_driver">Slår en indbygget USB-driver til på enheder uden indbygget understøttelse af Xbox-controllere</string>
+    <string name="title_checkbox_usb_bind_all">Tilsidesæt indbygget understøttelse af Xbox-gamepads</string>
+    <string name="summary_checkbox_usb_bind_all">Brug Moonlights USB-driver til alle understøttede gamepads, også når der er indbygget understøttelse af Xbox-controllere</string>
+    <string name="title_checkbox_mouse_emulation">Musestyring via gamepad</string>
+    <string name="summary_checkbox_mouse_emulation">Et langt tryk på Start-knappen skifter gamepad\'en til musetilstand</string>
+    <string name="title_checkbox_flip_face_buttons">Byt om på frontknapperne</string>
+    <string name="summary_checkbox_flip_face_buttons">Bytter om på frontknapperne A/B og X/Y på gamepads og skærmknapperne</string>
+    <string name="title_checkbox_gamepad_touchpad_as_mouse">Styr altid musen med touchpladen</string>
+    <string name="summary_checkbox_gamepad_touchpad_as_mouse">Får gamepad\'ens touchplade til at styre værtens mus, også når der efterlignes en gamepad med touchplade.</string>
+    <string name="title_checkbox_gamepad_motion_sensors">Tillad brug af gamepad\'ens bevægelsessensorer</string>
+    <string name="summary_checkbox_gamepad_motion_sensors">Lader understøttede værter bede om data fra bevægelsessensorer, når der efterlignes en gamepad med bevægelsessensorer. Hvis spillet ikke bruger bevægelsessensorer, kan det spare lidt strøm og netværk at slå dette fra.</string>
+    <string name="title_checkbox_gamepad_motion_fallback">Efterlign gamepad\'ens bevægelsessensorer</string>
+    <string name="summary_checkbox_gamepad_motion_fallback">Bruger din enheds indbyggede bevægelsessensorer, hvis den tilsluttede gamepad eller din Android-version ikke understøtter gamepad-sensorer.\nBemærk: Når dette er slået til, kan din gamepad blive vist som en PlayStation-controller på værten.</string>
+
+    <string name="category_input_settings">Inputindstillinger</string>
+    <string name="title_checkbox_touchscreen_trackpad">Brug berøringsskærmen som touchplade</string>
+    <string name="summary_checkbox_touchscreen_trackpad">Når dette er slået til, fungerer berøringsskærmen som en touchplade. Når det er slået fra, styrer berøringsskærmen musemarkøren direkte.</string>
+    <string name="title_checkbox_absolute_mouse_mode">Musetilstand til fjernskrivebord</string>
+    <string name="summary_checkbox_absolute_mouse_mode">Kan få museacceleration til at opføre sig mere naturligt ved brug af fjernskrivebord, men virker ikke med mange spil.</string>
+    <string name="title_checkbox_mouse_nav_buttons">Slå museknapperne Tilbage og Frem til</string>
+    <string name="summary_checkbox_mouse_nav_buttons">Det kan ødelægge højreklik på nogle enheder med fejl at slå dette til</string>
+
+    <string name="category_on_screen_controls_settings">Indstillinger for skærmknapper</string>
+    <string name="title_checkbox_show_onscreen_controls">Vis skærmknapper</string>
+    <string name="summary_checkbox_show_onscreen_controls">Vis en virtuel controller oven på berøringsskærmen</string>
+    <string name="title_checkbox_vibrate_osc">Slå vibration til</string>
+    <string name="summary_checkbox_vibrate_osc">Får din enhed til at vibrere som rumble for skærmknapperne</string>
+    <string name="title_only_l3r3">Vis kun L3 og R3</string>
+    <string name="summary_only_l3r3">Skjul alle virtuelle knapper undtagen L3 og R3</string>
+    <string name="title_show_guide_button">Vis Guide-knappen</string>
+    <string name="summary_show_guide_button">Vis Guide-knappen på skærmen</string>
+    <string name="title_reset_osc">Ryd det gemte layout for skærmknapperne</string>
+    <string name="summary_reset_osc">Nulstiller alle skærmknapper til deres standardstørrelse og -placering</string>
+    <string name="dialog_title_reset_osc">Nulstil layout</string>
+    <string name="dialog_text_reset_osc">Er du sikker på, at du vil slette dit gemte layout for skærmknapperne?</string>
+    <string name="toast_reset_osc_success">Skærmknapperne er nulstillet til standard</string>
+    <string name="title_osc_opacity">Skift skærmknappernes gennemsigtighed</string>
+    <string name="summary_osc_opacity">Gør skærmknapperne mere eller mindre gennemsigtige</string>
+    <string name="dialog_title_osc_opacity">Skift gennemsigtighed</string>
+    <string name="suffix_osc_opacity">%</string>
+
+    <string name="category_ui_settings">Brugerflade</string>
+    <string name="title_checkbox_enable_pip">Slå billede-i-billede-visning til</string>
+    <string name="summary_checkbox_enable_pip">Lader streamen blive vist (men ikke styret), mens du laver andet</string>
+    <string name="title_language_list">Sprog</string>
+    <string name="summary_language_list">Sprog i Moonlight</string>
+    <string name="title_checkbox_small_icon_mode">Brug små coverbilleder</string>
+    <string name="summary_checkbox_small_icon_mode">Mindre coverbilleder i appgitteret gør, at flere apps kan ses på skærmen</string>
+
+    <string name="category_host_settings">Værtsindstillinger</string>
+    <string name="title_checkbox_enable_sops">Optimer spilindstillinger</string>
+    <string name="summary_checkbox_enable_sops">Lad GFE ændre spilindstillinger for optimal streaming</string>
+    <string name="title_checkbox_host_audio">Afspil lyd på pc\'en</string>
+    <string name="summary_checkbox_host_audio">Afspil lyd fra computeren og denne enhed</string>
+    <string name="title_checkbox_auto_launch_desktop">Åbn Desktop automatisk</string>
+    <string name="summary_checkbox_auto_launch_desktop">Når der trykkes på en pc, startes dens app med navnet Desktop uden at vise applisten, hvis værten har en</string>
+
+    <string name="category_advanced_settings">Avancerede indstillinger</string>
+    <string name="title_unlock_fps">Lås alle mulige billedfrekvenser op</string>
+    <string name="summary_unlock_fps">Streaming ved 90 eller 120 FPS kan mindske forsinkelsen på kraftige enheder, men kan give hak eller ustabilitet på enheder, der ikke kan klare det</string>
+    <string name="title_checkbox_reduce_refresh_rate">Tillad lavere opdateringshastighed</string>
+    <string name="summary_checkbox_reduce_refresh_rate">En lavere opdateringshastighed på skærmen kan spare strøm mod lidt ekstra videoforsinkelse</string>
+    <string name="title_checkbox_disable_warnings">Slå advarselsbeskeder fra</string>
+    <string name="summary_checkbox_disable_warnings">Slå advarsler om forbindelsen på skærmen fra under streaming</string>
+    <string name="title_disable_frame_drop">Smid aldrig billeder væk</string>
+    <string name="summary_disable_frame_drop">Kan mindske små hak på nogle enheder, men kan øge forsinkelsen</string>
+    <string name="title_video_format">Skift codec-indstillinger</string>
+    <string name="summary_video_format">Nyere codecs kan sænke kravet til båndbredde, hvis din enhed understøtter dem. Valget af codec ignoreres måske, hvis værtssoftwaren eller grafikkortet ikke understøtter det.</string>
+    <string name="title_enable_hdr">Slå HDR til (eksperimentel)</string>
+    <string name="summary_enable_hdr">Stream i HDR, når spillet og pc\'ens grafikkort understøtter det. HDR kræver et grafikkort med understøttelse af HEVC Main 10-kodning.</string>
+    <string name="title_full_range">Gennemtving video med fuldt område (eksperimentel)</string>
+    <string name="summary_full_range">Giver tab af detaljer i lyse og mørke områder, hvis din enhed ikke viser video med fuldt område korrekt.</string>
+    <string name="title_settings_back">Tilbage</string>
+    <string name="summary_settings_back">Tilbage til computerlisten</string>
+    <string name="category_vr_settings">VR-indstillinger</string>
+    <string name="category_vr_debug">VR-fejlfinding</string>
+    <string name="title_enable_vr_mode">Stream i VR</string>
+    <string name="summary_enable_vr_mode">Viser streamen på en virtuel skærm i en fordybende VR-session. Kun til headsets, og den eneste tilstand med 3D-effekt.</string>
+    <string name="title_vr_head_locked">Skærm låst til hovedet</string>
+    <string name="summary_vr_head_locked">Hold den virtuelle skærm fast foran dit blik i stedet for forankret i rummet</string>
+    <string name="title_seekbar_vr_distance">Skærmafstand</string>
+    <string name="summary_seekbar_vr_distance">Hvor langt væk den virtuelle skærm står</string>
+    <string name="title_seekbar_vr_screen_size">Skærmbredde</string>
+    <string name="summary_seekbar_vr_screen_size">Bredden på den virtuelle skærm</string>
+    <string name="title_seekbar_vr_curvature">Skærmkrumning</string>
+    <string name="summary_seekbar_vr_curvature">0 er flad, højere værdier bøjer skærmen rundt om dig</string>
+    <string name="suffix_seekbar_vr_meters">m</string>
+    <string name="title_vr_pointer">Controllere som mus</string>
+    <string name="title_vr_gaze">Peg med blikket</string>
+    <string name="summary_vr_gaze">På et headset med øjensporing peger du ved at kigge på skærmen og klikker ved at knibe tommel- og pegefinger sammen på en af hænderne. Et tryk på en knap på en controller giver den markøren, indtil den lægges fra sig, og hvis øjnene mistes i 10 sekunder, peger dine hænder, indtil øjnene er tilbage.</string>
+    <string name="title_vr_hand_tracking">Håndsporing</string>
+    <string name="summary_vr_hand_tracking">Peg og knib med hænderne, når controllerne er lagt fra dig. Slå fra for kun at bruge controllere. Under en session kniber du tommel- og pegefinger sammen tre gange hurtigt for at låse hænderne uden at forlade spillet; det samme tredobbelte knib låser dem op.</string>
+    <string name="vr_hand_hint_title">Håndsporing er slået til.</string>
+    <string name="vr_hand_hint_body">Knib tommel- og pegefinger sammen tre gange hurtigt for at låse hænderne, så et utilsigtet knib ikke klikker; det samme tredobbelte knib låser dem op.</string>
+    <string name="vr_hand_hint_never">Vis ikke igen</string>
+    <string name="vr_kofi_title">Støt Moonlight XR på Ko-fi</string>
+    <string name="vr_kofi_scan">Scan den med din telefon.</string>
+    <string name="vr_kofi_free">Frivilligt: Moonlight XR er gratis og forbliver gratis.</string>
+    <string name="vr_kofi_close">Luk</string>
+    <string name="summary_vr_pointer">Peg på skærmen med en controller for at flytte værtens mus. Aftrækkeren klikker, A eller X højreklikker, thumbsticken ruller. Tryk thumbsticken ind for at slå peging fra i et spil, der selv skal bruge musen.</string>
+    <string name="title_vr_pointer_sleep">Sæt markøren på pause, når controlleren ligger stille</string>
+    <string name="summary_vr_pointer_sleep">En controllers markør forsvinder efter et par sekunder i ro og kommer tilbage, når den bevæges, eller thumbsticken skubbes. Slå fra for at beholde den, så thumbsticken også ruller, når markøren er uden for skærmen.</string>
+    <string name="title_vr_show_ray">Vis controllerens stråle</string>
+    <string name="summary_vr_show_ray">Strålen fra en controller til skærmen. Slå den fra til lightgun-spil: prikken, hvor den rammer, bliver, og tryk virker som før, strålen kommer tilbage, mens et panel er åbent, og stråleknappen under skærmen slår den til og fra for sessionen.</string>
+    <string name="title_vr_controller_model">Vis controllerne</string>
+    <string name="summary_vr_controller_model">Tegner en enkel controller i hver hånd, hvor den rigtige er. Ikke i passthrough, hvor de rigtige kan ses, og ikke mens dine hænder spores i stedet.</string>
+    <string name="title_vr_head_aim">Hovedet styrer musen</string>
+    <string name="summary_vr_head_aim">Kun når skærmen er låst til hovedet: når du drejer hovedet, bevæger musen sig som kamerastyringen i et spil, til førstepersonsspil. Controllermarkøren og en rigtig mus virker stadig. Den holder pause, mens et panel er åbent, og hovedstyringsknappen under skærmen slår den til og fra for sessionen.</string>
+    <string name="title_seekbar_vr_head_aim_sensitivity">Følsomhed for hovedstyring</string>
+    <string name="summary_seekbar_vr_head_aim_sensitivity">Hvor langt musen flytter sig for hver grad, hovedet drejer. Juster den sammen med spillets egen musefølsomhed, indtil visningen drejer lige så meget som dit hoved. Fanen »Skærm« i indstillingspanelet i headsettet ændrer samme værdi.</string>
+    <string name="title_seekbar_vr_head_aim_deadzone">Dødzone for hovedstyring</string>
+    <string name="summary_seekbar_vr_head_aim_deadzone">En hovedbevægelse, der er langsommere end dette, sender intet, så rystelser i sporingen ikke flytter musen, mens du holder dig i ro. 0 sender hver bevægelse.</string>
+    <string name="title_vr_gamepad_toggle">Genvej til gamepad-tilstand</string>
+    <string name="summary_vr_gamepad_toggle">Nu: %s. Gamepad-tilstand gør de to controllere til én Xbox-controller på pc\'en: pindene, A, B, X og Y, aftrækkerne, grebene som skulderknapper, klik på pindene og venstre menuknap som Start. Den slås kun til inde i en session, fra fanen »Visning« i indstillingspanelet eller gamepad-knappen under skærmen, og hver session starter med controllerne som markør. Denne genvej skifter derefter mellem de to fra controllerne. Med thumbstickene, eller aftrækkerne og grebene, når de knapper spillet et øjeblik senere, mens genvejen venter for at se, om de er ment til den.</string>
+    <string name="vr_gamepad_toggle_menu_grip">Hold venstre menuknap og venstre greb inde</string>
+    <string name="vr_gamepad_toggle_sticks">Tryk begge thumbsticks ind (L3 + R3)</string>
+    <string name="vr_gamepad_toggle_triggers_grips">Klem begge aftrækkere og begge greb</string>
+    <string name="title_vr_click_sound">Klik, når der trykkes på et panel</string>
+    <string name="summary_vr_click_sound">Et kort tik, når et tryk i headsettet rammer et panel, en knap eller en tast. Det afspilles med systemlydene, adskilt fra streamens lyd.</string>
+    <string name="title_vr_reset_pose">Nulstil skærmens placering</string>
+    <string name="summary_vr_reset_pose">Sæt skærmen tilbage til afstanden og bredden ovenfor, og fortryd al flytning og ændring af størrelse foretaget med controllerne</string>
+    <string name="toast_vr_reset_pose">Skærmens placering er nulstillet</string>
+    <string name="title_vr_passthrough">Passthrough-tilstand</string>
+    <string name="summary_vr_passthrough">Slå passthrough til. Det bruger flere systemressourcer; slå det fra, hvis streamen kører dårligt</string>
+    <string name="title_vr_environment">Omgivelser</string>
+    <string name="summary_vr_environment">Nu: %s. Det, der omgiver skærmen, når en session starter. Et valg i headsettet, med knappen under skærmen, ændrer også dette.</string>
+    <string name="title_vr_doff_grace">Behold streamen et minut, når headsettet tages af</string>
+    <string name="summary_vr_doff_grace">Tager du headsettet af et øjeblik, venter streamen i op til 60 sekunder med lyden slået fra og fortsætter, når du tager det på igen. Når dette er slået fra, slutter streamen, så snart headsettet tages af.</string>
+    <string name="vr_environment_passthrough">Passthrough</string>
+    <string name="vr_environment_void">Sort tomrum</string>
+    <string name="vr_environment_home_theater">Home Theater</string>
+    <string name="vr_environment_grand_cinema">Grand Cinema</string>
+    <string name="vr_environment_synthwave">Synthwave</string>
+    <string name="title_vr_depth_source">3D-tilstand i realtid</string>
+    <string name="summary_vr_depth_source">Vælg 3D-tilstand i realtid, inklusive testmønstre.</string>
+    <string name="title_vr_env_res">Opløsning for omgivelser</string>
+    <string name="summary_vr_env_res">Hvor skarpt 3D-rummet omkring skærmen gengives. Højere koster mere GPU-tid. Ultra er eksperimentel og kan give hak eller ujævn afspilning.</string>
+    <string name="title_seekbar_vr_picture_brightness">Billedets lysstyrke</string>
+    <string name="summary_seekbar_vr_picture_brightness">Gør hele billedet i headsettet lysere eller mørkere. 0 er billedet, som det streames. Fanen »Billede« i indstillingspanelet i headsettet ændrer de samme fire værdier.</string>
+    <string name="title_seekbar_vr_picture_contrast">Billedets kontrast</string>
+    <string name="summary_seekbar_vr_picture_contrast">Spreder billedets toner fra hinanden eller trækker dem sammen omkring mellemgrå. 100% viser billedet, som det streames.</string>
+    <string name="title_seekbar_vr_picture_gamma">Billedets gamma</string>
+    <string name="summary_seekbar_vr_picture_gamma">Over 1.00 løftes mellemtoner og skygger, uden at sort eller hvid bliver grå, hvilket som regel passer et mørkt spil bedre end lysstyrke. 1.00 er billedet, som det streames.</string>
+    <string name="title_seekbar_vr_picture_saturation">Billedets farvemætning</string>
+    <string name="summary_seekbar_vr_picture_saturation">Hvor kraftige billedets farver er. 0% viser sort-hvid, 100% viser billedet, som det streames.</string>
+    <string name="title_vr_sharpening">Skærpning af skærmen</string>
+    <string name="summary_vr_sharpening">Gør den virtuelle skærm skarpere i headsettets compositor. Koster intet på understøttede headsets og ignoreres på runtimes uden udvidelsen.</string>
+    <string name="title_vr_supersampling">Supersampling af skærmen</string>
+    <string name="summary_vr_supersampling">Supersampler den virtuelle skærm i headsettets compositor, hvilket gør fine detaljer roligere, når de flimrer, fordi skærmen vises mindre end streamen. Bruger lidt GPU-tid i compositoren og ignoreres på runtimes uden udvidelsen.</string>
+    <string name="title_vr_depth_debug">Vis dybdekortet</string>
+    <string name="summary_vr_depth_debug">Vis dybdekortet i gråtoner i stedet for videoen for at tjekke dybdekvaliteten</string>
+    <string name="title_vr_eye_swap">Byt øjne</string>
+    <string name="summary_vr_eye_swap">Byt om på billederne til venstre og højre øje i stereotilstand</string>
+    <string name="vr_unavailable_flat">Headsettets OpenXR-runtime kunne ikke nås, så streamen vises på et fladt panel. Opdater headsettets software, eller slå »Stream i VR« fra.</string>
+    <!-- %1$s is one of the vr_fail lines below, which say why -->
+    <string name="vr_unavailable_flat_reason">%1$s\nStreamen vises på et fladt panel. Opdater headsettets software, eller slå »Stream i VR« fra.</string>
+    <string name="vr_fail_no_runtime">Ingen OpenXR-runtime svarede</string>
+    <!-- %1$s is the names of the missing OpenXR extensions -->
+    <string name="vr_fail_extensions">OpenXR-runtimen tilbyder ikke %1$s</string>
+    <!-- %1$s in the vr_fail lines is what the runtime answered, like XR_ERROR_RUNTIME_FAILURE -->
+    <string name="vr_fail_instance">Runtimen afviste instansen (%1$s)</string>
+    <string name="vr_fail_system">Runtimen fandt intet klar headset (%1$s)</string>
+    <string name="vr_fail_graphics">Runtimen afviste OpenGL ES (%1$s)</string>
+    <string name="vr_fail_egl">Headsettets grafikdriver fejlede (%1$s)</string>
+    <string name="vr_fail_session">Runtimen afviste sessionen (%1$s)</string>
+    <string name="vr_fail_space">Runtimen afviste et sporingsrum (%1$s)</string>
+    <string name="vr_fail_swapchain">Runtimen afviste videoens swapchain (%1$s)</string>
+    <string name="vr_fail_gl">Gengiverens shadere kunne ikke bygges</string>
+    <!-- %1$s is a number of seconds -->
+    <string name="vr_fail_timeout">Runtimen svarede ikke inden for %1$s sekunder</string>
+    <string name="vr_fail_unknown">VR-sessionen kunne ikke starte</string>
+    <string name="vr_toast_rate">Skærm %1$d Hz</string>
+    <string name="vr_toast_hands_locked">Hænderne er låst</string>
+    <string name="vr_toast_hands_unlocked">Hænderne er låst op</string>
+    <string name="vr_toast_3d_off">3D fra</string>
+    <string name="vr_toast_3d_on">3D til</string>
+    <string name="vr_toast_head_aim_on">Hovedstyring til</string>
+    <string name="vr_toast_head_aim_on_more">Når du drejer hovedet, flytter musen sig</string>
+    <string name="vr_toast_head_aim_off">Hovedstyring fra</string>
+    <string name="vr_toast_gamepad_mode">Gamepad-tilstand</string>
+    <string name="vr_toast_gamepad_back_menu_grip">Hold venstre menuknap og venstre greb inde for at gå tilbage til markøren</string>
+    <string name="vr_toast_gamepad_back_sticks">Tryk begge thumbsticks ind for at gå tilbage til markøren</string>
+    <string name="vr_toast_gamepad_back_triggers_grips">Klem begge aftrækkere og begge greb for at gå tilbage til markøren</string>
+    <string name="vr_toast_pointer_mode">Markørtilstand</string>
+    <!-- The panels inside the session. They are drawn at a fixed size, so keep these short. -->
+    <string name="vr_panel_tab_screen">Skærm</string>
+    <string name="vr_panel_tab_display">Visning</string>
+    <string name="vr_panel_3d">3D</string>
+    <string name="vr_panel_tab_picture">Billede</string>
+    <string name="vr_panel_tab_about">Om</string>
+    <string name="vr_panel_tab_room">Rum</string>
+    <string name="vr_panel_distance">Afstand</string>
+    <string name="vr_panel_height">Højde</string>
+    <string name="vr_panel_tilt">Hældning</string>
+    <string name="vr_panel_rotate">Drejning</string>
+    <string name="vr_panel_curve">Krumning</string>
+    <string name="vr_panel_size">Størrelse</string>
+    <string name="vr_panel_aim_sensitivity">Hoved: følsomhed</string>
+    <string name="vr_panel_aim_dead_zone">Hoved: dødzone</string>
+    <!-- Where head aim's rows are greyed out: the screen is not locked to the head. Names the Head locked row. -->
+    <string name="vr_panel_needs_head_lock">kræver »Låst til hovedet«</string>
+    <string name="vr_panel_not_in_room">ikke i et rum</string>
+    <string name="vr_panel_reset">Nulstil</string>
+    <string name="vr_panel_brightness">Lysstyrke</string>
+    <string name="vr_panel_glow">Glød</string>
+    <string name="vr_panel_screen_light">Skærmlys</string>
+    <string name="vr_panel_light_level">Lysniveau</string>
+    <string name="vr_panel_off">Fra</string>
+    <string name="vr_panel_on">Til</string>
+    <string name="vr_panel_fixed_size">Skærmen i dette rum har en fast størrelse</string>
+    <string name="vr_panel_sharpen">Skarphed</string>
+    <string name="vr_panel_supersample">Supersampling</string>
+    <string name="vr_panel_stats">Statistik</string>
+    <string name="vr_panel_head_locked">Låst til hovedet</string>
+    <string name="vr_panel_head_aim">Hovedstyring</string>
+    <string name="vr_panel_controllers">Controllere</string>
+    <string name="vr_panel_pointer_sleep">Markørhvile</string>
+    <string name="vr_panel_ray">Stråle</string>
+    <string name="vr_panel_controller_model">Controllermodel</string>
+    <string name="vr_panel_click_sound">Kliklyd</string>
+    <string name="vr_panel_normal">Normal</string>
+    <string name="vr_panel_quality">Kvalitet</string>
+    <string name="vr_panel_pointer">Markør</string>
+    <string name="vr_panel_gamepad">Gamepad</string>
+    <string name="vr_panel_glow_level">Glødstyrke</string>
+    <string name="vr_panel_shortcut_menu_grip">Genvej: venstre menu + greb</string>
+    <string name="vr_panel_shortcut_sticks">Genvej: begge thumbsticks</string>
+    <string name="vr_panel_shortcut_triggers_grips">Genvej: aftrækkere + greb</string>
+    <string name="vr_panel_preset">Forudindstilling</string>
+    <string name="vr_panel_comfort">Komfort</string>
+    <string name="vr_panel_balanced">Balanceret</string>
+    <string name="vr_panel_strong">Stærk</string>
+    <string name="vr_panel_depth">Dybde</string>
+    <string name="vr_panel_convergence">Konvergens</string>
+    <string name="vr_panel_harder_on_eyes">belaster øjnene mere</string>
+    <string name="vr_panel_3d_off_in_settings">3D er slået fra i indstillingerne</string>
+    <string name="vr_panel_contrast">Kontrast</string>
+    <string name="vr_panel_gamma">Gamma</string>
+    <string name="vr_panel_saturation">Farvemætning</string>
+    <string name="vr_panel_version">Version %1$s, commit %2$s</string>
+    <string name="vr_panel_version_no_commit">Version %1$s</string>
+    <!-- %1$s is where the log file is, like Download/MoonlightXR/moonlight.log -->
+    <string name="vr_panel_log_file">Logfil: %1$s</string>
+    <string name="vr_panel_log_file_off">Logfil: fra</string>
+    <string name="vr_panel_report_sends">Sender en note med headset, indstillinger og log</string>
+    <string name="vr_panel_report_saves">Gemmer en note med headset, indstillinger og log</string>
+    <string name="vr_panel_rooms">Rum</string>
+    <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
+    <string name="vr_key_shift">Shift</string>
+    <string name="vr_key_space">mellemrum</string>
+    <string name="vr_key_enter">Enter</string>
+    <string name="vr_key_hide">Skjul</string>
+    <string name="vr_key_ctrl">Ctrl</string>
+    <string name="vr_key_alt">Alt</string>
+    <string name="vr_key_win">Win</string>
+    <string name="vr_exit_question">Afslut streamen?</string>
+    <string name="vr_exit">Afslut</string>
+    <string name="vr_splash_loading">Indlæser</string>
+    <!-- The report sheet inside the session -->
+    <string name="vr_report_note_hint">Hvad lavede du, da det gik galt?</string>
+    <string name="vr_report_optional">Valgfrit</string>
+    <string name="vr_report_email_bad">Det ligner ikke en e-mailadresse</string>
+    <string name="vr_report_sends">Sender din besked, oplysninger om headset og version, dine indstillinger og appens log, som kan indeholde din pc\'s navn og adresse på netværket. Intet sendes, før du trykker på »Send«.</string>
+    <string name="vr_report_saves">Gemmer din besked, oplysninger om headset og version, dine indstillinger og appens log, som kan indeholde din pc\'s navn og adresse på netværket, i en fil på dette headset.</string>
+    <string name="vr_report_not_sent">Rapporten kunne ikke sendes</string>
+    <string name="vr_report_saved">Rapporten er gemt</string>
+    <string name="vr_report_saved_at">Gemt i %1$s</string>
+    <string name="vr_report_not_written">Rapporten kunne ikke gemmes</string>
+    <string name="vr_battery">Batteri %1$d%%</string>
+    <string name="title_bug_report">Rapportér et problem</string>
+    <string name="summary_bug_report">Saml en rapport med din besked, enheden, indstillingerne og loggen, og send den ind</string>
+    <!-- The About category at the end of the settings -->
+    <string name="category_about">Om</string>
+    <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
+    <string name="about_version_no_commit">Moonlight XR %1$s</string>
+    <string name="title_about_licence">Licens: GPLv3</string>
+    <string name="bug_report_intro">Beskriv, hvad der gik galt, og hvad du forventede. Rapporten samler din besked med appversionen, headsettet, streamingindstillingerne og logfilen og sendes til %1$s.\n\nLog: %2$s</string>
+    <string name="bug_report_log_off">fra. Slå »Gem en logfil« til, og genskab problemet først, ellers kommer der ingen log med i rapporten.</string>
+    <string name="bug_report_email_hint">Din e-mailadresse, til et svar</string>
+    <string name="bug_report_message_hint">Hvad skete der?</string>
+    <string name="bug_report_send">Send med e-mail</string>
+    <string name="bug_report_send_direct">Send</string>
+    <string name="bug_report_sending">Sender rapporten…</string>
+    <string name="bug_report_sent">Rapporten er sendt, tak</string>
+    <string name="bug_report_upload_failed">Rapporten kunne ikke sendes (%1$s). Den er gemt i\n\n%2$s\n\nPrøv igen med en forbindelse, eller kopier den fra headsettet, og send den med e-mail til %3$s.</string>
+    <string name="bug_report_save">Gem rapporten</string>
+    <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
+    <string name="bug_report_from">Svar til: %1$s</string>
+    <string name="bug_report_saved">Rapporten er gemt i\n\n%1$s</string>
+    <string name="bug_report_no_mail">Der er ingen e-mailapp på denne enhed, så rapporten er gemt i\n\n%1$s\n\nKopier den fra headsettet, og vedhæft den til en e-mail til %2$s.</string>
+    <string name="bug_report_failed">Kunne ikke skrive rapporten: %1$s</string>
+    <string name="title_vr_file_log">Gem en logfil</string>
+    <string name="summary_vr_file_log">Fører en log i ren tekst i Download/MoonlightXR, hvor filhåndteringen i headsettet kan finde den, og du kan vedhæfte den til en fejlrapport. Ved 5 MB går den over i moonlight.previous.log, så de to tilsammen aldrig fylder mere end 10 MB. Genstart appen, for at en ændring træder i kraft.</string>
+    <string name="title_seekbar_vr_inference_cadence">Dybdeopdateringer pr. sekund</string>
+    <string name="summary_seekbar_vr_inference_cadence">Hvor mange dybdekort 3D-effekten laver hvert sekund. Færre er lettere for headsettet, men dybden halter mere bagefter. Når headsettet ikke kan følge med, halveres værdien et stykke tid, før skærmens opdateringshastighed sænkes.</string>
+    <string name="suffix_seekbar_vr_inference_cadence">pr. sekund</string>
+    <string name="title_seekbar_vr_separation">Stereoafstand</string>
+    <string name="summary_seekbar_vr_separation">Hvor langt fra hinanden de to øjenvisninger er, i procent af billedbredden. Over cirka 0.5 ser billedet ikke dybere ud, men belaster øjnene mere.</string>
+    <string name="suffix_seekbar_vr_percent">%</string>
+    <string name="suffix_seekbar_vr_head_aim_sensitivity">px pr. grad</string>
+    <string name="suffix_seekbar_vr_head_aim_deadzone">grader pr. sekund</string>
+    <string name="gen1_warning_title">Ældre headset registreret</string>
+    <string name="gen1_warning_text">Denne app er lavet til Quest 3 / Pico 4 Ultra eller nyere headsets. Ydeevnen på headsets fra Quest 2 / Pico 4-generationen eller ældre er ikke testet og forventes at være dårlig. En lavere ydeevneprofil er taget i brug, så oplevelsen forbliver god. At slå 3D i realtid fra giver et kæmpe løft i ydeevnen, men det er nok derfor, du hentede appen! Bare så du ved det. Tak, og god fornøjelse!</string>
+    <string name="warning_dialog_never_again">Vis ikke igen</string>
+    <string name="title_enable_gl_render_path">Gengiv via OpenGL (eksperimentel)</string>
+    <string name="summary_enable_gl_render_path">Sender afkodet video gennem en OpenGL-tekstur før visning. Bør se ens ud med almindelig gengivelse. HDR-streams får tonerne klippet, når dette er slået til.</string>
+    <string name="title_enable_perf_overlay">Vis ydeevnestatistik under streaming</string>
+    <string name="summary_enable_perf_overlay">Vis oplysninger om streamens ydeevne i realtid under streaming. I VR vises de på den virtuelle skærm med tider for warp, dybde og inferens.</string>
+    <string name="title_enable_post_stream_toast">Vis besked om forsinkelse efter streaming</string>
+    <string name="summary_enable_post_stream_toast">Vis en besked med oplysninger om forsinkelse, når streamen slutter</string>
+
+    <string name="category_help">Hjælp</string>
+    <string name="title_setup_guide">Opsætningsvejledning</string>
+    <string name="summary_setup_guide">Se, hvordan du sætter din gaming-pc op til streaming</string>
+    <string name="title_troubleshooting">Fejlfindingsvejledning</string>
+    <string name="summary_troubleshooting">Se tips til at finde og løse almindelige problemer med streaming</string>
+    <string name="title_privacy_policy">Privatlivspolitik</string>
+    <string name="summary_privacy_policy">Se Moonlights privatlivspolitik</string>
+
+    <!-- Toasts -->
+    <string name="toast_controller_type_changed">Gamepad-typen kan blive ændret på grund af efterligning af bevægelsessensorer</string>
+
+    <!-- Permission justification -->
+    <string name="local_network_rationale">Moonlight skal have tilladelse til det lokale netværk for at kommunikere med værter i nærheden</string>
+
+    <!-- Array strings -->
+    <string name="resolution_360p">360p</string>
+    <string name="resolution_480p">480p</string>
+    <string name="resolution_720p">720p</string>
+    <string name="resolution_1080p">1080p</string>
+    <string name="resolution_1440p">1440p</string>
+    <string name="resolution_4k">4K</string>
+
+    <string name="fps_30">30 FPS</string>
+    <string name="fps_60">60 FPS</string>
+    <string name="fps_72">72 FPS</string>
+    <string name="fps_90">90 FPS</string>
+    <string name="fps_120">120 FPS</string>
+
+    <string name="audioconf_stereo">Stereo</string>
+    <string name="audioconf_51surround">5.1-surroundlyd</string>
+    <string name="audioconf_71surround">7.1-surroundlyd</string>
+
+    <string name="videoformat_auto">Automatisk (anbefalet)</string>
+    <string name="videoformat_av1always">Foretræk AV1 (eksperimentel)</string>
+    <string name="videoformat_hevcalways">Foretræk HEVC</string>
+    <string name="videoformat_h264always">Foretræk H.264</string>
+
+    <string name="title_frame_pacing">Billedtakt for video</string>
+    <string name="summary_frame_pacing">Angiv balancen mellem videoforsinkelse og jævnhed</string>
+    <string name="pacing_latency">Foretræk lavest mulig forsinkelse</string>
+    <string name="pacing_balanced">Balanceret</string>
+    <string name="pacing_balanced_alt">Balanceret med FPS-grænse</string>
+    <string name="pacing_smoothness">Foretræk den mest jævne video (kan øge forsinkelsen betydeligt)</string>
+
+    <string name="title_analog_scrolling">Brug en analog pind til at rulle</string>
+    <string name="summary_analog_scrolling">Vælg en analog pind til at rulle med i musetilstand</string>
+    <string name="analogscroll_none">Ingen (begge pinde flytter musen)</string>
+    <string name="analogscroll_right">Højre analoge pind</string>
+    <string name="analogscroll_left">Venstre analoge pind</string>
+
+    <!-- VR Array strings -->
+    <string name="vr_depth_source_zipdepth">V2.0 - 3D baseret på ZipDepth (anbefalet)</string>
+    <string name="vr_depth_source_off">Fra</string>
+    <string name="vr_depth_source_model">V1.0 - 3D baseret på MiDaS</string>
+    <string name="vr_depth_source_flat">Testmønster: flad plan</string>
+    <string name="vr_depth_source_ramp">Testmønster: vandret rampe</string>
+    <string name="vr_depth_source_blob">Testmønster: plet i midten</string>
+    <string name="vr_depth_source_eyetest">Testmønster: fordeling til øjnene</string>
+    <string name="vr_depth_source_shifttest">Testmønster: måling af forskydning</string>
+
+    <string name="vr_env_res_low">Lav</string>
+    <string name="vr_env_res_standard">Standard</string>
+    <string name="vr_env_res_high">Høj</string>
+    <string name="vr_env_res_ultra">Ultra (eksperimentel)</string>
+
+    <string name="vr_sharpening_off">Fra</string>
+    <string name="vr_sharpening_normal">Normal</string>
+    <string name="vr_sharpening_quality">Kvalitet</string>
+    <string name="vr_supersampling_off">Fra</string>
+    <string name="vr_supersampling_normal">Normal</string>
+    <string name="vr_supersampling_quality">Kvalitet</string>
+
+    <string name="vr_file_log_off">Fra</string>
+    <string name="vr_file_log_basic">Advarsler og fejl</string>
+    <string name="vr_file_log_verbose">Detaljeret</string>
+</resources>
