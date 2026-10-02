@@ -14,6 +14,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -63,10 +64,11 @@ void xrLog(int prio, const char* fmt, ...) __attribute__((format(printf, 2, 3)))
 #define LOGE(...) xrLog(ANDROID_LOG_ERROR, __VA_ARGS__)
 #define LOGEV(...) xrLog(PRIO_EVENT, __VA_ARGS__)
 
-static inline long nowNs(void) {
+// 64 bit on every ABI: a long is 32 on armeabi-v7a and would wrap in seconds
+static inline int64_t nowNs(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    return ts.tv_sec * 1000000000L + ts.tv_nsec;
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
 }
 
 #ifndef GL_FRAMEBUFFER_SRGB_EXT
@@ -423,7 +425,10 @@ typedef struct XrCompositionLayerSettingsFB {
 #define FADE_KNOB_MAX_MS 10000
 // A start step to make fail for real, so the failure report can be seen on a
 // headset whose runtime works: instance, system or session. Read at start.
+// exit lets the start through and asks the runtime to end the session
+// EXIT_KNOB_DELAY_NS after it is first focused, as the system menu's quit does.
 #define PROP_START_FAIL "debug.moonlight.xrfail"
+#define EXIT_KNOB_DELAY_NS 5000000000LL
 
 // What the session asks the runtime's performance levels for
 #define PERF_LEVEL_NONE 0
@@ -513,7 +518,7 @@ typedef struct {
     // off. The map that was live at the switch, and when it was pressed.
     int stereoWaiting;
     int stereoWaitIndex;
-    long stereoWaitNs;
+    int64_t stereoWaitNs;
     // Draws the frame again with nothing new from the decoder, so the switch
     // shows at once on a picture that is standing still
     int warpRedraw;
@@ -582,13 +587,13 @@ typedef struct {
     float depthGlobal;
     float depthLocal;
     DepthRange depthRange;
-    long rangeNs;
+    int64_t rangeNs;
     // The model output averaged per texel over real time, ahead of the range
     // and the normalisation, so raw model flicker does not reach the eyes.
     // The stage thread's too.
     float* depthTau;
     int depthTauValid;
-    long depthTauNs;
+    int64_t depthTauNs;
     // Time constants in milliseconds, 0 for none. Set at init and only moved
     // by the debug knobs.
     int depthTauMs;
@@ -602,7 +607,7 @@ typedef struct {
     DepthCut depthCut;
     DepthResets depthResets;
     long depthCutChecks;
-    long depthCutLogNs;
+    int64_t depthCutLogNs;
     int depthCutUnlogged;
 
     // Edge aware upsample of the depth map, quarter of the video size
@@ -689,6 +694,10 @@ typedef struct {
     uint32_t glowImageCount;
     XrSwapchainImageOpenGLESKHR* glowImages;
     int glowRendered;
+    // The switch and the level the glow image was last drawn at, so moving
+    // either redraws it on a picture standing still
+    int glowDrawnOn;
+    float glowDrawnLevel;
     int ambilightOn;
     float ambiIntensity;
     // What the debug property asked for, or -1 while the panel still owns it
@@ -844,12 +853,19 @@ typedef struct {
     XrSessionState sessionState;
     int sessionRunning;
     int exitRequested;
+    // Why the runtime ended the frame loop, which Java hands to the activity,
+    // empty until it has
+    char exitReason[96];
+    // The fail knob's exit: the session is asked to end once, this long after
+    // it was first focused
+    int exitKnob;
+    int64_t exitKnobAtNs;
     // Whether the session has ever been focused, which Java reads to know the
     // launch is through, and since when the runtime has kept it from running,
     // for the line that says it is still waiting
     int everFocused;
-    long waitingSinceNs;
-    long waitingLoggedNs;
+    int64_t waitingSinceNs;
+    int64_t waitingLoggedNs;
     XrTime predictedDisplayTime;
     int shouldRender;
     int everRendered;
@@ -860,13 +876,17 @@ typedef struct {
     int passthroughBlendSaid;
 
     int cylinderSupported;
+    // The cursor dot's width as last said in the log
+    float dotSizeSaid;
+    // The screen's cylinder is held under a full turn, as last said in the log
+    int cylinderClampSaid;
     int layerSettingsSupported;
     // Layer colour scale (XR_KHR_composition_layer_color_scale_bias), which is
     // what fades a layer without drawing anything. Without it the panels and
     // the splash come and go at once, as they always did.
     int colorScaleSupported;
     // How long a panel's fade takes, which the splash's is twice
-    long fadeNs;
+    int64_t fadeNs;
     int fadeKnobMs;
     // The settings panel, the picker, the keyboard and the exit prompt, each
     // fading on its own, and whether one is still on its way out, which keeps
@@ -920,7 +940,7 @@ typedef struct {
     // What was last asked for and what the display is on, 0 for none yet
     float rateAsked;
     float displayRate;
-    long rateAskedNs;
+    int64_t rateAskedNs;
     int rateConfirmed;
     // The session's first rate has landed with focus, so a change from here
     // on goes on the toast; the one it starts on never does
@@ -933,7 +953,7 @@ typedef struct {
     float rateFloorSaid;
     // The runtime moved the display off the rate asked for at this time, 0
     // for not, and how many times this session the rate was asked for again
-    long rateMovedNs;
+    int64_t rateMovedNs;
     int rateReasks;
     // debug.moonlight.refresh, 0 for automatic
     int refreshKnob;
@@ -945,9 +965,9 @@ typedef struct {
     // The frame loop's own clock for the budget: when this frame began, the
     // display time the last one was predicted for, and the period between
     // refreshes, which is also the rate on a runtime without the extension
-    long frameBeganNs;
+    int64_t frameBeganNs;
     XrTime lastDisplayTime;
-    long displayPeriodNs;
+    int64_t displayPeriodNs;
 
     // The CPU and GPU levels (XR_EXT_performance_settings). Decoding, the
     // warp and the depth model all want the clocks to stay put rather than be
@@ -1007,7 +1027,7 @@ typedef struct {
     // pinch has been wanted on each hand, which it has to be for
     // PINCH_HOLD_NS before it is a press
     PinchGate pinchGate[HAND_COUNT];
-    long pinchWantNs[HAND_COUNT];
+    int64_t pinchWantNs[HAND_COUNT];
     // Where the pinch is, which is what a drag the eyes started follows
     Vec3 pinchPoint[HAND_COUNT];
     int pinchPointValid[HAND_COUNT];
@@ -1052,7 +1072,7 @@ typedef struct {
     int ringTipsTracked[HAND_COUNT];
     float tipGaps[HAND_COUNT][TIP_COUNT];
     int ringRefusalSaid[HAND_COUNT];
-    long ringDiagNs[HAND_COUNT];
+    int64_t ringDiagNs[HAND_COUNT];
     // The sheet that says how the gesture works, once a session the first
     // time a hand points. Wanted unless it was put away for good or the hands
     // are off, as Java says at the start; shown once a session at most. Its
@@ -1061,7 +1081,7 @@ typedef struct {
     int hintWanted;
     int hintShown;
     int hintOpen;
-    long hintPointingNs;
+    int64_t hintPointingNs;
     XrSwapchain hintSwapchain;
     uint32_t hintImageCount;
     XrSwapchainImageOpenGLESKHR* hintImages;
@@ -1126,14 +1146,14 @@ typedef struct {
     int grabByTrigger;
     int buttonsDown;
     float scrollCarry;
-    long lastInputNs;
+    int64_t lastInputNs;
 
     // One euro filter state for the hit point, per axis
     EuroState filterU;
     EuroState filterV;
     float pointerMinCutoff;
     float pointerBeta;
-    long lastHitNs;
+    int64_t lastHitNs;
     int lastHand;
 
     // One euro filter state for the aim pose, per hand
@@ -1253,7 +1273,7 @@ typedef struct {
     int modelTimerSlot;
     int modelTimerPending[2];
     int modelTimerPendingFrames[2];
-    long modelGpuTotalNs;
+    int64_t modelGpuTotalNs;
     long modelGpuSamples;
     long modelGpuDropped;
     // Each hand's grip this frame where its model shows, whether any does,
@@ -1546,8 +1566,8 @@ typedef struct {
     int presetUnits[COG_PRESET_CELLS];
 
     long statFrames;
-    long statTotalNs;
-    long statMaxNs;
+    int64_t statTotalNs;
+    int64_t statMaxNs;
 
     // Real GPU time for the warp passes. The wall clock around the draw calls
     // only ever measured how long submission took, since nothing waits on the
@@ -1559,8 +1579,8 @@ typedef struct {
     // A query whose result never lands would wedge the pair forever, since
     // the slot only flips once the outstanding one is collected
     int timerPendingFrames[2];
-    long gpuTotalNs;
-    long gpuMaxNs;
+    int64_t gpuTotalNs;
+    int64_t gpuMaxNs;
     long gpuSamples;
     // Samples the plausibility filter refused, and the last raw value it saw,
     // so a starved window can say what the driver was returning
@@ -1574,13 +1594,13 @@ typedef struct {
     int roomTimerSlot;
     int roomTimerPending[2];
     int roomTimerPendingFrames[2];
-    long roomGpuTotalNs;
+    int64_t roomGpuTotalNs;
     long roomGpuSamples;
     long roomGpuDropped;
 
     // Separate accumulator so reading the number for the overlay does not
     // disturb the logcat cadence
-    long overlayGpuTotalNs;
+    int64_t overlayGpuTotalNs;
     long overlayGpuSamples;
 } XrCtx;
 
@@ -1629,6 +1649,10 @@ void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix);
 void finishAmbiBarDetect(XrCtx* ctx);
 void runFrameColorSample(XrCtx* ctx, const float* texMatrix);
 void runGlowRender(XrCtx* ctx);
+// The glow's switch or level moved since it was last drawn, and the frame
+// already latched drawn into it again
+int glowStale(XrCtx* ctx);
+void redrawGlow(XrCtx* ctx, const float* texMatrix);
 
 // xr_room.c: the 3d rooms
 int roomEffective(XrCtx* ctx);

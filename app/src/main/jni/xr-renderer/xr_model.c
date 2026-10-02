@@ -119,7 +119,7 @@ static void collectModelTimer(XrCtx* ctx) {
         ctx->modelTimerPending[other] = 0;
         ctx->modelTimerPendingFrames[other] = 0;
         if (elapsed > 0 && elapsed < 50000000ull) {
-            ctx->modelGpuTotalNs += (long)elapsed;
+            ctx->modelGpuTotalNs += (int64_t)elapsed;
             ctx->modelGpuSamples++;
         }
         else {

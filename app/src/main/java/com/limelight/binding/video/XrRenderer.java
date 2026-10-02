@@ -163,6 +163,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // the frame loop and read by the audio thread once a block.
     private volatile float headYaw;
     private InputListener inputListener;
+    private volatile SessionListener sessionListener;
     private Context prefsContext;
     private PreferenceConfiguration prefConfig;
 
@@ -337,6 +338,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         this.inputListener = listener;
     }
 
+    // Told when the runtime ends the session under the stream
+    public void setSessionListener(SessionListener listener) {
+        this.sessionListener = listener;
+    }
+
     /**
      * Whether the eyes may point, which they may not while the eye tracking
      * permission is refused. Read fresh each frame, so an answer that arrives
@@ -403,6 +409,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     public interface SessionListener {
         // failure says where the start stopped, never null
         void onVrUnavailable(XrStartFailure failure);
+
+        // The runtime ended a running session (quit from the system menu, the
+        // session lost, a frame call failing), so nothing will show the
+        // stream again. Once at most, from the render thread, and never for
+        // a stop the activity asked for. reason is for the log.
+        void onVrSessionEnded(String reason);
     }
 
     // How long a start is waited for before it counts as failed
@@ -480,6 +492,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native boolean nativeHasBeenFocused(long ctx);
+    // Why the runtime ended the frame loop, or null
+    private native String nativeGetExitReason(long ctx);
     private native String nativeGetRuntime(long ctx);
     private native void nativeUploadHandHint(long ctx, ByteBuffer sheet);
     // Whether this session may show the hand lock hint, before the first frame
@@ -616,7 +630,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 initOk[0] = true;
                 initLatch.countDown();
 
-                runFrameLoop(prefs);
+                // Read before the context goes, and only where the runtime
+                // ended the loop rather than a stop asked for here
+                String endedFor = null;
+                if (runFrameLoop(prefs)) {
+                    String reason = nativeGetExitReason(nativeCtx);
+                    endedFor = reason != null ? reason : "unknown";
+                }
                 // The session is over, so the pad comes out with it
                 unplugPad();
 
@@ -639,6 +659,16 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     long ctx = nativeCtx;
                     nativeCtx = 0;
                     nativeDestroy(ctx);
+                }
+
+                // With the session gone, so the activity's stop finds this
+                // thread done rather than waiting on it
+                if (endedFor != null) {
+                    LimeLog.warning("VR session ended by the runtime: " + endedFor);
+                    SessionListener listener = sessionListener;
+                    if (listener != null) {
+                        listener.onVrSessionEnded(endedFor);
+                    }
                 }
             }
         };
@@ -996,7 +1026,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         depthThread = null;
     }
 
-    private void runFrameLoop(PreferenceConfiguration prefs) {
+    // True where the runtime ended the loop, false where a stop asked for here did
+    private boolean runFrameLoop(PreferenceConfiguration prefs) {
         float distance = prefs.vrDistance / 10.0f;
         float quadWidth = prefs.vrScreenSize / 10.0f;
         float curvature = prefs.vrCurvature / 100.0f;
@@ -1016,7 +1047,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         while (!stopping) {
             int r = nativeWaitBeginFrame(nativeCtx);
             if (r == FRAME_EXIT) {
-                break;
+                return !stopping;
             }
             if (r == FRAME_IDLE) {
                 // Native side slept already while the session is not running.
@@ -1184,6 +1215,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             nativeEndFrame(nativeCtx, newFrame, texMatrix, distance, quadWidth, curvature,
                     headLocked, separation, eyeSwap, passthroughOn);
         }
+        return false;
     }
 
     /**

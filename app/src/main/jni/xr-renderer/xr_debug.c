@@ -65,7 +65,7 @@ static void readFadeKnob(XrCtx* ctx) {
     propInt(PROP_FADE_MS, &ms, FADE_KNOB_MAX_MS);
     if (ms != ctx->fadeKnobMs) {
         ctx->fadeKnobMs = ms;
-        ctx->fadeNs = ms > 0 ? ms * 1000000L : FADE_NS;
+        ctx->fadeNs = ms > 0 ? ms * 1000000LL : FADE_NS;
         LOGEV("fade knob %d ms", ms);
     }
 }
@@ -82,6 +82,13 @@ void readStartKnobs(XrCtx* ctx) {
     propInt(PROP_PERF_LEVEL, &ctx->perfLevel, PERF_LEVEL_BOOST);
     if (ctx->perfLevel != perf) {
         LOGEV("performance level knob %d", ctx->perfLevel);
+    }
+    char fail[PROP_VALUE_MAX];
+    fail[0] = '\0';
+    if (__system_property_get(PROP_START_FAIL, fail) > 0 && strcmp(fail, "exit") == 0) {
+        ctx->exitKnob = 1;
+        LOGEV("exit knob: the session will be asked to end %lld s after it is focused",
+              EXIT_KNOB_DELAY_NS / 1000000000LL);
     }
 }
 

@@ -7,6 +7,8 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 
+import com.limelight.utils.BugReport;
+
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.List;
@@ -14,15 +16,15 @@ import java.util.List;
 /**
  * Hands a saved bug report to whichever app the user sends it with. Email
  * clients cannot read another app's files, so the report is given to them as
- * a content URI with a read grant instead. Only files in the reports folder
- * are reachable, by name, and only for reading.
+ * a content URI with a read grant instead. Only reports in the folder they
+ * are saved in are reachable, by name, and only for reading.
  */
 public class ReportContentProvider extends ContentProvider {
     public static final String AUTHORITY = "report." + BuildConfig.APPLICATION_ID;
     private static final String REPORTS_PATH = "reports";
     private static final String TEXT_MIME_TYPE = "text/plain";
 
-    /** Where the reports the provider serves are written. */
+    /** The app's own folder for reports, used when there is no log to save beside. */
     public static File reportsDir(android.content.Context context) {
         return context.getExternalFilesDir(REPORTS_PATH);
     }
@@ -47,11 +49,12 @@ public class ReportContentProvider extends ContentProvider {
         }
         String name = segments.get(1);
         // The name is the whole of what the caller chooses, so it must not be
-        // able to walk anywhere else
-        if (name.isEmpty() || name.contains("/") || name.contains("\\") || name.startsWith(".")) {
+        // able to walk anywhere else, nor reach the logs the reports sit with
+        if (name.isEmpty() || name.contains("/") || name.contains("\\") || name.startsWith(".")
+                || !BugReport.isReportName(name)) {
             throw new FileNotFoundException();
         }
-        File dir = reportsDir(getContext());
+        File dir = BugReport.reportDir(getContext());
         if (dir == null) {
             throw new FileNotFoundException();
         }

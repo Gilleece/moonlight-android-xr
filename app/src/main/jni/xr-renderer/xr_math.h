@@ -64,8 +64,19 @@ void matMul(float* out, const float* a, const float* b);
 void projectionFromFov(float* m, XrFovf fov, float nearZ, float farZ);
 void viewFromPose(float* m, XrPosef pose);
 
+// The widest a cylinder layer's central angle goes: the spec wants it under a
+// full turn, and a runtime may refuse the whole frame over one. A picture
+// asked to wrap further is drawn at this angle, smaller and in proportion.
+#define CYLINDER_MAX_ANGLE (2.0f * (float)M_PI - 0.01f)
+
+// The central angle a picture this wide gets on a cylinder of that radius,
+// and the scale it is drawn at to fit it, 1 unless it would wrap too far
+float cylinderAngle(float width, float radius);
+float cylinderFit(float width, float radius);
+
 // Where a ray lands on the screen and where a point on the screen sits in
-// space, on the flat quad and on the cylinder alike
+// space, on the flat quad and on the cylinder alike. A curved picture is the
+// one drawn, at cylinderFit's scale.
 int screenProject(XrPosef aim, XrPosef screen, float width, float height,
                   float radius, int curved, float* outU, float* outV);
 Vec3 screenPoint(float u, float v, XrPosef screen, float width, float height,

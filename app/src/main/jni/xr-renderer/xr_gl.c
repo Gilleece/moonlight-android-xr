@@ -427,11 +427,19 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     // draw, which now follows the video, so the room is lit from this frame's
     // colour rather than the last one's.
     int sampled = glowOn || roomOn;
+    if (!sampled) {
+        // Kept from whatever picture was up when it last ran, so the next
+        // sample lands whole rather than easing in from that one
+        ctx->ambiSeeded = 0;
+    }
     if (sampled) {
         runFrameColorSample(ctx, texMatrix);
     }
     if (glowOn) {
         runGlowRender(ctx);
+    }
+    else {
+        ctx->glowDrawnOn = 0;
     }
 
     uint32_t imageIndex = 0;
@@ -647,13 +655,13 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                 // which the room render provokes constantly, and gating on it
                 // starved the stats to nothing while the values stayed sane.
                 if (elapsed > 0 && elapsed < 50000000ull) {
-                    ctx->gpuTotalNs += (long)elapsed;
+                    ctx->gpuTotalNs += (int64_t)elapsed;
                     ctx->gpuSamples++;
-                    ctx->overlayGpuTotalNs += (long)elapsed;
+                    ctx->overlayGpuTotalNs += (int64_t)elapsed;
                     ctx->overlayGpuSamples++;
-                    rateBudgetGpu(&ctx->rateBudget, (long)elapsed);
-                    if ((long)elapsed > ctx->gpuMaxNs) {
-                        ctx->gpuMaxNs = (long)elapsed;
+                    rateBudgetGpu(&ctx->rateBudget, (int64_t)elapsed);
+                    if ((int64_t)elapsed > ctx->gpuMaxNs) {
+                        ctx->gpuMaxNs = (int64_t)elapsed;
                     }
                 }
                 else {
@@ -719,9 +727,9 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                 ctx->roomTimerPendingFrames[roomOther] = 0;
                 // Same plausibility filter as the warp's, for the same reason
                 if (elapsed > 0 && elapsed < 50000000ull) {
-                    ctx->roomGpuTotalNs += (long)elapsed;
+                    ctx->roomGpuTotalNs += (int64_t)elapsed;
                     ctx->roomGpuSamples++;
-                    rateBudgetRoom(&ctx->rateBudget, (long)elapsed);
+                    rateBudgetRoom(&ctx->rateBudget, (int64_t)elapsed);
                 }
                 else {
                     ctx->roomGpuDropped++;

@@ -373,11 +373,13 @@ static void addGlowLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
     if (glowOn && ctx->glowRendered && ctx->everRendered && ctx->shouldRender) {
         // A curved picture's sides come round toward the viewer and would
         // cover a flat glow's, leaving it only above and below, so the glow
-        // curves with it: the same axis, a little inside the same radius
+        // curves with it: the same axis, a little inside the same radius,
+        // around the picture as drawn
         GlowCylinder shape;
+        float fit = cylinderFit(view->screenWidth, ctx->screenRadius);
         if (view->screenCurved
-                && glowCylinderFor(view->screenWidth, view->screenHeight, ctx->screenRadius,
-                                   &shape)) {
+                && glowCylinderFor(view->screenWidth * fit, view->screenHeight * fit,
+                                   ctx->screenRadius, &shape)) {
             XrCompositionLayerCylinderKHR* cyl = &layers->glowCylinder;
             memset(cyl, 0, sizeof(*cyl));
             cyl->type = XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR;
@@ -458,8 +460,18 @@ static void addVideoLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layer
             Vec3 axisLocal = { 0.0f, 0.0f, radius };
             cyl->pose = poseOffset(view->screenPose, axisLocal);
             cyl->radius = radius;
-            cyl->centralAngle = view->screenWidth / radius;
+            // Under a full turn, or the runtime can refuse the frame. The
+            // aspect ratio holds, so a picture that would wrap further comes
+            // out smaller rather than squashed.
+            cyl->centralAngle = cylinderAngle(view->screenWidth, radius);
             cyl->aspectRatio = 1.0f / view->aspect;
+            int clamped = cyl->centralAngle < view->screenWidth / radius;
+            if (eye == 0 && clamped != ctx->cylinderClampSaid) {
+                ctx->cylinderClampSaid = clamped;
+                LOGI("screen cylinder %.2f rad, %s %.2f rad at %.0f percent size",
+                     view->screenWidth / radius, clamped ? "held to" : "back to",
+                     cyl->centralAngle, 100.0f * cylinderFit(view->screenWidth, radius));
+            }
             pushLayer(ctx, layers, cyl);
         }
         else {
@@ -1092,7 +1104,15 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         // ribbon: a gaze has a cursor and no ray, a ray aimed at nothing
         // has no cursor.
         if (!ctx->beamFree) {
-            Vec3 dotZ = vecNorm(vecSub(head, end));
+            // As wide as the distance asks, so it looks the same size near or far
+            Vec3 toHead = vecSub(head, end);
+            float away = sqrtf(vecDot(toHead, toHead));
+            float dotSize = pointerDotSize(away);
+            if (fabsf(dotSize - ctx->dotSizeSaid) > 0.2f * ctx->dotSizeSaid) {
+                LOGI("cursor dot %.1f cm across at %.2f m", dotSize * 100.0f, away);
+                ctx->dotSizeSaid = dotSize;
+            }
+            Vec3 dotZ = vecNorm(toHead);
             Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
             Vec3 dotX = vecNorm(vecCross(worldUp, dotZ));
             Vec3 dotY = vecCross(dotZ, dotX);
@@ -1102,7 +1122,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
 
             quadLayer(&layers->dot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                       ctx->pointerSwapchain, PTR_TEX_W, PTR_DOT_H, view->space, dotPose,
-                      0.022f, 0.022f);
+                      dotSize, dotSize);
             // The dot is the strip under the beam in the swapchain they share
             layers->dot.subImage.imageRect.offset.y = PTR_BEAM_H;
             pushLayer(ctx, layers, &layers->dot);
@@ -1114,7 +1134,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
 // it reads wherever the picture is and never covers its middle. Nothing hit
 // tests it: a press aimed through it lands on whatever is behind. It shows
 // while the notice it was drawn for is the one up, and fades out after.
-static void addToastLayer(XrCtx* ctx, FrameLayers* layers, long now) {
+static void addToastLayer(XrCtx* ctx, FrameLayers* layers, int64_t now) {
     int shown = ctx->toastArtReady && noticeShowing(&ctx->notices, now)
             && ctx->toastDrawnKind == ctx->notices.current.kind
             && ctx->toastDrawnArg == ctx->notices.current.arg;
@@ -1138,7 +1158,7 @@ static void addToastLayer(XrCtx* ctx, FrameLayers* layers, long now) {
 // Steps each panel's fade toward whether it is showing. A panel opening takes
 // any other still on its way out away at once, so two are never up together,
 // and the keyboard stands down at once for a modal the way it always has.
-static void stepPanelFades(XrCtx* ctx, long now) {
+static void stepPanelFades(XrCtx* ctx, int64_t now) {
     static const char* const NAMES[FADE_PANELS] = {
         "settings panel", "picker", "keyboard", "exit prompt", "report sheet", "hand lock hint"
     };
@@ -1224,7 +1244,7 @@ static void logSplashLift(XrCtx* ctx) {
 
 // One frame of the splash: what has become ready since the last, and whether
 // it lifts now
-static void stepSplash(XrCtx* ctx, long now) {
+static void stepSplash(XrCtx* ctx, int64_t now) {
     if (ctx->splash.phase == SPLASH_GONE) {
         return;
     }
@@ -1237,7 +1257,7 @@ static void stepSplash(XrCtx* ctx, long now) {
             }
         }
     }
-    long fadeNs = ctx->colorScaleSupported ? 2 * ctx->fadeNs : 0;
+    int64_t fadeNs = ctx->colorScaleSupported ? 2 * ctx->fadeNs : 0;
     int phase = ctx->splash.phase;
     if (splashStep(&ctx->splash, now, waiting, fadeNs)) {
         logSplashLift(ctx);
@@ -1251,7 +1271,7 @@ static void stepSplash(XrCtx* ctx, long now) {
 // wider than any view, cut from the black strip under the sheet's rows, and
 // the sheet itself on the row for the dots it is up to. While it is fully up
 // it is all the frame carries.
-static void addSplashLayers(XrCtx* ctx, FrameLayers* layers, long now) {
+static void addSplashLayers(XrCtx* ctx, FrameLayers* layers, int64_t now) {
     if (ctx->splash.phase == SPLASH_GONE || !ctx->splashArtReady) {
         return;
     }
@@ -1335,17 +1355,24 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // sends nothing while the picture stands still
     int redraw = ctx->warpRedraw && ctx->everRendered;
     if ((newFrame || redraw) && ctx->shouldRender) {
-        long startNs = nowNs();
+        int64_t startNs = nowNs();
 
         float texMatrix[16];
         (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
         renderVideoFrame(ctx, texMatrix, separation);
 
-        long elapsed = nowNs() - startNs;
+        int64_t elapsed = nowNs() - startNs;
         ctx->statFrames++;
         ctx->statTotalNs += elapsed;
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
         logWarpStats(ctx);
+    }
+    else if (ctx->shouldRender && ctx->everRendered && glowStale(ctx)) {
+        // The glow's level or switch moved with nothing new from the decoder
+        float texMatrix[16];
+        (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
+        redrawGlow(ctx, texMatrix);
+        LOGI("glow redrawn on a still picture at %.2f", ctx->glowDrawnLevel);
     }
     // The controller models on every frame, a new picture or not, since a
     // controller moves on its own. After the warp, so the picture never
@@ -1387,7 +1414,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     view.screenCurved = view.curve > 0.01f && ctx->cylinderSupported;
     // A panel on its way out keeps the furniture down until it has gone, the
     // way an open one does, so the two never stack up in one frame
-    long frameNs = nowNs();
+    int64_t frameNs = nowNs();
     stepPanelFades(ctx, frameNs);
     stepSplash(ctx, frameNs);
     int splashUp = ctx->splash.phase == SPLASH_UP;

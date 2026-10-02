@@ -23,8 +23,11 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.zip.GZIPOutputStream;
@@ -34,10 +37,11 @@ import java.util.zip.GZIPOutputStream;
  * places one can be made: the screen in the settings and the sheet on the
  * About tab inside a session. A report is one text file: what the user typed,
  * the app and the headset, the settings that matter and both log files. It is
- * always saved on the device first, then posted gzipped to the collector when
- * the build knows of one, so a failed post still leaves something to send by
- * hand. The text is put together from plain values, so what a report says can
- * be checked off a test rather than a headset.
+ * always saved on the device first, beside the log where only the newest few
+ * are kept, then posted gzipped to the collector when the build knows of one,
+ * so a failed post still leaves something to send by hand. The text is put
+ * together from plain values, so what a report says can be checked off a test
+ * rather than a headset.
  */
 public final class BugReport {
 
@@ -56,7 +60,7 @@ public final class BugReport {
     /** How a report went, where it is and what stopped it. */
     public static final class Outcome {
         public final Result result;
-        /** The copy the headset's file manager can see where there is one, or null */
+        /** Where the report was saved, or null where it was not */
         public final String path;
         /** What went wrong, for the two results that went wrong, or null */
         public final String detail;
@@ -108,6 +112,9 @@ public final class BugReport {
     public static final String START_FAILURE_PREF = "xr_start_failure";
 
     private static final String NAME_PREFIX = "moonlight-xr-report-";
+    private static final String NAME_SUFFIX = ".txt";
+    /** How many reports are kept on the device, the newest. */
+    static final int KEEP_REPORTS = 5;
     private static final int CONNECT_TIMEOUT_MS = 15000;
     private static final int READ_TIMEOUT_MS = 30000;
     // Where shared storage is mounted, which the file manager does not show
@@ -222,14 +229,15 @@ public final class BugReport {
 
     /**
      * Writes the report into dir: the text, then each log that exists under
-     * a line naming it. Returns the file.
+     * a line naming it, and lets go of all but the newest KEEP_REPORTS there.
+     * Returns the file.
      */
     public static File write(File dir, String header, File... logs) throws IOException {
         if (dir == null || (!dir.isDirectory() && !dir.mkdirs())) {
             throw new IOException("no writable storage for the report");
         }
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
-        File report = new File(dir, NAME_PREFIX + stamp + ".txt");
+        File report = new File(dir, NAME_PREFIX + stamp + NAME_SUFFIX);
         Writer out = new OutputStreamWriter(new FileOutputStream(report), StandardCharsets.UTF_8);
         try {
             out.write(header);
@@ -239,7 +247,39 @@ public final class BugReport {
         } finally {
             out.close();
         }
+        prune(dir, KEEP_REPORTS);
         return report;
+    }
+
+    /** Whether a file name is one of the reports, as against the logs that share the folder. */
+    public static boolean isReportName(String name) {
+        return name != null && name.startsWith(NAME_PREFIX) && name.endsWith(NAME_SUFFIX);
+    }
+
+    /**
+     * Deletes all but the newest keep reports in dir and leaves everything
+     * else there alone. The names carry the time they were made, so the
+     * newest sort last. Says how many went.
+     */
+    static int prune(File dir, int keep) {
+        File[] files = dir != null ? dir.listFiles() : null;
+        if (files == null) {
+            return 0;
+        }
+        List<String> names = new ArrayList<>();
+        for (File file : files) {
+            if (file.isFile() && isReportName(file.getName())) {
+                names.add(file.getName());
+            }
+        }
+        Collections.sort(names);
+        int deleted = 0;
+        for (int i = 0; i < names.size() - keep; i++) {
+            if (new File(dir, names.get(i)).delete()) {
+                deleted++;
+            }
+        }
+        return deleted;
     }
 
     private static void appendLog(Writer out, File log) throws IOException {
@@ -257,24 +297,6 @@ public final class BugReport {
             }
         } finally {
             in.close();
-        }
-    }
-
-    /**
-     * A copy of the report in dir, the log's own folder, which is the one the
-     * headset's file manager shows. Null if it would not copy, which leaves
-     * the report in the app's own folder.
-     */
-    public static File copyInto(File report, File dir) {
-        if (dir == null) {
-            return null;
-        }
-        File target = new File(dir, report.getName());
-        try {
-            copy(report, target);
-            return target;
-        } catch (IOException e) {
-            return null;
         }
     }
 
@@ -317,10 +339,10 @@ public final class BugReport {
 
     /**
      * Everything after the text is put together: written into dir with the
-     * logs after it, copied into visibleDir where the file manager can see
-     * it, and handed to deliver. Apart from Android, so a test can run it.
+     * logs after it and handed to deliver. Apart from Android, so a test can
+     * run it.
      */
-    static Outcome fileReport(File dir, String header, File[] logs, File visibleDir, String url,
+    static Outcome fileReport(File dir, String header, File[] logs, String url,
                               Map<String, String> headers, Transport transport) {
         File report;
         try {
@@ -329,16 +351,24 @@ public final class BugReport {
             return new Outcome(Result.NOT_WRITTEN, null,
                     e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
         }
-        File visible = copyInto(report, visibleDir);
-        String where = (visible != null ? visible : report).getAbsolutePath();
-        return deliver(report, where, url, headers, transport);
+        return deliver(report, report.getAbsolutePath(), url, headers, transport);
     }
 
     /**
-     * The whole of a report from inside a session: saved, copied beside the
-     * log and sent where the build has a collector. Blocks for as long as the
-     * post takes, so never on the frame loop. session says what the session
-     * has up, for a line of its own.
+     * The one folder reports are saved in: beside the log, which is where the
+     * headset's file manager finds them, or the app's own folder with the log
+     * switched off.
+     */
+    public static File reportDir(Context context) {
+        File besideLog = logDir();
+        return besideLog != null ? besideLog : ReportContentProvider.reportsDir(context);
+    }
+
+    /**
+     * The whole of a report from inside a session: saved beside the log and
+     * sent where the build has a collector. Blocks for as long as the post
+     * takes, so never on the frame loop. session says what the session has
+     * up, for a line of its own.
      */
     public static Outcome file(Context context, String message, String email, String session) {
         // Whatever the log's writer thread still holds goes to disk first, so
@@ -347,26 +377,18 @@ public final class BugReport {
         String header = compose(message, email, gather(context, session));
         Map<String, String> headers = headers(BuildConfig.REPORT_TOKEN, deviceName(),
                 BuildConfig.VERSION_NAME, email, message);
-        return fileReport(ReportContentProvider.reportsDir(context), header, logFiles(),
-                logDir(), BuildConfig.REPORT_URL, headers, HTTP);
+        return fileReport(reportDir(context), header, logFiles(), BuildConfig.REPORT_URL,
+                headers, HTTP);
     }
 
     /**
-     * The report saved in the app's own folder, for the settings screen,
-     * which then decides how it goes on.
+     * The report saved beside the log, for the settings screen, which then
+     * decides how it goes on.
      */
     public static File save(Context context, String message, String email) throws IOException {
-        File dir = ReportContentProvider.reportsDir(context);
-        if (dir == null || (!dir.isDirectory() && !dir.mkdirs())) {
-            throw new IOException("no writable storage for the report");
-        }
         FileLog.flush();
-        return write(dir, compose(message, email, gather(context, null)), logFiles());
-    }
-
-    /** A copy beside the log, or null where there is no log folder or it would not copy. */
-    public static File copyBesideLog(File report) {
-        return copyInto(report, logDir());
+        return write(reportDir(context), compose(message, email, gather(context, null)),
+                logFiles());
     }
 
     /** The headers for a report from this headset and this build. */
@@ -494,24 +516,6 @@ public final class BugReport {
         FileInputStream in = new FileInputStream(from);
         try {
             GZIPOutputStream out = new GZIPOutputStream(new FileOutputStream(to));
-            try {
-                byte[] chunk = new byte[16384];
-                int read;
-                while ((read = in.read(chunk)) > 0) {
-                    out.write(chunk, 0, read);
-                }
-            } finally {
-                out.close();
-            }
-        } finally {
-            in.close();
-        }
-    }
-
-    private static void copy(File from, File to) throws IOException {
-        FileInputStream in = new FileInputStream(from);
-        try {
-            FileOutputStream out = new FileOutputStream(to);
             try {
                 byte[] chunk = new byte[16384];
                 int read;

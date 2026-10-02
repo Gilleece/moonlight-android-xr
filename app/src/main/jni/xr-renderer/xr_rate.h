@@ -6,6 +6,8 @@
 #ifndef XR_RATE_H
 #define XR_RATE_H
 
+#include <stdint.h>
+
 // Runtimes report 90.0 and 119.88 alike, so rates this close are the same one
 #define RATE_TOLERANCE 0.5f
 // The frame budget never pushes the display below this. A stream asking for
@@ -68,16 +70,16 @@ float rateChoose(float fps, const float* rates, int count, int warpOn, float hel
 int rateSettled(int settled, int focusedFrame, float asked, int confirmed);
 
 typedef struct {
-    long startNs;
+    int64_t startNs;
     int settle;
     int overWindows;
     // The frame loop's own time from xrBeginFrame to xrEndFrame
-    long cpuTotalNs;
+    int64_t cpuTotalNs;
     long cpuFrames;
     // The warp's GPU time and the room's, per frame that drew them
-    long gpuTotalNs;
+    int64_t gpuTotalNs;
     long gpuFrames;
-    long roomTotalNs;
+    int64_t roomTotalNs;
     long roomFrames;
     // Display refreshes the frame loop was not there for
     long missed;
@@ -93,10 +95,10 @@ typedef struct {
 } RateBudget;
 
 // Starts measuring again from now, throwing the next settle windows away
-void rateBudgetStart(RateBudget* b, long nowNs, int settle);
-void rateBudgetCpu(RateBudget* b, long frameNs);
-void rateBudgetGpu(RateBudget* b, long gpuNs);
-void rateBudgetRoom(RateBudget* b, long gpuNs);
+void rateBudgetStart(RateBudget* b, int64_t nowNs, int settle);
+void rateBudgetCpu(RateBudget* b, int64_t frameNs);
+void rateBudgetGpu(RateBudget* b, int64_t gpuNs);
+void rateBudgetRoom(RateBudget* b, int64_t gpuNs);
 void rateBudgetMissed(RateBudget* b, long refreshes);
 
 // Called once a frame. Says RATE_WINDOW_FILLING until a window is full, then
@@ -104,6 +106,6 @@ void rateBudgetMissed(RateBudget* b, long refreshes);
 // held, slipping (over, but not yet for RATE_OVER_WINDOWS in a row), or over,
 // which is the call to step down. The window's numbers stay in the budget for
 // the log until the next one is full.
-int rateBudgetTick(RateBudget* b, long nowNs, float hz);
+int rateBudgetTick(RateBudget* b, int64_t nowNs, float hz);
 
 #endif

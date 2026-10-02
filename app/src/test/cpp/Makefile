@@ -69,7 +69,7 @@ $(OUT)/test_notice: test_notice.c check.h $(SRC)/xr_notice.c $(SRC)/xr_notice.h 
 
 # The glow's steady luma, its roll off along a dark edge and the edge pass
 # built from them
-$(OUT)/test_glow: test_glow.c check.h $(SRC)/xr_glow.c $(SRC)/xr_glow.h
+$(OUT)/test_glow: test_glow.c check.h $(SRC)/xr_glow.c $(SRC)/xr_glow.h $(SRC)/xr_math.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_glow.c $(SRC)/xr_glow.c -lm
 

@@ -248,7 +248,7 @@ void displayFrameBegun(XrCtx* ctx, const XrFrameState* state) {
     if (state->predictedDisplayPeriod <= 0) {
         return;
     }
-    ctx->displayPeriodNs = (long)state->predictedDisplayPeriod;
+    ctx->displayPeriodNs = (int64_t)state->predictedDisplayPeriod;
     // A frame the loop was late for shows as the predicted time jumping by
     // more than one refresh
     if (ctx->lastDisplayTime != 0 && ctx->sessionState == XR_SESSION_STATE_FOCUSED) {
@@ -287,7 +287,7 @@ static void logBudget(XrCtx* ctx) {
 }
 
 void displayFrameEnded(XrCtx* ctx) {
-    long now = nowNs();
+    int64_t now = nowNs();
     if (ctx->frameBeganNs > 0) {
         rateBudgetCpu(&ctx->rateBudget, now - ctx->frameBeganNs);
         ctx->frameBeganNs = 0;

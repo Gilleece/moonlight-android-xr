@@ -98,10 +98,9 @@ public class BugReportActivity extends Activity {
             return;
         }
 
-        // A copy where the headset's file manager can see it, for the case
-        // where the report cannot leave the device and has to travel by hand
-        File visible = BugReport.copyBesideLog(report);
-        String where = visible != null ? visible.getAbsolutePath() : report.getAbsolutePath();
+        // Saved beside the log, where the headset's file manager can see it,
+        // for the case where it cannot leave the device and travels by hand
+        String where = report.getAbsolutePath();
 
         // A build that knows where reports go sends them straight there, which
         // is the only way off a headset with no email app

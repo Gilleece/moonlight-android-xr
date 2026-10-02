@@ -72,7 +72,7 @@ int controllerClockStep(ControllerClock* c, float dt, int moved, int pressed, in
 }
 
 int gazeBridgeUpdate(GazeBridge* b, int gazeOn, int controllerAwake, int focused,
-                     int pressHeld, long nowNs, float bridgeSec, float* outSec) {
+                     int pressHeld, int64_t nowNs, float bridgeSec, float* outSec) {
     *outSec = 0.0f;
     if (!gazeOn) {
         // The hands point anyway with no eyes, so dropping it switches nothing
@@ -110,7 +110,7 @@ int gazeBridgeUpdate(GazeBridge* b, int gazeOn, int controllerAwake, int focused
     return BRIDGE_ON;
 }
 
-void gazeBridgeTrack(GazeBridge* b, int asked, int usable, long nowNs) {
+void gazeBridgeTrack(GazeBridge* b, int asked, int usable, int64_t nowNs) {
     if (!asked) {
         b->missingSince = 0;
         b->back = 0;

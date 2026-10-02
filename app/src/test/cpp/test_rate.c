@@ -114,19 +114,19 @@ static void testFloorHolds(void) {
 }
 
 // Feeds a whole window of frames at a CPU and a GPU time, per frame at hz
-static int feedWindow(RateBudget* b, long* now, float hz, float cpuMs, float gpuMs,
+static int feedWindow(RateBudget* b, int64_t* now, float hz, float cpuMs, float gpuMs,
                       int warps) {
-    long period = (long)(1e9 / hz);
-    long end = *now + RATE_WINDOW_NS;
+    int64_t period = (int64_t)(1e9 / hz);
+    int64_t end = *now + RATE_WINDOW_NS;
     int verdict = RATE_WINDOW_FILLING;
     int frame = 0;
     int frames = (int)(RATE_WINDOW_NS / period);
     while (verdict == RATE_WINDOW_FILLING) {
-        rateBudgetCpu(b, (long)(cpuMs * 1e6));
+        rateBudgetCpu(b, (int64_t)(cpuMs * 1e6));
         // Spread the warps over the window, the way a stream at a lower rate
         // than the display lands
         if (warps > 0 && (long)frame * warps / frames != (long)(frame + 1) * warps / frames) {
-            rateBudgetGpu(b, (long)(gpuMs * 1e6));
+            rateBudgetGpu(b, (int64_t)(gpuMs * 1e6));
         }
         frame++;
         *now += period;
@@ -138,7 +138,7 @@ static int feedWindow(RateBudget* b, long* now, float hz, float cpuMs, float gpu
 
 static void testBudgetSettlesThenHolds(void) {
     RateBudget b;
-    long now = 1000000000L;
+    int64_t now = 1000000000LL;
     rateBudgetStart(&b, now, RATE_SETTLE_WINDOWS);
     CHECK(rateBudgetTick(&b, now + 1, 90) == RATE_WINDOW_FILLING);
     // Thrown away however bad it was
@@ -153,7 +153,7 @@ static void testBudgetSettlesThenHolds(void) {
 
 static void testBudgetNeedsWindowsInARow(void) {
     RateBudget b;
-    long now = 0;
+    int64_t now = 0;
     rateBudgetStart(&b, now, 0);
     // Two over, then a good one resets the run
     CHECK(feedWindow(&b, &now, 120, 1.0f, 9.0f, 120) == RATE_WINDOW_SLIPPING);
@@ -170,7 +170,7 @@ static void testBudgetNeedsWindowsInARow(void) {
 
 static void testBudgetTakesTheSlowerSide(void) {
     RateBudget b;
-    long now = 0;
+    int64_t now = 0;
     rateBudgetStart(&b, now, 0);
     // A frame loop slow on the CPU is over even with a quick GPU
     CHECK(feedWindow(&b, &now, 90, 12.0f, 2.0f, 60) == RATE_WINDOW_SLIPPING);
@@ -179,7 +179,7 @@ static void testBudgetTakesTheSlowerSide(void) {
 
 static void testBudgetIgnoresAFewWarps(void) {
     RateBudget b;
-    long now = 0;
+    int64_t now = 0;
     rateBudgetStart(&b, now, 0);
     // A desktop standing still: a handful of slow warps prove nothing
     CHECK(feedWindow(&b, &now, 90, 1.0f, 20.0f, RATE_MIN_GPU_SAMPLES - 5) == RATE_WINDOW_HELD);
@@ -189,7 +189,7 @@ static void testBudgetIgnoresAFewWarps(void) {
 
 static void testBudgetAddsTheRoom(void) {
     RateBudget b;
-    long now = 0;
+    int64_t now = 0;
     rateBudgetStart(&b, now, 0);
     for (int i = 0; i < 60; i++) {
         rateBudgetRoom(&b, 3000000L);
@@ -201,7 +201,7 @@ static void testBudgetAddsTheRoom(void) {
 
 static void testBudgetCountsMissedRefreshes(void) {
     RateBudget b;
-    long now = 0;
+    int64_t now = 0;
     rateBudgetStart(&b, now, 0);
     rateBudgetMissed(&b, 2);
     rateBudgetMissed(&b, 0);
@@ -216,8 +216,8 @@ static void testBudgetCountsMissedRefreshes(void) {
 
 // A window at hz where every frame takes a quick warp but one frame in
 // lateEvery misses the refresh after it
-static int feedLate(RateBudget* b, long* now, float hz, int lateEvery) {
-    long period = (long)(1e9 / hz);
+static int feedLate(RateBudget* b, int64_t* now, float hz, int lateEvery) {
+    int64_t period = (int64_t)(1e9 / hz);
     int verdict = RATE_WINDOW_FILLING;
     int frame = 0;
     while (verdict == RATE_WINDOW_FILLING) {
@@ -234,7 +234,7 @@ static int feedLate(RateBudget* b, long* now, float hz, int lateEvery) {
 
 static void testBudgetCountsABusyGpuByItsPace(void) {
     RateBudget b;
-    long now = 0;
+    int64_t now = 0;
     rateBudgetStart(&b, now, 0);
     // Every warp fits 80 Hz's 12.5 ms, but a third of the refreshes go by
     // without a frame: the loop's pace is the frame time then
@@ -260,7 +260,7 @@ static void testBudgetCountsABusyGpuByItsPace(void) {
 
 static void testBudgetWithNothingMeasured(void) {
     RateBudget b;
-    long now = 0;
+    int64_t now = 0;
     rateBudgetStart(&b, now, 0);
     now += RATE_WINDOW_NS;
     CHECK(rateBudgetTick(&b, now, 90) == RATE_WINDOW_HELD);

@@ -10,8 +10,8 @@ void pinchGateReset(PinchGate* g) {
 
 // How far the tips have closed within the window: the widest gap seen in it
 // less this one
-static float pinchClosing(const PinchGate* g, float gap, long nowNs) {
-    long from = nowNs - PINCH_CLOSE_WINDOW_NS;
+static float pinchClosing(const PinchGate* g, float gap, int64_t nowNs) {
+    int64_t from = nowNs - PINCH_CLOSE_WINDOW_NS;
     float widest = gap;
     for (int k = 1; k <= g->count; k++) {
         int i = (g->next - k + PINCH_RING) % PINCH_RING;
@@ -25,7 +25,7 @@ static float pinchClosing(const PinchGate* g, float gap, long nowNs) {
     return widest - gap;
 }
 
-int pinchGateStep(PinchGate* g, int valid, int tracked, float gap, long nowNs,
+int pinchGateStep(PinchGate* g, int valid, int tracked, float gap, int64_t nowNs,
                   float* outClosed) {
     *outClosed = 0.0f;
     if (!valid) {
@@ -59,7 +59,7 @@ int pinchGateStep(PinchGate* g, int valid, int tracked, float gap, long nowNs,
     return g->down;
 }
 
-int pinchHoldStep(long* wantSince, int want, int wasDown, long nowNs) {
+int pinchHoldStep(int64_t* wantSince, int want, int wasDown, int64_t nowNs) {
     if (!want) {
         *wantSince = 0;
         return 0;
@@ -91,7 +91,8 @@ int ringNearestTip(const float gaps[TIP_COUNT]) {
     return nearest;
 }
 
-int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], long nowNs, int* outWhy) {
+int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], int64_t nowNs,
+                 int* outWhy) {
     if (!tracked) {
         ringGateReset(g);
         *outWhy = RING_UNTRACKED;
@@ -132,7 +133,7 @@ int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], long now
     return 0;
 }
 
-long ringHoldNs(const RingGate* g, long nowNs) {
+int64_t ringHoldNs(const RingGate* g, int64_t nowNs) {
     return g->since != 0 && !g->fired ? nowNs - g->since : 0;
 }
 
@@ -148,7 +149,7 @@ const char* ringReasonName(int why) {
     return why >= 0 && why < RING_REASONS ? NAMES[why] : "unknown";
 }
 
-int ringDiagDue(long* lastNs, const float gaps[TIP_COUNT], long nowNs) {
+int ringDiagDue(int64_t* lastNs, const float gaps[TIP_COUNT], int64_t nowNs) {
     int anyNear = 0;
     for (int t = 0; t < TIP_COUNT; t++) {
         if (gaps[t] >= 0.0f && gaps[t] < RING_DIAG_NEAR_M) {
@@ -162,7 +163,7 @@ int ringDiagDue(long* lastNs, const float gaps[TIP_COUNT], long nowNs) {
     return 1;
 }
 
-float dragRampGain(long elapsedNs) {
+float dragRampGain(int64_t elapsedNs) {
     if (elapsedNs <= 0) {
         return 0.0f;
     }
@@ -173,14 +174,14 @@ float dragRampGain(long elapsedNs) {
     return t * t * (3.0f - 2.0f * t);
 }
 
-void dragRampStart(DragRamp* r, long nowNs) {
+void dragRampStart(DragRamp* r, int64_t nowNs) {
     Vec3 still = { 0.0f, 0.0f, 0.0f };
     r->prev = still;
     r->carried = still;
     r->startNs = nowNs;
 }
 
-Vec3 dragRampStep(DragRamp* r, Vec3 d, float headTurnDegS, long nowNs, int* outHeld) {
+Vec3 dragRampStep(DragRamp* r, Vec3 d, float headTurnDegS, int64_t nowNs, int* outHeld) {
     *outHeld = headTurnDegS > HEAD_TURN_HOLD_DEG_S;
     Vec3 step = vecSub(d, r->prev);
     r->prev = d;

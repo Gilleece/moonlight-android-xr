@@ -66,6 +66,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.Rational;
@@ -171,6 +172,24 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // Set while this activity is stopped before its VR session was ever
     // focused, a boundary prompt in the way, with the stream kept for it
     private boolean stoppedForHeadset;
+    private final Handler headsetHoldHandler = new Handler(Looper.getMainLooper());
+    // Ends a hold the user never came back from
+    private final Runnable headsetHoldOver = new Runnable() {
+        @Override
+        public void run() {
+            if (!stoppedForHeadset || isFinishing()) {
+                return;
+            }
+            stoppedForHeadset = false;
+            FileLog.event("launch held for the headset " + (HEADSET_HOLD_MS / 1000)
+                    + " s and never came back, ending the stream");
+            stopConnection();
+            // The user is elsewhere by now, so the PC list is not brought up
+            // over whatever they went to
+            pcViewStarted = true;
+            finish();
+        }
+    };
 
     // Last absolute position sent from the VR pointer, so a still controller
     // does not repeat the same position every frame
@@ -229,6 +248,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private static final long VR_NOTICE_MS = 4000;
     // How long the flat panel a failed VR start falls back to says why
     private static final long VR_UNAVAILABLE_NOTICE_MS = 12000;
+    // How long a launch stopped before its first focus is held for the
+    // headset before it counts as abandoned and the stream is let go
+    private static final long HEADSET_HOLD_MS = 120000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -1178,6 +1200,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
         // And one held through a stop for the headset never met the stop that
         // ends it
+        headsetHoldHandler.removeCallbacks(headsetHoldOver);
         if (stoppedForHeadset) {
             stopConnection();
         }
@@ -1245,6 +1268,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         super.onStart();
         if (stoppedForHeadset) {
             stoppedForHeadset = false;
+            headsetHoldHandler.removeCallbacks(headsetHoldOver);
             FileLog.event("activity back after the headset held the launch, carrying on");
         }
     }
@@ -1256,7 +1280,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (waitingForHeadset()) {
             stoppedForHeadset = true;
             FileLog.event("activity stopped before the VR session was focused,"
-                    + " waiting for the headset rather than ending the stream");
+                    + " waiting for the headset rather than ending the stream, for up to "
+                    + (HEADSET_HOLD_MS / 1000) + " s");
+            headsetHoldHandler.removeCallbacks(headsetHoldOver);
+            headsetHoldHandler.postDelayed(headsetHoldOver, HEADSET_HOLD_MS);
             return;
         }
 
@@ -3111,16 +3138,33 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     /**
+     * The runtime ended the VR session under a running stream, so the host
+     * would go on encoding to a headset showing nothing. It ends the way the
+     * exit button ends it: finishing stops the stream on the way out.
+     */
+    @Override
+    public void onVrSessionEnded(final String reason) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing()) {
+                    return;
+                }
+                FileLog.event("VR session ended by the runtime (" + reason + "), ending the stream");
+                finish();
+            }
+        });
+    }
+
+    /**
      * The exit button in the session was confirmed. Finishing is the same way
      * out the quit shortcut takes, and it carries the teardown and the trip
      * back to the PC list with it, so there is nothing to disconnect here.
+     * Connected or not: after an error the session can still be up showing
+     * it, and the button has to leave it.
      */
     @Override
     public void onVrExit() {
-        if (!connected) {
-            return;
-        }
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {

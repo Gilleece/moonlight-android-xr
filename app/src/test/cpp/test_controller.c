@@ -1,5 +1,6 @@
 // The controllers as drawn: when the ray's beam goes up, when a controller's
-// model is drawn, and where the model goes for each hand
+// model is drawn, where the model goes for each hand, and how wide the cursor
+// dot is at each distance
 #include "check.h"
 #include "xr_controller.h"
 #include "xr_gate.h"
@@ -190,10 +191,51 @@ static void testModelMatrix(void) {
     }
 }
 
+// The angle the dot fills, seen from distance metres
+static double dotAngle(float distance) {
+    return 2.0 * atan(0.5 * pointerDotSize(distance) / distance);
+}
+
+static void testDotSize(void) {
+    // The default screen, 3 m off, keeps the 2.2 cm it always had
+    CHECK_NEAR(pointerDotSize(3.0f), 0.022, 1e-6);
+    // A metre away it is a third of that and looks the same size, and so it
+    // does on Synthwave's wall 14 m off and the Grand Cinema's further still
+    CHECK_NEAR(pointerDotSize(1.0f), 0.022 / 3.0, 1e-6);
+    CHECK_NEAR(pointerDotSize(14.0f), 0.022 * 14.0 / 3.0, 1e-6);
+    CHECK_NEAR(dotAngle(1.0f), dotAngle(3.0f), 1e-6);
+    CHECK_NEAR(dotAngle(14.0f), dotAngle(3.0f), 1e-6);
+    CHECK_NEAR(dotAngle(16.0f), dotAngle(3.0f), 1e-6);
+    // Everywhere between the floor and the ceiling the angle holds
+    float floorAt = PTR_DOT_MIN_M * PTR_DOT_REF_M / PTR_DOT_SIZE_M;
+    float ceilingAt = PTR_DOT_MAX_M * PTR_DOT_REF_M / PTR_DOT_SIZE_M;
+    CHECK(floorAt < 1.0f && ceilingAt > 16.0f);
+    int off = 0;
+    float last = 0.0f;
+    for (float d = 0.05f; d < 40.0f; d += 0.05f) {
+        float size = pointerDotSize(d);
+        if (size < last) off++;
+        last = size;
+        if (size < PTR_DOT_MIN_M || size > PTR_DOT_MAX_M) off++;
+        if (d > floorAt + 0.01f && d < ceilingAt - 0.01f
+                && fabs(dotAngle(d) - dotAngle(3.0f)) > 1e-5) {
+            off++;
+        }
+    }
+    CHECK(off == 0);
+    // Up close it stops at the floor rather than shrinking to a speck, far
+    // off at the ceiling, and nothing measured is the floor
+    CHECK(pointerDotSize(0.2f) == PTR_DOT_MIN_M);
+    CHECK(pointerDotSize(100.0f) == PTR_DOT_MAX_M);
+    CHECK(pointerDotSize(0.0f) == PTR_DOT_MIN_M);
+    CHECK(pointerDotSize(-1.0f) == PTR_DOT_MIN_M);
+}
+
 int main(void) {
     testRaySwitch();
     testRayDrawn();
     testModelShown();
     testModelMatrix();
+    testDotSize();
     return checksDone("xr_controller");
 }

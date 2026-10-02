@@ -274,6 +274,21 @@ void viewFromPose(float* m, XrPosef pose) {
     m[12] = -t.x; m[13] = -t.y; m[14] = -t.z; m[15] = 1.0f;
 }
 
+float cylinderAngle(float width, float radius) {
+    if (radius <= 1e-6f) {
+        return CYLINDER_MAX_ANGLE;
+    }
+    float angle = width / radius;
+    return angle < CYLINDER_MAX_ANGLE ? angle : CYLINDER_MAX_ANGLE;
+}
+
+float cylinderFit(float width, float radius) {
+    if (width <= 0.0f || radius * CYLINDER_MAX_ANGLE >= width) {
+        return 1.0f;
+    }
+    return radius * CYLINDER_MAX_ANGLE / width;
+}
+
 // Where the aim ray lands on the screen, in 0..1 texture coordinates with v
 // running down the picture. Handles the cylinder as well, since the surface
 // bulges toward the viewer and a flat approximation is wrong at the edges by
@@ -314,9 +329,8 @@ int screenProject(XrPosef aim, XrPosef screen, float width, float height,
         float pz = o.z + t * d.z;
         // Angle off the centre of the arc, which faces -z from the axis
         float angle = atan2f(px, cz - pz);
-        float centralAngle = width / radius;
-        hx = angle / centralAngle;
-        hy = py / height;
+        hx = angle / cylinderAngle(width, radius);
+        hy = py / (height * cylinderFit(width, radius));
     }
     else {
         // The quad faces +z in its own frame, so the viewer has to be in front
@@ -343,7 +357,8 @@ Vec3 screenPoint(float u, float v, XrPosef screen, float width, float height,
     Vec3 local;
     local.y = (0.5f - v) * height;
     if (curved) {
-        float angle = (u - 0.5f) * (width / radius);
+        float angle = (u - 0.5f) * cylinderAngle(width, radius);
+        local.y *= cylinderFit(width, radius);
         local.x = radius * sinf(angle);
         local.z = radius - radius * cosf(angle);
     }

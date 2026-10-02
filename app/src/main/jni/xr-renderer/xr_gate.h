@@ -6,6 +6,8 @@
 #ifndef XR_GATE_H
 #define XR_GATE_H
 
+#include <stdint.h>
+
 #include "xr_math.h"
 
 // What the runtime has bound to a hand's path. Unknown is the value before the
@@ -79,11 +81,11 @@ int controllerClockStep(ControllerClock* c, float dt, int moved, int pressed, in
 typedef struct {
     // Since when the eyes were asked for and gave nothing, 0 while they are
     // there or not asked for
-    long missingSince;
+    int64_t missingSince;
     // The last frame that asked got a usable gaze
     int back;
     int bridged;
-    long bridgedSince;
+    int64_t bridgedSince;
 } GazeBridge;
 
 #define BRIDGE_SAME 0
@@ -96,11 +98,11 @@ typedef struct {
 // only switches between presses, so a press always ends with the source that
 // started it. outSec says how long the eyes were gone, or the bridge was on.
 int gazeBridgeUpdate(GazeBridge* b, int gazeOn, int controllerAwake, int focused,
-                     int pressHeld, long nowNs, float bridgeSec, float* outSec);
+                     int pressHeld, int64_t nowNs, float bridgeSec, float* outSec);
 
 // What this frame's locate said: whether the gaze was asked for at all, and
 // whether it came back usable. Not asked is not missing, so a controller
 // holding the pointer is never counted against the eyes.
-void gazeBridgeTrack(GazeBridge* b, int asked, int usable, long nowNs);
+void gazeBridgeTrack(GazeBridge* b, int asked, int usable, int64_t nowNs);
 
 #endif
