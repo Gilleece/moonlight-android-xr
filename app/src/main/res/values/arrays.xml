@@ -73,6 +73,7 @@
         <item>Esperanto</item>
         <item>Latviešu valoda</item>
         <item>தமிழ்</item>
+        <item>Polski</item>
     </string-array>
     <string-array name="language_values" translatable="false">
         <item>default</item>
@@ -101,6 +102,7 @@
         <item>eo</item>
         <item>lv</item>
         <item>ta</item>
+        <item>pl</item>
     </string-array>
 
     <string-array name="video_format_names">
