@@ -258,13 +258,13 @@ static int suggestHandBindings(XrCtx* ctx, const char* profile, const char* aim,
         if (grasp != NULL) {
             res = trySuggestHands(ctx, profile, aim, clicks[c], grasp);
             if (XR_SUCCEEDED(res)) {
-                LOGI("hand bindings accepted for %s (%s and grasp)", profile, clicks[c]);
+                LOGEV("hand bindings accepted for %s (%s and grasp)", profile, clicks[c]);
                 return 1;
             }
         }
         res = trySuggestHands(ctx, profile, aim, clicks[c], NULL);
         if (XR_SUCCEEDED(res)) {
-            LOGI("hand bindings accepted for %s (%s)", profile, clicks[c]);
+            LOGEV("hand bindings accepted for %s (%s)", profile, clicks[c]);
             return 1;
         }
     }
@@ -351,17 +351,34 @@ int initXrInput(XrCtx* ctx) {
         }
     }
 
-    if (ctx->handInteraction) {
-        // aim_activate is the spec's own name for the far pointer pinch, and
-        // pinch is the plain one. Runtimes vary in which they implement.
+    // The EXT profile only where the Microsoft one is not offered. The Quest
+    // offers both and its pinch was tuned on the Microsoft one, which a
+    // runtime is free to drop for the EXT one once both are suggested. The
+    // Pico 4 Ultra offers only the EXT one.
+    if (ctx->handInteraction && !ctx->msftHandInteraction) {
+        // The plain pinch first, the one proven on the Pico 4 Ultra, then
+        // aim_activate, the spec's own name for the far pointer pinch.
+        // Runtimes vary in which they implement. The aim pose is the one
+        // input here without the _ext, and one wrong path refuses the lot.
         static const char* const clicks[] = {
-            "input/aim_activate_ext/value", "input/pinch_ext/value"
+            "input/pinch_ext/value", "input/aim_activate_ext/value"
         };
         const char* profile = "/interaction_profiles/ext/hand_interaction_ext";
-        ctx->extHandClick = suggestHandBindings(ctx, profile, "input/aim_ext/pose",
+        ctx->extHandClick = suggestHandBindings(ctx, profile, "input/aim/pose",
                                                 clicks, 2, "input/grasp_ext/value");
         ctx->handClickOk |= ctx->extHandClick;
         ctx->handProfile = toPath(ctx, profile);
+        LOGEV("hands on the EXT hand interaction profile, the Microsoft one not offered");
+    }
+    else if (ctx->handInteraction) {
+        LOGEV("hands on the Microsoft hand interaction profile, the EXT one offered too "
+              "and left unsuggested");
+    }
+    else if (ctx->msftHandInteraction) {
+        LOGEV("hands on the Microsoft hand interaction profile, the only one offered");
+    }
+    else if (ctx->handsEnabled) {
+        LOGEV("no hand interaction profile offered, hands pinch off the joints if at all");
     }
     // Older runtimes that predate the EXT profile. Same idea, fewer inputs.
     if (ctx->msftHandInteraction) {
@@ -1483,11 +1500,13 @@ static void sayPinchSource(XrCtx* ctx, int h) {
     }
     ctx->pinchSrcSaid |= 1u << src;
     switch (src) {
-        case PINCH_SRC_VALUE:
+        case PINCH_SRC_VALUE: {
+            float on, off;
+            pinchValuePair(ctx->onExtHands[h], &on, &off);
             LOGEV("pinch: the runtime's pinch value (%s), on %.2f, off %.2f", ctx->onExtHands[h]
-                  ? "hand_interaction_ext" : "microsoft hand_interaction select",
-                  PINCH_VALUE_ON, PINCH_VALUE_OFF);
+                  ? "hand_interaction_ext" : "microsoft hand_interaction select", on, off);
             break;
+        }
         case PINCH_SRC_AIM:
             LOGEV("pinch: the runtime's pinching flag (XR_FB_hand_tracking_aim), no hand "
                   "profile with a pinch on hand %d", h);
@@ -1543,9 +1562,9 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
                 int bound = (ctx->extHandClick && ctx->onExtHands[h])
                         || (ctx->msftHandClick && ctx->onMsftHands[h]);
                 ctx->pinchSrc[h] = pinchSource(bound, ctx->handAim, ctx->jointTracking);
-                ctx->pinchDown[h] = pinchStep(ctx->pinchSrc[h], ctx->pinchDown[h], value,
-                                              ctx->aimPinch[h], ctx->tipsValid[h],
-                                              ctx->tipGap[h]);
+                ctx->pinchDown[h] = pinchStep(ctx->pinchSrc[h], ctx->onExtHands[h],
+                                              ctx->pinchDown[h], value, ctx->aimPinch[h],
+                                              ctx->tipsValid[h], ctx->tipGap[h]);
                 ctx->triggerDown[h] = ctx->pinchDown[h];
                 sayPinchSource(ctx, h);
             }
@@ -1664,7 +1683,8 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             float turn = 2.0f * acosf(dot) / f->dt;
 
             // Hands and eyes are never still, so their motion says nothing
-            // about intent and the gate would just hold the pointer on forever
+            // about intent and the gate would just hold the pointer on forever.
+            // A locked hand's is taken back out once the lock is applied.
             if (!ctx->usingHands[h] && h != SRC_GAZE
                     && (speed > POINTER_MOVE_SPEED || turn > POINTER_TURN_SPEED)) {
                 f->moved = 1;
@@ -1750,16 +1770,28 @@ static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
 static void applyHandLock(XrCtx* ctx, InputFrame* f) {
     // Locked hands reach nothing. Everything is dropped at once, the aim as
     // well as the pinch, so there is no ray to chase, no click to land and no
-    // grab to start. The triple pinch is read before this, so it still gets
-    // them back. Controllers are untouched: they never had the problem.
+    // grab to start, and their movement wakes nothing either. Every hand
+    // that is not a controller, the test the triple pinch reads by, so a
+    // hand pinching off the joints or the aim flag is locked as surely as
+    // one on a hand profile. The triple pinch is read before this, so it
+    // still gets them back. Controllers are untouched: they never had the
+    // problem.
+    int locked = 0;
     for (int h = 0; h < HAND_COUNT; h++) {
-        if (!ctx->handsLocked || !ctx->usingHands[h]) {
+        if (!ctx->handsLocked || ctx->profileKind[h] == PROFILE_CONTROLLER) {
             continue;
         }
         f->hovers[h] = HOVER_NONE;
         f->aimValid[h] = 0;
+        f->handMoved[h] = 0;
         ctx->triggerDown[h] = 0;
         ctx->triggerEdge[h] = 0;
+        locked = 1;
+    }
+    // Movement is only ever a hand's, so what is left of it is the hands
+    // still free
+    if (locked) {
+        f->moved = f->handMoved[HAND_LEFT] || f->handMoved[HAND_RIGHT];
     }
 
     gazeTrigger(ctx, f);
