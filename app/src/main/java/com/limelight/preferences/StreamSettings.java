@@ -361,6 +361,13 @@ public class StreamSettings extends Activity {
                 logPref.setSummary(logPref.getSummary() + "\n\n" + logPath);
             }
 
+            // The version and the commit it was built from, the first two things
+            // anyone asking for help is asked
+            findPreference("pref_about_version").setTitle(BuildConfig.GIT_HASH.isEmpty()
+                    ? getString(R.string.about_version_no_commit, BuildConfig.VERSION_NAME)
+                    : getString(R.string.about_version, BuildConfig.VERSION_NAME,
+                            BuildConfig.GIT_HASH));
+
             findPreference("pref_bug_report").setOnPreferenceClickListener(
                     new Preference.OnPreferenceClickListener() {
                         @Override

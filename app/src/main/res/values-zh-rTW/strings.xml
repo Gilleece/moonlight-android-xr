@@ -388,6 +388,12 @@
     <!-- Bug Report strings -->
     <string name="title_bug_report">回報問題</string>
     <string name="summary_bug_report">彙整您的說明、裝置資訊、串流設定與記錄檔，並傳送給開發團隊</string>
+    <string name="category_about">關於</string>
+    <string name="about_version">Moonlight XR %1$s，提交 %2$s</string>
+    <string name="about_version_no_commit">Moonlight XR %1$s</string>
+    <string name="title_about_licence">授權條款：GPLv3</string>
+    <string name="title_about_kofi">在 Ko-fi 上支持本專案</string>
+    <string name="summary_about_kofi">完全自願。Moonlight XR 免費，並將一直免費。</string>
     <string name="bug_report_intro">請描述遇到的問題以及預期行為。報告將打包您的訊息、應用程式版本、頭戴裝置型號、串流設定與記錄檔，並傳送至 %1$s。\n\n記錄檔路徑：%2$s</string>
     <string name="bug_report_log_off">已關閉。請先開啟「儲存記錄檔」並重現問題，否則報告將不包含記錄。</string>
     <string name="bug_report_email_hint">您的電子郵件地址 (用於接收回覆)</string>

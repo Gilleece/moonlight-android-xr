@@ -396,6 +396,12 @@
     <!-- Bug Report strings -->
     <string name="title_bug_report">问题反馈与错误报告</string>
     <string name="summary_bug_report">汇总您的说明、设备信息、串流设置与运行日志，并发送给开发者</string>
+    <string name="category_about">关于</string>
+    <string name="about_version">Moonlight XR %1$s，提交 %2$s</string>
+    <string name="about_version_no_commit">Moonlight XR %1$s</string>
+    <string name="title_about_licence">许可证：GPLv3</string>
+    <string name="title_about_kofi">在 Ko-fi 上支持本项目</string>
+    <string name="summary_about_kofi">完全自愿。Moonlight XR 免费，并将一直免费。</string>
     <string name="bug_report_intro">请描述遇到的问题以及预期表现。报告将打包您的说明、应用版本、头显型号、串流设置与日志文件，并发送至 %1$s。\n\n日志路径：%2$s</string>
     <string name="bug_report_log_off">已关闭。请先开启“保存日志文件”并复现问题，否则报告中将不包含日志。</string>
     <string name="bug_report_email_hint">您的电子邮箱（用于接收回复）</string>
