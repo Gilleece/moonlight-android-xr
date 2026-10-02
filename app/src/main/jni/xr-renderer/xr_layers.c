@@ -170,6 +170,8 @@ typedef struct {
     // up for one frame, and that stack overflowed the runtime's layer limit
     // and cost the whole frame with a -24 on device.
     int barArea;
+    // Where the bar's row hangs, under the picture as drawn
+    BarFrame bar;
 } FrameView;
 
 // Takes a layer back out of the frame, keeping the order of the rest
@@ -528,11 +530,12 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
         float roll = 0.0f;
 
         if (isBar) {
-            sizeW = view->screenWidth * BAR_WIDTH_FRAC;
-            sizeH = view->screenWidth * BAR_HEIGHT_FRAC;
+            // Outside a room, where the bar is drawn, its frame is the picture
+            // as drawn, which a cylinder held under a full turn shrinks
+            sizeW = view->bar.width * BAR_WIDTH_FRAC;
+            sizeH = view->bar.width * BAR_HEIGHT_FRAC;
             local.x = 0.0f;
-            local.y = -(view->screenHeight * 0.5f + view->screenWidth * BAR_GAP_FRAC
-                        + sizeH * 0.5f);
+            local.y = -(view->bar.height * 0.5f + view->bar.width * BAR_DROP_FRAC);
         }
         else {
             sizeW = sizeH = cornerSide(ctx);
@@ -568,22 +571,59 @@ static void addHandleLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     }
 }
 
-// One of the buttons beside the move bar, wherever its placement puts it. On
-// the furniture's frame, which in a room is the stand in rather than the wall.
+// Where the bar's row hangs, said when it moves by a centimetre or more: the
+// middle of the picture's bottom edge and of the bar under it, each with its
+// distance from the origin, which is the seat in a room. Not while a handle
+// is held or the Size row dragged, which move it every frame.
+static void logBarPlacement(XrCtx* ctx, const BarFrame* frame) {
+    if (ctx->grabMode != GRAB_NONE || ctx->cogDragSlider >= 0) {
+        return;
+    }
+    Vec3 edgeLocal = { 0.0f, -frame->height * 0.5f, 0.0f };
+    Vec3 barLocal = { 0.0f, -(frame->height * 0.5f + frame->width * BAR_DROP_FRAC), 0.0f };
+    XrPosef edge = poseOffset(frame->pose, edgeLocal);
+    XrPosef bar = poseOffset(frame->pose, barLocal);
+    Vec3 e = { edge.position.x, edge.position.y, edge.position.z };
+    Vec3 b = { bar.position.x, bar.position.y, bar.position.z };
+    Vec3 moved = vecSub(e, ctx->barSaidEdge);
+    if (fabsf(frame->width - ctx->barSaidWidth) < 0.01f && vecDot(moved, moved) < 1e-4f) {
+        return;
+    }
+    ctx->barSaidWidth = frame->width;
+    ctx->barSaidEdge = e;
+    LOGI("bar row: picture's bottom edge at %.2f %.2f %.2f, %.2f m off; bar at %.2f %.2f %.2f, "
+         "%.2f m off, %.2f m wide, buttons %.3f m, %s",
+         e.x, e.y, e.z, sqrtf(vecDot(e, e)), b.x, b.y, b.z, sqrtf(vecDot(b, b)),
+         frame->width * BAR_WIDTH_FRAC, frame->width * COG_BUTTON_FRAC,
+         roomEffective(ctx) > 0 ? "a room's picture at the stand in's size"
+                                : frame->curved ? "on the curved picture" : "on the picture");
+}
+
+// One of the buttons beside the move bar, in its place in the bar's row under
+// the picture. On a curved picture the row follows the surface, the way the
+// move bar does, so the outer buttons sit on it rather than behind it and land
+// where the ray's hit on the cylinder says they are.
 static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
-                         XrCompositionLayerQuad* slot, XrSwapchain chain,
-                         void (*placement)(XrCtx*, float, Vec3*, float*), int hot,
+                         XrCompositionLayerQuad* quad, XrSwapchain chain, int slot, int hot,
                          const void* next) {
+    const BarFrame* frame = &view->bar;
     Vec3 local;
     float side;
-    placement(ctx, furnitureHeight(ctx), &local, &side);
+    barSlotPlacement(slot, frame->width, frame->height, &local, &side);
+    float yaw = 0.0f;
+    curveLocal(&local, frame->radius, frame->curved, &yaw);
     // Grows a little when the ray is on it, which is the only feedback
     // a quad layer can give without a second texture
     float scale = hot ? 1.18f : 1.0f;
-    quadLayer(slot, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
-              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(furniturePose(ctx), local),
+    quadLayer(quad, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
+              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(frame->pose, local),
               side * scale, side * scale);
-    pushLayer(ctx, layers, slot);
+    if (yaw != 0.0f) {
+        Vec3 up = { 0.0f, 1.0f, 0.0f };
+        quad->pose.orientation = quatNorm(quatMul(frame->pose.orientation,
+                                                  axisAngleQuat(up, yaw)));
+    }
+    pushLayer(ctx, layers, quad);
 }
 
 // Whether a button that stays up with its panel is up, and what it chains on:
@@ -612,14 +652,14 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     if (ctx->envButtonReady
             && panelButton(ctx, view, layers, FADE_PICKER, ctx->pickerOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->envButton, ctx->envButtonSwapchain,
-                     envButtonPlacement, ctx->envButtonHot, next);
+                     BAR_SLOT_ENV, ctx->envButtonHot, next);
     }
 
     // The cog that opens the settings panel, right of the move bar. Same
     // rules as the environment button on the other side.
     if (ctx->cogButtonReady && panelButton(ctx, view, layers, FADE_COG, ctx->cogOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->cogButton, ctx->cogButtonSwapchain,
-                     cogButtonPlacement, ctx->cogButtonHot || ctx->cogOpen, next);
+                     BAR_SLOT_COG, ctx->cogButtonHot || ctx->cogOpen, next);
     }
 
     // The keyboard button, one place further out. Unlike the cog it goes
@@ -627,7 +667,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // the hide key is what puts it away.
     if (ctx->kbButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->kbButton, ctx->kbButtonSwapchain,
-                     kbButtonPlacement, ctx->kbButtonHot, NULL);
+                     BAR_SLOT_KB, ctx->kbButtonHot, NULL);
     }
 
     // The button that ends the stream, furthest out on the left. Stays up
@@ -636,7 +676,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     if (ctx->exitButtonReady
             && panelButton(ctx, view, layers, FADE_EXIT, ctx->exitConfirmOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->exitButton, ctx->exitButtonSwapchain,
-                     exitButtonPlacement, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
+                     BAR_SLOT_EXIT, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
     }
 
     // Gamepad mode's switch, past the exit button, lit while the controllers
@@ -644,7 +684,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     if (ctx->padButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->padButton,
                      ctx->padButtonSwapchains[ctx->padMode ? 1 : 0],
-                     padButtonPlacement, ctx->padButtonHot, NULL);
+                     BAR_SLOT_PAD, ctx->padButtonHot, NULL);
     }
 
     // Head aim's switch, past that, showing which way it is set. Only where
@@ -653,14 +693,14 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
         addBarButton(ctx, view, layers, &layers->aimButton,
                      ctx->aimButtonSwapchains[headAimSwitchOn(ctx->headAimSetting,
                                                               ctx->headAimFlipped)],
-                     aimButtonPlacement, ctx->aimButtonHot, NULL);
+                     BAR_SLOT_AIM, ctx->aimButtonHot, NULL);
     }
 
     // The ray's switch, past the keyboard, showing which way it is set
     if (ctx->rayButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->rayButton,
                      ctx->rayButtonSwapchains[raySwitchOn(ctx->raySetting, ctx->rayFlipped)],
-                     rayButtonPlacement, ctx->rayButtonHot, NULL);
+                     BAR_SLOT_RAY, ctx->rayButtonHot, NULL);
     }
 
     // The 3D switch, furthest out on the right, showing which way it is set.
@@ -668,7 +708,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     if (ctx->stereoButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->stereoButton,
                      ctx->stereoButtonSwapchains[ctx->stereoLive ? 1 : 0],
-                     stereoButtonPlacement, ctx->stereoButtonHot, NULL);
+                     BAR_SLOT_STEREO, ctx->stereoButtonHot, NULL);
     }
 }
 
@@ -1412,6 +1452,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     // The same test the picture's own layer makes below, so the furniture that
     // is pinned to the picture sits on whichever surface actually goes up
     view.screenCurved = view.curve > 0.01f && ctx->cylinderSupported;
+    view.bar = barFrame(ctx);
+    logBarPlacement(ctx, &view.bar);
     // A panel on its way out keeps the furniture down until it has gone, the
     // way an open one does, so the two never stack up in one frame
     int64_t frameNs = nowNs();

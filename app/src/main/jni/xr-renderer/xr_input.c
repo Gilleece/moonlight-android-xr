@@ -1119,13 +1119,12 @@ static int onFurniture(int hover) {
 }
 
 // Where the ray lands on furniture rather than on the picture. The grid and the
-// panels have planes of their own, and in a room the bar and its buttons sit
-// on the stand in. Everything else sits on the screen.
+// panels have planes of their own, and the bar and its buttons sit on the bar's
+// frame under the picture. Everything else sits on the screen.
 static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef screenPose,
-                           float height, float radius, int curved) {
-    if (furnitureOnStandIn(ctx) && onFurniture(hover)) {
-        return screenPoint(u, v, standInPose(), STAND_IN_WIDTH_M, furnitureHeight(ctx),
-                           0.0f, 0);
+                           float height, float radius, int curved, const BarFrame* bar) {
+    if (onFurniture(hover)) {
+        return screenPoint(u, v, bar->pose, bar->width, bar->height, bar->radius, bar->curved);
     }
     if (hover == HOVER_PICKER) {
         float pickW, pickH;
@@ -1194,6 +1193,8 @@ typedef struct {
     // How big the picture's corner brackets are, 0 where it has none
     float cornerSide;
     XrPosef screenPose;
+    // Where the bar's row hangs, under the picture as drawn
+    BarFrame bar;
     // The head in that frame, which head locked is where it always is
     XrPosef headPose;
     int headValid;
@@ -1363,62 +1364,51 @@ static void releaseInput(XrCtx* ctx, float* out) {
 }
 
 // The buttons along the bar, claimed off what the hover test said about the
-// same point. u and v are on the furniture's frame, which is the picture
-// outside a room and the stand in inside one.
-static int furnitureHover(XrCtx* ctx, int hover, float u, float v) {
-    float height = furnitureHeight(ctx);
+// same point. u and v are on the bar's frame, which is the picture outside a
+// room and a frame under the room's picture inside one.
+static int furnitureHover(XrCtx* ctx, int hover, float u, float v, const BarFrame* bar) {
     // The button reaches past the left end of the bar's zone, so it is tested
     // here rather than after a hand has been picked. Otherwise the part of it
     // outside that zone belongs to no hand at all.
-    if ((hover == HOVER_NONE || hover == HOVER_BAR) && envButtonHit(ctx, u, v, height)) {
+    if ((hover == HOVER_NONE || hover == HOVER_BAR)
+            && barButtonHit(ctx, BAR_SLOT_ENV, u, v, bar)) {
         hover = HOVER_ENVBUTTON;
     }
     // The cog is the same button on the other side of the bar, so it is
     // claimed the same way
-    if ((hover == HOVER_NONE || hover == HOVER_BAR) && cogButtonHit(ctx, u, v, height)) {
+    if ((hover == HOVER_NONE || hover == HOVER_BAR)
+            && barButtonHit(ctx, BAR_SLOT_COG, u, v, bar)) {
         hover = HOVER_COGBUTTON;
     }
-    // And the keyboard is one further out again, far enough out that it sits
-    // past the right end of the bar's zone entirely. That is halo ground, so
-    // it has to claim the halo back or the ray never reaches it.
-    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
-            && kbButtonHit(ctx, u, v, height)) {
-        hover = HOVER_KBBUTTON;
-    }
-    // The exit button is the same distance out on the left, so it sits past
-    // that end of the bar's zone and has to claim the halo back the same way
-    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
-            && exitButtonHit(ctx, u, v, height)) {
-        hover = HOVER_EXITBUTTON;
-    }
-    // Gamepad mode's switch, one further out on the left, and head aim's one
-    // further again, while it can act
-    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
-            && padButtonHit(ctx, u, v, height)) {
-        hover = HOVER_PADBUTTON;
-    }
-    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
-            && aimButtonHit(ctx, u, v, height)) {
-        hover = HOVER_AIMBUTTON;
-    }
-    // The ray's switch, one further out than the keyboard, and the 3D switch
-    // one further again, on the same halo ground
-    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
-            && rayButtonHit(ctx, u, v, height)) {
-        hover = HOVER_RAYBUTTON;
-    }
-    if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
-            && stereoButtonHit(ctx, u, v, height)) {
-        hover = HOVER_STEREOBUTTON;
+    // The rest sit further out, past the ends of the bar's zone entirely.
+    // That is halo ground, so each has to claim the halo back or the ray
+    // never reaches it: the keyboard and the exit button one place out, then
+    // gamepad mode and the ray's switch, then head aim and the 3D switch.
+    static const int OUTER[6] = {
+        BAR_SLOT_KB, BAR_SLOT_EXIT, BAR_SLOT_PAD, BAR_SLOT_AIM, BAR_SLOT_RAY, BAR_SLOT_STEREO
+    };
+    static const int HOVERS[6] = {
+        HOVER_KBBUTTON, HOVER_EXITBUTTON, HOVER_PADBUTTON, HOVER_AIMBUTTON, HOVER_RAYBUTTON,
+        HOVER_STEREOBUTTON
+    };
+    for (int i = 0; i < 6; i++) {
+        if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
+                && barButtonHit(ctx, OUTER[i], u, v, bar)) {
+            hover = HOVERS[i];
+        }
     }
     return hover;
 }
 
-// In a room the picture and the furniture are on two different planes: the
-// picture on the room's wall, the bar and its buttons on the stand in in front
-// of the seat. The picture keeps what lands on it, the furniture takes what
-// lands on a piece of it, and anything else is the picture's margin or nothing.
-// The hit is left in the coordinates of whichever of the two claimed it.
+// In a room the picture is on the room's wall and the bar hangs under it in
+// the same plane, larger than the picture's own share would make it. The
+// picture keeps what lands on it, then the buttons take theirs, then the
+// corner brackets, then the bar's zone, and anything else is the picture's
+// margin or nothing. The buttons go before the brackets because on a small
+// picture the row is wider than the picture and its outer buttons sit under
+// the bottom corners: a button is a small target, and a bracket still has the
+// rest of its zone and the top corners do the same. The hit is left in the
+// coordinates of whichever of the two claimed it.
 static void roomHover(XrCtx* ctx, InputFrame* f, int h) {
     float pu = 0.0f, pv = 0.0f;
     int picture = HOVER_NONE;
@@ -1427,7 +1417,7 @@ static void roomHover(XrCtx* ctx, InputFrame* f, int h) {
         picture = hoverTest(pu, pv, ctx->screenWidth, f->height, f->cornerSide,
                             &f->corners[h]);
     }
-    if (picture == HOVER_SCREEN || picture == HOVER_CORNER) {
+    if (picture == HOVER_SCREEN) {
         f->hovers[h] = picture;
         f->hitU[h] = pu;
         f->hitV[h] = pv;
@@ -1435,21 +1425,34 @@ static void roomHover(XrCtx* ctx, InputFrame* f, int h) {
     }
 
     float su, sv;
-    float standW = STAND_IN_WIDTH_M;
-    float standH = furnitureHeight(ctx);
-    if (screenProject(f->aimPoses[h], standInPose(), standW, standH, 0.0f, 0, &su, &sv)) {
+    const BarFrame* bar = &f->bar;
+    int row = HOVER_NONE;
+    if (screenProject(f->aimPoses[h], bar->pose, bar->width, bar->height, bar->radius,
+                      bar->curved, &su, &sv)) {
         int unused;
-        int stand = hoverTest(su, sv, standW, standH, 0.0f, &unused);
-        stand = furnitureHover(ctx, stand, su, sv);
-        if (onFurniture(stand)) {
-            f->hovers[h] = stand;
-            f->hitU[h] = su;
-            f->hitV[h] = sv;
-            return;
-        }
+        row = furnitureHover(ctx, hoverTest(su, sv, bar->width, bar->height, 0.0f, &unused),
+                             su, sv, bar);
+    }
+    if (onFurniture(row) && row != HOVER_BAR) {
+        f->hovers[h] = row;
+        f->hitU[h] = su;
+        f->hitV[h] = sv;
+        return;
+    }
+    if (picture == HOVER_CORNER) {
+        f->hovers[h] = picture;
+        f->hitU[h] = pu;
+        f->hitV[h] = pv;
+        return;
+    }
+    if (row == HOVER_BAR) {
+        f->hovers[h] = row;
+        f->hitU[h] = su;
+        f->hitV[h] = sv;
+        return;
     }
 
-    // The picture's own bar zone means nothing here, the stand in's does
+    // The picture's own bar zone means nothing here, the frame's does
     f->hovers[h] = picture == HOVER_BAR ? HOVER_HALO : picture;
     f->hitU[h] = pu;
     f->hitV[h] = pv;
@@ -1476,7 +1479,7 @@ static void hoverSource(XrCtx* ctx, InputFrame* f, int h) {
                           f->radius, f->curved, &f->hitU[h], &f->hitV[h])) {
             int hover = hoverTest(f->hitU[h], f->hitV[h], ctx->screenWidth, f->height,
                                   f->cornerSide, &f->corners[h]);
-            f->hovers[h] = furnitureHover(ctx, hover, f->hitU[h], f->hitV[h]);
+            f->hovers[h] = furnitureHover(ctx, hover, f->hitU[h], f->hitV[h], &f->bar);
         }
     }
     else {
@@ -2744,9 +2747,9 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
         Vec3 local;
         local.z = 0.0f;
         if (ctx->grabMode == GRAB_MOVE) {
+            // Where the bar is drawn, under the picture as drawn
             local.x = 0.0f;
-            local.y = -(f->height * 0.5f + (BAR_GAP_FRAC + BAR_HEIGHT_FRAC * 0.5f)
-                        * ctx->screenWidth);
+            local.y = -(f->bar.height * 0.5f + BAR_DROP_FRAC * f->bar.width);
         }
         else {
             // The bracket being held sits a half bracket outside the
@@ -2768,7 +2771,7 @@ static void beamToHandle(XrCtx* ctx, InputFrame* f) {
 // Ends the ray on the furniture under it, whichever plane that sits on
 static void beamToFurniture(XrCtx* ctx, InputFrame* f) {
     Vec3 end = furniturePoint(ctx, f->hover, f->hitU[f->hand], f->hitV[f->hand],
-                              f->screenPose, f->height, f->radius, f->curved);
+                              f->screenPose, f->height, f->radius, f->curved, &f->bar);
     ctx->beamStart = f->aimPoses[f->hand].position;
     ctx->beamEnd.x = end.x;
     ctx->beamEnd.y = end.y;
@@ -3430,6 +3433,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     f.radius = ctx->screenRadius;
     f.cornerSide = cornerSide(ctx);
     f.screenPose = ctx->screenPose;
+    f.bar = barFrame(ctx);
 
     f.now = nowNs();
     f.dt = ctx->lastInputNs != 0 ? (f.now - ctx->lastInputNs) / 1e9f : 0.0f;
@@ -3502,6 +3506,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     f.screenPose = ctx->screenPose;
     f.height = ctx->screenWidth * (float)ctx->videoHeight / (float)ctx->videoWidth;
     f.radius = ctx->screenRadius;
+    f.bar = barFrame(ctx);
 
     // A handle stays lit while it is being dragged, however far the ray has
     // wandered from it in the meantime

@@ -96,6 +96,254 @@ static void testTheStandIn(void) {
     CHECK(hoverTest(u, v, STAND_IN_WIDTH_M, H, 0.0f, &corner) == HOVER_BAR);
 }
 
+static XrPosef poseAt(float x, float y, float z) {
+    XrPosef pose;
+    pose.orientation.x = 0.0f;
+    pose.orientation.y = 0.0f;
+    pose.orientation.z = 0.0f;
+    pose.orientation.w = 1.0f;
+    pose.position.x = x;
+    pose.position.y = y;
+    pose.position.z = z;
+    return pose;
+}
+
+static Vec3 posOf(XrPosef pose) {
+    Vec3 p = { pose.position.x, pose.position.y, pose.position.z };
+    return p;
+}
+
+static float lengthOf(Vec3 v) {
+    return sqrtf(vecDot(v, v));
+}
+
+// A point in a frame's own flat coordinates, out in the space it hangs in
+static Vec3 framePoint(const BarFrame* frame, Vec3 local) {
+    Vec3 r = quatRotate(frame->pose.orientation, local);
+    Vec3 p = { frame->pose.position.x + r.x, frame->pose.position.y + r.y,
+               frame->pose.position.z + r.z };
+    return p;
+}
+
+// The middle of the move bar, where the row of buttons is centred
+static Vec3 barMiddle(const BarFrame* frame) {
+    Vec3 local = { 0.0f, -(frame->height * 0.5f + frame->width * BAR_DROP_FRAC), 0.0f };
+    return framePoint(frame, local);
+}
+
+// A ray from the seat straight at a point
+static XrPosef aimAt(Vec3 target) {
+    Vec3 dir = vecNorm(target);
+    // -z turned onto dir: the axis is their cross product
+    Vec3 fwd = { 0.0f, 0.0f, -1.0f };
+    Vec3 axis = vecCross(fwd, dir);
+    float s = lengthOf(axis);
+    float angle = atan2f(s, vecDot(fwd, dir));
+    XrPosef aim = poseAt(0.0f, 0.0f, 0.0f);
+    if (s > 1e-6f) {
+        aim.orientation = axisAngleQuat(vecNorm(axis), angle);
+    }
+    return aim;
+}
+
+// How wide the bar looks from the seat: its width over its distance
+static float barLooks(const BarFrame* frame) {
+    return frame->width * BAR_WIDTH_FRAC / lengthOf(barMiddle(frame));
+}
+
+// Each button aimed at from the seat is hit, on the frame it was placed on,
+// and none of the others is
+static void checkButtonsHitWhereTheyHang(const BarFrame* frame) {
+    for (int slot = 0; slot < BAR_SLOTS; slot++) {
+        Vec3 local;
+        float side;
+        barSlotPlacement(slot, frame->width, frame->height, &local, &side);
+        float yaw = 0.0f;
+        curveLocal(&local, frame->radius, frame->curved, &yaw);
+        float u, v;
+        CHECK(screenProject(aimAt(framePoint(frame, local)), frame->pose, frame->width,
+                            frame->height, frame->radius, frame->curved, &u, &v));
+        for (int other = 0; other < BAR_SLOTS; other++) {
+            CHECK(barSlotHit(other, u, v, frame->width, frame->height) == (other == slot));
+        }
+    }
+    // And the middle of the row is the move bar's zone
+    float u, v;
+    int corner;
+    CHECK(screenProject(aimAt(barMiddle(frame)), frame->pose, frame->width, frame->height,
+                        frame->radius, frame->curved, &u, &v));
+    CHECK(hoverTest(u, v, frame->width, frame->height, 0.0f, &corner) == HOVER_BAR);
+}
+
+static void testTheBarUnderARoomsPicture(void) {
+    const float aspect = 9.0f / 16.0f;
+    // A room picture that is the stand in hangs the bar exactly where the
+    // stand in did
+    BarFrame same = roomBarFrame(standInPose(), STAND_IN_WIDTH_M * aspect, aspect);
+    CHECK_NEAR(same.width, STAND_IN_WIDTH_M, 1e-4);
+    CHECK_NEAR(same.height, STAND_IN_WIDTH_M * aspect, 1e-4);
+    CHECK_NEAR(same.pose.position.y, 0.0f, 1e-5);
+    CHECK_NEAR(same.pose.position.z, -STAND_IN_DISTANCE_M, 1e-6);
+    CHECK(!same.curved);
+    float standInLooks = barLooks(&same);
+
+    // The Home Theater at 100 and 50 percent and Synthwave at 25 and 100, as
+    // the rooms hang them from the seat
+    struct { float x, y, z, width; } rooms[] = {
+        { 0.0f, 0.05f, -4.152f, 3.6f },
+        { 0.0f, 0.05f, -4.152f, 1.8f },
+        { 0.0f, 0.05f, -4.152f, 2.88f },
+        { 0.0f, 2.95f, -13.9f, 3.5f },
+        { 0.0f, 2.95f, -13.9f, 14.0f },
+    };
+    float lastBarY = 1e9f;
+    for (int i = 0; i < (int)(sizeof(rooms) / sizeof(rooms[0])); i++) {
+        float pictureH = rooms[i].width * aspect;
+        XrPosef picture = poseAt(rooms[i].x, rooms[i].y, rooms[i].z);
+        BarFrame frame = roomBarFrame(picture, pictureH, aspect);
+        // Flat, in the picture's plane, centred on it, its bottom edge the
+        // picture's bottom edge
+        CHECK(!frame.curved);
+        CHECK_NEAR(frame.pose.position.z, rooms[i].z, 1e-5);
+        CHECK_NEAR(frame.pose.position.x, rooms[i].x, 1e-5);
+        CHECK_NEAR(frame.pose.position.y - frame.height * 0.5f,
+                   rooms[i].y - pictureH * 0.5f, 1e-4);
+        CHECK_NEAR(frame.height, frame.width * aspect, 1e-5);
+        // The bar looks the size it does on the stand in
+        CHECK_NEAR(barLooks(&frame) / standInLooks, 1.0f, 1e-3);
+        // Just under the picture: the gap to the bar is the stand in's gap at
+        // this distance, not the full size picture's
+        Vec3 bar = barMiddle(&frame);
+        float bottom = rooms[i].y - pictureH * 0.5f;
+        CHECK(bar.y < bottom);
+        CHECK_NEAR(bottom - bar.y, frame.width * BAR_DROP_FRAC, 1e-4);
+        checkButtonsHitWhereTheyHang(&frame);
+        // The first two are the same room, 100 then 50 percent: the smaller
+        // picture brings the bar up with its bottom edge
+        if (i == 1) {
+            CHECK(bar.y > lastBarY + 0.4f);
+        }
+        lastBarY = bar.y;
+    }
+
+    // Further off it is larger, by the distance
+    BarFrame near = roomBarFrame(poseAt(0.0f, 0.0f, -4.0f), 1.0f, aspect);
+    BarFrame far = roomBarFrame(poseAt(0.0f, 0.0f, -16.0f), 1.0f, aspect);
+    CHECK(far.width > 3.5f * near.width && far.width < 4.5f * near.width);
+    CHECK_NEAR(barLooks(&near), barLooks(&far), 1e-4);
+}
+
+// A picture turned and tipped keeps the frame in its own plane and the two
+// bottom edges together
+static void testTheBarUnderATurnedPicture(void) {
+    const float aspect = 9.0f / 16.0f;
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 right = { 1.0f, 0.0f, 0.0f };
+    XrPosef picture = poseAt(-2.0f, 0.6f, -5.0f);
+    picture.orientation = quatMul(axisAngleQuat(up, 0.4f), axisAngleQuat(right, 0.2f));
+    float pictureH = 2.0f * aspect;
+    BarFrame frame = roomBarFrame(picture, pictureH, aspect);
+
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 normal = quatRotate(picture.orientation, back);
+    Vec3 offset = vecSub(posOf(frame.pose), posOf(picture));
+    CHECK_NEAR(vecDot(offset, normal), 0.0f, 1e-5);
+    CHECK_NEAR(frame.pose.orientation.x, picture.orientation.x, 1e-6);
+    CHECK_NEAR(frame.pose.orientation.w, picture.orientation.w, 1e-6);
+
+    Vec3 down = { 0.0f, -1.0f, 0.0f };
+    Vec3 pictureDown = quatRotate(picture.orientation, down);
+    Vec3 pictureEdge = { picture.position.x + pictureDown.x * pictureH * 0.5f,
+                         picture.position.y + pictureDown.y * pictureH * 0.5f,
+                         picture.position.z + pictureDown.z * pictureH * 0.5f };
+    Vec3 frameEdgeLocal = { 0.0f, -frame.height * 0.5f, 0.0f };
+    Vec3 frameEdge = framePoint(&frame, frameEdgeLocal);
+    CHECK_NEAR(lengthOf(vecSub(frameEdge, pictureEdge)), 0.0f, 1e-4);
+    checkButtonsHitWhereTheyHang(&frame);
+}
+
+// Outside a room the frame is the picture as drawn. A cylinder held under a
+// full turn draws it smaller, and the row comes up with the picture's bottom
+// edge rather than staying where the full size picture would have put it.
+static void testTheBarOnACurvedPicture(void) {
+    const float aspect = 9.0f / 16.0f;
+    // Wrapped right round at 0.2 m, which the clamp draws at 42 percent
+    float width = 3.0f;
+    float radius = 0.2f;
+    float fit = cylinderFit(width, radius);
+    CHECK(fit < 0.5f && fit > 0.4f);
+    BarFrame frame;
+    frame.pose = poseAt(0.0f, 0.0f, -0.2f);
+    frame.width = width * fit;
+    frame.height = frame.width * aspect;
+    frame.radius = radius;
+    frame.curved = 1;
+    checkButtonsHitWhereTheyHang(&frame);
+
+    // A full curve at 2 m, no clamp: the outer buttons follow the surface, so
+    // a ray at each lands on it
+    frame.pose = poseAt(0.0f, 0.0f, -2.0f);
+    frame.width = 3.0f;
+    frame.height = frame.width * aspect;
+    frame.radius = 2.0f;
+    checkButtonsHitWhereTheyHang(&frame);
+    // On the surface the outermost lands in the middle of its zone. Where the
+    // flat row used to hang it, a ray at it landed a good way off the middle,
+    // near the zone's edge.
+    Vec3 flat;
+    float side;
+    barSlotPlacement(BAR_SLOT_STEREO, frame.width, frame.height, &flat, &side);
+    float cu = 0.5f + flat.x / frame.width;
+    float cv = 0.5f - flat.y / frame.height;
+    float halfU = side * HOVER_MARGIN * 0.5f / frame.width;
+    float halfV = side * HOVER_MARGIN * 0.5f / frame.height;
+    Vec3 curved = flat;
+    curveLocal(&curved, frame.radius, 1, NULL);
+    float u, v;
+    CHECK(screenProject(aimAt(framePoint(&frame, curved)), frame.pose, frame.width,
+                        frame.height, frame.radius, 1, &u, &v));
+    // Within the 5 mm the button stands proud of the surface
+    CHECK_NEAR(u, cu, 3e-3);
+    CHECK_NEAR(v, cv, 3e-3);
+    CHECK(screenProject(aimAt(framePoint(&frame, flat)), frame.pose, frame.width, frame.height,
+                        frame.radius, 1, &u, &v));
+    CHECK(fabsf(u - cu) > 0.3f * halfU && fabsf(v - cv) > 0.5f * halfV);
+
+    // Flat, the frame is the picture and the row is where it always was
+    frame.radius = 0.0f;
+    frame.curved = 0;
+    checkButtonsHitWhereTheyHang(&frame);
+}
+
+// The row's order and spacing: the pill in the middle, the picker and cog
+// either side of it, then two each side further out, all on one line under
+// the frame and never overlapping
+static void testTheRowsOrder(void) {
+    const float w = 3.0f, h = w * 9.0f / 16.0f;
+    static const int LEFT_OUT[4] = { BAR_SLOT_ENV, BAR_SLOT_EXIT, BAR_SLOT_PAD, BAR_SLOT_AIM };
+    static const int RIGHT_OUT[4] = { BAR_SLOT_COG, BAR_SLOT_KB, BAR_SLOT_RAY, BAR_SLOT_STEREO };
+    float lastL = -w * BAR_WIDTH_FRAC * 0.5f, lastR = w * BAR_WIDTH_FRAC * 0.5f;
+    for (int i = 0; i < 4; i++) {
+        Vec3 l, r;
+        float sideL, sideR;
+        barSlotPlacement(LEFT_OUT[i], w, h, &l, &sideL);
+        barSlotPlacement(RIGHT_OUT[i], w, h, &r, &sideR);
+        CHECK_NEAR(l.x, -r.x, 1e-6);
+        CHECK_NEAR(l.y, -(h * 0.5f + w * BAR_DROP_FRAC), 1e-6);
+        CHECK_NEAR(r.y, l.y, 1e-6);
+        CHECK(l.x + sideL * 0.5f < lastL && r.x - sideR * 0.5f > lastR);
+        lastL = l.x - sideL * 0.5f;
+        lastR = r.x + sideR * 0.5f;
+    }
+    // Every button is clear of the frame's bottom edge
+    for (int slot = 0; slot < BAR_SLOTS; slot++) {
+        Vec3 p;
+        float side;
+        barSlotPlacement(slot, w, h, &p, &side);
+        CHECK(p.y + side * HOVER_MARGIN * 0.5f < -h * 0.5f);
+    }
+}
+
 static void testRoomCornersLookTheSameEverywhere(void) {
     // At the stand in's distance a bracket is the size one is on a 3 m screen
     CHECK_NEAR(roomCornerSide(STAND_IN_DISTANCE_M), CORNER_FRAC * STAND_IN_WIDTH_M, 1e-6);
@@ -548,6 +796,10 @@ int main(void) {
     testNoCornersWhereThereAreNone();
     testTheRestOfThePicture();
     testTheStandIn();
+    testTheBarUnderARoomsPicture();
+    testTheBarUnderATurnedPicture();
+    testTheBarOnACurvedPicture();
+    testTheRowsOrder();
     testRoomCornersLookTheSameEverywhere();
     testLanes();
     testTheSizeClamp();

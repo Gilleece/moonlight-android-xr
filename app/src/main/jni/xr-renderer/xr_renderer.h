@@ -151,14 +151,10 @@ static inline int64_t nowNs(void) {
 // columns: five of them now
 #define PICKER_WIDTH_FRAC 0.91f
 #define OUTLINE_TEX 128
-// The button that opens it, sitting to the left of the move bar
-#define ENV_BUTTON_FRAC 0.048f
-#define ENV_GAP_FRAC 0.02f
+// The buttons along the bar, the picker's to the left of the move bar and the
+// cog's to the right, are sized in xr_layout.h with their placement
 
 #define COG_WIDTH_FRAC 0.36f
-// The button that opens it, sitting to the right of the move bar, the same
-// size as the environment button on the left
-#define COG_BUTTON_FRAC 0.048f
 #define COG_THUMB_TEX 64
 // Which rows the panel is showing: one of the tabs, or the Room tab, which is
 // what the first tab is while a room is up. Numbered past the tabs, since it
@@ -883,6 +879,10 @@ typedef struct {
     float dotSizeSaid;
     // The screen's cylinder is held under a full turn, as last said in the log
     int cylinderClampSaid;
+    // Where the bar's row hung as last said in the log: its frame's width and
+    // the picture's bottom edge it hangs from
+    float barSaidWidth;
+    Vec3 barSaidEdge;
     int layerSettingsSupported;
     // Layer colour scale (XR_KHR_composition_layer_color_scale_bias), which is
     // what fades a layer without drawing anything. Without it the panels and
@@ -1697,6 +1697,8 @@ int furnitureOnStandIn(XrCtx* ctx);
 XrPosef furniturePose(XrCtx* ctx);
 float furnitureWidth(XrCtx* ctx);
 float furnitureHeight(XrCtx* ctx);
+BarFrame barFrame(XrCtx* ctx);
+int barButtonHit(XrCtx* ctx, int slot, float u, float v, const BarFrame* frame);
 float cornerSide(XrCtx* ctx);
 float effectiveCurvature(XrCtx* ctx);
 int cogFace(XrCtx* ctx);
@@ -1705,30 +1707,14 @@ float screenPitch(XrCtx* ctx);
 XrQuaternionf screenOrient(float yaw, float pitch, float roll);
 float screenRoll(XrCtx* ctx);
 XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight);
-void envButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int envButtonHit(XrCtx* ctx, float u, float v, float height);
-void cogButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int cogButtonHit(XrCtx* ctx, float u, float v, float height);
 XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
-void kbButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int kbButtonHit(XrCtx* ctx, float u, float v, float height);
 XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int kbKeyAt(XrCtx* ctx, float u, float v);
-void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int exitButtonHit(XrCtx* ctx, float u, float v, float height);
 int headAimCanAct(XrCtx* ctx);
-void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int aimButtonHit(XrCtx* ctx, float u, float v, float height);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);
 void setPadMode(XrCtx* ctx, int on, const char* from);
 const char* padShortcutName(int shortcut);
-void padButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int padButtonHit(XrCtx* ctx, float u, float v, float height);
-void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);
-void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int rayButtonHit(XrCtx* ctx, float u, float v, float height);
 void setRayOn(XrCtx* ctx, int on, const char* from);
 int panelUp(XrCtx* ctx);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
