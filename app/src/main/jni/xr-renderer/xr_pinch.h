@@ -1,6 +1,7 @@
-// When a hand's pinch is a press, the triple pinch that locks the hands, and
-// how a drag the eyes started is carried by the hand that pinched. Plain arithmetic over numbers handed in, no
-// OpenXR calls and no context, so the host tests reach all of it.
+// Where a hand's pinch is read from, the triple pinch that locks the hands, and
+// how a drag the eyes started is carried by the hand that pinched. Plain
+// arithmetic over numbers handed in, no OpenXR calls and no context, so the
+// host tests reach all of it.
 
 #ifndef XR_PINCH_H
 #define XR_PINCH_H
@@ -9,49 +10,31 @@
 
 #include "xr_math.h"
 
-// The press a hand's pinch makes. Off the joints the tips have to come within
-// 14 mm and to have closed by 10 mm in the last 200 ms, so fingers drifting
-// together as a hand relaxes never press, and the pinch lets go at 20 mm.
-// Tips the runtime only estimates, valid but not tracked, take the older and
-// looser 20 mm on, 32 mm off, since there is nothing trustworthy to judge the
-// closing by. Either way it has to be held 80 ms before it is a press. The
-// runtime's own pinch value presses at 0.9 and lets go at 0.7: it sits at 1 on
-// a pinch and falls only to 0.5 to 0.7 on the release.
-#define PINCH_ON_M 0.014f
-#define PINCH_OFF_M 0.020f
-#define PINCH_CLOSE_M 0.010f
-#define PINCH_CLOSE_WINDOW_NS 200000000L
-#define PINCH_LOOSE_ON_M 0.020f
-#define PINCH_LOOSE_OFF_M 0.032f
-#define PINCH_HOLD_NS 80000000L
-#define PINCH_VALUE_ON 0.9f
-#define PINCH_VALUE_OFF 0.7f
+// Where a hand's pinch comes from, best first. The runtime's own pinch value,
+// where a hand profile with one bound is current on that hand. Failing that,
+// the pinching flag XR_FB_hand_tracking_aim gives beside the joints. Failing
+// both, thumb tip to index tip measured off the joints.
+#define PINCH_SRC_NONE 0
+#define PINCH_SRC_VALUE 1
+#define PINCH_SRC_AIM 2
+#define PINCH_SRC_JOINTS 3
 
-// Gaps kept per hand for the closing rule. The 200 ms window at up to 150 Hz.
-#define PINCH_RING 32
+// The runtime's value presses at 0.65 and lets go at 0.35, the trigger's own
+// pair, and the joints at 20 mm and 32 mm. A pinch is a press the frame it
+// crosses, with no hold and no rule on how fast the fingers closed.
+#define PINCH_VALUE_ON 0.65f
+#define PINCH_VALUE_OFF 0.35f
+#define PINCH_ON_M 0.020f
+#define PINCH_OFF_M 0.032f
 
-typedef struct {
-    float gap[PINCH_RING];
-    int64_t at[PINCH_RING];
-    int next;
-    int count;
-    // The pinch as the joints have it, before the hold
-    int down;
-} PinchGate;
+// Which source a hand reads: whether a hand profile with its pinch bound is
+// current on it, whether the runtime gives the aim flags, and the joints
+int pinchSource(int valueBound, int aimOffered, int jointsOffered);
 
-void pinchGateReset(PinchGate* g);
-
-// One frame of the joints: whether the thumb and index tips are valid, and
-// tracked as well, and the gap between them. Says whether the joints read a
-// pinch. outClosed says how far the tips had closed when an untracked frame
-// is refused or a tracked one pressed, for the log.
-int pinchGateStep(PinchGate* g, int valid, int tracked, float gap, int64_t nowNs,
-                  float* outClosed);
-
-// A pinch held long enough to be a press. wantSince is the hand's own clock,
-// want whether the pinch is asked for this frame and wasDown whether the press
-// was down last frame. Letting go is never held back.
-int pinchHoldStep(int64_t* wantSince, int want, int wasDown, int64_t nowNs);
+// One frame of a hand's pinch off its source: the value, the aim flag or the
+// gap between the tips, with tipsValid saying whether the tips were located.
+// wasDown is the pinch last frame, as this said it.
+int pinchStep(int source, int wasDown, float value, int aimPinching, int tipsValid, float gap);
 
 // An analog value with a gap between pressing and letting go, so a value
 // sitting near one threshold does not chatter

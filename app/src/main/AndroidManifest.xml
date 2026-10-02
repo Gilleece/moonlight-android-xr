@@ -7,15 +7,6 @@
          headsets, so the app wide minSdk 21 remains safe -->
     <uses-sdk tools:overrideLibrary="org.khronos.openxr.openxr_loader_for_android" />
 
-    <!-- So the bug report screen can tell whether this device has an email
-         app at all before offering to send by one -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.SENDTO" />
-            <data android:scheme="mailto" />
-        </intent>
-    </queries>
-
     <!-- Horizon OS refuses to route immersive frames for apps that do not
          declare an HzOS SDK version since around the v77 update. Other
          platforms ignore this namespace entirely -->
@@ -317,14 +308,6 @@
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
             <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
-        <!-- Hands a saved report to the email app the user picks. Not exported:
-             the read grant on the send intent is the only way in -->
-        <provider
-            android:name=".ReportContentProvider"
-            android:authorities="report.${applicationId}"
-            android:exported="false"
-            android:grantUriPermissions="true">
-        </provider>
         <activity
             android:name=".HelpActivity"
             android:resizeableActivity="true"

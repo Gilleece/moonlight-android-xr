@@ -12,9 +12,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.zip.GZIPInputStream;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -24,9 +24,10 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * What a report says and how it goes: the text before the logs, the check on
- * the note and the address, the token kept out of the body, the result for
- * each way a post can go, with a stand in for the network, and the newest
- * five kept.
+ * the note and the address, the JSON the collector takes with the token kept
+ * out of it, the logs cut to the newest 6 MB, the result for each way a post
+ * can go with a stand in for the network, saved only where it does not go,
+ * and the newest five kept.
  */
 public class BugReportTest {
 
@@ -63,15 +64,63 @@ public class BugReportTest {
         IOException failure;
 
         @Override
-        public int post(String url, Map<String, String> headers, File body) throws IOException {
+        public int post(String url, Map<String, String> headers, byte[] body) throws IOException {
             urls.add(url);
             this.headers = headers;
-            this.body = read(new FileInputStream(body));
+            this.body = body;
             if (failure != null) {
                 throw failure;
             }
             return answer;
         }
+
+        String text() {
+            return new String(body, StandardCharsets.UTF_8);
+        }
+    }
+
+    private static final String URL = "https://collector.example/report";
+    private static final String NAME = "moonlight-xr-report-20261002-201500.txt";
+
+    // One string field of a JSON object as written by BugReport.body, unescaped,
+    // read by hand since a regular expression overflows on a 6 MB log
+    private static String field(String json, String key) {
+        String start = "\"" + key + "\":";
+        int at = json.indexOf(start);
+        assertTrue(key, at >= 0);
+        at += start.length();
+        if (json.startsWith("null", at)) {
+            return null;
+        }
+        assertEquals('"', json.charAt(at));
+        StringBuilder out = new StringBuilder();
+        for (int i = at + 1; ; i++) {
+            char c = json.charAt(i);
+            if (c == '"') {
+                return out.toString();
+            }
+            if (c != '\\') {
+                out.append(c);
+                continue;
+            }
+            char e = json.charAt(++i);
+            switch (e) {
+                case 'n': out.append('\n'); break;
+                case 'r': out.append('\r'); break;
+                case 't': out.append('\t'); break;
+                case 'u':
+                    out.append((char) Integer.parseInt(json.substring(i + 1, i + 5), 16));
+                    i += 4;
+                    break;
+                default: out.append(e); break;
+            }
+        }
+    }
+
+    private BugReport.Outcome sendOrSave(File dir, String summary, File[] logs, String url,
+                                         BugReport.Transport net) {
+        return BugReport.sendOrSave(dir, NAME, summary, "it froze", "a@b.co", logs, url, TOKEN,
+                net);
     }
 
     private static byte[] read(InputStream in) throws IOException {
@@ -88,11 +137,6 @@ public class BugReportTest {
         }
     }
 
-    private static String gunzip(byte[] packed) throws IOException {
-        return new String(read(new GZIPInputStream(new java.io.ByteArrayInputStream(packed))),
-                StandardCharsets.UTF_8);
-    }
-
     private File log(String name, String text) throws IOException {
         File file = folder.newFile(name);
         FileOutputStream out = new FileOutputStream(file);
@@ -107,7 +151,8 @@ public class BugReportTest {
     @Test
     public void theNoteAndEveryDetailAreThere() {
         String text = BugReport.compose("  the picture went black  ", "a@b.co", details());
-        assertTrue(text.startsWith("Moonlight XR bug report\nFrom: a@b.co\n\nthe picture went black\n"));
+        assertTrue(text.startsWith("Moonlight XR bug report\nVersion: 12.1-xr0.3\nFrom: a@b.co\n\n"
+                + "the picture went black\n"));
         assertTrue(text.contains(
                 "moonlight 12.1-xr0.3 com.gilleece.moonlightxr commit 0123456789\n"));
         assertTrue(text.contains("device Oculus oculus Quest 2 (codename)\n"));
@@ -145,7 +190,8 @@ public class BugReportTest {
                 + "  stopped at: runtime (xrEnumerateInstanceExtensionProperties)\n"
                 + "  result: XR_ERROR_RUNTIME_UNAVAILABLE (-51)\n";
         String text = BugReport.compose("no settings bar", "", d);
-        assertTrue(text.startsWith("Moonlight XR bug report\nFrom: \n\nno settings bar\n"
+        assertTrue(text.startsWith("Moonlight XR bug report\nVersion: 12.1-xr0.3\nFrom: \n\n"
+                + "no settings bar\n"
                 + "\n----- last VR start -----\n"
                 + "VR session did not start, 2026-10-01 21:40:00\n"
                 + "  stopped at: runtime (xrEnumerateInstanceExtensionProperties)\n"
@@ -182,53 +228,177 @@ public class BugReportTest {
     }
 
     @Test
-    public void theTokenGoesInTheHeaderAndNeverTheBody() throws IOException {
+    public void theReportGoesAsJsonWithTheTokenInTheHeader() throws IOException {
         File dir = folder.newFolder("reports");
-        File current = log("moonlight.log", "10-01 19:00:00.000 I session start\n");
-        String header = BugReport.compose("it froze", "a@b.co", details());
-        assertFalse(header.contains(TOKEN));
+        File current = log("moonlight.log", "10-01 19:00:00.000 I session start \"quoted\"\n");
+        String summary = BugReport.compose("it froze", "a@b.co", details());
+        assertFalse(summary.contains(TOKEN));
 
         Recorder net = new Recorder();
-        Map<String, String> headers = BugReport.headers(TOKEN, "Oculus Quest 2", "12.1-xr0.3",
-                "a@b.co", "it froze\nafter a minute");
-        BugReport.Outcome outcome = BugReport.fileReport(dir, header, new File[] { null, current },
-                "https://collector.example/report", headers, net);
+        BugReport.Outcome outcome = BugReport.sendOrSave(dir, NAME, summary,
+                "it froze\nafter a minute", " a@b.co ", new File[] { null, current }, URL, TOKEN,
+                net);
 
         assertEquals(BugReport.Result.SENT, outcome.result);
-        assertEquals(1, net.urls.size());
-        assertEquals(TOKEN, net.headers.get("X-Report-Token"));
-        assertEquals("application/gzip", net.headers.get("Content-Type"));
-        assertEquals("Oculus Quest 2", net.headers.get("X-Report-Device"));
-        assertEquals("it froze / after a minute", net.headers.get("X-Report-Summary"));
-        String body = gunzip(net.body);
-        assertTrue(body.startsWith(header));
-        assertTrue(body.contains("\n----- moonlight.log -----\n10-01 19:00:00.000 I session start\n"));
-        assertFalse(body.contains(TOKEN));
-        // The packed copy is gone once it has been sent
-        File[] left = dir.listFiles();
+        assertNull(outcome.path);
+        assertEquals(Arrays.asList(URL), net.urls);
+        assertEquals("Bearer " + TOKEN, net.headers.get("Authorization"));
+        assertEquals("application/json", net.headers.get("Content-Type"));
+        assertEquals(2, net.headers.size());
+
+        String json = net.text();
+        assertTrue(json.startsWith("{\"note\":"));
+        assertTrue(json.endsWith("}"));
+        assertEquals("it froze\nafter a minute", field(json, "note"));
+        assertEquals("a@b.co", field(json, "replyTo"));
+        assertEquals(summary, field(json, "summary"));
+        assertTrue(field(json, "summary").startsWith("Moonlight XR bug report\nVersion: "));
+        assertEquals("\n----- moonlight.log -----\n10-01 19:00:00.000 I session start \"quoted\"\n",
+                field(json, "log"));
+        assertEquals(NAME, field(json, "fileName"));
+        assertFalse(json.contains(TOKEN));
+        // Sent is the end of it: nothing is kept on the headset
+        String[] left = dir.list();
         assertNotNull(left);
-        assertEquals(1, left.length);
-        assertTrue(left[0].getName().endsWith(".txt"));
+        assertEquals(0, left.length);
     }
 
     @Test
-    public void noTokenSendsNoTokenHeader() {
-        Map<String, String> headers = BugReport.headers("", "d", "v", "", "m");
-        assertFalse(headers.containsKey("X-Report-Token"));
+    public void noAddressIsNullAndNoTokenSendsNoAuthorization() throws IOException {
+        Recorder net = new Recorder();
+        BugReport.sendOrSave(folder.newFolder("r"), NAME, "Moonlight XR bug report\n", "x", "  ",
+                new File[0], URL, "", net);
+        assertTrue(net.text().contains("\"replyTo\":null,"));
+        assertNull(field(net.text(), "replyTo"));
+        assertEquals("", field(net.text(), "log"));
+        assertFalse(net.headers.containsKey("Authorization"));
     }
 
     @Test
-    public void anEmptyUrlSavesInsteadOfPosting() throws IOException {
+    public void theNoteAndSummaryAreHeldToTheirLimits() {
+        StringBuilder note = new StringBuilder();
+        for (int i = 0; i < 5000; i++) {
+            note.append('n');
+        }
+        StringBuilder summary = new StringBuilder(BugReport.HEADER);
+        while (summary.length() < 9000) {
+            summary.append("settings line\n");
+        }
+        String json = new String(BugReport.body(note.toString(), null, summary.toString(), "",
+                NAME), StandardCharsets.UTF_8);
+        assertEquals(BugReport.NOTE_MAX, field(json, "note").length());
+        assertEquals(BugReport.SUMMARY_MAX, field(json, "summary").length());
+        // A character is never split at the limit
+        String emoji = "\uD83D\uDE00";
+        String clipped = BugReport.clip(note.substring(0, 3999) + emoji, 4000);
+        assertEquals(3999, clipped.length());
+    }
+
+    @Test
+    public void controlCharactersAndSeparatorsAreEscaped() {
+        String json = new String(BugReport.body("tab\there \u0001 back\\slash", null,
+                "line\u2028sep\r\n", "caf\u00e9 \u65e5\u672c", NAME), StandardCharsets.UTF_8);
+        assertTrue(json.contains("tab\\there \\u0001 back\\\\slash"));
+        assertTrue(json.contains("line\\u2028sep\\r\\n"));
+        // Anything else goes as it is, in UTF-8
+        assertTrue(json.contains("caf\u00e9 \u65e5\u672c"));
+        assertEquals("tab\there \u0001 back\\slash", field(json, "note"));
+    }
+
+    @Test
+    public void logsUnderTheLimitGoWholeOldestFirst() throws IOException {
+        File previous = log("moonlight.previous.log", "older\n");
+        File current = log("moonlight.log", "newer\n");
+        assertEquals("\n----- moonlight.previous.log -----\nolder\n\n----- moonlight.log -----\nnewer\n",
+                BugReport.logText(new File[] { previous, null, current }, 1000));
+    }
+
+    @Test
+    public void logsOverTheLimitKeepTheirNewestWholeLines() throws IOException {
+        // Two logs of numbered lines, 6300 bytes and 2700, cut to 4000
+        StringBuilder older = new StringBuilder();
+        for (int i = 0; i < 700; i++) {
+            older.append(String.format("old %04d\n", i));
+        }
+        StringBuilder newer = new StringBuilder();
+        for (int i = 0; i < 300; i++) {
+            newer.append(String.format("new %04d\n", i));
+        }
+        File previous = log("moonlight.previous.log", older.toString());
+        File current = log("moonlight.log", newer.toString());
+        String text = BugReport.logText(new File[] { previous, current }, 4000);
+
+        assertTrue(text.length() <= 4000);
+        assertTrue(text, text.startsWith(
+                "----- cut to the newest 4000 bytes of the logs, the oldest "));
+        // The current log whole, under its line, at the end
+        assertTrue(text.endsWith("\n----- moonlight.log -----\n" + newer));
+        // The older one from a whole line on, to its last line
+        int title = text.indexOf("\n----- moonlight.previous.log -----\n");
+        assertTrue(title > 0);
+        String kept = text.substring(title + "\n----- moonlight.previous.log -----\n".length(),
+                text.indexOf("\n----- moonlight.log -----\n"));
+        assertTrue(kept, kept.matches("(old \\d{4}\n)+"));
+        assertTrue(kept.endsWith("old 0699\n"));
+        // And says how much it left out, which with what it kept is the whole
+        long leftOut = Long.parseLong(text.replaceAll("(?s)^.*the oldest (\\d+) bytes.*$", "$1"));
+        assertEquals(older.length(), leftOut + kept.length());
+
+        // Past the limit with the current log alone, the older one goes whole
+        text = BugReport.logText(new File[] { previous, current }, 2000);
+        assertFalse(text.contains("moonlight.previous.log"));
+        assertTrue(text.contains("\n----- moonlight.log -----\nnew "));
+        assertTrue(text.endsWith("new 0299\n"));
+        assertTrue(text.length() <= 2000);
+    }
+
+    @Test
+    public void twoFullLogsAreCutToSixMegabytes() throws IOException {
+        // Two 5 MB logs, as the log's roll over leaves them at worst
+        StringBuilder line = new StringBuilder();
+        while (line.length() < 99) {
+            line.append('x');
+        }
+        line.append('\n');
+        StringBuilder five = new StringBuilder(5 * 1024 * 1024 + 100);
+        while (five.length() < 5 * 1024 * 1024) {
+            five.append(line);
+        }
+        File previous = log("moonlight.previous.log", five.toString());
+        File current = log("moonlight.log", five.toString());
+        String text = BugReport.logText(new File[] { previous, current }, BugReport.LOG_MAX_BYTES);
+        int bytes = text.getBytes(StandardCharsets.UTF_8).length;
+        assertTrue(String.valueOf(bytes), bytes <= BugReport.LOG_MAX_BYTES);
+        assertTrue(bytes > BugReport.LOG_MAX_BYTES - 1000);
+        assertTrue(text.startsWith("----- cut to the newest 6 MB of the logs, the oldest "));
+        byte[] body = BugReport.body("n", null, "s", text, NAME);
+        assertTrue(body.length < BugReport.BODY_MAX_BYTES);
+    }
+
+    @Test
+    public void aBodyEscapedPastEightMegabytesIsCutFurther() {
+        // Six megabytes of tabs, each escaped to two bytes
+        StringBuilder tabs = new StringBuilder(BugReport.LOG_MAX_BYTES + 100);
+        while (tabs.length() < BugReport.LOG_MAX_BYTES - 200) {
+            tabs.append("\t\t\t\t\t\t\t\t\t\n");
+        }
+        byte[] body = BugReport.body("n", null, "s", tabs.toString(), NAME);
+        assertTrue(body.length <= BugReport.BODY_MAX_BYTES);
+        String log = field(new String(body, StandardCharsets.UTF_8), "log");
+        assertTrue(log.startsWith("----- cut further to fit the collector -----\n"));
+    }
+
+    @Test
+    public void anEmptyUrlSavesAndSaysThereIsNoCollector() throws IOException {
         File dir = folder.newFolder("logs");
         Recorder net = new Recorder();
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0], "",
-                BugReport.headers(TOKEN, "d", "v", "", "m"), net);
+        BugReport.Outcome outcome = sendOrSave(dir, "header\n", new File[0], "", net);
 
-        assertEquals(BugReport.Result.SAVED, outcome.result);
+        assertEquals(BugReport.Result.NO_COLLECTOR, outcome.result);
         assertTrue(net.urls.isEmpty());
         assertNull(outcome.detail);
         // Saved once, where it is said to be and nowhere else
-        assertTrue(outcome.path.startsWith(dir.getAbsolutePath()));
+        assertEquals(new File(dir, NAME).getAbsolutePath(), outcome.path);
         assertTrue(new File(outcome.path).isFile());
         File[] saved = dir.listFiles();
         assertNotNull(saved);
@@ -249,42 +419,50 @@ public class BugReportTest {
         // A plain http collector is treated as none: saved, never posted
         File dir = folder.newFolder("reports");
         Recorder net = new Recorder();
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
-                "http://collector.example/report", BugReport.headers(TOKEN, "d", "v", "", "m"),
-                net);
-        assertEquals(BugReport.Result.SAVED, outcome.result);
+        BugReport.Outcome outcome = sendOrSave(dir, "header\n", new File[0],
+                "http://collector.example/report", net);
+        assertEquals(BugReport.Result.NO_COLLECTOR, outcome.result);
         assertTrue(net.urls.isEmpty());
     }
 
     @Test
-    public void aRefusalIsNotSentAndSaysWhy() throws IOException {
+    public void aRefusalIsSavedAndSaysWhy() throws IOException {
         File dir = folder.newFolder("reports");
-        Recorder net = new Recorder();
-        net.answer = 403;
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
-                "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"), net);
+        File current = log("moonlight.log", "a line\n");
+        for (int code : new int[] { 401, 400, 500, 502 }) {
+            Recorder net = new Recorder();
+            net.answer = code;
+            BugReport.Outcome outcome = sendOrSave(dir, "header\n", new File[] { current }, URL,
+                    net);
 
-        assertEquals(BugReport.Result.NOT_SENT, outcome.result);
-        assertEquals("server answered 403", outcome.detail);
-        assertTrue(new File(outcome.path).isFile());
-        assertTrue(outcome.path.startsWith(dir.getAbsolutePath()));
+            assertEquals(BugReport.Result.NOT_SENT, outcome.result);
+            assertEquals("server answered " + code, outcome.detail);
+            // The saved copy is the whole report, as the file always was
+            File saved = new File(outcome.path);
+            assertTrue(saved.isFile());
+            assertTrue(outcome.path.startsWith(dir.getAbsolutePath()));
+            assertEquals("header\n\n----- moonlight.log -----\na line\n",
+                    new String(read(new FileInputStream(saved)), StandardCharsets.UTF_8));
+        }
     }
 
     @Test
     public void aCollectorAtItsLimitsIsBusyNotFailed() throws IOException {
         File dir = folder.newFolder("reports");
-        for (int code : new int[] { 429, 413, 400, 502 }) {
+        for (int code : new int[] { 429, 413 }) {
             Recorder net = new Recorder();
             net.answer = code;
-            BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
-                    "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"),
-                    net);
+            BugReport.Outcome outcome = sendOrSave(dir, "header\n", new File[0], URL, net);
 
-            assertEquals(String.valueOf(code), code == 429 || code == 413
-                    ? BugReport.Result.BUSY : BugReport.Result.NOT_SENT, outcome.result);
+            assertEquals(String.valueOf(code), BugReport.Result.BUSY, outcome.result);
             assertEquals("server answered " + code, outcome.detail);
             assertTrue(new File(outcome.path).isFile());
         }
+        // Any 2xx is taken
+        Recorder net = new Recorder();
+        net.answer = 204;
+        assertEquals(BugReport.Result.SENT, sendOrSave(dir, "header\n", new File[0], URL, net)
+                .result);
     }
 
     @Test
@@ -298,12 +476,11 @@ public class BugReportTest {
     }
 
     @Test
-    public void noNetworkIsNotSentAndSaysWhy() throws IOException {
+    public void noNetworkIsSavedAndSaysWhy() throws IOException {
         File dir = folder.newFolder("reports");
         Recorder net = new Recorder();
         net.failure = new IOException("connect timed out");
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
-                "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"), net);
+        BugReport.Outcome outcome = sendOrSave(dir, "header\n", new File[0], URL, net);
 
         assertEquals(BugReport.Result.NOT_SENT, outcome.result);
         assertEquals("connect timed out", outcome.detail);
@@ -317,13 +494,20 @@ public class BugReportTest {
         // A file where the folder should be
         File blocked = folder.newFile("reports");
         Recorder net = new Recorder();
-        BugReport.Outcome outcome = BugReport.fileReport(blocked, "header\n", new File[0],
-                "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"), net);
+        net.answer = 502;
+        BugReport.Outcome outcome = sendOrSave(blocked, "header\n", new File[0], URL, net);
 
         assertEquals(BugReport.Result.NOT_WRITTEN, outcome.result);
         assertNull(outcome.path);
-        assertNotNull(outcome.detail);
-        assertTrue(net.urls.isEmpty());
+        assertTrue(outcome.detail, outcome.detail.startsWith("server answered 502; "));
+
+        // Sent, it never needed the folder
+        net.answer = 200;
+        assertEquals(BugReport.Result.SENT, sendOrSave(blocked, "header\n", new File[0], URL, net)
+                .result);
+        // With no collector there is nothing but the folder
+        assertEquals(BugReport.Result.NOT_WRITTEN, sendOrSave(blocked, "header\n", new File[0], "",
+                net).result);
     }
 
     @Test
@@ -331,12 +515,13 @@ public class BugReportTest {
         File dir = folder.newFolder("reports");
         File previous = log("moonlight.previous.log", "older\n");
         File current = log("moonlight.log", "newer\n");
-        File report = BugReport.write(dir, "header\n", previous, null, current,
+        File report = BugReport.write(dir, NAME, "header\n", previous, null, current,
                 new File(folder.getRoot(), "missing.log"));
         String text = new String(read(new FileInputStream(report)), StandardCharsets.UTF_8);
         assertEquals("header\n\n----- moonlight.previous.log -----\nolder\n"
                 + "\n----- moonlight.log -----\nnewer\n", text);
-        assertTrue(report.getName().startsWith("moonlight-xr-report-"));
+        assertEquals(NAME, report.getName());
+        assertTrue(BugReport.isReportName(BugReport.reportName(new java.util.Date())));
     }
 
     // A report by the name it would have been given at that time
@@ -387,10 +572,9 @@ public class BugReportTest {
         for (int i = 0; i < 6; i++) {
             report(dir, "2020010" + (i + 1) + "-000000");
         }
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0], "",
-                BugReport.headers("", "d", "v", "", "m"), new Recorder());
+        BugReport.Outcome outcome = sendOrSave(dir, "header\n", new File[0], "", new Recorder());
 
-        assertEquals(BugReport.Result.SAVED, outcome.result);
+        assertEquals(BugReport.Result.NO_COLLECTOR, outcome.result);
         // The new one and the four newest before it
         File[] left = dir.listFiles();
         assertNotNull(left);
@@ -408,13 +592,6 @@ public class BugReportTest {
         assertFalse(BugReport.isReportName("moonlight.previous.log"));
         assertFalse(BugReport.isReportName("moonlight-xr-report-20261002-090000.txt.gz"));
         assertFalse(BugReport.isReportName(null));
-    }
-
-    @Test
-    public void headersCarryOneLineOfPlainText() {
-        assertEquals("caf? / ok", BugReport.headerSafe("café\r\nok", 120));
-        assertEquals("abc", BugReport.headerSafe("abcdef", 3));
-        assertEquals("", BugReport.headerSafe(null, 10));
     }
 
     @Test

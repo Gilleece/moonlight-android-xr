@@ -13,8 +13,8 @@ def canSign = signingProps.containsKey('storePassword')
 // Where the report a problem screens send reports and the token the collector
 // expects. They live beside the signing details so neither is in the tree; the
 // moonlightReportUrl and moonlightReportToken properties are only a fallback
-// and stay empty in the tracked gradle.properties. A build with neither keeps
-// reports on the device and says where, see tools/report-worker.
+// and stay empty in the tracked gradle.properties. A build with neither saves
+// reports on the device and says it has no collector, see tools/report-worker.
 def reportUrl = signingProps.getProperty('reportUrl', project.findProperty('moonlightReportUrl') ?: '')
 def reportToken = signingProps.getProperty('reportToken', project.findProperty('moonlightReportToken') ?: '')
 // A report carries the log, so it only ever travels over https. The app treats
@@ -155,8 +155,8 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "12.1-xr0.4"
-        versionCode = 31404
+        versionName "12.1-xr0.4.1"
+        versionCode = 31405
 
         // Generate native debug symbols to allow Google Play to symbolicate our native crashes
         ndk.debugSymbolLevel = 'FULL'

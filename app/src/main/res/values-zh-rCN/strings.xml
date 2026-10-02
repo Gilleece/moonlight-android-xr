@@ -401,11 +401,6 @@
     <string name="vr_report_optional">选填</string>
     <string name="vr_report_email_bad">这看起来不像电子邮箱地址</string>
     <string name="vr_report_sends">将发送您的说明、头显与版本信息、您的设置以及应用日志，日志中可能包含您电脑在局域网中的名称和地址。在您点击“发送报告”之前不会发送任何内容。</string>
-    <string name="vr_report_saves">将把您的说明、头显与版本信息、您的设置以及应用日志保存为此头显上的一个文件，日志中可能包含您电脑在局域网中的名称和地址。</string>
-    <string name="vr_report_not_sent">报告发送失败</string>
-    <string name="vr_report_busy">报告服务器繁忙</string>
-    <string name="vr_report_saved">报告已保存</string>
-    <string name="vr_report_saved_at">已保存至 %1$s</string>
     <string name="vr_report_not_written">无法保存报告</string>
     <string name="vr_battery">电量 %1$d%%</string>
 
@@ -425,17 +420,12 @@
     <string name="bug_report_log_off">已关闭。请先开启“保存日志文件”并复现问题，否则报告中将不包含日志。</string>
     <string name="bug_report_email_hint">您的电子邮箱（用于接收回复）</string>
     <string name="bug_report_message_hint">请描述具体发生了什么问题…</string>
-    <string name="bug_report_send">通过邮件发送</string>
     <string name="bug_report_send_direct">发送报告</string>
     <string name="bug_report_sending">正在发送报告…</string>
-    <string name="bug_report_sent">报告已发送，感谢您的反馈！</string>
-    <string name="bug_report_upload_failed">报告发送失败 (%1$s)。文件已保存至：\n\n%2$s\n\n请检查网络后重试，或将该文件从头显导出并邮件发送至 %3$s。</string>
-    <string name="bug_report_busy">报告服务器繁忙，报告已保存至：\n\n%1$s\n\n请稍后重试，或将该文件从头显导出并邮件发送至 %2$s。</string>
-    <string name="bug_report_save">保存报告到本地</string>
-    <string name="bug_report_subject">Moonlight XR 错误报告: %1$s, %2$s</string>
-    <string name="bug_report_from">回复至: %1$s</string>
-    <string name="bug_report_saved">报告已保存至：\n\n%1$s</string>
-    <string name="bug_report_no_mail">当前设备未安装邮件应用，报告已保存至：\n\n%1$s\n\n请将该文件从头显拷贝出来，并作为附件发送邮件至 %2$s。</string>
+    <string name="bug_report_sent">报告已发送</string>
+    <string name="bug_report_not_sent_at">发送失败，已保存至</string>
+    <string name="bug_report_busy_at">服务器繁忙，已保存至</string>
+    <string name="bug_report_no_collector_at">此版本未配置收集服务器，已保存至</string>
     <string name="bug_report_failed">无法写入报告文件: %1$s</string>
 
     <!-- VR Debug strings -->
@@ -549,7 +539,6 @@
     <string name="vr_panel_log_file">日志文件：%1$s</string>
     <string name="vr_panel_log_file_off">日志文件：已关闭</string>
     <string name="vr_panel_report_sends">发送一条附带头显信息、设置和日志的说明</string>
-    <string name="vr_panel_report_saves">保存一条附带头显信息、设置和日志的说明</string>
     <string name="vr_panel_rooms">房间</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>

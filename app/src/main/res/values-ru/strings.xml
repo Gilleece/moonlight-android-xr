@@ -461,7 +461,6 @@
     <string name="vr_panel_log_file">Файл журнала: %1$s</string>
     <string name="vr_panel_log_file_off">Файл журнала: выключен</string>
     <string name="vr_panel_report_sends">Отправляет заметку с данными шлема, настройками и журналом</string>
-    <string name="vr_panel_report_saves">Сохраняет заметку с данными шлема, настройками и журналом</string>
     <string name="vr_panel_rooms">Комнаты</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -478,11 +477,6 @@
     <string name="vr_report_optional">Необязательно</string>
     <string name="vr_report_email_bad">Это не похоже на адрес эл. почты</string>
     <string name="vr_report_sends">Отправляет ваше сообщение, сведения о шлеме и сборке, ваши настройки и журнал приложения, в котором могут быть имя и сетевой адрес вашего компьютера. Ничего не отправляется, пока вы не нажмёте «Отправить».</string>
-    <string name="vr_report_saves">Сохраняет ваше сообщение, сведения о шлеме и сборке, ваши настройки и журнал приложения, в котором могут быть имя и сетевой адрес вашего компьютера, в файл на этом шлеме.</string>
-    <string name="vr_report_not_sent">Не удалось отправить отчёт</string>
-    <string name="vr_report_busy">Сервер отчётов занят</string>
-    <string name="vr_report_saved">Отчёт сохранён</string>
-    <string name="vr_report_saved_at">Сохранён в %1$s</string>
     <string name="vr_report_not_written">Не удалось сохранить отчёт</string>
     <string name="vr_battery">Батарея %1$d%%</string>
     <string name="title_bug_report">Сообщить о проблеме</string>
@@ -501,17 +495,12 @@
     <string name="bug_report_log_off">выключен. Включите «Сохранять файл журнала» и сначала воспроизведите проблему, иначе в отчёте не будет журнала.</string>
     <string name="bug_report_email_hint">Ваш адрес эл. почты, для ответа</string>
     <string name="bug_report_message_hint">Что случилось?</string>
-    <string name="bug_report_send">Отправить по почте</string>
     <string name="bug_report_send_direct">Отправить</string>
     <string name="bug_report_sending">Отправка отчёта…</string>
-    <string name="bug_report_sent">Отчёт отправлен, спасибо</string>
-    <string name="bug_report_upload_failed">Не удалось отправить отчёт (%1$s). Он сохранён в\n\n%2$s\n\nПовторите попытку при наличии соединения или скопируйте его со шлема и отправьте по почте на %3$s.</string>
-    <string name="bug_report_busy">Сервер отчётов занят, отчёт сохранён в\n\n%1$s\n\nПовторите попытку позже или скопируйте его со шлема и отправьте по почте на %2$s.</string>
-    <string name="bug_report_save">Сохранить отчёт</string>
-    <string name="bug_report_subject">Отчёт Moonlight XR: %1$s, %2$s</string>
-    <string name="bug_report_from">Ответить: %1$s</string>
-    <string name="bug_report_saved">Отчёт сохранён в\n\n%1$s</string>
-    <string name="bug_report_no_mail">На этом устройстве нет почтового приложения, поэтому отчёт сохранён в\n\n%1$s\n\nСкопируйте его со шлема и приложите к письму на %2$s.</string>
+    <string name="bug_report_sent">Отчёт отправлен</string>
+    <string name="bug_report_not_sent_at">Не удалось отправить, сохранён в</string>
+    <string name="bug_report_busy_at">Сервер занят, сохранён в</string>
+    <string name="bug_report_no_collector_at">Сборка без сервера, сохранён в</string>
     <string name="bug_report_failed">Не удалось записать отчёт: %1$s</string>
     <string name="title_vr_file_log">Сохранять файл журнала</string>
     <string name="summary_vr_file_log">Вести текстовый журнал в Download/MoonlightXR, где его найдёт файловый менеджер шлема и где его можно приложить к отчёту об ошибке. В нём могут быть имя и сетевой адрес вашего компьютера. При 5 МБ он переходит в moonlight.previous.log, так что вместе оба файла никогда не занимают больше 10 МБ. Перезапустите приложение, чтобы изменение вступило в силу.</string>

@@ -275,6 +275,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) ctx->handInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME)) ctx->msftHandInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) ctx->handTracking = 1;
+        if (!strcmp(exts[i].extensionName, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME)) ctx->handAimOffered = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME)) ctx->eyeGaze = 1;
         if (!strcmp(exts[i].extensionName, XR_FB_COMPOSITION_LAYER_SETTINGS_EXTENSION_NAME)) ctx->layerSettingsSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_META_VIRTUAL_KEYBOARD_EXTENSION_NAME)) ctx->virtualKeyboardSupported = 1;
@@ -291,6 +292,7 @@ static int initXrInstance(XrCtx* ctx) {
         ctx->handInteraction = 0;
         ctx->msftHandInteraction = 0;
         ctx->handTracking = 0;
+        ctx->handAimOffered = 0;
         LOGI("hand tracking off by preference");
     }
 
@@ -327,6 +329,12 @@ static int initXrInstance(XrCtx* ctx) {
     // tracking extension is enabled next to it
     if (ctx->handTracking) {
         enableExt(enabledExts, &enabledCount, XR_EXT_HAND_TRACKING_EXTENSION_NAME);
+    }
+    // A pinch flag beside the joints, for runtimes with no hand profile to
+    // bind one through. It extends the joint locate, so it needs the above.
+    ctx->handAimOffered = ctx->handAimOffered && ctx->handTracking;
+    if (ctx->handAimOffered) {
+        enableExt(enabledExts, &enabledCount, XR_FB_HAND_TRACKING_AIM_EXTENSION_NAME);
     }
     if (ctx->eyeGaze) {
         enableExt(enabledExts, &enabledCount, XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME);

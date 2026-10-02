@@ -423,7 +423,6 @@
     <string name="vr_panel_log_file">Logfil: %1$s</string>
     <string name="vr_panel_log_file_off">Logfil: fra</string>
     <string name="vr_panel_report_sends">Sender en note med headset, indstillinger og log</string>
-    <string name="vr_panel_report_saves">Gemmer en note med headset, indstillinger og log</string>
     <string name="vr_panel_rooms">Rum</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -440,11 +439,6 @@
     <string name="vr_report_optional">Valgfrit</string>
     <string name="vr_report_email_bad">Det ligner ikke en e-mailadresse</string>
     <string name="vr_report_sends">Sender din besked, oplysninger om headset og version, dine indstillinger og appens log, som kan indeholde din pc\'s navn og adresse på netværket. Intet sendes, før du trykker på »Send«.</string>
-    <string name="vr_report_saves">Gemmer din besked, oplysninger om headset og version, dine indstillinger og appens log, som kan indeholde din pc\'s navn og adresse på netværket, i en fil på dette headset.</string>
-    <string name="vr_report_not_sent">Rapporten kunne ikke sendes</string>
-    <string name="vr_report_busy">Rapportserveren er optaget</string>
-    <string name="vr_report_saved">Rapporten er gemt</string>
-    <string name="vr_report_saved_at">Gemt i %1$s</string>
     <string name="vr_report_not_written">Rapporten kunne ikke gemmes</string>
     <string name="vr_battery">Batteri %1$d%%</string>
     <string name="title_bug_report">Rapportér et problem</string>
@@ -463,17 +457,12 @@
     <string name="bug_report_log_off">fra. Slå »Gem en logfil« til, og genskab problemet først, ellers kommer der ingen log med i rapporten.</string>
     <string name="bug_report_email_hint">Din e-mailadresse, til et svar</string>
     <string name="bug_report_message_hint">Hvad skete der?</string>
-    <string name="bug_report_send">Send med e-mail</string>
     <string name="bug_report_send_direct">Send</string>
     <string name="bug_report_sending">Sender rapporten…</string>
-    <string name="bug_report_sent">Rapporten er sendt, tak</string>
-    <string name="bug_report_upload_failed">Rapporten kunne ikke sendes (%1$s). Den er gemt i\n\n%2$s\n\nPrøv igen med en forbindelse, eller kopier den fra headsettet, og send den med e-mail til %3$s.</string>
-    <string name="bug_report_busy">Rapportserveren er optaget, rapporten er gemt i\n\n%1$s\n\nPrøv igen senere, eller kopier den fra headsettet, og send den med e-mail til %2$s.</string>
-    <string name="bug_report_save">Gem rapporten</string>
-    <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
-    <string name="bug_report_from">Svar til: %1$s</string>
-    <string name="bug_report_saved">Rapporten er gemt i\n\n%1$s</string>
-    <string name="bug_report_no_mail">Der er ingen e-mailapp på denne enhed, så rapporten er gemt i\n\n%1$s\n\nKopier den fra headsettet, og vedhæft den til en e-mail til %2$s.</string>
+    <string name="bug_report_sent">Rapporten er sendt</string>
+    <string name="bug_report_not_sent_at">Kunne ikke sende, gemt i</string>
+    <string name="bug_report_busy_at">Serveren er optaget, gemt i</string>
+    <string name="bug_report_no_collector_at">Buildet har ingen server, gemt i</string>
     <string name="bug_report_failed">Kunne ikke skrive rapporten: %1$s</string>
     <string name="title_vr_file_log">Gem en logfil</string>
     <string name="summary_vr_file_log">Fører en log i ren tekst i Download/MoonlightXR, hvor filhåndteringen i headsettet kan finde den, og du kan vedhæfte den til en fejlrapport. Den kan indeholde din pc\'s navn og adresse på netværket. Ved 5 MB går den over i moonlight.previous.log, så de to tilsammen aldrig fylder mere end 10 MB. Genstart appen, for at en ændring træder i kraft.</string>

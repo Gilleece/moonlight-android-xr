@@ -454,7 +454,6 @@
     <string name="vr_panel_log_file">Loggfil: %1$s</string>
     <string name="vr_panel_log_file_off">Loggfil: av</string>
     <string name="vr_panel_report_sends">Skickar en anteckning med headset, inställningar och logg</string>
-    <string name="vr_panel_report_saves">Sparar en anteckning med headset, inställningar och logg</string>
     <string name="vr_panel_rooms">Rum</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -471,11 +470,6 @@
     <string name="vr_report_optional">Valfritt</string>
     <string name="vr_report_email_bad">Det ser inte ut som en e-postadress</string>
     <string name="vr_report_sends">Skickar ditt meddelande, uppgifter om headset och version, dina inställningar och appens logg, som kan innehålla datorns namn och adress i nätverket. Inget skickas förrän du trycker på ”Skicka”.</string>
-    <string name="vr_report_saves">Sparar ditt meddelande, uppgifter om headset och version, dina inställningar och appens logg, som kan innehålla datorns namn och adress i nätverket, i en fil på det här headsetet.</string>
-    <string name="vr_report_not_sent">Rapporten kunde inte skickas</string>
-    <string name="vr_report_busy">Rapportservern är upptagen</string>
-    <string name="vr_report_saved">Rapporten sparad</string>
-    <string name="vr_report_saved_at">Sparad i %1$s</string>
     <string name="vr_report_not_written">Rapporten kunde inte sparas</string>
     <string name="vr_battery">Batteri %1$d%%</string>
     <string name="title_bug_report">Rapportera ett problem</string>
@@ -494,17 +488,12 @@
     <string name="bug_report_log_off">av. Slå på ”Spara en loggfil” och återskapa problemet först, annars får rapporten ingen logg.</string>
     <string name="bug_report_email_hint">Din e-postadress, för ett svar</string>
     <string name="bug_report_message_hint">Vad hände?</string>
-    <string name="bug_report_send">Skicka med e-post</string>
     <string name="bug_report_send_direct">Skicka</string>
     <string name="bug_report_sending">Skickar rapporten…</string>
-    <string name="bug_report_sent">Rapporten skickad, tack</string>
-    <string name="bug_report_upload_failed">Rapporten kunde inte skickas (%1$s). Den har sparats i\n\n%2$s\n\nFörsök igen med en anslutning, eller kopiera den från headsetet och mejla den till %3$s.</string>
-    <string name="bug_report_busy">Rapportservern är upptagen, rapporten har sparats i\n\n%1$s\n\nFörsök igen senare, eller kopiera den från headsetet och mejla den till %2$s.</string>
-    <string name="bug_report_save">Spara rapporten</string>
-    <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
-    <string name="bug_report_from">Svara till: %1$s</string>
-    <string name="bug_report_saved">Rapporten har sparats i\n\n%1$s</string>
-    <string name="bug_report_no_mail">Det finns ingen e-postapp på den här enheten, så rapporten har sparats i\n\n%1$s\n\nKopiera den från headsetet och bifoga den i ett mejl till %2$s.</string>
+    <string name="bug_report_sent">Rapporten skickad</string>
+    <string name="bug_report_not_sent_at">Kunde inte skicka, sparad i</string>
+    <string name="bug_report_busy_at">Servern är upptagen, sparad i</string>
+    <string name="bug_report_no_collector_at">Bygget saknar server, sparad i</string>
     <string name="bug_report_failed">Kunde inte skriva rapporten: %1$s</string>
     <string name="title_vr_file_log">Spara en loggfil</string>
     <string name="summary_vr_file_log">För en logg i klartext i Download/MoonlightXR, där filhanteraren i headsetet hittar den och du kan bifoga den till en felrapport. Den kan innehålla datorns namn och adress i nätverket. Vid 5 MB flyttas den till moonlight.previous.log, så de två tar aldrig mer än 10 MB tillsammans. Starta om appen för att en ändring ska gälla.</string>

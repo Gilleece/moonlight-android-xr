@@ -1796,7 +1796,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 try {
                     XrPanels.ReportSheet art = reportArt;
                     if (art == null) {
-                        art = new XrPanels.ReportSheet(context, BugReport.collectorConfigured());
+                        art = new XrPanels.ReportSheet(context);
                         reportArt = art;
                     }
                     pixels = art.draw(note, address, focus, hover, sendable, wrong);
@@ -1827,9 +1827,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     // Send was pressed with a note that will do: the address is remembered
-    // for next time, and the report is put together, saved and posted on a
-    // thread of its own while the stream carries on. The toast says how it
-    // went.
+    // for next time, and the report is put together and posted on a thread of
+    // its own while the stream carries on, saved only where it could not go.
+    // The toast says how it went, and where it was saved.
     private void sendReport() {
         final Context context = prefsContext;
         final String note = reportForm.note();
@@ -1844,31 +1844,32 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 + ", display " + Math.round(nativeGetDisplayRate(nativeCtx)) + " Hz";
         FileLog.event("report from the session: " + note.length() + " characters, "
                 + (address.isEmpty() ? "no address" : "an address") + ", "
-                + (BugReport.collectorConfigured() ? "sending" : "saving"));
+                + (BugReport.collectorConfigured() ? "sending" : "no collector, saving"));
         if (BugReport.collectorConfigured()) {
             showNotice(context.getString(R.string.bug_report_sending), null);
         }
         Thread send = new Thread() {
             @Override
             public void run() {
-                BugReport.Outcome outcome = BugReport.file(context, note, address, session);
+                BugReport.Outcome outcome = BugReport.send(context, note, address, session);
                 FileLog.event("report " + outcome.result.name().toLowerCase(Locale.ROOT)
                         + (outcome.path != null ? " at " + outcome.path : "")
                         + (outcome.detail != null ? ": " + outcome.detail : ""));
-                String where = context.getString(R.string.vr_report_saved_at,
-                        BugReport.shortPath(outcome.path));
+                // The reason on the first line, the path it was saved at under it
+                String where = BugReport.shortPath(outcome.path);
                 switch (outcome.result) {
                     case SENT:
                         showNotice(context.getString(R.string.bug_report_sent), null);
                         break;
                     case NOT_SENT:
-                        showNotice(context.getString(R.string.vr_report_not_sent), where, true);
+                        showNotice(context.getString(R.string.bug_report_not_sent_at), where, true);
                         break;
                     case BUSY:
-                        showNotice(context.getString(R.string.vr_report_busy), where, true);
+                        showNotice(context.getString(R.string.bug_report_busy_at), where, true);
                         break;
-                    case SAVED:
-                        showNotice(context.getString(R.string.vr_report_saved), where, true);
+                    case NO_COLLECTOR:
+                        showNotice(context.getString(R.string.bug_report_no_collector_at), where,
+                                true);
                         break;
                     default:
                         showNotice(context.getString(R.string.vr_report_not_written),

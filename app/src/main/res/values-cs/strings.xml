@@ -450,7 +450,6 @@
     <string name="vr_panel_log_file">Soubor protokolu: %1$s</string>
     <string name="vr_panel_log_file_off">Soubor protokolu: vypnuto</string>
     <string name="vr_panel_report_sends">Odešle poznámku s údaji o headsetu, nastavením a protokolem</string>
-    <string name="vr_panel_report_saves">Uloží poznámku s údaji o headsetu, nastavením a protokolem</string>
     <string name="vr_panel_rooms">Místnosti</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -467,11 +466,6 @@
     <string name="vr_report_optional">Volitelné</string>
     <string name="vr_report_email_bad">Tohle nevypadá jako e-mailová adresa</string>
     <string name="vr_report_sends">Odešle vaši zprávu, údaje o headsetu a sestavení, vaše nastavení a protokol aplikace, který může obsahovat název a síťovou adresu vašeho PC. Nic se neodešle, dokud nestisknete „Odeslat“.</string>
-    <string name="vr_report_saves">Uloží vaši zprávu, údaje o headsetu a sestavení, vaše nastavení a protokol aplikace, který může obsahovat název a síťovou adresu vašeho PC, do souboru v tomto headsetu.</string>
-    <string name="vr_report_not_sent">Hlášení se nepodařilo odeslat</string>
-    <string name="vr_report_busy">Server pro hlášení je přetížený</string>
-    <string name="vr_report_saved">Hlášení uloženo</string>
-    <string name="vr_report_saved_at">Uloženo do %1$s</string>
     <string name="vr_report_not_written">Hlášení se nepodařilo uložit</string>
     <string name="vr_battery">Baterie %1$d %%</string>
     <string name="title_bug_report">Nahlásit problém</string>
@@ -490,17 +484,12 @@
     <string name="bug_report_log_off">vypnuto. Zapněte „Ukládat soubor protokolu“ a nejprve problém zopakujte, jinak hlášení nebude obsahovat protokol.</string>
     <string name="bug_report_email_hint">Vaše e-mailová adresa pro odpověď</string>
     <string name="bug_report_message_hint">Co se stalo?</string>
-    <string name="bug_report_send">Odeslat e-mailem</string>
     <string name="bug_report_send_direct">Odeslat</string>
     <string name="bug_report_sending">Odesílání hlášení…</string>
-    <string name="bug_report_sent">Hlášení odesláno, děkujeme</string>
-    <string name="bug_report_upload_failed">Hlášení se nepodařilo odeslat (%1$s). Bylo uloženo do\n\n%2$s\n\nZkuste to znovu s připojením, nebo ho zkopírujte z headsetu a pošlete e-mailem na %3$s.</string>
-    <string name="bug_report_busy">Server pro hlášení je přetížený, hlášení bylo uloženo do\n\n%1$s\n\nZkuste to později znovu, nebo ho zkopírujte z headsetu a pošlete e-mailem na %2$s.</string>
-    <string name="bug_report_save">Uložit hlášení</string>
-    <string name="bug_report_subject">Hlášení Moonlight XR: %1$s, %2$s</string>
-    <string name="bug_report_from">Odpovědět na: %1$s</string>
-    <string name="bug_report_saved">Hlášení bylo uloženo do\n\n%1$s</string>
-    <string name="bug_report_no_mail">V tomto zařízení není e-mailová aplikace, takže hlášení bylo uloženo do\n\n%1$s\n\nZkopírujte ho z headsetu a přiložte k e-mailu na %2$s.</string>
+    <string name="bug_report_sent">Hlášení odesláno</string>
+    <string name="bug_report_not_sent_at">Odeslání se nezdařilo, uloženo do</string>
+    <string name="bug_report_busy_at">Server je přetížený, uloženo do</string>
+    <string name="bug_report_no_collector_at">Sestavení bez serveru, uloženo do</string>
     <string name="bug_report_failed">Hlášení se nepodařilo zapsat: %1$s</string>
     <string name="title_vr_file_log">Ukládat soubor protokolu</string>
     <string name="summary_vr_file_log">Vede textový protokol v Download/MoonlightXR, kde ho najde správce souborů v headsetu a kde ho můžete přiložit k hlášení chyby. Může obsahovat název a síťovou adresu vašeho PC. Při 5 MB přejde do moonlight.previous.log, takže oba dohromady nikdy nezaberou víc než 10 MB. Aby se změna projevila, restartujte aplikaci.</string>

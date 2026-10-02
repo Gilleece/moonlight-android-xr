@@ -56,8 +56,8 @@ $(OUT)/test_gate: test_gate.c check.h $(SRC)/xr_gate.c $(SRC)/xr_gate.h $(SRC)/x
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_gate.c $(SRC)/xr_gate.c -lm
 
-# The pinch and its hold, the triple pinch that locks the hands, and the drag
-# the eyes start
+# Where a hand's pinch comes from and when it presses, the triple pinch that
+# locks the hands, and the drag the eyes start
 $(OUT)/test_pinch: test_pinch.c check.h $(SRC)/xr_pinch.c $(SRC)/xr_pinch.h $(SRC)/xr_math.c \
                    $(SRC)/xr_math.h
 	@mkdir -p $(OUT)

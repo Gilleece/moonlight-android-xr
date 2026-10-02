@@ -454,7 +454,6 @@
     <string name="vr_panel_log_file">Günlük dosyası: %1$s</string>
     <string name="vr_panel_log_file_off">Günlük dosyası: kapalı</string>
     <string name="vr_panel_report_sends">Başlık bilgisi, ayarlarınız ve günlükle bir not gönderir</string>
-    <string name="vr_panel_report_saves">Başlık bilgisi, ayarlarınız ve günlükle bir not kaydeder</string>
     <string name="vr_panel_rooms">Odalar</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -471,11 +470,6 @@
     <string name="vr_report_optional">İsteğe bağlı</string>
     <string name="vr_report_email_bad">Bu bir e-posta adresine benzemiyor</string>
     <string name="vr_report_sends">Mesajınızı, başlık ve sürüm bilgilerini, ayarlarınızı ve bilgisayarınızın ağdaki adını ve adresini içerebilen uygulama günlüğünü gönderir. “Gönder”e basana kadar hiçbir şey gönderilmez.</string>
-    <string name="vr_report_saves">Mesajınızı, başlık ve sürüm bilgilerini, ayarlarınızı ve bilgisayarınızın ağdaki adını ve adresini içerebilen uygulama günlüğünü bu başlıktaki bir dosyaya kaydeder.</string>
-    <string name="vr_report_not_sent">Rapor gönderilemedi</string>
-    <string name="vr_report_busy">Rapor sunucusu meşgul</string>
-    <string name="vr_report_saved">Rapor kaydedildi</string>
-    <string name="vr_report_saved_at">Kaydedildiği yer: %1$s</string>
     <string name="vr_report_not_written">Rapor kaydedilemedi</string>
     <string name="vr_battery">Pil %%%1$d</string>
     <string name="title_bug_report">Sorun bildir</string>
@@ -494,17 +488,12 @@
     <string name="bug_report_log_off">kapalı. Önce “Günlük dosyası kaydet” seçeneğini açıp sorunu yeniden oluşturun, aksi hâlde raporda günlük olmaz.</string>
     <string name="bug_report_email_hint">Yanıt için e-posta adresiniz</string>
     <string name="bug_report_message_hint">Ne oldu?</string>
-    <string name="bug_report_send">E-postayla gönder</string>
     <string name="bug_report_send_direct">Gönder</string>
     <string name="bug_report_sending">Rapor gönderiliyor…</string>
-    <string name="bug_report_sent">Rapor gönderildi, teşekkürler</string>
-    <string name="bug_report_upload_failed">Rapor gönderilemedi (%1$s). Şuraya kaydedildi:\n\n%2$s\n\nBağlantınız olduğunda yeniden deneyin ya da başlıktan kopyalayıp %3$s adresine e-postayla gönderin.</string>
-    <string name="bug_report_busy">Rapor sunucusu meşgul, rapor şuraya kaydedildi:\n\n%1$s\n\nDaha sonra yeniden deneyin ya da başlıktan kopyalayıp %2$s adresine e-postayla gönderin.</string>
-    <string name="bug_report_save">Raporu kaydet</string>
-    <string name="bug_report_subject">Moonlight XR raporu: %1$s, %2$s</string>
-    <string name="bug_report_from">Yanıt adresi: %1$s</string>
-    <string name="bug_report_saved">Rapor şuraya kaydedildi:\n\n%1$s</string>
-    <string name="bug_report_no_mail">Bu cihazda e-posta uygulaması yok, bu yüzden rapor şuraya kaydedildi:\n\n%1$s\n\nBaşlıktan kopyalayıp %2$s adresine gönderilecek bir e-postaya ekleyin.</string>
+    <string name="bug_report_sent">Rapor gönderildi</string>
+    <string name="bug_report_not_sent_at">Gönderilemedi, kaydedildiği yer:</string>
+    <string name="bug_report_busy_at">Sunucu meşgul, kaydedildiği yer:</string>
+    <string name="bug_report_no_collector_at">Bu sürümde sunucu yok, kaydedildiği yer:</string>
     <string name="bug_report_failed">Rapor yazılamadı: %1$s</string>
     <string name="title_vr_file_log">Günlük dosyası kaydet</string>
     <string name="summary_vr_file_log">Download/MoonlightXR içinde düz metin bir günlük tutar; başlıktaki dosya yöneticisi onu bulabilir ve bir hata raporuna ekleyebilirsiniz. Günlük, bilgisayarınızın ağdaki adını ve adresini içerebilir. 5 MB\'a ulaşınca moonlight.previous.log dosyasına geçer, böylece ikisi birlikte asla 10 MB\'ı aşmaz. Değişikliğin geçerli olması için uygulamayı yeniden başlatın.</string>

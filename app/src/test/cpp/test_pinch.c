@@ -1,5 +1,5 @@
-// The pinch and its hold, the triple pinch that locks the hands, and the drag
-// the eyes start, checked a frame at a time
+// Where a hand's pinch comes from and when it presses, the triple pinch that
+// locks the hands, and the drag the eyes start, checked a frame at a time
 #include "check.h"
 #include "xr_pinch.h"
 
@@ -7,93 +7,75 @@
 // One frame at 90 Hz
 #define FRAME_NS 11111111L
 
-// Closes the tips from one gap to another over a time, a frame at a time, and
-// says whether the joints read a pinch at the end
-static int closeTips(PinchGate* g, int64_t* t, float from, float to, int64_t overNs,
-                     int tracked) {
+static void testPinchSource(void) {
+    // The runtime's value wherever a hand profile has it bound, then the aim
+    // flag, then the joints, then nothing
+    CHECK(pinchSource(1, 1, 1) == PINCH_SRC_VALUE);
+    CHECK(pinchSource(1, 0, 0) == PINCH_SRC_VALUE);
+    CHECK(pinchSource(0, 1, 1) == PINCH_SRC_AIM);
+    CHECK(pinchSource(0, 0, 1) == PINCH_SRC_JOINTS);
+    CHECK(pinchSource(0, 0, 0) == PINCH_SRC_NONE);
+    CHECK(!pinchStep(PINCH_SRC_NONE, 0, 1.0f, 1, 1, 0.0f));
+}
+
+// Steps a source a frame at a time while its input moves from one value to
+// another over a time, and says on which frame the pinch first went down, or
+// -1. Value and gap move together, so one helper serves both.
+static int firstDown(int source, float from, float to, int64_t overNs) {
     int frames = (int)(overNs / FRAME_NS);
-    if (frames < 1) {
-        frames = 1;
-    }
-    float closed = 0.0f;
     int down = 0;
-    for (int i = 1; i <= frames; i++) {
-        *t += FRAME_NS;
-        float gap = from + (to - from) * i / frames;
-        down = pinchGateStep(g, 1, tracked, gap, *t, &closed);
+    for (int i = 0; i <= frames; i++) {
+        float x = from + (to - from) * i / frames;
+        down = pinchStep(source, down, x, 0, 1, x);
+        if (down) {
+            return i;
+        }
     }
-    return down;
+    return -1;
 }
 
-static void testPinchGate(void) {
-    PinchGate g;
-    int64_t t = 5000 * MS;
-    float closed;
+static void testPinchValue(void) {
+    // The value presses at 0.65 and lets go at 0.35, the frame it crosses
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 0, 0.64f, 0, 0, 0.0f));
+    CHECK(pinchStep(PINCH_SRC_VALUE, 0, 0.66f, 0, 0, 0.0f));
+    CHECK(pinchStep(PINCH_SRC_VALUE, 1, 0.36f, 0, 0, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 1, 0.34f, 0, 0, 0.0f));
+    CHECK(PINCH_VALUE_ON == 0.65f && PINCH_VALUE_OFF == 0.35f);
 
-    // A deliberate pinch, 60 mm to 8 mm in 120 ms, presses
-    pinchGateReset(&g);
-    CHECK(closeTips(&g, &t, 0.060f, 0.008f, 120 * MS, 1));
-    // And stays down while the tips open to under 20 mm, through a drag
-    CHECK(closeTips(&g, &t, 0.008f, 0.019f, 200 * MS, 1));
-    // Then lets go
-    CHECK(!closeTips(&g, &t, 0.019f, 0.021f, 20 * MS, 1));
+    // A quick pinch, 0 to 1 in 100 ms (9 frames): down on the first frame
+    // past 0.65, the sixth, with nothing held back
+    CHECK(firstDown(PINCH_SRC_VALUE, 0.0f, 1.0f, 100 * MS) == 6);
+    // A slow one, 0 to 1 over 1.5 s, still presses, on the first frame past
+    // 0.65 of its 135
+    int slow = firstDown(PINCH_SRC_VALUE, 0.0f, 1.0f, 1500 * MS);
+    CHECK(slow == 88);
+    // And one that only reaches 0.6 never does
+    CHECK(firstDown(PINCH_SRC_VALUE, 0.0f, 0.6f, 500 * MS) == -1);
 
-    // Fingers drifting together over a second never press, even well inside
-    // the on distance
-    pinchGateReset(&g);
-    CHECK(!closeTips(&g, &t, 0.030f, 0.010f, 1000 * MS, 1));
-    CHECK(!closeTips(&g, &t, 0.010f, 0.005f, 500 * MS, 1));
-
-    // Inside 20 mm is no longer close enough: the tips have to reach 14
-    pinchGateReset(&g);
-    CHECK(!closeTips(&g, &t, 0.060f, 0.016f, 100 * MS, 1));
-    // Closing on from there inside the window still counts as it finishes
-    CHECK(closeTips(&g, &t, 0.016f, 0.012f, 30 * MS, 1));
-
-    // A hand that turns up already pinched has no closing to show
-    pinchGateReset(&g);
-    t += FRAME_NS;
-    CHECK(!pinchGateStep(&g, 1, 1, 0.006f, t, &closed));
-
-    // Estimated tips take the old 20 / 32 mm rule
-    pinchGateReset(&g);
-    t += FRAME_NS;
-    CHECK(!pinchGateStep(&g, 1, 0, 0.021f, t, &closed));
-    t += FRAME_NS;
-    CHECK(pinchGateStep(&g, 1, 0, 0.019f, t, &closed));
-    t += FRAME_NS;
-    CHECK(pinchGateStep(&g, 1, 0, 0.031f, t, &closed));
-    t += FRAME_NS;
-    CHECK(!pinchGateStep(&g, 1, 0, 0.033f, t, &closed));
-
-    // Tips lost: no pinch, and the history goes with them
-    t += FRAME_NS;
-    CHECK(!pinchGateStep(&g, 0, 0, 0.0f, t, &closed));
-    CHECK(g.count == 0);
+    // The value is all a hand with it reads: the tips and the flag are ignored
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 0, 0.1f, 1, 1, 0.001f));
 }
 
-static void testPinchHold(void) {
-    int64_t since = 0;
-    int64_t t = 100 * MS;
-    // 80 ms of a wanted pinch before it is a press
-    CHECK(!pinchHoldStep(&since, 1, 0, t));
-    CHECK(!pinchHoldStep(&since, 1, 0, t + 79 * MS));
-    CHECK(pinchHoldStep(&since, 1, 0, t + 80 * MS));
-    // Down stays down while wanted, and letting go is never held
-    CHECK(pinchHoldStep(&since, 1, 1, t + 300 * MS));
-    CHECK(!pinchHoldStep(&since, 0, 1, t + 301 * MS));
-    // A brush of the fingers, 60 ms, never presses
-    CHECK(!pinchHoldStep(&since, 1, 0, t + 400 * MS));
-    CHECK(!pinchHoldStep(&since, 1, 0, t + 460 * MS));
-    CHECK(!pinchHoldStep(&since, 0, 0, t + 470 * MS));
-    CHECK(!pinchHoldStep(&since, 1, 0, t + 480 * MS));
-    CHECK(!pinchHoldStep(&since, 1, 0, t + 540 * MS));
+static void testPinchAim(void) {
+    // The flag is the runtime's judgement, taken as it is
+    CHECK(pinchStep(PINCH_SRC_AIM, 0, 0.0f, 1, 0, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_AIM, 1, 1.0f, 0, 1, 0.001f));
+}
 
-    // The runtime's value presses at 0.9 and lets go at 0.7
-    CHECK(!pressHysteresis(0.89f, 0, PINCH_VALUE_ON, PINCH_VALUE_OFF));
-    CHECK(pressHysteresis(0.91f, 0, PINCH_VALUE_ON, PINCH_VALUE_OFF));
-    CHECK(pressHysteresis(0.71f, 1, PINCH_VALUE_ON, PINCH_VALUE_OFF));
-    CHECK(!pressHysteresis(0.69f, 1, PINCH_VALUE_ON, PINCH_VALUE_OFF));
+static void testPinchJoints(void) {
+    // The tips press inside 20 mm and let go past 32
+    CHECK(!pinchStep(PINCH_SRC_JOINTS, 0, 0.0f, 0, 1, 0.021f));
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 0, 0.0f, 0, 1, 0.019f));
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 1, 0.0f, 0, 1, 0.031f));
+    CHECK(!pinchStep(PINCH_SRC_JOINTS, 1, 0.0f, 0, 1, 0.033f));
+    CHECK(PINCH_ON_M == 0.020f && PINCH_OFF_M == 0.032f);
+    // Tips not located are no pinch, held or not
+    CHECK(!pinchStep(PINCH_SRC_JOINTS, 1, 0.0f, 0, 0, 0.005f));
+
+    // Fingers closing slowly, 60 to 5 mm over a second, press on the first
+    // frame inside 20 mm; a hand that turns up already closed presses at once
+    CHECK(firstDown(PINCH_SRC_JOINTS, 0.060f, 0.005f, 1000 * MS) == 66);
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 0, 0.0f, 0, 1, 0.006f));
 }
 
 // What a run of pinches does as the input pass applies it: each pinch is its
@@ -295,8 +277,10 @@ static void testDragRamp(void) {
 }
 
 int main(void) {
-    testPinchGate();
-    testPinchHold();
+    testPinchSource();
+    testPinchValue();
+    testPinchAim();
+    testPinchJoints();
     testTriplePinch();
     testDragRamp();
     return checksDone("xr_pinch");

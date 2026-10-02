@@ -393,11 +393,6 @@
     <string name="vr_report_optional">選填</string>
     <string name="vr_report_email_bad">這看起來不像電子郵件地址</string>
     <string name="vr_report_sends">將傳送您的說明、頭戴裝置與版本資訊、您的設定以及應用程式記錄檔，記錄檔中可能包含您電腦在區域網路中的名稱與位址。在您按下「傳送」之前不會傳送任何內容。</string>
-    <string name="vr_report_saves">將把您的說明、頭戴裝置與版本資訊、您的設定以及應用程式記錄檔儲存為此頭戴裝置上的檔案，記錄檔中可能包含您電腦在區域網路中的名稱與位址。</string>
-    <string name="vr_report_not_sent">無法傳送報告</string>
-    <string name="vr_report_busy">報告伺服器忙碌中</string>
-    <string name="vr_report_saved">報告已儲存</string>
-    <string name="vr_report_saved_at">已儲存至 %1$s</string>
     <string name="vr_report_not_written">無法儲存報告</string>
     <string name="vr_battery">電量 %1$d%%</string>
 
@@ -417,17 +412,12 @@
     <string name="bug_report_log_off">已關閉。請先開啟「儲存記錄檔」並重現問題，否則報告將不包含記錄。</string>
     <string name="bug_report_email_hint">您的電子郵件地址 (用於接收回覆)</string>
     <string name="bug_report_message_hint">發生了什麼狀況？</string>
-    <string name="bug_report_send">透過電子郵件傳送</string>
     <string name="bug_report_send_direct">傳送</string>
     <string name="bug_report_sending">正在傳送報告…</string>
-    <string name="bug_report_sent">報告已傳送，感謝您的回饋！</string>
-    <string name="bug_report_upload_failed">無法傳送報告 (%1$s)。已儲存至：\n\n%2$s\n\n請在有連線時重試，或將檔案從頭戴裝置複製出來並傳送電子郵件至 %3$s。</string>
-    <string name="bug_report_busy">報告伺服器忙碌中，報告已儲存至：\n\n%1$s\n\n請稍後重試，或將檔案從頭戴裝置複製出來並傳送電子郵件至 %2$s。</string>
-    <string name="bug_report_save">儲存報告</string>
-    <string name="bug_report_subject">Moonlight XR 問題回報：%1$s，%2$s</string>
-    <string name="bug_report_from">回覆給：%1$s</string>
-    <string name="bug_report_saved">報告已儲存至：\n\n%1$s</string>
-    <string name="bug_report_no_mail">此裝置上沒有電子郵件應用程式，報告已儲存至：\n\n%1$s\n\n請將其從頭戴裝置複製出來，並作為附件傳送電子郵件至 %2$s。</string>
+    <string name="bug_report_sent">報告已傳送</string>
+    <string name="bug_report_not_sent_at">傳送失敗，已儲存至</string>
+    <string name="bug_report_busy_at">伺服器忙碌中，已儲存至</string>
+    <string name="bug_report_no_collector_at">此版本未設定收集伺服器，已儲存至</string>
     <string name="bug_report_failed">無法寫入報告：%1$s</string>
 
     <!-- VR Debug strings -->
@@ -547,7 +537,6 @@
     <string name="vr_panel_log_file">記錄檔：%1$s</string>
     <string name="vr_panel_log_file_off">記錄檔：已關閉</string>
     <string name="vr_panel_report_sends">傳送一則附有頭戴裝置資訊、設定和記錄的說明</string>
-    <string name="vr_panel_report_saves">儲存一則附有頭戴裝置資訊、設定和記錄的說明</string>
     <string name="vr_panel_rooms">房間</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
