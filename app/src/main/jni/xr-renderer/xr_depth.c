@@ -331,17 +331,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeFinishDepthCapture(JNIEnv* env
     return nowNs() - startNs;
 }
 
-static jboolean bindContext(XrCtx* ctx, EGLContext context, EGLSurface surface,
-                            const char* who) {
-    if (!eglMakeCurrent(ctx->eglDisplay, surface, surface, context)) {
-        LOGE("%s eglMakeCurrent failed: %d", who, eglGetError());
-        return JNI_FALSE;
-    }
-    return JNI_TRUE;
-}
-
-static void unbindContext(XrCtx* ctx, EGLContext* context, EGLSurface* surface) {
-    eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+static void destroyContext(XrCtx* ctx, EGLContext* context, EGLSurface* surface) {
     if (*surface != EGL_NO_SURFACE) {
         eglDestroySurface(ctx->eglDisplay, *surface);
         *surface = EGL_NO_SURFACE;
@@ -353,6 +343,23 @@ static void unbindContext(XrCtx* ctx, EGLContext* context, EGLSurface* surface) 
     eglReleaseThread();
 }
 
+static jboolean bindContext(XrCtx* ctx, EGLContext* context, EGLSurface* surface,
+                            const char* who) {
+    if (!eglMakeCurrent(ctx->eglDisplay, *surface, *surface, *context)) {
+        LOGE("%s eglMakeCurrent failed: %d", who, eglGetError());
+        // The thread gives up without the unbind that would free them, so
+        // they go here
+        destroyContext(ctx, context, surface);
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+static void unbindContext(XrCtx* ctx, EGLContext* context, EGLSurface* surface) {
+    eglMakeCurrent(ctx->eglDisplay, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+    destroyContext(ctx, context, surface);
+}
+
 // Binds the depth thread's context. Called once from that thread before it
 // touches GL or creates the delegate.
 JNIEXPORT jboolean JNICALL
@@ -361,7 +368,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeBindDepthContext(JNIEnv* env, 
     if (ctx == NULL) {
         return JNI_FALSE;
     }
-    return bindContext(ctx, ctx->depthContext, ctx->depthPbuffer, "depth thread");
+    return bindContext(ctx, &ctx->depthContext, &ctx->depthPbuffer, "depth thread");
 }
 
 JNIEXPORT void JNICALL
@@ -392,7 +399,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeBindDepthStageContext(JNIEnv* 
     if (ctx == NULL) {
         return JNI_FALSE;
     }
-    return bindContext(ctx, ctx->depthStageContext, ctx->depthStagePbuffer, "depth stage");
+    return bindContext(ctx, &ctx->depthStageContext, &ctx->depthStagePbuffer, "depth stage");
 }
 
 JNIEXPORT void JNICALL
