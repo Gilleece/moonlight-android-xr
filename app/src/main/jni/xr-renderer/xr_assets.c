@@ -156,12 +156,11 @@ int createPointerSwapchain(XrCtx* ctx) {
                            &ctx->padButtonImageCounts[state]);
     }
 
-    // Two padlocks rather than one, since a quad layer has no way to swap
-    // its own texture and open and shut have to read differently
-    createArtSwapchain(ctx, LOCK_TEX, LOCK_TEX, "create lock swapchain",
-                       &ctx->lockSwapchain, &ctx->lockImages, &ctx->lockImageCount);
-    createArtSwapchain(ctx, LOCK_TEX, LOCK_TEX, "create unlock swapchain",
-                       &ctx->unlockSwapchain, &ctx->unlockImages, &ctx->unlockImageCount);
+    // The hand lock hint, only in a session that may show it
+    if (ctx->handsEnabled) {
+        createArtSwapchain(ctx, HINT_TEX_W, HINT_TEX_H, "create hand lock hint swapchain",
+                           &ctx->hintSwapchain, &ctx->hintImages, &ctx->hintImageCount);
+    }
 
     createArtSwapchain(ctx, OUTLINE_TEX, OUTLINE_TEX, "create outline swapchain",
                        &ctx->outlineSwapchain, &ctx->outlineImages, &ctx->outlineImageCount);
@@ -715,7 +714,7 @@ Java_com_limelight_binding_video_XrRenderer_nativePushNotice(JNIEnv* env, jobjec
     }
 }
 
-// The 3D switch's two faces, off and on. Both or neither, like the padlocks.
+// The 3D switch's two faces, off and on. Both or neither.
 // Never called in a session without stereo, which has no swapchains for them.
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_video_XrRenderer_nativeUploadStereoButton(JNIEnv* env, jobject thiz,
@@ -792,26 +791,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadPadButton(JNIEnv* env, j
     LOGI("gamepad button art %s", ctx->padButtonReady ? "ready" : "missing");
 }
 
-// The two padlocks, shut and open. Both or neither, since one on its own
-// would leave the button blank in half its states.
+// The hand lock hint's sheet, drawn once at the start of a session that may
+// show it. Until it is up the hint waits, since a modal nobody can see would
+// swallow every press.
 JNIEXPORT void JNICALL
-Java_com_limelight_binding_video_XrRenderer_nativeUploadLock(JNIEnv* env, jobject thiz,
-                                                             jlong handle, jobject shut,
-                                                             jobject open) {
+Java_com_limelight_binding_video_XrRenderer_nativeUploadHandHint(JNIEnv* env, jobject thiz,
+                                                                 jlong handle, jobject sheet) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
-    if (ctx == NULL || shut == NULL || open == NULL) {
+    if (ctx == NULL) {
         return;
     }
-    const char* shutPx = (*env)->GetDirectBufferAddress(env, shut);
-    const char* openPx = (*env)->GetDirectBufferAddress(env, open);
-    if (shutPx == NULL || openPx == NULL) {
-        return;
-    }
-    ctx->lockArtReady = uploadFlipped(ctx, ctx->lockSwapchain, ctx->lockImages,
-                                      (const unsigned char*)shutPx, LOCK_TEX, LOCK_TEX)
-            && uploadFlipped(ctx, ctx->unlockSwapchain, ctx->unlockImages,
-                             (const unsigned char*)openPx, LOCK_TEX, LOCK_TEX);
-    LOGI("lock art %s", ctx->lockArtReady ? "ready" : "missing");
+    uploadSheet(env, ctx, sheet, ctx->hintSwapchain, ctx->hintImages, HINT_TEX_W, HINT_TEX_H,
+                &ctx->hintReady);
+    LOGI("hand lock hint art %s", ctx->hintReady ? "ready" : "missing");
 }
 
 // Which room a picker cell puts up, 0 for a cell that is not a room. The one

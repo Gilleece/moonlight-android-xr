@@ -319,9 +319,10 @@
     <string name="title_vr_gaze">注視瞄準 (Look to point)</string>
     <string name="summary_vr_gaze">在支援眼球追蹤的頭戴裝置上，透過注視螢幕進行瞄準，用任一隻手捏合手指點擊。按下控制器上的按鍵後由控制器接管游標，直到將其放下；若眼球追蹤遺失 10 秒，將改由雙手指向，直到恢復。</string>
     <string name="title_vr_hand_tracking">手勢追蹤</string>
-    <string name="summary_vr_hand_tracking">放下控制器時可透過手勢指向與捏合操作。關閉此項可僅使用控制器。在串流階段中，用拇指觸碰無名指半秒，或點擊螢幕左側的鎖定圖示，可鎖定手勢互動而無需離開遊戲。</string>
-    <string name="title_vr_show_hand_lock">顯示手勢鎖定圖示</string>
-    <string name="summary_vr_show_hand_lock">在串流階段中於螢幕左側顯示鎖定圖示。無論是否顯示，用拇指觸碰無名指半秒即可鎖定或解鎖手勢。</string>
+    <string name="summary_vr_hand_tracking">放下控制器時可透過手勢指向與捏合操作。關閉此項可僅使用控制器。在串流階段中，用拇指觸碰無名指片刻，可鎖定手勢互動而無需離開遊戲；再做一次同樣的手勢即可解鎖。</string>
+    <string name="vr_hand_hint_title">手勢追蹤已開啟。</string>
+    <string name="vr_hand_hint_body">用拇指觸碰無名指片刻即可鎖定手勢，避免誤捏造成點擊；再做一次同樣的手勢即可解鎖。</string>
+    <string name="vr_hand_hint_never">不再顯示</string>
     <string name="title_vr_reset_pose">重設螢幕位置</string>
     <string name="summary_vr_reset_pose">將螢幕恢復至上方設定的距離和寬度，復原使用控制器進行的移動或縮放操作</string>
     <string name="toast_vr_reset_pose">螢幕位置已重設</string>

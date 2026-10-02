@@ -34,7 +34,7 @@ public class ClickSoundPrefsTest {
         FakePrefs prefs = new FakePrefs();
         prefs.putBoolean(PreferenceConfiguration.VR_CLICK_SOUND_PREF_STRING, false);
         assertTrue(PreferenceConfiguration.pointerSleepOn(prefs));
-        assertTrue(PreferenceConfiguration.handLockIconShown(prefs));
+        assertTrue(PreferenceConfiguration.rayShown(prefs));
     }
 
     private static final class FakePrefs implements SharedPreferences, SharedPreferences.Editor {

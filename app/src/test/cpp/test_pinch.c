@@ -95,19 +95,17 @@ static void testPinchHold(void) {
     CHECK(!pressHysteresis(0.69f, 1, PINCH_VALUE_ON, PINCH_VALUE_OFF));
 }
 
-// Holds a ring pinch with the other tips where they are told, for a time, and
-// says how many times it fired and the last refusal seen
-static int holdRing(RingGate* g, long* t, long forNs, float ring, float index, float middle,
-                    int busy, int* refused) {
+// Holds the four fingertips where they are told, in mm from the thumb tip, for
+// a time, and says how many times the gesture fired and why it was not held on
+// the last frame
+static int holdRing(RingGate* g, long* t, long forNs, float index, float middle, float ring,
+                    float little, int* why) {
+    const float gaps[TIP_COUNT] = { index * 0.001f, middle * 0.001f, ring * 0.001f,
+                                    little * 0.001f };
     int fired = 0;
-    *refused = RING_OK;
     for (long done = 0; done < forNs; done += FRAME_NS) {
         *t += FRAME_NS;
-        int r;
-        fired += ringGateStep(g, 1, ring, index, middle, busy, *t, &r);
-        if (r != RING_OK) {
-            *refused = r;
-        }
+        fired += ringGateStep(g, 1, gaps, *t, why);
     }
     return fired;
 }
@@ -115,53 +113,125 @@ static int holdRing(RingGate* g, long* t, long forNs, float ring, float index, f
 static void testRingGesture(void) {
     RingGate g;
     long t = 0;
-    int refused;
+    int why;
 
-    // Held cleanly for half a second it fires once, and only once however
-    // long it is held
+    // Held cleanly for 350 ms it fires once, and only once however long it
+    // is held. 340 ms of frames reach 333 ms of hold, two more pass 350.
     ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 480 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 0);
-    CHECK(holdRing(&g, &t, 30 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 1);
-    CHECK(holdRing(&g, &t, 2000 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 0);
+    CHECK(holdRing(&g, &t, 340 * MS, 70, 50, 10, 40, &why) == 0);
+    CHECK(why == RING_OK);
+    CHECK(ringHoldNs(&g, t) > 300 * MS && ringHoldNs(&g, t) < RING_HOLD_NS);
+    CHECK(holdRing(&g, &t, 20 * MS, 70, 50, 10, 40, &why) == 1);
+    CHECK(holdRing(&g, &t, 2000 * MS, 70, 50, 10, 40, &why) == 0);
+    CHECK(why == RING_SPENT);
+    CHECK(ringHoldNs(&g, t) == 0);
     // Parting the fingers lets it fire again
-    holdRing(&g, &t, 50 * MS, 0.040f, 0.070f, 0.050f, RING_OK, &refused);
-    CHECK(holdRing(&g, &t, 520 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 1);
+    holdRing(&g, &t, 50 * MS, 70, 50, 40, 40, &why);
+    CHECK(why == RING_FAR);
+    CHECK(holdRing(&g, &t, 370 * MS, 70, 50, 10, 40, &why) == 1);
 
-    // A fist: the index and middle tips are near the thumb too
+    // A real hand pinching thumb to ring: the middle tip curls in 20 mm from
+    // the thumb, beside the ring tip, and it still passes
     ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.025f, 0.020f, RING_OK, &refused) == 0);
-    CHECK(refused == RING_INDEX);
+    CHECK(holdRing(&g, &t, 400 * MS, 45, 20, 13, 30, &why) == 1);
+    // As close as the ring tip without being nearer, the same
     ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.060f, 0.020f, RING_OK, &refused) == 0);
-    CHECK(refused == RING_MIDDLE);
+    CHECK(holdRing(&g, &t, 400 * MS, 45, 13, 13, 30, &why) == 1);
 
-    // During an index pinch or a grab the hand is busy
+    // An index pinch is never one: the ring tip too far off
     ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.060f, 0.050f, RING_GRAB, &refused) == 0);
-    CHECK(refused == RING_GRAB);
+    CHECK(holdRing(&g, &t, 1000 * MS, 8, 35, 30, 45, &why) == 0);
+    CHECK(why == RING_FAR);
+    // Or curled in close, but the index tip is nearer
     ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 0.012f, 0.060f, 0.050f, RING_PRESSED, &refused) == 0);
-    CHECK(refused == RING_PRESSED);
+    CHECK(holdRing(&g, &t, 1000 * MS, 8, 25, 18, 30, &why) == 0);
+    CHECK(why == RING_NOT_NEAREST);
+    // Or the ring tip nearest, but the index tip all but as close
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 20, 30, 12, 35, &why) == 0);
+    CHECK(why == RING_INDEX);
+    // A millimetre inside the margin refuses, half a millimetre past it passes
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 26, 30, 15, 35, &why) == 0);
+    CHECK(why == RING_INDEX);
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 400 * MS, 27.5f, 30, 15, 35, &why) == 1);
+
+    // A middle or little tip nearer than the ring tip is not the gesture
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 50, 9, 12, 30, &why) == 0);
+    CHECK(why == RING_NOT_NEAREST);
+    ringGateReset(&g);
+    CHECK(holdRing(&g, &t, 1000 * MS, 50, 30, 12, 8, &why) == 0);
+    CHECK(why == RING_NOT_NEAREST);
 
     // A refusal partway through starts the hold again
     ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 400 * MS, 0.012f, 0.060f, 0.050f, RING_OK, &refused) == 0);
-    CHECK(holdRing(&g, &t, 30 * MS, 0.012f, 0.020f, 0.050f, RING_OK, &refused) == 0);
-    CHECK(holdRing(&g, &t, 400 * MS, 0.012f, 0.060f, 0.050f, RING_OK, &refused) == 0);
-    CHECK(holdRing(&g, &t, 200 * MS, 0.012f, 0.060f, 0.050f, RING_OK, &refused) == 1);
+    CHECK(holdRing(&g, &t, 300 * MS, 60, 30, 12, 30, &why) == 0);
+    CHECK(holdRing(&g, &t, 30 * MS, 60, 10, 12, 30, &why) == 0);
+    CHECK(why == RING_NOT_NEAREST);
+    CHECK(holdRing(&g, &t, 300 * MS, 60, 30, 12, 30, &why) == 0);
+    CHECK(holdRing(&g, &t, 100 * MS, 60, 30, 12, 30, &why) == 1);
 
-    // Its own hysteresis: closes under 18 mm, stays closed up to 30
+    // Its own hysteresis: closes under 22 mm, stays closed up to 32
     ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 0.019f, 0.060f, 0.050f, RING_OK, &refused) == 0);
-    holdRing(&g, &t, 20 * MS, 0.015f, 0.060f, 0.050f, RING_OK, &refused);
-    CHECK(holdRing(&g, &t, 600 * MS, 0.028f, 0.060f, 0.050f, RING_OK, &refused) == 1);
+    CHECK(holdRing(&g, &t, 1000 * MS, 60, 40, 23, 40, &why) == 0);
+    CHECK(why == RING_FAR);
+    holdRing(&g, &t, 20 * MS, 60, 40, 20, 40, &why);
+    CHECK(holdRing(&g, &t, 400 * MS, 60, 40, 31, 40, &why) == 1);
+    holdRing(&g, &t, 20 * MS, 60, 40, 33, 40, &why);
+    CHECK(why == RING_FAR && !g.closed);
 
     // Tips lost resets it
     ringGateReset(&g);
-    holdRing(&g, &t, 400 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused);
+    holdRing(&g, &t, 300 * MS, 70, 50, 10, 40, &why);
     t += FRAME_NS;
-    CHECK(!ringGateStep(&g, 0, 0.0f, 0.0f, 0.0f, RING_OK, t, &refused));
-    CHECK(holdRing(&g, &t, 400 * MS, 0.010f, 0.070f, 0.050f, RING_OK, &refused) == 0);
+    const float none[TIP_COUNT] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    CHECK(!ringGateStep(&g, 0, none, t, &why));
+    CHECK(why == RING_UNTRACKED);
+    CHECK(holdRing(&g, &t, 300 * MS, 70, 50, 10, 40, &why) == 0);
+
+    // Every reason has words for the log
+    for (int r = 0; r < RING_REASONS; r++) {
+        CHECK(ringReasonName(r)[0] != '\0');
+    }
+}
+
+static void testRingNearest(void) {
+    const float clear[TIP_COUNT] = { 0.05f, 0.04f, 0.01f, 0.03f };
+    CHECK(ringNearestTip(clear) == TIP_RING);
+    const float middle[TIP_COUNT] = { 0.05f, 0.009f, 0.01f, 0.03f };
+    CHECK(ringNearestTip(middle) == TIP_MIDDLE);
+    // A tie goes to the ring tip
+    const float tie[TIP_COUNT] = { 0.05f, 0.01f, 0.01f, 0.01f };
+    CHECK(ringNearestTip(tie) == TIP_RING);
+    // A tip the runtime could not place is passed over
+    const float unplaced[TIP_COUNT] = { -1.0f, 0.03f, 0.02f, -1.0f };
+    CHECK(ringNearestTip(unplaced) == TIP_RING);
+    const float noRing[TIP_COUNT] = { 0.04f, 0.03f, -1.0f, -1.0f };
+    CHECK(ringNearestTip(noRing) == TIP_MIDDLE);
+    const float nothing[TIP_COUNT] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    CHECK(ringNearestTip(nothing) < 0);
+}
+
+static void testRingDiagnostic(void) {
+    long last = 0;
+    long t = 1000 * MS;
+    // Nothing near the thumb, or only tips it cannot place, says nothing
+    const float farTips[TIP_COUNT] = { 0.08f, 0.07f, 0.06f, 0.05f };
+    CHECK(!ringDiagDue(&last, farTips, t));
+    const float unplaced[TIP_COUNT] = { -1.0f, -1.0f, -1.0f, -1.0f };
+    CHECK(!ringDiagDue(&last, unplaced, t));
+    CHECK(last == 0);
+    // A tip inside 40 mm says so at once, then every 250 ms
+    const float nearTips[TIP_COUNT] = { 0.08f, 0.039f, 0.06f, 0.05f };
+    CHECK(ringDiagDue(&last, nearTips, t));
+    CHECK(last == t);
+    CHECK(!ringDiagDue(&last, nearTips, t + 249 * MS));
+    CHECK(ringDiagDue(&last, nearTips, t + 250 * MS));
+    // 40 mm itself is not near
+    const float edge[TIP_COUNT] = { 0.08f, 0.04f, 0.06f, 0.05f };
+    CHECK(!ringDiagDue(&last, edge, t + 900 * MS));
 }
 
 static void testDragRamp(void) {
@@ -251,6 +321,8 @@ int main(void) {
     testPinchGate();
     testPinchHold();
     testRingGesture();
+    testRingNearest();
+    testRingDiagnostic();
     testDragRamp();
     return checksDone("xr_pinch");
 }

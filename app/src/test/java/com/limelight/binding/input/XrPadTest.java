@@ -64,7 +64,10 @@ public class XrPadTest {
         assertEquals(XrShared.IN_PAD_LX + 1, XrShared.IN_PAD_LY);
         assertEquals(XrShared.IN_PAD_LY + 1, XrShared.IN_PAD_RX);
         assertEquals(XrShared.IN_PAD_RX + 1, XrShared.IN_PAD_RY);
-        assertEquals(XrShared.IN_PAD_RY + 1, XrShared.IN_SLOTS);
+        // Only the hand lock hint's and the Ko-fi button's slots after them
+        assertEquals(XrShared.IN_PAD_RY + 1, XrShared.IN_HINT);
+        assertEquals(XrShared.IN_HINT + 1, XrShared.IN_KOFI);
+        assertEquals(XrShared.IN_KOFI + 1, XrShared.IN_SLOTS);
         // A stick's full tilt and the largest button bit survive the float
         // slots exactly
         assertEquals(32766, (int)(float)32766);

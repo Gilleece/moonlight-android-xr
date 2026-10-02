@@ -33,7 +33,7 @@ import static com.limelight.binding.video.XrShared.*;
  * The flat panels reachable from inside the session: the environment picker,
  * the settings sheets, the keyboard and the exit prompt, and the buttons along
  * the bar that open them or switch the 3D, with the splash the session opens
- * on. Java is the only place Android will lay out text, so their art
+ * on and the hand lock hint. Java is the only place Android will lay out text, so their art
  * is drawn to bitmaps here and handed back as pixels for the frame loop to
  * upload, since that thread owns the GL context. Nothing in here touches the
  * session, so it can run on whichever thread has the time.
@@ -415,9 +415,8 @@ final class XrPanels {
         return pixels;
     }
 
-    // The padlocks and the cog ship as PNGs. Colour carries the state, so there
-    // is nothing to tint or dim here, just a decode and a downscale to whatever
-    // the swapchain it is headed for wants.
+    // The cog ships as a PNG. There is nothing to tint or dim here, just a
+    // decode and a downscale to whatever the swapchain it is headed for wants.
     private Bitmap loadIcon(String fileName, int size) {
         InputStream in = null;
         try {
@@ -469,25 +468,6 @@ final class XrPanels {
         canvas.drawPath(hills, paint);
 
         return toBuffer(button);
-    }
-
-    // The padlock shut, then open, or nothing at all
-    ByteBuffer[] buildLockIcons() {
-        Bitmap shut = loadIcon("handtracking_locked.png", LOCK_TEX);
-        Bitmap open = loadIcon("handtracking_unlocked.png", LOCK_TEX);
-        // Both or neither, since one on its own would leave the button blank
-        // in half its states
-        ByteBuffer[] icons = null;
-        if (shut != null && open != null) {
-            icons = new ByteBuffer[] { toBuffer(shut), toBuffer(open) };
-        }
-        if (shut != null) {
-            shut.recycle();
-        }
-        if (open != null) {
-            open.recycle();
-        }
-        return icons;
     }
 
     /**
@@ -1318,9 +1298,10 @@ final class XrPanels {
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
     }
 
-    // About tab: the app's name and version, where its log is, and the button
-    // that opens the report sheet, drawn the way the reset buttons are. The
-    // ring under the ray is the native side's.
+    // About tab: the app's name and version, where its log is, then Ko-fi
+    // over the button that opens the report sheet, both drawn the way the
+    // reset buttons are, each with a quiet line under it. The ring under the
+    // ray is the native side's.
     private void drawCogAbout(Canvas canvas) {
         final float mid = COG_TEX_W * 0.5f;
         final float room = COG_TEX_W - 80.0f;
@@ -1328,7 +1309,7 @@ final class XrPanels {
         name.setTextSize(30.0f);
         name.setTextAlign(Paint.Align.CENTER);
         name.setColor(Color.WHITE);
-        canvas.drawText(COG_ABOUT_NAME, mid, 0.28f * COG_TEX_H, name);
+        canvas.drawText(COG_ABOUT_NAME, mid, 0.25f * COG_TEX_H, name);
 
         Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
         line.setTextSize(19.0f);
@@ -1336,35 +1317,45 @@ final class XrPanels {
         line.setColor(0xB0FFFFFF);
         String version = "Version " + BuildConfig.VERSION_NAME
                 + (BuildConfig.GIT_HASH.isEmpty() ? "" : ", commit " + BuildConfig.GIT_HASH);
-        canvas.drawText(Toast.fit(version, line, room), mid, 0.36f * COG_TEX_H, line);
+        canvas.drawText(Toast.fit(version, line, room), mid, 0.32f * COG_TEX_H, line);
         String log = FileLog.getLogPath();
         canvas.drawText(Toast.fit("Log file: " + (log != null ? BugReport.shortPath(log) : "off"),
-                line, room), mid, 0.43f * COG_TEX_H, line);
+                line, room), mid, 0.38f * COG_TEX_H, line);
 
+        // Each button's line, where the other tabs say why a row is dead
+        Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        hint.setTextSize(17.0f);
+        hint.setTextAlign(Paint.Align.CENTER);
+        hint.setColor(0x80FFFFFF);
+
+        drawAboutButton(canvas, COG_KOFI_L, COG_KOFI_T, COG_KOFI_R, COG_KOFI_B,
+                context.getString(R.string.title_about_kofi));
+        canvas.drawText(Toast.fit(context.getString(R.string.summary_about_kofi), hint, room),
+                mid, (COG_KOFI_B + 0.05f) * COG_TEX_H, hint);
+
+        drawAboutButton(canvas, COG_REPORT_L, COG_REPORT_T, COG_REPORT_R, COG_REPORT_B,
+                context.getString(R.string.title_bug_report));
+        canvas.drawText(BugReport.collectorConfigured()
+                        ? "Sends a note with the headset, your settings and the log"
+                        : "Saves a note with the headset, your settings and the log",
+                mid, (COG_REPORT_B + 0.05f) * COG_TEX_H, hint);
+    }
+
+    // One of the About tab's buttons, plain like the reset buttons
+    private static void drawAboutButton(Canvas canvas, float l, float t, float r, float b,
+                                        String text) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         paint.setColor(0xEEFFFFFF);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(4.0f);
-        RectF button = new RectF(COG_REPORT_L * COG_TEX_W, COG_REPORT_T * COG_TEX_H,
-                COG_REPORT_R * COG_TEX_W, COG_REPORT_B * COG_TEX_H);
+        RectF button = new RectF(l * COG_TEX_W, t * COG_TEX_H, r * COG_TEX_W, b * COG_TEX_H);
         canvas.drawRoundRect(button, 14.0f, 14.0f, paint);
         Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
         label.setTextSize(24.0f);
         label.setTextAlign(Paint.Align.CENTER);
         label.setColor(Color.WHITE);
-        canvas.drawText(Toast.fit(context.getString(R.string.title_bug_report), label,
-                button.width() - 24.0f), button.centerX(),
+        canvas.drawText(Toast.fit(text, label, button.width() - 24.0f), button.centerX(),
                 button.centerY() - (label.ascent() + label.descent()) * 0.5f, label);
-
-        // What it does, under it, where the other tabs say why a row is dead
-        Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        hint.setTextSize(17.0f);
-        hint.setTextAlign(Paint.Align.CENTER);
-        hint.setColor(0x80FFFFFF);
-        canvas.drawText(BugReport.collectorConfigured()
-                        ? "Sends a note with the headset, your settings and the log"
-                        : "Saves a note with the headset, your settings and the log",
-                mid, 0.80f * COG_TEX_H, hint);
     }
 
     /**
@@ -2181,6 +2172,78 @@ final class XrPanels {
         text.setTextSize(30.0f);
         canvas.drawText(label, box.centerX(),
                 box.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
+    }
+
+    /**
+     * The hand lock hint: what the ring pinch does, over OK and "Don't show
+     * this again", on the exit prompt's dark sheet with its white strokes.
+     * Drawn once, since the ring over the button under the ray is a quad of
+     * the native side's.
+     */
+    ByteBuffer buildHandHint() {
+        Bitmap bitmap = Bitmap.createBitmap(HINT_TEX_W, HINT_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xF0141416);
+        canvas.drawRoundRect(new RectF(1.0f, 1.0f, HINT_TEX_W - 1.0f, HINT_TEX_H - 1.0f),
+                32.0f, 32.0f, paint);
+
+        final float left = HINT_OK_L * HINT_TEX_W;
+        final float width = (HINT_NEVER_R - HINT_OK_L) * HINT_TEX_W;
+        Paint title = new Paint(Paint.ANTI_ALIAS_FLAG);
+        title.setColor(Color.WHITE);
+        title.setTextSize(40.0f);
+        canvas.drawText(Toast.fit(context.getString(R.string.vr_hand_hint_title), title, width),
+                left, 0.17f * HINT_TEX_H, title);
+
+        // As many lines as the words take in the space over the buttons,
+        // smaller if a language needs more of them
+        Paint body = new Paint(Paint.ANTI_ALIAS_FLAG);
+        body.setColor(0xCCFFFFFF);
+        String said = context.getString(R.string.vr_hand_hint_body);
+        final float top = 0.27f * HINT_TEX_H;
+        final float room = (HINT_BTN_T - 0.06f) * HINT_TEX_H - top;
+        float size = 30.0f;
+        List<String> lines;
+        while (true) {
+            body.setTextSize(size);
+            lines = wrap(said, body, width);
+            if (lines.size() * size * 1.3f <= room || size <= 20.0f) {
+                break;
+            }
+            size -= 2.0f;
+        }
+        for (int i = 0; i < lines.size(); i++) {
+            canvas.drawText(lines.get(i), left, top + size + i * size * 1.3f, body);
+        }
+
+        Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        label.setTextAlign(Paint.Align.CENTER);
+        drawHintButton(canvas, paint, label, HINT_OK_L, HINT_OK_R,
+                context.getString(android.R.string.ok));
+        drawHintButton(canvas, paint, label, HINT_NEVER_L, HINT_NEVER_R,
+                context.getString(R.string.vr_hand_hint_never));
+
+        ByteBuffer pixels = toBuffer(bitmap);
+        bitmap.recycle();
+        return pixels;
+    }
+
+    // One of the hint's buttons, the shape the exit prompt's are
+    private static void drawHintButton(Canvas canvas, Paint paint, Paint label, float l, float r,
+                                       String text) {
+        RectF box = new RectF(l * HINT_TEX_W, HINT_BTN_T * HINT_TEX_H, r * HINT_TEX_W,
+                HINT_BTN_B * HINT_TEX_H);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3.0f);
+        paint.setColor(0xEEFFFFFF);
+        canvas.drawRoundRect(box, 16.0f, 16.0f, paint);
+        paint.setStyle(Paint.Style.FILL);
+        label.setColor(0xEEFFFFFF);
+        label.setTextSize(30.0f);
+        canvas.drawText(Toast.fit(text, label, box.width() - 24.0f), box.centerX(),
+                box.centerY() - (label.ascent() + label.descent()) * 0.5f, label);
     }
 
     /**

@@ -56,22 +56,35 @@ int pinchHoldStep(long* wantSince, int want, int wasDown, long nowNs);
 // sitting near one threshold does not chatter
 int pressHysteresis(float value, int wasDown, float on, float off);
 
-// The hand lock gesture: the thumb to the ring finger, held half a second.
-// Looser than an index pinch, since the ring finger reaches the thumb less
-// surely. The index and middle tips have to be clear of the thumb by a margin,
-// which is what keeps a pinch or a fist from setting it off, and a press or a
-// grab on that hand refuses it outright.
-#define RING_PINCH_ON_M 0.018f
-#define RING_PINCH_OFF_M 0.030f
-#define RING_CLEAR_M 0.035f
-#define RING_HOLD_NS 500000000L
+// The hand lock gesture: the thumb to the ring finger, held a moment. The ring
+// tip has to be the nearest of the four fingertips to the thumb and within
+// 22 mm of it (it lets go at 32), and the index tip at least 12 mm further off
+// than the ring tip, which is what keeps an index pinch from reading as one.
+// The middle tip is left free: on a real hand it curls in beside the ring
+// finger, well inside the 35 mm clearance this once asked of it. Nothing the
+// runtime says about a pinch or a grip is consulted, since it reports both
+// while the fingers curl for this very gesture.
+#define RING_PINCH_ON_M 0.022f
+#define RING_PINCH_OFF_M 0.032f
+#define RING_INDEX_MARGIN_M 0.012f
+#define RING_HOLD_NS 350000000L
 
-// Why a ring pinch was refused
-#define RING_OK      0
-#define RING_INDEX   1
-#define RING_MIDDLE  2
-#define RING_PRESSED 3
-#define RING_GRAB    4
+// The four fingertips, in the order their gaps to the thumb tip travel in
+#define TIP_INDEX  0
+#define TIP_MIDDLE 1
+#define TIP_RING   2
+#define TIP_LITTLE 3
+#define TIP_COUNT  4
+
+// What kept the gesture from being held this frame, RING_OK while it is
+#define RING_OK          0
+#define RING_UNTRACKED   1
+#define RING_FAR         2
+#define RING_NOT_NEAREST 3
+#define RING_INDEX       4
+// Fired on this closing already, waiting for the fingers to part
+#define RING_SPENT       5
+#define RING_REASONS     6
 
 typedef struct {
     // Since when the gesture has been held cleanly, 0 while it is not
@@ -84,13 +97,28 @@ typedef struct {
 
 void ringGateReset(RingGate* g);
 
-// One frame of it. tracked says the four tips are there to measure, the gaps
-// are each tip to the thumb tip, and busy a RING_ reason the hand is already
-// doing something else (a press or a grab), RING_OK when it is not. Says 1 on
-// the frame the hold completes, and outRefused why a closed ring was refused
-// this frame, RING_OK when it was not.
-int ringGateStep(RingGate* g, int tracked, float ringGap, float indexGap, float middleGap,
-                 int busy, long nowNs, int* outRefused);
+// One frame of it. tracked says the thumb and ring tips are seen and the other
+// three at least placed, and gaps are each fingertip to the thumb tip in TIP_
+// order. Says 1 on the frame the hold completes, and outWhy what kept it from
+// being held this frame, a RING_ reason.
+int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], long nowNs, int* outWhy);
+
+// The fingertip nearest the thumb, the ring tip on a tie. A gap under zero is a
+// tip the runtime could not place, and is passed over.
+int ringNearestTip(const float gaps[TIP_COUNT]);
+
+// How long the gesture has been held so far, 0 while it is not
+long ringHoldNs(const RingGate* g, long nowNs);
+
+// A RING_ reason in words, for the log
+const char* ringReasonName(int why);
+
+// The gesture's diagnostic line, for a hand whose fingertips come near the
+// thumb: due when any tip is within 40 mm of it and the hand's last line was
+// 250 ms ago or more, which it then marks as now
+#define RING_DIAG_NEAR_M 0.040f
+#define RING_DIAG_EVERY_NS 250000000L
+int ringDiagDue(long* lastNs, const float gaps[TIP_COUNT], long nowNs);
 
 // A drag the eyes started is carried by the hand that pinched. It comes up to
 // speed over half a second from the pinch, so a pinch that wanders as it

@@ -73,7 +73,9 @@ public class PreferenceConfiguration {
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
     private static final String VR_GAZE_PREF_STRING = "checkbox_vr_gaze";
     private static final String VR_HAND_TRACKING_PREF_STRING = "checkbox_vr_hand_tracking";
-    static final String VR_SHOW_HAND_LOCK_PREF_STRING = "checkbox_vr_show_hand_lock";
+    // Set once the hand lock hint in the session is put away with "Don't show
+    // this again". Not a row in the settings, only ever written from the hint.
+    static final String VR_HAND_LOCK_HINT_SEEN_PREF_STRING = "checkbox_vr_hand_lock_hint_seen";
     public static final String VR_POINTER_SLEEP_PREF_STRING = "checkbox_vr_pointer_sleep";
     public static final String VR_CLICK_SOUND_PREF_STRING = "checkbox_vr_click_sound";
     public static final String VR_SHOW_RAY_PREF_STRING = "checkbox_vr_show_ray";
@@ -210,9 +212,6 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
     private static final boolean DEFAULT_VR_HAND_TRACKING = true;
-    // The padlock beside the screen. The thumb to ring finger gesture turns
-    // the same lock with or without it.
-    static final boolean DEFAULT_VR_SHOW_HAND_LOCK = true;
     // A controller's pointer goes to sleep after a few still seconds and wakes
     // when it moves. Off keeps it up however still the controller is held.
     static final boolean DEFAULT_VR_POINTER_SLEEP = true;
@@ -342,7 +341,8 @@ public class PreferenceConfiguration {
     public boolean vrPointer;
     public boolean vrGaze;
     public boolean vrHandTracking;
-    public boolean vrShowHandLock;
+    // Whether the hand lock hint was put away for good in an earlier session
+    public boolean vrHandLockHintSeen;
     public boolean vrPointerSleep;
     public boolean vrClickSound;
     // Whether a session starts with the controller ray drawn
@@ -605,8 +605,13 @@ public class PreferenceConfiguration {
         return depthMode != XrShared.DEPTH_MODE_OFF ? "on" : "off";
     }
 
-    static boolean handLockIconShown(SharedPreferences prefs) {
-        return prefs.getBoolean(VR_SHOW_HAND_LOCK_PREF_STRING, DEFAULT_VR_SHOW_HAND_LOCK);
+    static boolean handLockHintSeen(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_HAND_LOCK_HINT_SEEN_PREF_STRING, false);
+    }
+
+    /** The hand lock hint was put away for good: later sessions skip it. */
+    public static void markHandLockHintSeen(SharedPreferences prefs) {
+        prefs.edit().putBoolean(VR_HAND_LOCK_HINT_SEEN_PREF_STRING, true).apply();
     }
 
     static boolean pointerSleepOn(SharedPreferences prefs) {
@@ -675,10 +680,10 @@ public class PreferenceConfiguration {
      * The pointer's own switches and how the controllers are drawn, for a log
      * line, joined the way that line joins its keys to their values
      */
-    public static String inputLabel(boolean handLockIcon, boolean pointerSleep, boolean showRay,
-                                    boolean controllerModel, String join) {
-        return "handLockIcon" + join + handLockIcon + " pointerSleep" + join + pointerSleep
-                + " showRay" + join + showRay + " controllerModel" + join + controllerModel;
+    public static String inputLabel(boolean pointerSleep, boolean showRay, boolean controllerModel,
+                                    String join) {
+        return "pointerSleep" + join + pointerSleep + " showRay" + join + showRay
+                + " controllerModel" + join + controllerModel;
     }
 
     /**
@@ -1344,7 +1349,7 @@ public class PreferenceConfiguration {
         config.vrPointer = prefs.getBoolean(VR_POINTER_PREF_STRING, DEFAULT_VR_POINTER);
         config.vrGaze = prefs.getBoolean(VR_GAZE_PREF_STRING, DEFAULT_VR_GAZE);
         config.vrHandTracking = prefs.getBoolean(VR_HAND_TRACKING_PREF_STRING, DEFAULT_VR_HAND_TRACKING);
-        config.vrShowHandLock = handLockIconShown(prefs);
+        config.vrHandLockHintSeen = handLockHintSeen(prefs);
         config.vrPointerSleep = pointerSleepOn(prefs);
         config.vrClickSound = clickSoundOn(prefs);
         config.vrShowRay = rayShown(prefs);

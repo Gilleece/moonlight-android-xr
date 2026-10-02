@@ -153,14 +153,6 @@ static inline long nowNs(void) {
 #define ENV_BUTTON_FRAC 0.048f
 #define ENV_GAP_FRAC 0.02f
 
-// The padlock that locks the hands out, on the left edge at eye level. Away
-// from the bar on purpose: a hand resting in the lap holding a controller
-// points at the bottom of the screen, and that kept lighting the furniture
-// down there. Bigger than the env button because while locked it is the only
-// thing left to aim at, so it has to be findable without a ray to guide you.
-#define LOCK_BUTTON_FRAC 0.09f
-#define LOCK_GAP_FRAC 0.025f
-
 #define COG_WIDTH_FRAC 0.36f
 // The button that opens it, sitting to the right of the move bar, the same
 // size as the environment button on the left
@@ -200,14 +192,21 @@ static inline long nowNs(void) {
 // under it
 #define REPORT_WIDTH_FRAC 0.40f
 
+// The hand lock hint, over the middle of the picture, as wide as the report
+// sheet. It waits for a hand to have pointed this long, so a hand that flickers
+// in as a controller is put down does not bring it up.
+#define HINT_WIDTH_FRAC 0.40f
+#define HINT_POINTING_NS 500000000L
+
 // The panels that fade in and out, each with a fade of its own
 #define FADE_COG 0
 #define FADE_PICKER 1
 #define FADE_KB 2
 #define FADE_EXIT 3
 #define FADE_REPORT 4
-#define FADE_PANELS 5
-// And the layers a colour scale is chained onto: those five, then the splash
+#define FADE_HINT 5
+#define FADE_PANELS 6
+// And the layers a colour scale is chained onto: those six, then the splash
 // and the toast
 #define FADE_SLOT_SPLASH FADE_PANELS
 #define FADE_SLOT_TOAST (FADE_PANELS + 1)
@@ -1039,35 +1038,37 @@ typedef struct {
     // until the hand opens again
     int pinchSwallowed[SRC_COUNT];
     // Hands locked out for the session, so a gamepad can be used without a
-    // stray pinch clicking the desktop or dragging the screen around. The
-    // padlock is the one thing they can still reach. Controllers are never
-    // affected, and it starts off every session.
+    // stray pinch clicking the desktop or dragging the screen around. The ring
+    // pinch is the way back. Controllers are never affected, and it starts
+    // off every session.
     int handsLocked;
-    int lockHot;
-    // The pinch has to start on the padlock. Sweeping onto it with one already
-    // held would otherwise read as a press, because a locked hand has its
-    // trigger cleared every frame and so arrives looking like a fresh edge.
-    int lockArmed[SRC_COUNT];
     // The thumb to ring finger gesture that turns the lock, per hand, read off
     // the joints whether the hands are locked or not, since it is the way
-    // back. The tip gaps it is judged on, each tip to the thumb tip, and the
-    // refusal last said, so each is said once per closing.
+    // back. The four fingertips' gaps to the thumb tip it is judged on, in
+    // TIP_ order and under zero for a tip not placed, the refusal last said,
+    // so each is said once per closing, and when the hand's diagnostic line
+    // last went in the log.
     RingGate ringGate[HAND_COUNT];
     int ringTipsTracked[HAND_COUNT];
-    float ringGap[HAND_COUNT];
-    float indexGap[HAND_COUNT];
-    float middleGap[HAND_COUNT];
+    float tipGaps[HAND_COUNT][TIP_COUNT];
     int ringRefusalSaid[HAND_COUNT];
-    // The padlock is shown at all, which a setting can turn off while the
-    // gesture still works. The toast says when the gesture turns the lock.
-    int lockIconShown;
-    XrSwapchain lockSwapchain;
-    XrSwapchain unlockSwapchain;
-    uint32_t lockImageCount;
-    uint32_t unlockImageCount;
-    XrSwapchainImageOpenGLESKHR* lockImages;
-    XrSwapchainImageOpenGLESKHR* unlockImages;
-    int lockArtReady;
+    long ringDiagNs[HAND_COUNT];
+    // The sheet that says how the gesture works, once a session the first
+    // time a hand points. Wanted unless it was put away for good or the hands
+    // are off, as Java says at the start; shown once a session at most. Its
+    // art, since when a hand has been pointing, the button under the ray and
+    // the pose frozen when it opened.
+    int hintWanted;
+    int hintShown;
+    int hintOpen;
+    long hintPointingNs;
+    XrSwapchain hintSwapchain;
+    uint32_t hintImageCount;
+    XrSwapchainImageOpenGLESKHR* hintImages;
+    int hintReady;
+    int hintHoverZone;
+    XrPosef hintPose;
+    float hintW, hintH;
 
     PFN_xrGetOpenGLESGraphicsRequirementsKHR pfnGetGlesReqs;
 
@@ -1457,8 +1458,8 @@ typedef struct {
     XrPosef kbPose;
     float kbW, kbH;
 
-    // The 3D switch on the bar, its art off and on, one swapchain each like the
-    // padlock's two. Only made in a session with stereo to switch.
+    // The 3D switch on the bar, its art off and on, one swapchain each. Only
+    // made in a session with stereo to switch.
     XrSwapchain stereoButtonSwapchains[2];
     uint32_t stereoButtonImageCounts[2];
     XrSwapchainImageOpenGLESKHR* stereoButtonImages[2];
@@ -1523,6 +1524,8 @@ typedef struct {
     int cogReportHot;
     XrPosef reportPose;
     float reportW, reportH;
+    // The About tab's Ko-fi button being under the ray
+    int cogKofiHot;
 
     // Curvature the panel asked for, or -1 while the preference still owns it,
     // alongside the preference itself so both are readable away from the JNI
@@ -1691,6 +1694,7 @@ int panelUp(XrCtx* ctx);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
+XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int cogTabRowCount(int face);
 int cogRowIsTrack(int face, int row);
 int cogRowLive(XrCtx* ctx, int face, int row);
@@ -1708,10 +1712,8 @@ void cogDragEnded(XrCtx* ctx, float* out);
 void cogStepTrack(XrCtx* ctx, int face, int row, int dir, float* out);
 int cogCellAt(float pu, int cells);
 void cogReadouts(XrCtx* ctx, int* values);
-void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide);
 void pictureSet(XrCtx* ctx, int row, int units);
 void pictureReset(XrCtx* ctx);
-int lockButtonHit(XrCtx* ctx, float u, float v, float height);
 
 // xr_assets.c: the swapchains the art goes into and the uploads that fill them
 int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,

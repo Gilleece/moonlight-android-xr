@@ -182,7 +182,13 @@
 #define IN_PAD_LY   (IN_PAD_LX + 1)
 #define IN_PAD_RX   (IN_PAD_LY + 1)
 #define IN_PAD_RY   (IN_PAD_RX + 1)
-#define IN_SLOTS    (IN_PAD_RY + 1)
+// Set to 1 the frame the hand lock hint is put away with "Don't show this
+// again", which Java stores so later sessions skip it. 0 otherwise.
+#define IN_HINT     (IN_PAD_RY + 1)
+// Set to 1 the frame the About tab's Ko-fi button is pressed, which Java opens
+// in the browser. 0 otherwise.
+#define IN_KOFI     (IN_HINT + 1)
+#define IN_SLOTS    (IN_KOFI + 1)
 
 // Gamepad mode's buttons, in the bits Moonlight's controller packet carries
 // them in, which are ControllerPacket's flags: the four face buttons, the
@@ -339,8 +345,6 @@
 
 // The buttons under the bar are all drawn at this size
 #define BUTTON_TEX 128
-// The padlock that locks the hands out
-#define LOCK_TEX 384
 
 // Settings panel. Same shape as the picker: the art is drawn in Java and shown
 // on one quad, the thumbs are separate little quads so dragging one never costs
@@ -474,12 +478,18 @@
 // with a tick at the picture as streamed, over the reset button. Live in
 // every session and every room, since the grade only changes colours.
 
-// About tab: the app and its version, and no rows, only the button that puts
-// the panel away for the report sheet. Where the button sits on the panel.
+// About tab: the app and its version, and no rows, only two buttons: the one
+// that opens Ko-fi in the browser, with a line under it saying it is optional,
+// over the one that puts the panel away for the report sheet. Where the
+// buttons sit on the panel.
+#define COG_KOFI_L 0.25f
+#define COG_KOFI_R 0.75f
+#define COG_KOFI_T 0.45f
+#define COG_KOFI_B 0.57f
 #define COG_REPORT_L 0.25f
 #define COG_REPORT_R 0.75f
-#define COG_REPORT_T 0.60f
-#define COG_REPORT_B 0.72f
+#define COG_REPORT_T 0.69f
+#define COG_REPORT_B 0.81f
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
 // dragging a value. The head aim, gamepad and ray rows are the bar's buttons
@@ -615,5 +625,23 @@
 #define EXIT_EXIT_R 0.46f
 #define EXIT_CANCEL_L 0.54f
 #define EXIT_CANCEL_R 0.92f
+
+// The hand lock hint, the sheet that says once a session how the ring pinch
+// locks the hands, the first time they point: its words over OK and "Don't
+// show this again", in the exit prompt's style. One sheet, drawn in Java at
+// the start of a session that may show it, with the ring over the button
+// under the ray a quad of its own. Where the buttons sit, as fractions of it.
+#define HINT_TEX_W 1024
+#define HINT_TEX_H 448
+#define HINT_BTN_T 0.70f
+#define HINT_BTN_B 0.88f
+#define HINT_OK_L 0.06f
+#define HINT_OK_R 0.36f
+#define HINT_NEVER_L 0.42f
+#define HINT_NEVER_R 0.94f
+// Which of its buttons a point is on
+#define HINT_ZONE_NONE  0
+#define HINT_ZONE_OK    1
+#define HINT_ZONE_NEVER 2
 
 #endif

@@ -5,7 +5,7 @@
 
 // Whether the furniture hangs against the stand in screen rather than the
 // picture, which it does whenever a room is up. The buttons along the bar, the
-// padlock, the picker, the settings panel, the keyboard and the exit prompt are
+// picker, the settings panel, the keyboard, the exit prompt and the sheets are
 // all placed and sized off it, and their hit tests are made on it too.
 int furnitureOnStandIn(XrCtx* ctx) {
     return roomEffective(ctx) > 0;
@@ -456,11 +456,11 @@ void setRayOn(XrCtx* ctx, int on, const char* from) {
 }
 
 // Whether one of the panels is up: the settings panel, the picker, the
-// keyboard, the exit prompt or the report sheet. The ray comes back for them
-// while it is switched off.
+// keyboard, the exit prompt, the report sheet or the hand lock hint. The ray
+// comes back for them while it is switched off.
 int panelUp(XrCtx* ctx) {
     return ctx->cogOpen || ctx->pickerOpen || ctx->kbOpen || ctx->exitConfirmOpen
-            || ctx->reportOpen;
+            || ctx->reportOpen || ctx->hintOpen;
 }
 
 // The 3D switch is one place further out again on the right, past the ray's,
@@ -553,6 +553,24 @@ XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     local.y = -furnitureHeight(ctx) * 0.5f + height * 0.5f + frameWidth * 0.01f;
     local.z = 0.06f;
 
+    XrPosef pose = furniturePose(ctx);
+    Vec3 offset = quatRotate(pose.orientation, local);
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// The hand lock hint stands over the middle of the picture, a little in front
+// of it, where it is seen whatever the hand is pointing at. Frozen while it is
+// up, like the prompt.
+XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = furnitureWidth(ctx) * HINT_WIDTH_FRAC;
+    float height = width * (float)HINT_TEX_H / (float)HINT_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    Vec3 local = { 0.0f, 0.0f, 0.06f };
     XrPosef pose = furniturePose(ctx);
     Vec3 offset = quatRotate(pose.orientation, local);
     pose.position.x += offset.x;
@@ -1324,26 +1342,6 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetDepthDefaults(JNIEnv* env, 
     LOGEV("3d defaults: separation %d, convergence %d, presets %d %d %d", units, percent,
           ctx->presetUnits[COG_PRESET_COMFORT], ctx->presetUnits[COG_PRESET_BALANCED],
           ctx->presetUnits[COG_PRESET_STRONG]);
-}
-
-// Padlock sits clear of the left edge, halfway up, in the furniture's flat
-// local frame. Where the picture is curved the draw puts this on the surface,
-// and the arc length that comes out of it is the same x, so the hit test below
-// still reads straight off these numbers.
-void lockButtonPlacement(XrCtx* ctx, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * LOCK_BUTTON_FRAC;
-    outLocal->x = -(width * (0.5f + LOCK_GAP_FRAC) + side * 0.5f);
-    outLocal->y = 0.0f;
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-int lockButtonHit(XrCtx* ctx, float u, float v, float height) {
-    Vec3 local;
-    float side;
-    lockButtonPlacement(ctx, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
 }
 
 // Whether a press ticks, which only the display tab's ring reads on this
