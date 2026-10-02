@@ -67,10 +67,13 @@ not unpack to a report it answers `not a report`.
 
 Every report is checked before anything is sent:
 
-- over 4 MB as posted, or over 12 MB unpacked, which is what two full log
-  files and the text ahead of them come to: 413 `too large`
+- over 4 MB as posted: 413 `too large`. The app's logs compress eight to
+  twenty to one, so two full 5 MB logs come to a megabyte or so and this
+  also bounds what a report can be unpacked.
 - not gzip, or not starting with the line the app starts every report with,
-  `Moonlight XR bug report`: 400 `not a report`
+  `Moonlight XR bug report`: 400 `not a report`. Only the first 4 KB is
+  unpacked to check, since unpacking a whole report would cost more CPU than
+  the free tier allows a request, and the report is mailed as it arrived.
 - a sender that has already had five reports taken today, counted by IP
   address (by the /64 for IPv6) and reset at midnight UTC: 429
   `too many reports, try later`

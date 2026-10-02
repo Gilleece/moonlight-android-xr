@@ -2,7 +2,7 @@
 //
 // The app POSTs one gzipped text file per report to /report with a few headers
 // about where it came from. The Worker checks the token, caps the size, checks
-// the file unpacks to a report, holds each sender to a few a day, and sends
+// the file starts as a report, holds each sender to a few a day, and sends
 // the file as an attachment to the address in RESEND_TO, with the user's
 // message quoted in the body and their address as the reply-to. Everything
 // involved has a hard free tier that stops rather than bills: the Worker at its
@@ -18,12 +18,13 @@
 // scanners; the checks after it are what hold off anyone who has pulled it out.
 
 // Comfortably above two full 5 MB log files, gzipped, plus the report's header.
-// The app compresses before sending, and text logs shrink about ten to one.
+// The app compresses before sending, and its logs shrink eight to twenty to
+// one, so this also bounds what a real report can come to unpacked.
 const MAX_BYTES = 4 * 1024 * 1024;
 
-// What a real report can come to unpacked: two 5 MB logs, the text ahead of
-// them, and room for a log that ran a little over before it rolled
-const MAX_REPORT_BYTES = 12 * 1024 * 1024;
+// How much of the body is unpacked to see it is a report: the start only,
+// since unpacking all of a full one costs more CPU than the free tier allows
+const HEAD_BYTES = 4096;
 
 // The first line of every report, as BugReport.compose in the app writes it
 const REPORT_HEADER = 'Moonlight XR bug report\n';
@@ -158,39 +159,47 @@ async function readCapped(stream, max) {
     return out;
 }
 
-// Unpacks the body as far as it needs to: the start, to see it is a report,
-// and the length, without holding more than the start. 'report', 'too large'
-// or 'not a report', the last for anything that is not gzip at all.
-async function inspect(body) {
+// The body a slice at a time, and only as the reader asks, so the unpacking
+// below never gets more of it than it needs
+function slices(body) {
+    let at = 0;
+    return new ReadableStream({
+        pull(controller) {
+            if (at >= body.byteLength) {
+                controller.close();
+                return;
+            }
+            controller.enqueue(body.slice(at, at + HEAD_BYTES));
+            at += HEAD_BYTES;
+        },
+    }, { highWaterMark: 0 });
+}
+
+// Whether the body unpacks to something starting with the report's first
+// line. Only the first few KB are unpacked and the rest is left alone;
+// anything that is not gzip at all is not a report.
+async function startsAsReport(body) {
     const wanted = REPORT_HEADER.length;
     const head = new Uint8Array(wanted);
     let have = 0;
-    let total = 0;
+    let seen = 0;
     try {
-        const reader = new Response(body).body
-            .pipeThrough(new DecompressionStream('gzip'))
-            .getReader();
-        for (;;) {
+        const reader = slices(body).pipeThrough(new DecompressionStream('gzip')).getReader();
+        while (have < wanted && seen < HEAD_BYTES) {
             const { done, value } = await reader.read();
             if (done) {
                 break;
             }
-            if (have < wanted) {
-                const take = Math.min(wanted - have, value.byteLength);
-                head.set(value.subarray(0, take), have);
-                have += take;
-            }
-            total += value.byteLength;
-            if (total > MAX_REPORT_BYTES) {
-                await reader.cancel();
-                return 'too large';
-            }
+            const take = Math.min(wanted - have, value.byteLength);
+            head.set(value.subarray(0, take), have);
+            have += take;
+            seen += value.byteLength;
         }
+        await reader.cancel();
     } catch (e) {
-        return 'not a report';
+        return false;
     }
-    return new TextDecoder().decode(head.subarray(0, have)) === REPORT_HEADER
-        ? 'report' : 'not a report';
+    return new TextDecoder().decode(head.subarray(0, have)) === REPORT_HEADER;
 }
 
 export default {
@@ -227,11 +236,7 @@ export default {
         if (body === null) {
             return refuse(413, 'too large');
         }
-        const kind = body.byteLength === 0 ? 'not a report' : await inspect(body);
-        if (kind === 'too large') {
-            return refuse(413, 'too large');
-        }
-        if (kind !== 'report') {
+        if (body.byteLength === 0 || !(await startsAsReport(body))) {
             return refuse(400, 'not a report');
         }
 
