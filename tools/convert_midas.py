@@ -30,7 +30,8 @@ import sys
 
 import numpy as np
 
-from convert_common import BUILD_DIR, MIDAS_ONNX_BYTES, MIDAS_ONNX_URL, download
+from convert_common import (BUILD_DIR, MIDAS_ONNX_BYTES, MIDAS_ONNX_SHA256, MIDAS_ONNX_URL,
+                            download)
 
 ONNX_FILE = os.path.join(BUILD_DIR, "model-small.onnx")
 OUT_DIR = os.path.join(BUILD_DIR, "midas_tf_out")
@@ -65,7 +66,7 @@ def make_calibration_data():
 
 
 def main():
-    download(MIDAS_ONNX_URL, ONNX_FILE, MIDAS_ONNX_BYTES)
+    download(MIDAS_ONNX_URL, ONNX_FILE, MIDAS_ONNX_BYTES, MIDAS_ONNX_SHA256)
 
     make_calibration_data()
 

@@ -4,6 +4,7 @@
 # asks for, the MiDaS download, the onnxruntime fold, the onnx2tf call and a
 # check that the written tflite has the shapes the app expects.
 
+import hashlib
 import os
 import subprocess
 import sys
@@ -20,10 +21,13 @@ BUILD_DIR = "tools/build"
 # needs plausible image statistics, not any particular picture.
 CALIB_FILE = "calibration_image_sample_data_20x128x128x3_float32.npy"
 
-# MiDaS v2.1 small as its authors publish it, and its length in bytes
+# MiDaS v2.1 small as its authors publish it, with its length in bytes and
+# its SHA-256, both from a download of this URL on 2 Oct 2026. The release
+# asset has not been replaced since it went up in November 2020.
 MIDAS_ONNX_URL = ("https://github.com/isl-org/MiDaS/releases/download/v2_1"
                   "/model-small.onnx")
-MIDAS_ONNX_BYTES = 66772999
+MIDAS_ONNX_BYTES = 66764249
+MIDAS_ONNX_SHA256 = "2d8c6cb8f415229daf1eb041024208e2608c9f98e17c81cc7c6ecb449c56fd58"
 
 
 def pattern(rng, width, height=None):
@@ -44,10 +48,25 @@ def pattern(rng, width, height=None):
     return np.clip(img, 0, 1)
 
 
-def download(url, path, size):
-    """Fetches url to path unless a whole copy is already there."""
-    if os.path.isfile(path) and os.path.getsize(path) == size:
-        return path
+def sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download(url, path, size, digest):
+    """
+    Fetches url to path unless a good copy is already there: the expected
+    length and SHA-256, checked on a copy already there as well as on a
+    fresh download, so neither a replaced upload nor a file swapped in
+    tools/build reaches the conversion.
+    """
+    if os.path.isfile(path):
+        if os.path.getsize(path) == size and sha256(path) == digest:
+            return path
+        print("%s is not the file expected, fetching it again" % path)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     print("downloading " + url)
     part = path + ".part"
@@ -56,6 +75,10 @@ def download(url, path, size):
     if got != size:
         os.remove(part)
         raise SystemExit("%s came down as %d bytes, expected %d" % (url, got, size))
+    got = sha256(part)
+    if got != digest:
+        os.remove(part)
+        raise SystemExit("%s came down with SHA-256 %s, expected %s" % (url, got, digest))
     os.replace(part, path)
     return path
 
