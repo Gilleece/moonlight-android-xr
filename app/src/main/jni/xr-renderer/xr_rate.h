@@ -1,12 +1,15 @@
-// Which display refresh rate to ask the runtime for, and whether the frame
-// loop is holding the rate it is on. Plain arithmetic over the list of rates
-// the runtime offers, with no OpenXR calls and no context, so the host tests
-// reach all of it.
+// Which display refresh rate to ask the runtime for, whether the frame loop
+// is holding the rate it is on, and how often the depth model runs, which is
+// cut before the display rate is. Plain arithmetic over the list of rates the
+// runtime offers and the frame loop's clock, with no OpenXR calls and no
+// context, so the host tests reach all of it.
 
 #ifndef XR_RATE_H
 #define XR_RATE_H
 
 #include <stdint.h>
+
+#include "xr_shared.h"
 
 // Runtimes report 90.0 and 119.88 alike, so rates this close are the same one
 #define RATE_TOLERANCE 0.5f
@@ -111,5 +114,74 @@ void rateBudgetMissed(RateBudget* b, long refreshes);
 // which is the call to step down. The window's numbers stay in the budget for
 // the log until the next one is full.
 int rateBudgetTick(RateBudget* b, int64_t nowNs, float hz);
+
+// The depth model's rate, in maps a second, DEPTH_RATE_MIN to DEPTH_RATE_MAX.
+// The preference sets the most it may run at, and the frame loop captures by
+// time rather than by frame count, so a 120 fps stream costs the model what a
+// 60 fps one does.
+// After a cut the budget is given this long to show it before the next move
+#define DEPTH_HOLD_NS 10000000000LL
+// And it has to hold this long without a break before the rate climbs a step
+#define DEPTH_RECOVER_NS 30000000000LL
+
+// The preference's value in range
+int depthRateClamp(int perSecond);
+
+// When the next capture is due, and when the gate last saw a new frame
+typedef struct {
+    int64_t dueNs;
+    int64_t lastNs;
+} DepthGate;
+
+// Whether the new frame in hand at nowNs is the one to capture for a rate of
+// perSecond. Captures come a period apart counted from when each was due, not
+// from when it was taken, so the rate holds on average whatever the frame
+// rate, and the frame nearest the due time is the one taken. A gate more than
+// a period behind starts again from now rather than catching up in a burst.
+int depthGateDue(DepthGate* g, int64_t nowNs, int perSecond);
+
+// A capture taken at nowNs regardless of the gate, as when the 3D comes back
+// on, which the next one is then counted from
+void depthGateTaken(DepthGate* g, int64_t nowNs, int perSecond);
+
+// What the governor did with a judged window or a notice from the runtime
+#define DEPTH_MOVE_NONE    0
+// The depth target halved
+#define DEPTH_MOVE_CUT     1
+// Doubled again, up to the preference
+#define DEPTH_MOVE_RAISED  2
+// Over budget, but within DEPTH_HOLD_NS of a cut that has yet to show
+#define DEPTH_MOVE_HOLDING 3
+// Over budget with the depth target already at DEPTH_RATE_MIN, or no model
+// running to cut: the display rate's turn to step down
+#define DEPTH_MOVE_DISPLAY 4
+
+// The depth rate spent before the display rate. Over budget, the target is
+// halved first, down to DEPTH_RATE_MIN, each cut held DEPTH_HOLD_NS before
+// another; only past that does the display step down. After DEPTH_RECOVER_NS
+// of held budget it doubles again, a step at a time, up to the preference.
+typedef struct {
+    // The preference and what the gate runs at now, maps a second
+    int cap;
+    int target;
+    // When the target was last cut, 0 for never
+    int64_t cutNs;
+    // Since when every judged window has held, 0 for not holding
+    int64_t heldSinceNs;
+    // The runtime says a CPU or GPU domain is throttled, which keeps the
+    // target from climbing
+    int throttled;
+} DepthGovernor;
+
+void depthGovernorStart(DepthGovernor* g, int cap);
+
+// A judged window from rateBudgetTick at nowNs. live says the depth model is
+// running, with the 3D on: without it there is nothing to cut or raise.
+int depthGovernorWindow(DepthGovernor* g, int64_t nowNs, int verdict, int live);
+
+// A performance notice from the runtime: worse when a domain moved to a
+// warning or worse, throttled while any domain is still off normal. A throttle
+// cuts like a budget miss, held the same way; it never steps the display.
+int depthGovernorThrottle(DepthGovernor* g, int64_t nowNs, int worse, int throttled, int live);
 
 #endif

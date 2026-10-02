@@ -1,5 +1,6 @@
-// The display refresh rate choice and the frame budget behind it. No OpenXR
-// calls and no context, so the host tests reach all of it.
+// The display refresh rate choice, the frame budget behind it, and the depth
+// rate spent before it. No OpenXR calls and no context, so the host tests
+// reach all of it.
 #include <math.h>
 #include <stddef.h>
 
@@ -191,4 +192,99 @@ int rateSettled(int settled, int focusedFrame, float asked, int confirmed) {
         return 1;
     }
     return focusedFrame && (!(asked > 0.0f) || confirmed);
+}
+
+int depthRateClamp(int perSecond) {
+    return perSecond < DEPTH_RATE_MIN ? DEPTH_RATE_MIN
+            : perSecond > DEPTH_RATE_MAX ? DEPTH_RATE_MAX : perSecond;
+}
+
+int depthGateDue(DepthGate* g, int64_t nowNs, int perSecond) {
+    int64_t gap = g->lastNs != 0 ? nowNs - g->lastNs : 0;
+    g->lastNs = nowNs;
+    if (perSecond <= 0) {
+        return 0;
+    }
+    int64_t period = 1000000000LL / perSecond;
+    // Taken a little early when this frame is nearer the due time than the
+    // next one is likely to be, so a frame landing just short of it is not
+    // passed over for one a whole frame late
+    int64_t slack = (gap < period ? gap : period) / 2;
+    if (g->dueNs != 0 && nowNs + slack < g->dueNs) {
+        return 0;
+    }
+    g->dueNs = g->dueNs == 0 || nowNs - g->dueNs >= period ? nowNs + period
+            : g->dueNs + period;
+    return 1;
+}
+
+void depthGateTaken(DepthGate* g, int64_t nowNs, int perSecond) {
+    g->lastNs = nowNs;
+    g->dueNs = perSecond > 0 ? nowNs + 1000000000LL / perSecond : 0;
+}
+
+void depthGovernorStart(DepthGovernor* g, int cap) {
+    g->cap = depthRateClamp(cap);
+    g->target = g->cap;
+    g->cutNs = 0;
+    g->heldSinceNs = 0;
+    g->throttled = 0;
+}
+
+// Halves the target unless a cut is still being held or it is at the floor
+static int depthCut(DepthGovernor* g, int64_t nowNs) {
+    if (g->cutNs != 0 && nowNs - g->cutNs < DEPTH_HOLD_NS) {
+        return DEPTH_MOVE_HOLDING;
+    }
+    if (g->target <= DEPTH_RATE_MIN) {
+        return DEPTH_MOVE_DISPLAY;
+    }
+    g->target = g->target / 2 < DEPTH_RATE_MIN ? DEPTH_RATE_MIN : g->target / 2;
+    g->cutNs = nowNs;
+    return DEPTH_MOVE_CUT;
+}
+
+int depthGovernorWindow(DepthGovernor* g, int64_t nowNs, int verdict, int live) {
+    switch (verdict) {
+        case RATE_WINDOW_HELD:
+            if (!live || g->throttled) {
+                g->heldSinceNs = 0;
+                return DEPTH_MOVE_NONE;
+            }
+            // The window that just held began a window ago
+            if (g->heldSinceNs == 0) {
+                g->heldSinceNs = nowNs - RATE_WINDOW_NS;
+            }
+            if (g->target < g->cap && nowNs - g->heldSinceNs >= DEPTH_RECOVER_NS) {
+                g->target = g->target * 2 > g->cap ? g->cap : g->target * 2;
+                g->heldSinceNs = nowNs;
+                return DEPTH_MOVE_RAISED;
+            }
+            return DEPTH_MOVE_NONE;
+        case RATE_WINDOW_OVER:
+            g->heldSinceNs = 0;
+            return live ? depthCut(g, nowNs) : DEPTH_MOVE_DISPLAY;
+        case RATE_WINDOW_SLIPPING:
+        case RATE_WINDOW_SETTLING:
+            // Over, or the budget started again after a change: either way
+            // the run of held windows is broken
+            g->heldSinceNs = 0;
+            return DEPTH_MOVE_NONE;
+        default:
+            return DEPTH_MOVE_NONE;
+    }
+}
+
+int depthGovernorThrottle(DepthGovernor* g, int64_t nowNs, int worse, int throttled, int live) {
+    g->throttled = throttled;
+    if (!worse) {
+        return DEPTH_MOVE_NONE;
+    }
+    g->heldSinceNs = 0;
+    if (!live) {
+        return DEPTH_MOVE_NONE;
+    }
+    int move = depthCut(g, nowNs);
+    // A throttle is the runtime's business, so it never moves the display
+    return move == DEPTH_MOVE_DISPLAY ? DEPTH_MOVE_NONE : move;
 }

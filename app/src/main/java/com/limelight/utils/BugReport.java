@@ -456,7 +456,7 @@ public final class BugReport {
                 + "vr " + prefs.enableVrMode + " depthMode " + prefs.vrDepthMode
                 + " stereo3d " + PreferenceConfiguration.stereoAtStartLabel(prefs.vrDepthMode)
                 + " depthModel " + prefs.vrDepthModel
-                + " cadence " + prefs.vrInferenceCadence + " separation " + prefs.vrStereoSeparation
+                + " depthRate " + prefs.vrDepthRate + " separation " + prefs.vrStereoSeparation
                 + " convergence " + prefs.vrConvergence
                 + " defaultPair " + PreferenceConfiguration.defaultPairLabel(prefs.vrDepthModel)
                 + " preset " + PreferenceConfiguration.presetLabel(prefs.vrStereoSeparation,

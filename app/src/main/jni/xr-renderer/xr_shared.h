@@ -50,6 +50,14 @@
 // be read back and the last map uploaded while the model runs the other.
 #define DEPTH_PAIRS 2
 
+// How many depth maps a second the model may make, the setting's range and
+// its starting points: 20 is what every third frame of a 60 fps stream gave,
+// 12 every sixth of a Gen 1 headset's 72
+#define DEPTH_RATE_MIN 5
+#define DEPTH_RATE_MAX 45
+#define DEPTH_RATE_DEFAULT 20
+#define DEPTH_RATE_GEN1 12
+
 // Enough for a dozen lines of stats without being big enough to matter
 #define OVERLAY_WIDTH 768
 #define OVERLAY_HEIGHT 512

@@ -131,11 +131,12 @@
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_vr_debug"
         android:key="category_vr_debug">
+        <!-- Depth maps a second, under the old cadence key -->
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_inference_cadence"
-            android:defaultValue="3"
-            seekbar:min="1"
-            android:max="6"
+            android:defaultValue="20"
+            seekbar:min="5"
+            android:max="45"
             android:summary="@string/summary_seekbar_vr_inference_cadence"
             android:text="@string/suffix_seekbar_vr_inference_cadence"
             android:title="@string/title_seekbar_vr_inference_cadence"/>

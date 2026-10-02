@@ -138,6 +138,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile String depthLabel = "";
     private volatile float lastDepthAgeMs;
     private volatile int lastDepthSkips;
+    // Maps a second as the last Depth stage line measured them
+    private volatile float lastMapsPerSecond;
     // Whether the 3D is on, as the frame before said. The bar and the 3D tab
     // can switch it off for the rest of the session, and while it is off the
     // model is not fed, so it sits idle until it comes back on.
@@ -530,6 +532,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // when it has not asked
     private native float nativeGetDisplayRate(long ctx);
     private native float nativeGetAskedRate(long ctx);
+    // The most depth maps a second the model runs at, which the governor
+    // starts at and cuts from when the frame budget is missed
+    private native void nativeSetDepthRate(long ctx, int perSecond);
+    // Frame loop, with a new frame in hand: whether it is the one to capture
+    // for the depth model. force takes it whatever the timing says.
+    private native boolean nativeDepthDue(long ctx, boolean force);
+    // What the governor has the model running at now, maps a second
+    private native int nativeGetDepthTarget(long ctx);
     // Every rate the display offers, empty where the runtime does not say
     private native float[] nativeGetOfferedRates(long ctx);
     private native void nativeDestroy(long ctx);
@@ -604,6 +614,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         depthSpec.defaultConvergence,
                         DepthPresets.values(depthSpec.defaultSeparation));
                 nativeSetPicture(nativeCtx, prefs.vrPicture);
+                nativeSetDepthRate(nativeCtx, prefs.vrDepthRate);
                 restoreScreenPose();
                 startEnvironment(prefs);
                 // A few milliseconds here, and the first frame has it
@@ -977,8 +988,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                         +" ms, worst "+msPer(worstNs, 1)
                         +" ms, period "+(periods == 0 ? "0" : msPer(periodNs, periods))
                         +" ms, "+mapsPerSecond(periodNs, periods)
-                        +" maps/s, frames skipped while busy "+skipped);
+                        +" maps/s (target "+nativeGetDepthTarget(nativeCtx)
+                        +"), frames skipped while busy "+skipped);
                 lastDepthSkips = (int)skipped;
+                lastMapsPerSecond = periodNs <= 0 ? 0.0f : (float)(periods * 1e9 / periodNs);
                 runs = 0;
                 skipped = 0;
                 periods = 0;
@@ -1036,7 +1049,6 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         boolean eyeSwap = prefs.vrEyeSwap;
         boolean pointer = prefs.vrPointer;
         boolean gaze = prefs.vrGaze;
-        int cadence = Math.max(1, prefs.vrInferenceCadence);
 
         long ageFrames = 0, ageNs = 0, ageSamples = 0, worstAgeNs = 0;
         // When the 3D last came back on. Until a map captured since then is
@@ -1086,7 +1098,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
             // Switched off, the warp draws flat and the model is left idle.
             // Back on, it wants a map of what is showing now, so the frame in
-            // hand is captured at once whatever the cadence says.
+            // hand is captured at once whatever the depth rate says.
             boolean stereoOn = inputState[IN_STEREO] != 0.0f;
             boolean stereoBack = stereoOn && !stereoLive;
             stereoLive = stereoOn;
@@ -1100,7 +1112,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 surfaceTexture.getTransformMatrix(texMatrix);
 
                 if (depthReady && stereoOn) {
-                    if ((videoFrameIndex % cadence) == 0 || stereoBack) {
+                    // By time since the last capture rather than by frame
+                    // count, so the model's rate does not follow the stream's
+                    if (nativeDepthDue(nativeCtx, stereoBack)) {
                         startDepthCapture();
                     }
                     if (publishedFrameNs != 0 && publishedFrameNs >= stereoBackNs) {
@@ -1129,6 +1143,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             }
             else if (stereoBack && depthReady && videoFrameIndex > 0) {
                 // Nothing new from the decoder, so the frame still latched
+                nativeDepthDue(nativeCtx, true);
                 startDepthCapture();
             }
             ByteBuffer splash = pendingSplash.getAndSet(null);
@@ -2418,6 +2433,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     private String rendererStats() {
         float warpMs, displayHz, askedHz;
+        int depthTarget;
         synchronized (nativeLock) {
             if (nativeCtx == 0) {
                 return "";
@@ -2425,6 +2441,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             warpMs = nativeGetWarpGpuMs(nativeCtx);
             displayHz = nativeGetDisplayRate(nativeCtx);
             askedHz = nativeGetAskedRate(nativeCtx);
+            depthTarget = nativeGetDepthTarget(nativeCtx);
         }
         StringBuilder sb = new StringBuilder();
         if (displayHz > 0.0f) {
@@ -2447,11 +2464,17 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             sb.append('\n').append(depthReady ? "3D: off, depth model idle" : "3D: off");
         }
         else if (depthReady) {
+            sb.append('\n').append(depthRateLine(lastMapsPerSecond, depthTarget));
             sb.append('\n').append(String.format("Depth inference: %.1f ms", lastInferenceMs));
             sb.append('\n').append(String.format("Depth age: %.0f ms", lastDepthAgeMs));
             sb.append('\n').append("Depth frames skipped: ").append(lastDepthSkips);
         }
         return sb.toString();
+    }
+
+    /** The overlay's depth rate line: maps a second as measured, and the governor's target. */
+    static String depthRateLine(float mapsPerSecond, int target) {
+        return String.format(Locale.US, "Depth %.1f/s (target %d)", mapsPerSecond, target);
     }
 
     private static String msPer(long totalNs, long count) {

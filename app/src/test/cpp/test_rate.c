@@ -369,6 +369,333 @@ static void testTheFirstRateIsNoNews(void) {
     CHECK(toasts == 1);
 }
 
+// A small deterministic jitter, up to amp ns either way
+static int64_t jitter(int i, int64_t amp) {
+    unsigned h = (unsigned)i * 2654435761u;
+    return (int64_t)(h % (unsigned)(2 * amp + 1)) - amp;
+}
+
+// Frames at fps for seconds through the gate at perSecond, counting the
+// captures and the shortest and longest gap between two
+static int gateRun(float fps, int perSecond, float seconds, int64_t amp, int64_t* minGap,
+                   int64_t* maxGap) {
+    DepthGate g = { 0, 0 };
+    int frames = (int)(fps * seconds);
+    int taken = 0;
+    int64_t last = -1;
+    *minGap = INT64_MAX;
+    *maxGap = 0;
+    for (int i = 0; i < frames; i++) {
+        int64_t t = 1000000000LL + (int64_t)(i * (1e9 / fps)) + (i > 0 ? jitter(i, amp) : 0);
+        if (depthGateDue(&g, t, perSecond)) {
+            if (last >= 0) {
+                int64_t gap = t - last;
+                *minGap = gap < *minGap ? gap : *minGap;
+                *maxGap = gap > *maxGap ? gap : *maxGap;
+            }
+            last = t;
+            taken++;
+        }
+    }
+    return taken;
+}
+
+static void testGateHoldsTheRateWhateverTheFrameRate(void) {
+    int64_t lo, hi;
+    // 20 a second at 60 fps is every third frame, evenly, frame timing
+    // jitter and all
+    CHECK(gateRun(60, 20, 10, 1000000, &lo, &hi) == 200);
+    CHECK(lo >= 48000000 && hi <= 52000000);
+    // and at 120 fps it is still 20, where a cadence of 3 would have taken 40
+    CHECK(gateRun(120, 20, 10, 1000000, &lo, &hi) == 200);
+    CHECK(lo >= 48000000 && hi <= 52000000);
+    // 90 fps does not divide by 20, so four and five frames alternate and
+    // the average still holds
+    int taken = gateRun(90, 20, 10, 500000, &lo, &hi);
+    CHECK(taken >= 199 && taken <= 201);
+    CHECK(lo >= 44000000 && hi <= 56000000);
+    // The Gen 1 start, 12 a second at 72
+    taken = gateRun(72, 12, 10, 1000000, &lo, &hi);
+    CHECK(taken >= 119 && taken <= 121);
+    // A stream slower than the rate gives every frame and no more
+    CHECK(gateRun(24, 45, 10, 1000000, &lo, &hi) == 240);
+    CHECK(gateRun(24, 20, 10, 0, &lo, &hi) >= 199);
+    // The floor and the ceiling
+    CHECK(gateRun(60, 5, 10, 1000000, &lo, &hi) == 50);
+    taken = gateRun(60, 45, 10, 1000000, &lo, &hi);
+    CHECK(taken >= 449 && taken <= 451);
+}
+
+// 60 fps content on a 72 Hz frame loop, which only sees a new frame at its
+// own refreshes, so the gaps are a refresh or two
+static void testGateThroughARefreshGrid(void) {
+    DepthGate g = { 0, 0 };
+    int taken = 0;
+    int64_t refresh = 1000000000LL / 72;
+    int64_t lastFrame = -1;
+    for (int r = 0; r < 72 * 10; r++) {
+        int64_t t = 1000000000LL + r * refresh;
+        int64_t frame = (r * refresh) / (1000000000LL / 60);
+        if (frame == lastFrame) {
+            continue;
+        }
+        lastFrame = frame;
+        taken += depthGateDue(&g, t, 20);
+    }
+    CHECK(taken >= 199 && taken <= 201);
+}
+
+static void testGateAfterAStallDoesNotBurst(void) {
+    DepthGate g = { 0, 0 };
+    int64_t t = 1000000000LL;
+    int64_t frame = 1000000000LL / 60;
+    CHECK(depthGateDue(&g, t, 20));
+    // Nothing from the decoder for a second
+    t += 1000000000LL;
+    CHECK(depthGateDue(&g, t, 20));
+    // and the next frames go back to every third, not one each to catch up
+    int taken = 0;
+    for (int i = 1; i <= 6; i++) {
+        taken += depthGateDue(&g, t + i * frame, 20);
+    }
+    CHECK(taken == 2);
+}
+
+static void testGateFollowsATargetChange(void) {
+    DepthGate g = { 0, 0 };
+    int64_t frame = 1000000000LL / 120;
+    int taken = 0;
+    for (int i = 0; i < 120; i++) {
+        taken += depthGateDue(&g, 1000000000LL + i * frame, 20);
+    }
+    CHECK(taken == 20);
+    // Halved, the next second takes half as many
+    taken = 0;
+    for (int i = 120; i < 240; i++) {
+        taken += depthGateDue(&g, 1000000000LL + i * frame, 10);
+    }
+    CHECK(taken >= 10 && taken <= 11);
+    // Nothing to run at, nothing taken
+    CHECK(!depthGateDue(&g, 9000000000LL, 0));
+}
+
+static void testGateCountsFromAForcedCapture(void) {
+    DepthGate g = { 0, 0 };
+    int64_t frame = 1000000000LL / 60;
+    int64_t t = 5000000000LL;
+    // The 3D back on takes the frame in hand, and the gate counts from it
+    depthGateTaken(&g, t, 20);
+    CHECK(!depthGateDue(&g, t + frame, 20));
+    CHECK(!depthGateDue(&g, t + 2 * frame, 20));
+    CHECK(depthGateDue(&g, t + 3 * frame, 20));
+}
+
+static void testDepthRateClamp(void) {
+    CHECK(depthRateClamp(0) == DEPTH_RATE_MIN);
+    CHECK(depthRateClamp(-3) == DEPTH_RATE_MIN);
+    CHECK(depthRateClamp(5) == 5);
+    CHECK(depthRateClamp(20) == 20);
+    CHECK(depthRateClamp(45) == 45);
+    CHECK(depthRateClamp(60) == DEPTH_RATE_MAX);
+}
+
+#define SEC 1000000000LL
+
+static void testGovernorCutsBeforeTheDisplay(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 20);
+    CHECK(g.target == 20 && g.cap == 20);
+    // The first budget miss halves the depth rate and leaves the display
+    CHECK(depthGovernorWindow(&g, 10 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.target == 10);
+    // A miss inside the 10 s after it is held, to give the cut time to show
+    CHECK(depthGovernorWindow(&g, 16 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_HOLDING);
+    CHECK(depthGovernorWindow(&g, 20 * SEC - 1, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_HOLDING);
+    CHECK(g.target == 10);
+    // Still missed once it is up: halved again, down to the floor
+    CHECK(depthGovernorWindow(&g, 20 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.target == 5);
+    CHECK(depthGovernorWindow(&g, 26 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_HOLDING);
+    // and only from the floor, still missed, is it the display's turn
+    CHECK(depthGovernorWindow(&g, 32 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_DISPLAY);
+    CHECK(g.target == 5);
+    CHECK(depthGovernorWindow(&g, 40 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_DISPLAY);
+}
+
+// The way the frame loop drives it: a verdict every 2 s window, a miss
+// called after RATE_OVER_WINDOWS over in a row. Returns the moves in order.
+static int ladder(DepthGovernor* g, int64_t* now, int windows, int over, int live, int* moves,
+                  int64_t* when, int max) {
+    int n = 0, overRun = 0;
+    for (int w = 0; w < windows; w++) {
+        *now += RATE_WINDOW_NS;
+        int verdict = RATE_WINDOW_HELD;
+        if (over) {
+            verdict = ++overRun < RATE_OVER_WINDOWS ? RATE_WINDOW_SLIPPING : RATE_WINDOW_OVER;
+            if (verdict == RATE_WINDOW_OVER) {
+                overRun = 0;
+            }
+        }
+        int move = depthGovernorWindow(g, *now, verdict, live);
+        if (move != DEPTH_MOVE_NONE && n < max) {
+            moves[n] = move;
+            when[n] = *now;
+            n++;
+        }
+    }
+    return n;
+}
+
+static void testGovernorLadderTiming(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 20);
+    int64_t now = 0;
+    int moves[16];
+    int64_t when[16];
+    // 60 s over budget from the start
+    int n = ladder(&g, &now, 30, 1, 1, moves, when, 16);
+    // 6 s: cut to 10. 12 s: held. 18 s: cut to 5. 24 s: held. 30 s on:
+    // the display, every 6 s
+    CHECK(n >= 5);
+    CHECK(moves[0] == DEPTH_MOVE_CUT && when[0] == 6 * SEC);
+    CHECK(moves[1] == DEPTH_MOVE_HOLDING && when[1] == 12 * SEC);
+    CHECK(moves[2] == DEPTH_MOVE_CUT && when[2] == 18 * SEC);
+    CHECK(moves[3] == DEPTH_MOVE_HOLDING && when[3] == 24 * SEC);
+    CHECK(moves[4] == DEPTH_MOVE_DISPLAY && when[4] == 30 * SEC);
+    CHECK(g.target == 5);
+
+    // Then the budget holds. 30 s of it, counted from the start of the first
+    // held window, before the first step back up
+    n = ladder(&g, &now, 40, 0, 1, moves, when, 16);
+    int64_t heldFrom = 60 * SEC;
+    CHECK(n == 2);
+    CHECK(moves[0] == DEPTH_MOVE_RAISED && when[0] == heldFrom + 30 * SEC);
+    CHECK(moves[1] == DEPTH_MOVE_RAISED && when[1] == heldFrom + 60 * SEC);
+    // One step at a time, and never past the preference
+    CHECK(g.target == 20);
+    n = ladder(&g, &now, 40, 0, 1, moves, when, 16);
+    CHECK(n == 0);
+    CHECK(g.target == 20);
+}
+
+static void testGovernorRecoveryNeedsAnUnbrokenRun(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 45);
+    int64_t now = 100 * SEC;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.target == 22);
+    // 28 s held, then one window over: the count starts again
+    for (int i = 0; i < 14; i++) {
+        now += RATE_WINDOW_NS;
+        CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1) == DEPTH_MOVE_NONE);
+    }
+    now += RATE_WINDOW_NS;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_SLIPPING, 1) == DEPTH_MOVE_NONE);
+    for (int i = 0; i < 14; i++) {
+        now += RATE_WINDOW_NS;
+        CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1) == DEPTH_MOVE_NONE);
+    }
+    now += RATE_WINDOW_NS;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1) == DEPTH_MOVE_RAISED);
+    // Doubled, but capped at the preference
+    CHECK(g.target == 44);
+    for (int i = 0; i < 15; i++) {
+        now += RATE_WINDOW_NS;
+        depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1);
+    }
+    CHECK(g.target == 45);
+    // A budget restarted after a rate change or a focus loss breaks the run too
+    depthGovernorStart(&g, 20);
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    for (int i = 0; i < 10; i++) {
+        now += RATE_WINDOW_NS;
+        depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1);
+    }
+    now += RATE_WINDOW_NS;
+    depthGovernorWindow(&g, now, RATE_WINDOW_SETTLING, 1);
+    for (int i = 0; i < 14; i++) {
+        now += RATE_WINDOW_NS;
+        CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1) == DEPTH_MOVE_NONE);
+    }
+    CHECK(g.target == 10);
+}
+
+static void testGovernorWithNoModelRunning(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 20);
+    // 3D off, or the warp on a test pattern: nothing to cut, the display's turn
+    CHECK(depthGovernorWindow(&g, 10 * SEC, RATE_WINDOW_OVER, 0) == DEPTH_MOVE_DISPLAY);
+    CHECK(g.target == 20);
+    // and nothing climbs while it is not running
+    depthGovernorStart(&g, 20);
+    depthGovernorWindow(&g, 10 * SEC, RATE_WINDOW_OVER, 1);
+    int64_t now = 10 * SEC;
+    for (int i = 0; i < 30; i++) {
+        now += RATE_WINDOW_NS;
+        CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 0) == DEPTH_MOVE_NONE);
+    }
+    CHECK(g.target == 10);
+    // Filling windows are not judged at all
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_FILLING, 1) == DEPTH_MOVE_NONE);
+}
+
+static void testGovernorFloorAndCap(void) {
+    DepthGovernor g;
+    // A preference already at the floor goes straight to the display
+    depthGovernorStart(&g, 5);
+    CHECK(depthGovernorWindow(&g, 10 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_DISPLAY);
+    // 6 halves to 3, held at 5
+    depthGovernorStart(&g, 6);
+    CHECK(depthGovernorWindow(&g, 10 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.target == 5);
+    // 12, the Gen 1 start: 6, then 5
+    depthGovernorStart(&g, 12);
+    depthGovernorWindow(&g, 10 * SEC, RATE_WINDOW_OVER, 1);
+    CHECK(g.target == 6);
+    depthGovernorWindow(&g, 20 * SEC, RATE_WINDOW_OVER, 1);
+    CHECK(g.target == 5);
+    // Out of range preferences come in range
+    depthGovernorStart(&g, 99);
+    CHECK(g.cap == 45 && g.target == 45);
+    depthGovernorStart(&g, 1);
+    CHECK(g.cap == 5 && g.target == 5);
+}
+
+static void testGovernorOnAThrottle(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 20);
+    // The runtime warning of a throttle cuts at once, without a budget miss
+    CHECK(depthGovernorThrottle(&g, 10 * SEC, 1, 1, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.target == 10);
+    // A second domain a moment later is held like any other move in the hold
+    CHECK(depthGovernorThrottle(&g, 11 * SEC, 1, 1, 1) == DEPTH_MOVE_HOLDING);
+    CHECK(g.target == 10);
+    // and so is the budget missing inside it
+    CHECK(depthGovernorWindow(&g, 16 * SEC, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_HOLDING);
+    // While throttled nothing climbs, however long the budget holds
+    int64_t now = 20 * SEC;
+    for (int i = 0; i < 30; i++) {
+        now += RATE_WINDOW_NS;
+        CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1) == DEPTH_MOVE_NONE);
+    }
+    // Back to normal, the run starts then
+    CHECK(depthGovernorThrottle(&g, now, 0, 0, 1) == DEPTH_MOVE_NONE);
+    int raised = 0;
+    for (int i = 0; i < 15; i++) {
+        now += RATE_WINDOW_NS;
+        raised += depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1) == DEPTH_MOVE_RAISED;
+    }
+    CHECK(raised == 1);
+    CHECK(g.target == 20);
+    // At the floor a throttle has nothing left to cut and never moves the
+    // display; nor does one with no model running
+    depthGovernorStart(&g, 5);
+    CHECK(depthGovernorThrottle(&g, now, 1, 1, 1) == DEPTH_MOVE_NONE);
+    depthGovernorStart(&g, 20);
+    CHECK(depthGovernorThrottle(&g, now, 1, 1, 0) == DEPTH_MOVE_NONE);
+    CHECK(g.target == 20 && g.throttled);
+}
+
 int main(void) {
     testStreamGetsItsOwnRate();
     testNoMatchTakesTheNearestAbove();
@@ -392,5 +719,17 @@ int main(void) {
     testBudgetCountsABusyGpuByItsPace();
     testBudgetWithNothingMeasured();
     testTheFirstRateIsNoNews();
+    testGateHoldsTheRateWhateverTheFrameRate();
+    testGateThroughARefreshGrid();
+    testGateAfterAStallDoesNotBurst();
+    testGateFollowsATargetChange();
+    testGateCountsFromAForcedCapture();
+    testDepthRateClamp();
+    testGovernorCutsBeforeTheDisplay();
+    testGovernorLadderTiming();
+    testGovernorRecoveryNeedsAnUnbrokenRun();
+    testGovernorWithNoModelRunning();
+    testGovernorFloorAndCap();
+    testGovernorOnAThrottle();
     return checksDone("xr_rate");
 }

@@ -969,6 +969,15 @@ typedef struct {
     XrTime lastDisplayTime;
     int64_t displayPeriodNs;
 
+    // The depth model's rate in maps a second: the governor that spends it
+    // before the display rate when the budget is missed or the runtime
+    // throttles, and the gate that times the captures from it. Frame loop
+    // only, bar the target the stats read.
+    DepthGovernor depthGov;
+    DepthGate depthGate;
+    // The runtime's last notice level for each CPU and GPU sub domain
+    int perfNoticeLevels[2][3];
+
     // The CPU and GPU levels (XR_EXT_performance_settings). Decoding, the
     // warp and the depth model all want the clocks to stay put rather than be
     // renegotiated around every scene, so a sustained level is asked for once
