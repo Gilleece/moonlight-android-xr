@@ -407,6 +407,10 @@ int initXrInput(XrCtx* ctx) {
           PINCH_LOOSE_OFF_M * 1000.0f, PINCH_HOLD_NS / 1000000L, PINCH_VALUE_ON,
           PINCH_VALUE_OFF, ctx->extHandClick ? "the EXT profile's alone where it is on a hand"
                                              : "or the joints, with the hold");
+    LOGEV("ring pinch: ring tip the nearest to the thumb and within %.0f mm (lets go at %.0f), "
+          "index tip %.0f mm further off, held %ld ms, the runtime's pinch and grip not used",
+          RING_PINCH_ON_M * 1000.0f, RING_PINCH_OFF_M * 1000.0f, RING_INDEX_MARGIN_M * 1000.0f,
+          RING_HOLD_NS / 1000000L);
     return 1;
 }
 
@@ -593,26 +597,36 @@ static float tipGap(const XrHandJointLocationEXT* a, const XrHandJointLocationEX
     return sqrtf(dx * dx + dy * dy + dz * dz);
 }
 
-// The tips the lock gesture is judged on: the ring tip to the thumb, with the
-// index and middle tips' own gaps to it, which have to stay clear
+// The tips the lock gesture is judged on: each of the four fingertips to the
+// thumb tip
 static void readRingTips(XrCtx* ctx, int hand, const XrHandJointLocationEXT* joints) {
+    static const int TIPS[TIP_COUNT] = {
+        XR_HAND_JOINT_INDEX_TIP_EXT, XR_HAND_JOINT_MIDDLE_TIP_EXT, XR_HAND_JOINT_RING_TIP_EXT,
+        XR_HAND_JOINT_LITTLE_TIP_EXT
+    };
     const XrSpaceLocationFlags tracked = XR_SPACE_LOCATION_POSITION_VALID_BIT
             | XR_SPACE_LOCATION_POSITION_TRACKED_BIT;
     const XrHandJointLocationEXT* thumb = &joints[XR_HAND_JOINT_THUMB_TIP_EXT];
     const XrHandJointLocationEXT* ring = &joints[XR_HAND_JOINT_RING_TIP_EXT];
-    ctx->ringGap[hand] = tipGap(thumb, ring);
-    ctx->indexGap[hand] = tipGap(thumb, &joints[XR_HAND_JOINT_INDEX_TIP_EXT]);
-    ctx->middleGap[hand] = tipGap(thumb, &joints[XR_HAND_JOINT_MIDDLE_TIP_EXT]);
+    int placed = 1;
+    for (int t = 0; t < TIP_COUNT; t++) {
+        ctx->tipGaps[hand][t] = tipGap(thumb, &joints[TIPS[t]]);
+        placed = placed && ctx->tipGaps[hand][t] >= 0.0f;
+    }
     // A deliberate gesture wants the two tips that touch actually seen, and
-    // the other two at least placed
+    // the other three at least placed
     ctx->ringTipsTracked[hand] = (thumb->locationFlags & tracked) == tracked
-            && (ring->locationFlags & tracked) == tracked
-            && ctx->indexGap[hand] >= 0.0f && ctx->middleGap[hand] >= 0.0f;
+            && (ring->locationFlags & tracked) == tracked && placed;
 }
 
 static int jointPinching(XrCtx* ctx, int hand, const FrameXform* xform, const XrPosef* head,
                          int headValid, long nowNs) {
     ctx->ringTipsTracked[hand] = 0;
+    // Nothing placed until the joints say otherwise, so a hand that is lost
+    // leaves no stale gaps behind it
+    for (int t = 0; t < TIP_COUNT; t++) {
+        ctx->tipGaps[hand][t] = -1.0f;
+    }
     if (!ctx->jointTracking || ctx->handTrackers[hand] == XR_NULL_HANDLE) {
         ctx->handRayValid[hand] = 0;
         return 0;
@@ -1698,34 +1712,63 @@ static void setHandsLocked(XrCtx* ctx, int locked, const char* from) {
     }
 }
 
+// A fingertip's gap for the log, in mm, or a dash where it was not placed
+static const char* tipMm(char* buf, size_t size, float gap) {
+    if (gap < 0.0f) {
+        snprintf(buf, size, "-");
+    }
+    else {
+        snprintf(buf, size, "%.0f", gap * 1000.0f);
+    }
+    return buf;
+}
+
+// While a hand's fingertips are near its thumb, a line every 250 ms with what
+// the gesture was judged on, what the runtime said about a pinch and a grip
+// alongside it, and how far the hold got, so a try on real hands leaves
+// numbers behind
+static void logRingCheck(XrCtx* ctx, const InputFrame* f, int h, int why) {
+    const float* gaps = ctx->tipGaps[h];
+    if (!ringDiagDue(&ctx->ringDiagNs[h], gaps, f->now)) {
+        return;
+    }
+    char tips[TIP_COUNT][16];
+    for (int t = 0; t < TIP_COUNT; t++) {
+        tipMm(tips[t], sizeof(tips[t]), gaps[t]);
+    }
+    LOGI("ring check hand %d: tips to thumb index %s middle %s ring %s little %s mm, "
+         "runtime pinch %.2f grip %.2f, refused: %s, hold %ld of %ld ms, hands %s", h,
+         tips[TIP_INDEX], tips[TIP_MIDDLE], tips[TIP_RING], tips[TIP_LITTLE],
+         ctx->triggerValue[h], f->grab[h], ringReasonName(why),
+         ringHoldNs(&ctx->ringGate[h], f->now) / 1000000L, RING_HOLD_NS / 1000000L,
+         ctx->handsLocked ? "locked" : "unlocked");
+}
+
 // The thumb to ring finger gesture, which turns the lock the way the padlock
 // does and works whether the padlock is shown or not. Read before the lock is
-// applied, since a locked hand has to be able to use it to get back.
+// applied, since a locked hand has to be able to use it to get back. Judged on
+// the joints alone: the runtime's pinch and grip read a press and a grab while
+// the fingers curl for it, so they are only logged.
 static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
-    static const char* const REFUSED[] = {
-        "", "the index tip is near the thumb", "the middle tip is near the thumb",
-        "the hand is pressing", "the hand is gripping"
-    };
     for (int h = 0; h < HAND_COUNT; h++) {
         if (!ctx->handsEnabled || ctx->profileKind[h] == PROFILE_CONTROLLER) {
             ringGateReset(&ctx->ringGate[h]);
             ctx->ringRefusalSaid[h] = RING_OK;
             continue;
         }
-        // An index pinch or a grab under way is something else being done
-        // with that hand, and in a fist the thumb is near every tip
-        int busy = f->grab[h] > PRESS_ON ? RING_GRAB
-                : (ctx->triggerDown[h] || ctx->pinchGate[h].down) ? RING_PRESSED : RING_OK;
-        int refused = RING_OK;
-        int fired = ringGateStep(&ctx->ringGate[h], ctx->ringTipsTracked[h], ctx->ringGap[h],
-                                 ctx->indexGap[h], ctx->middleGap[h], busy, f->now, &refused);
+        int why = RING_OK;
+        int fired = ringGateStep(&ctx->ringGate[h], ctx->ringTipsTracked[h], ctx->tipGaps[h],
+                                 f->now, &why);
+        // Said once per closing, as it changes
+        int refused = why == RING_NOT_NEAREST || why == RING_INDEX;
         if (!ctx->ringGate[h].closed) {
             ctx->ringRefusalSaid[h] = RING_OK;
         }
-        else if (refused != RING_OK && refused != ctx->ringRefusalSaid[h]) {
-            ctx->ringRefusalSaid[h] = refused;
-            LOGI("ring pinch on hand %d refused: %s", h, REFUSED[refused]);
+        else if (refused && why != ctx->ringRefusalSaid[h]) {
+            ctx->ringRefusalSaid[h] = why;
+            LOGI("ring pinch on hand %d refused: %s", h, ringReasonName(why));
         }
+        logRingCheck(ctx, f, h, why);
         if (fired) {
             setHandsLocked(ctx, !ctx->handsLocked, "the ring pinch");
             // Nothing in view moves when a gesture locks the hands, so the

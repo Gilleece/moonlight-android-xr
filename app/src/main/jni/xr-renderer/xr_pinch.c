@@ -81,33 +81,45 @@ void ringGateReset(RingGate* g) {
     memset(g, 0, sizeof(*g));
 }
 
-int ringGateStep(RingGate* g, int tracked, float ringGap, float indexGap, float middleGap,
-                 int busy, long nowNs, int* outRefused) {
-    *outRefused = RING_OK;
+int ringNearestTip(const float gaps[TIP_COUNT]) {
+    int nearest = gaps[TIP_RING] >= 0.0f ? TIP_RING : -1;
+    for (int t = 0; t < TIP_COUNT; t++) {
+        if (gaps[t] >= 0.0f && (nearest < 0 || gaps[t] < gaps[nearest])) {
+            nearest = t;
+        }
+    }
+    return nearest;
+}
+
+int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], long nowNs, int* outWhy) {
     if (!tracked) {
         ringGateReset(g);
+        *outWhy = RING_UNTRACKED;
         return 0;
     }
-    g->closed = ringGap < (g->closed ? RING_PINCH_OFF_M : RING_PINCH_ON_M);
+    float ring = gaps[TIP_RING];
+    g->closed = ring < (g->closed ? RING_PINCH_OFF_M : RING_PINCH_ON_M);
     if (!g->closed) {
         g->since = 0;
         g->fired = 0;
+        *outWhy = RING_FAR;
         return 0;
     }
     if (g->fired) {
+        *outWhy = RING_SPENT;
         return 0;
     }
-    int refused = busy;
-    if (refused == RING_OK && indexGap < RING_CLEAR_M) {
-        refused = RING_INDEX;
+    int why = RING_OK;
+    if (ringNearestTip(gaps) != TIP_RING) {
+        why = RING_NOT_NEAREST;
     }
-    if (refused == RING_OK && middleGap < RING_CLEAR_M) {
-        refused = RING_MIDDLE;
+    else if (gaps[TIP_INDEX] - ring < RING_INDEX_MARGIN_M) {
+        why = RING_INDEX;
     }
-    if (refused != RING_OK) {
+    *outWhy = why;
+    if (why != RING_OK) {
         // The hold has to be clean from end to end
         g->since = 0;
-        *outRefused = refused;
         return 0;
     }
     if (g->since == 0) {
@@ -118,6 +130,36 @@ int ringGateStep(RingGate* g, int tracked, float ringGap, float indexGap, float 
         return 1;
     }
     return 0;
+}
+
+long ringHoldNs(const RingGate* g, long nowNs) {
+    return g->since != 0 && !g->fired ? nowNs - g->since : 0;
+}
+
+const char* ringReasonName(int why) {
+    static const char* const NAMES[RING_REASONS] = {
+        "none",
+        "the tips are not tracked",
+        "the ring tip is not close enough to the thumb",
+        "another tip is nearer the thumb than the ring tip",
+        "the index tip is not 12 mm further from the thumb than the ring tip",
+        "fired, waiting for the fingers to part"
+    };
+    return why >= 0 && why < RING_REASONS ? NAMES[why] : "unknown";
+}
+
+int ringDiagDue(long* lastNs, const float gaps[TIP_COUNT], long nowNs) {
+    int anyNear = 0;
+    for (int t = 0; t < TIP_COUNT; t++) {
+        if (gaps[t] >= 0.0f && gaps[t] < RING_DIAG_NEAR_M) {
+            anyNear = 1;
+        }
+    }
+    if (!anyNear || (*lastNs != 0 && nowNs - *lastNs < RING_DIAG_EVERY_NS)) {
+        return 0;
+    }
+    *lastNs = nowNs;
+    return 1;
 }
 
 float dragRampGain(long elapsedNs) {

@@ -1050,14 +1050,15 @@ typedef struct {
     int lockArmed[SRC_COUNT];
     // The thumb to ring finger gesture that turns the lock, per hand, read off
     // the joints whether the hands are locked or not, since it is the way
-    // back. The tip gaps it is judged on, each tip to the thumb tip, and the
-    // refusal last said, so each is said once per closing.
+    // back. The four fingertips' gaps to the thumb tip it is judged on, in
+    // TIP_ order and under zero for a tip not placed, the refusal last said,
+    // so each is said once per closing, and when the hand's diagnostic line
+    // last went in the log.
     RingGate ringGate[HAND_COUNT];
     int ringTipsTracked[HAND_COUNT];
-    float ringGap[HAND_COUNT];
-    float indexGap[HAND_COUNT];
-    float middleGap[HAND_COUNT];
+    float tipGaps[HAND_COUNT][TIP_COUNT];
     int ringRefusalSaid[HAND_COUNT];
+    long ringDiagNs[HAND_COUNT];
     // The padlock is shown at all, which a setting can turn off while the
     // gesture still works. The toast says when the gesture turns the lock.
     int lockIconShown;
