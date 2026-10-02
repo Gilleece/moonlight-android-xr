@@ -3160,13 +3160,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
      * The exit button in the session was confirmed. Finishing is the same way
      * out the quit shortcut takes, and it carries the teardown and the trip
      * back to the PC list with it, so there is nothing to disconnect here.
+     * Connected or not: after an error the session can still be up showing
+     * it, and the button has to leave it.
      */
     @Override
     public void onVrExit() {
-        if (!connected) {
-            return;
-        }
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
