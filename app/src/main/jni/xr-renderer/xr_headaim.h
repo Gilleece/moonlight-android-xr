@@ -27,7 +27,7 @@
 // What one frame did, for the log. Sent includes a move of under a pixel,
 // which is carried to the next frame rather than lost.
 #define HEAD_AIM_SENT      0
-// Turning slower than the dead zone, so nothing is sent
+// Turning no faster than the dead zone, so nothing is sent
 #define HEAD_AIM_STILL     1
 // The first frame after a gap, with nothing to measure from yet
 #define HEAD_AIM_SEEDED    2
@@ -84,11 +84,12 @@ int headAimBlocked(int active, int paused, int tracked, int recentred);
 // One frame. blocked is what headAimBlocked said; anything but HEAD_AIM_SENT
 // drops the frame and forgets the head, so the next frame measures from
 // itself rather than across the gap, and so does a frame HEAD_AIM_GAP_SEC or
-// more after the last. yaw and pitch are headAimAngles' at the
-// frame's display time, sensitivity is pixels per degree and deadZone degrees
-// a second. The pixels to move the host's mouse by come back in outDx and
-// outDy, right and down positive, and what happened as one of the HEAD_AIM_
-// values.
+// more after the last. yaw and pitch are headAimAngles' at the frame's
+// display time, sensitivity is pixels per degree and deadZone degrees a
+// second, which a turn's rate loses before it moves anything: a turn at the
+// dead zone sends nothing and one past it eases in from there. The pixels to
+// move the host's mouse by come back in outDx and outDy, right and down
+// positive, and what happened as one of the HEAD_AIM_ values.
 int headAimStep(HeadAim* a, int blocked, float yaw, float pitch, int64_t timeNs,
                 float sensitivity, float deadZone, int* outDx, int* outDy);
 

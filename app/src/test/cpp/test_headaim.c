@@ -134,29 +134,41 @@ static void testWhatBlocks(void) {
 }
 
 // The test the task set: a quarter turn over a second at 72 Hz, at 8 pixels a
-// degree, is 720 pixels with none lost
+// degree. With no dead zone that is 720 pixels with none lost; the default
+// dead zone of 2 degrees a second takes 2 of the 90 off the rate, so 88
+// degrees' worth, 704 pixels, with none lost.
 static void testAQuarterTurn(void) {
     int x, y, sent;
+    turn(0.0f, 0.0f, -90.0f, 0.0f, 72, 8.0f, 0.0f, &x, &y, &sent);
+    CHECK(x == 720);
+    CHECK(y == 0);
     // To the right is right
     turn(0.0f, 0.0f, -90.0f, 0.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
-    CHECK(x == 720);
+    CHECK(x == 704);
     CHECK(y == 0);
     CHECK(sent == 72);
     // To the left, across behind the head, is left, and as much
     turn(135.0f, 0.0f, 225.0f, 0.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
-    CHECK(x == -720);
+    CHECK(x == -704);
     CHECK(y == 0);
     // Up is up the screen, the same scale
     turn(0.0f, -45.0f, 0.0f, 45.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
     CHECK(x == 0);
-    CHECK(y == -720);
-    // Both at once, the way a head really moves
+    CHECK(y == -704);
+    // Both at once, the way a head really moves: 60 and 30 degrees, 67.08 a
+    // second together, of which 65.08 is kept, so 465.7 and 232.8 pixels
     turn(10.0f, 5.0f, -50.0f, -25.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
+    CHECK(x == 466);
+    CHECK(y == 233);
+    turn(10.0f, 5.0f, -50.0f, -25.0f, 72, 8.0f, 0.0f, &x, &y, &sent);
     CHECK(x == 480);
     CHECK(y == 240);
     // The same turn spread over many more frames still adds up, though no
-    // single frame is worth a pixel at the slowest sensitivity
+    // single frame is worth a pixel at the slowest sensitivity: 9 degrees a
+    // second keeps 7, so 70 of the 90
     turn(0.0f, 0.0f, -90.0f, 0.0f, 720, 1.0f, 2.0f, &x, &y, &sent);
+    CHECK(x == 70);
+    turn(0.0f, 0.0f, -90.0f, 0.0f, 720, 1.0f, 0.0f, &x, &y, &sent);
     CHECK(x == 90);
 }
 
@@ -176,11 +188,23 @@ static void testTheDeadZone(void) {
     turn(0.0f, 0.0f, -1.0f, 0.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
     CHECK(x == 0);
     CHECK(sent == 0);
-    // Three degrees a second clears it and goes in full: the dead zone gates,
-    // it does not take its share off the top
+    // Exactly at it is still nothing
+    turn(0.0f, 0.0f, -2.0f, 0.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
+    CHECK(x == 0);
+    // Three degrees a second clears it by one, and only that one is sent: the
+    // dead zone takes its share off the top rather than gating, so a turn
+    // eases in from it instead of jumping to the whole of itself
     turn(0.0f, 0.0f, -3.0f, 0.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
-    CHECK(x == 24);
+    CHECK(x == 8);
     CHECK(sent == 72);
+    // And it ramps: each degree a second past the dead zone adds the same
+    int last = 0;
+    for (int over = 1; over <= 6; over++) {
+        turn(0.0f, 0.0f, -(2.0f + (float)over), 0.0f, 72, 8.0f, 2.0f, &x, &y, &sent);
+        CHECK(x == 8 * over);
+        CHECK(x > last);
+        last = x;
+    }
     // Tracking jitter while still, a thousandth of a degree either way each
     // frame, is swallowed
     HeadAim a;
@@ -197,10 +221,12 @@ static void testTheDeadZone(void) {
     // A dead zone of nothing lets a slow drift through, a pixel at a time
     turn(0.0f, 0.0f, -1.0f, 0.0f, 72, 8.0f, 0.0f, &x, &y, &sent);
     CHECK(x == 8);
-    // Straddling it: a diagonal clears it where neither part would alone
+    // Straddling it: a diagonal clears it where neither part would alone, by
+    // 0.12 of its 2.12 degrees a second, so 0.7 of a pixel each way
     turn(0.0f, 0.0f, -1.5f, 1.5f, 72, 8.0f, 2.0f, &x, &y, &sent);
-    CHECK(x == 12);
-    CHECK(y == -12);
+    CHECK(x == 1);
+    CHECK(y == -1);
+    CHECK(sent == 72);
 }
 
 // What is under a pixel is owed to the next frame, so a slow turn is not lost
@@ -287,11 +313,12 @@ static void testTheDrops(void) {
     CHECK(dx == 0 && dy == 0);
     CHECK(stepAt(&a, -61.0f, 0.0f, 2 * FRAME_NS, 8.0f, 2.0f, &dx, &dy) == HEAD_AIM_SENT);
     CHECK(dx == 8);
-    // A fast but real flick is not a jump: 600 degrees a second
+    // A fast but real flick is not a jump: 600 degrees a second, less the
+    // dead zone's 2
     headAimReset(&a);
     stepAt(&a, 0.0f, 0.0f, 0, 8.0f, 2.0f, &dx, &dy);
     CHECK(stepAt(&a, -600.0f / 72.0f, 0.0f, FRAME_NS, 8.0f, 2.0f, &dx, &dy) == HEAD_AIM_SENT);
-    CHECK(dx == 67);
+    CHECK(dx == 66);
 
     // Half a second between frames is a stall, not a turn: nothing is sent
     // for it and the frame after measures from there. Just under is a turn.
@@ -305,7 +332,7 @@ static void testTheDrops(void) {
     headAimReset(&a);
     stepAt(&a, 0.0f, 0.0f, 0, 8.0f, 2.0f, &dx, &dy);
     CHECK(stepAt(&a, -30.0f, 0.0f, 490000000LL, 8.0f, 2.0f, &dx, &dy) == HEAD_AIM_SENT);
-    CHECK(dx == 240);
+    CHECK(dx == 232);
 
     // The same display time again measures nothing and keeps the head
     headAimReset(&a);

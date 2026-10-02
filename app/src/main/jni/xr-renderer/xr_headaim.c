@@ -119,13 +119,16 @@ int headAimStep(HeadAim* a, int blocked, float yaw, float pitch, int64_t timeNs,
         a->carryY = 0.0f;
         return HEAD_AIM_JUMPED;
     }
-    if (speed < deadZone) {
+    if (speed <= deadZone) {
         return HEAD_AIM_STILL;
     }
+    // The dead zone comes off the turn's rate rather than gating it, so a
+    // turn eases in from the threshold instead of starting at full speed
+    float keep = (speed - deadZone) / speed;
     // Turning right lowers the yaw and should move the mouse right, and
     // looking up raises the pitch and should move it up the screen
-    a->carryX -= yawDeg * sensitivity;
-    a->carryY -= pitchDeg * sensitivity;
+    a->carryX -= yawDeg * keep * sensitivity;
+    a->carryY -= pitchDeg * keep * sensitivity;
     *outDx = payOut(&a->carryX);
     *outDy = payOut(&a->carryY);
     return HEAD_AIM_SENT;
