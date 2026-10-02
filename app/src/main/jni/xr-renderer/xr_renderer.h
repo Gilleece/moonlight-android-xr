@@ -1074,21 +1074,13 @@ typedef struct {
     // until the hand opens again
     int pinchSwallowed[SRC_COUNT];
     // Hands locked out for the session, so a gamepad can be used without a
-    // stray pinch clicking the desktop or dragging the screen around. The ring
-    // pinch is the way back. Controllers are never affected, and it starts
-    // off every session.
+    // stray pinch clicking the desktop or dragging the screen around. The
+    // triple pinch is the way back. Controllers are never affected, and it
+    // starts off every session.
     int handsLocked;
-    // The thumb to ring finger gesture that turns the lock, per hand, read off
-    // the joints whether the hands are locked or not, since it is the way
-    // back. The four fingertips' gaps to the thumb tip it is judged on, in
-    // TIP_ order and under zero for a tip not placed, the refusal last said,
-    // so each is said once per closing, and when the hand's diagnostic line
-    // last went in the log.
-    RingGate ringGate[HAND_COUNT];
-    int ringTipsTracked[HAND_COUNT];
-    float tipGaps[HAND_COUNT][TIP_COUNT];
-    int ringRefusalSaid[HAND_COUNT];
-    int64_t ringDiagNs[HAND_COUNT];
+    // The triple pinch that turns the lock, per hand, read off the press
+    // whether the hands are locked or not, since it is the way back
+    TriplePinch triplePinch[HAND_COUNT];
     // The sheet that says how the gesture works, once a session the first
     // time a hand points. Wanted unless it was put away for good or the hands
     // are off, as Java says at the start; shown once a session at most. Its

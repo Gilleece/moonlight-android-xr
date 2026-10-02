@@ -2175,7 +2175,7 @@ final class XrPanels {
     }
 
     /**
-     * The hand lock hint: what the ring pinch does, over OK and "Don't show
+     * The hand lock hint: what the triple pinch does, over OK and "Don't show
      * this again", on the exit prompt's dark sheet with its white strokes.
      * Drawn once, since the ring over the button under the ray is a quad of
      * the native side's.

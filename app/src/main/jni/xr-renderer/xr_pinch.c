@@ -1,5 +1,5 @@
-// The pinch, the ring finger gesture and the drag the eyes start, as plain
-// arithmetic, see xr_pinch.h
+// The pinch, the triple pinch that locks the hands and the drag the eyes
+// start, as plain arithmetic, see xr_pinch.h
 #include "xr_pinch.h"
 
 #include <string.h>
@@ -77,90 +77,40 @@ int pressHysteresis(float value, int wasDown, float on, float off) {
     return value > (wasDown ? off : on);
 }
 
-void ringGateReset(RingGate* g) {
-    memset(g, 0, sizeof(*g));
+void triplePinchReset(TriplePinch* t) {
+    memset(t, 0, sizeof(*t));
 }
 
-int ringNearestTip(const float gaps[TIP_COUNT]) {
-    int nearest = gaps[TIP_RING] >= 0.0f ? TIP_RING : -1;
-    for (int t = 0; t < TIP_COUNT; t++) {
-        if (gaps[t] >= 0.0f && (nearest < 0 || gaps[t] < gaps[nearest])) {
-            nearest = t;
-        }
+// Only presses count, so each pinch has to come up before the next can land.
+// The run is measured from the press two before this one rather than from
+// wherever it started, so a slow first pinch followed by three quick ones
+// still turns the lock. One that turns it starts the next run afresh.
+int triplePinchStep(TriplePinch* t, int down, int64_t nowNs) {
+    int pressed = down && !t->wasDown;
+    t->wasDown = down;
+    if (!down) {
+        t->holding = 0;
     }
-    return nearest;
-}
-
-int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], int64_t nowNs,
-                 int* outWhy) {
-    if (!tracked) {
-        ringGateReset(g);
-        *outWhy = RING_UNTRACKED;
+    if (!pressed) {
         return 0;
     }
-    float ring = gaps[TIP_RING];
-    g->closed = ring < (g->closed ? RING_PINCH_OFF_M : RING_PINCH_ON_M);
-    if (!g->closed) {
-        g->since = 0;
-        g->fired = 0;
-        *outWhy = RING_FAR;
-        return 0;
-    }
-    if (g->fired) {
-        *outWhy = RING_SPENT;
-        return 0;
-    }
-    int why = RING_OK;
-    if (ringNearestTip(gaps) != TIP_RING) {
-        why = RING_NOT_NEAREST;
-    }
-    else if (gaps[TIP_INDEX] - ring < RING_INDEX_MARGIN_M) {
-        why = RING_INDEX;
-    }
-    *outWhy = why;
-    if (why != RING_OK) {
-        // The hold has to be clean from end to end
-        g->since = 0;
-        return 0;
-    }
-    if (g->since == 0) {
-        g->since = nowNs;
-    }
-    if (nowNs - g->since >= RING_HOLD_NS) {
-        g->fired = 1;
+    if (t->presses == 2 && nowNs - t->pressNs[0] <= TRIPLE_PINCH_WINDOW_NS) {
+        t->presses = 0;
+        t->holding = 1;
         return 1;
+    }
+    if (t->presses == 2) {
+        t->pressNs[0] = t->pressNs[1];
+        t->pressNs[1] = nowNs;
+    }
+    else {
+        t->pressNs[t->presses++] = nowNs;
     }
     return 0;
 }
 
-int64_t ringHoldNs(const RingGate* g, int64_t nowNs) {
-    return g->since != 0 && !g->fired ? nowNs - g->since : 0;
-}
-
-const char* ringReasonName(int why) {
-    static const char* const NAMES[RING_REASONS] = {
-        "none",
-        "the tips are not tracked",
-        "the ring tip is not close enough to the thumb",
-        "another tip is nearer the thumb than the ring tip",
-        "the index tip is not 12 mm further from the thumb than the ring tip",
-        "fired, waiting for the fingers to part"
-    };
-    return why >= 0 && why < RING_REASONS ? NAMES[why] : "unknown";
-}
-
-int ringDiagDue(int64_t* lastNs, const float gaps[TIP_COUNT], int64_t nowNs) {
-    int anyNear = 0;
-    for (int t = 0; t < TIP_COUNT; t++) {
-        if (gaps[t] >= 0.0f && gaps[t] < RING_DIAG_NEAR_M) {
-            anyNear = 1;
-        }
-    }
-    if (!anyNear || (*lastNs != 0 && nowNs - *lastNs < RING_DIAG_EVERY_NS)) {
-        return 0;
-    }
-    *lastNs = nowNs;
-    return 1;
+int triplePinchHeld(const TriplePinch* t) {
+    return t->holding;
 }
 
 float dragRampGain(int64_t elapsedNs) {

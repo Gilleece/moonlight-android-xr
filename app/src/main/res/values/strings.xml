@@ -274,9 +274,9 @@
     <string name="title_vr_gaze">Look to point</string>
     <string name="summary_vr_gaze">On a headset with eye tracking, point by looking at the screen and pinch with either hand to click. Pressing a button on a controller hands it the pointer until it is put down, and if the eyes are lost for 10 seconds your hands point until they come back.</string>
     <string name="title_vr_hand_tracking">Hand tracking</string>
-    <string name="summary_vr_hand_tracking">Point and pinch with your hands when the controllers are down. Switch this off to use controllers only. Inside a session, touch your thumb to your ring finger for a moment to lock your hands out without leaving the game; the same gesture unlocks them.</string>
+    <string name="summary_vr_hand_tracking">Point and pinch with your hands when the controllers are down. Switch this off to use controllers only. Inside a session, pinch your thumb and index finger three times quickly to lock your hands out without leaving the game; the same triple pinch unlocks them.</string>
     <string name="vr_hand_hint_title">Hand tracking is on.</string>
-    <string name="vr_hand_hint_body">Touch your thumb to your ring finger for a moment to lock your hands out, so a stray pinch does not click; the same gesture unlocks them.</string>
+    <string name="vr_hand_hint_body">Pinch your thumb and index finger three times quickly to lock your hands out, so a stray pinch does not click; the same triple pinch unlocks them.</string>
     <string name="vr_hand_hint_never">Don\'t show this again</string>
     <string name="summary_vr_pointer">Point at the screen with a controller to move the host mouse. Trigger clicks, A or X right clicks, thumbstick scrolls. Click the thumbstick to switch pointing off in a game that needs the mouse itself.</string>
     <string name="title_vr_pointer_sleep">Pause the pointer when the controller is still</string>

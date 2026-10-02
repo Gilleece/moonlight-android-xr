@@ -1,6 +1,5 @@
-// When a hand's pinch is a press, the thumb to ring finger gesture that locks
-// the hands, and how a drag the eyes started is carried by the hand that
-// pinched. Plain arithmetic over numbers handed in, no
+// When a hand's pinch is a press, the triple pinch that locks the hands, and
+// how a drag the eyes started is carried by the hand that pinched. Plain arithmetic over numbers handed in, no
 // OpenXR calls and no context, so the host tests reach all of it.
 
 #ifndef XR_PINCH_H
@@ -58,70 +57,34 @@ int pinchHoldStep(int64_t* wantSince, int want, int wasDown, int64_t nowNs);
 // sitting near one threshold does not chatter
 int pressHysteresis(float value, int wasDown, float on, float off);
 
-// The hand lock gesture: the thumb to the ring finger, held a moment. The ring
-// tip has to be the nearest of the four fingertips to the thumb and within
-// 22 mm of it (it lets go at 32), and the index tip at least 12 mm further off
-// than the ring tip, which is what keeps an index pinch from reading as one.
-// The middle tip is left free: on a real hand it curls in beside the ring
-// finger, well inside the 35 mm clearance this once asked of it. Nothing the
-// runtime says about a pinch or a grip is consulted, since it reports both
-// while the fingers curl for this very gesture.
-#define RING_PINCH_ON_M 0.022f
-#define RING_PINCH_OFF_M 0.032f
-#define RING_INDEX_MARGIN_M 0.012f
-#define RING_HOLD_NS 350000000L
-
-// The four fingertips, in the order their gaps to the thumb tip travel in
-#define TIP_INDEX  0
-#define TIP_MIDDLE 1
-#define TIP_RING   2
-#define TIP_LITTLE 3
-#define TIP_COUNT  4
-
-// What kept the gesture from being held this frame, RING_OK while it is
-#define RING_OK          0
-#define RING_UNTRACKED   1
-#define RING_FAR         2
-#define RING_NOT_NEAREST 3
-#define RING_INDEX       4
-// Fired on this closing already, waiting for the fingers to part
-#define RING_SPENT       5
-#define RING_REASONS     6
+// The hand lock gesture: three deliberate pinches, the press each makes going
+// down and coming up again, the third landing within 0.9 s of the first, on
+// either hand. Read off the press whether the hands are locked or not, since
+// it is the way back. The first two reach whatever they were aimed at as
+// clicks, untouched and on time; the third is the lock's, held back from
+// where it lands until it lets go.
+#define TRIPLE_PINCH_WINDOW_NS 900000000L
 
 typedef struct {
-    // Since when the gesture has been held cleanly, 0 while it is not
-    int64_t since;
-    // The thumb and ring tips together, with their own hysteresis
-    int closed;
-    // Fired on this closing already, so it waits for the fingers to part
-    int fired;
-} RingGate;
+    // When the last two presses landed, older first, and how many of those
+    // two count towards the next lock
+    int64_t pressNs[2];
+    int presses;
+    // The press as it was last frame
+    int wasDown;
+    // The press that turned the lock, held back until it lets go
+    int holding;
+} TriplePinch;
 
-void ringGateReset(RingGate* g);
+void triplePinchReset(TriplePinch* t);
 
-// One frame of it. tracked says the thumb and ring tips are seen and the other
-// three at least placed, and gaps are each fingertip to the thumb tip in TIP_
-// order. Says 1 on the frame the hold completes, and outWhy what kept it from
-// being held this frame, a RING_ reason.
-int ringGateStep(RingGate* g, int tracked, const float gaps[TIP_COUNT], int64_t nowNs,
-                 int* outWhy);
+// One frame of a hand's press, down or not. Says 1 on the frame the third
+// quick press lands, which turns the lock.
+int triplePinchStep(TriplePinch* t, int down, int64_t nowNs);
 
-// The fingertip nearest the thumb, the ring tip on a tie. A gap under zero is a
-// tip the runtime could not place, and is passed over.
-int ringNearestTip(const float gaps[TIP_COUNT]);
-
-// How long the gesture has been held so far, 0 while it is not
-int64_t ringHoldNs(const RingGate* g, int64_t nowNs);
-
-// A RING_ reason in words, for the log
-const char* ringReasonName(int why);
-
-// The gesture's diagnostic line, for a hand whose fingertips come near the
-// thumb: due when any tip is within 40 mm of it and the hand's last line was
-// 250 ms ago or more, which it then marks as now
-#define RING_DIAG_NEAR_M 0.040f
-#define RING_DIAG_EVERY_NS 250000000L
-int ringDiagDue(int64_t* lastNs, const float gaps[TIP_COUNT], int64_t nowNs);
+// Whether the press this frame is the lock's: the one that turned it, from
+// where it landed until it lets go
+int triplePinchHeld(const TriplePinch* t);
 
 // A drag the eyes started is carried by the hand that pinched. It comes up to
 // speed over half a second from the pinch, so a pinch that wanders as it

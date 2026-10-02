@@ -634,7 +634,7 @@
 #define EXIT_CANCEL_L 0.54f
 #define EXIT_CANCEL_R 0.92f
 
-// The hand lock hint, the sheet that says once a session how the ring pinch
+// The hand lock hint, the sheet that says once a session how the triple pinch
 // locks the hands, the first time they point: its words over OK and "Don't
 // show this again", in the exit prompt's style. One sheet, drawn in Java at
 // the start of a session that may show it, with the ring over the button
