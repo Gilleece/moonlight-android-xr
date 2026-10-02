@@ -23,6 +23,18 @@ int rayFlipFor(int settingOn, int wantOn);
 // gone a lightgun game still has its dot and every press still lands.
 int rayDrawn(int settingOn, int flipped, int panelOpen);
 
+// The cursor dot keeps the size it has on the default screen, PTR_DOT_SIZE_M
+// across at PTR_DOT_REF_M away, as an angle at any distance, so it reads the
+// same on a 14 m wall as on a panel near the viewer. Held between a floor,
+// where a near picture would make it a speck, and a ceiling.
+#define PTR_DOT_SIZE_M 0.022f
+#define PTR_DOT_REF_M 3.0f
+#define PTR_DOT_MIN_M 0.005f
+#define PTR_DOT_MAX_M 0.15f
+
+// The dot's width in metres where the ray lands distance metres from the head
+float pointerDotSize(float distance);
+
 // Whether one hand's controller model is drawn: the setting on, not in
 // passthrough, where the real controller is in view, a controller profile on
 // that hand rather than tracked hands or nothing, its grip pose live, and the

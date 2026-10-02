@@ -14,6 +14,11 @@ int rayDrawn(int settingOn, int flipped, int panelOpen) {
     return panelOpen != 0 || raySwitchOn(settingOn, flipped);
 }
 
+float pointerDotSize(float distance) {
+    float size = distance * (PTR_DOT_SIZE_M / PTR_DOT_REF_M);
+    return size < PTR_DOT_MIN_M ? PTR_DOT_MIN_M : (size > PTR_DOT_MAX_M ? PTR_DOT_MAX_M : size);
+}
+
 int controllerModelShown(int settingOn, int passthrough, int kind, int poseActive,
                          unsigned flags) {
     const unsigned needed = GATE_POSITION_VALID | GATE_ORIENTATION_VALID

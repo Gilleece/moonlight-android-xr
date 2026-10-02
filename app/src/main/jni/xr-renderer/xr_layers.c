@@ -1104,7 +1104,15 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
         // ribbon: a gaze has a cursor and no ray, a ray aimed at nothing
         // has no cursor.
         if (!ctx->beamFree) {
-            Vec3 dotZ = vecNorm(vecSub(head, end));
+            // As wide as the distance asks, so it looks the same size near or far
+            Vec3 toHead = vecSub(head, end);
+            float away = sqrtf(vecDot(toHead, toHead));
+            float dotSize = pointerDotSize(away);
+            if (fabsf(dotSize - ctx->dotSizeSaid) > 0.2f * ctx->dotSizeSaid) {
+                LOGI("cursor dot %.1f cm across at %.2f m", dotSize * 100.0f, away);
+                ctx->dotSizeSaid = dotSize;
+            }
+            Vec3 dotZ = vecNorm(toHead);
             Vec3 worldUp = { 0.0f, 1.0f, 0.0f };
             Vec3 dotX = vecNorm(vecCross(worldUp, dotZ));
             Vec3 dotY = vecCross(dotZ, dotX);
@@ -1114,7 +1122,7 @@ static void addPointerLayers(XrCtx* ctx, const FrameView* view, FrameLayers* lay
 
             quadLayer(&layers->dot, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                       ctx->pointerSwapchain, PTR_TEX_W, PTR_DOT_H, view->space, dotPose,
-                      0.022f, 0.022f);
+                      dotSize, dotSize);
             // The dot is the strip under the beam in the swapchain they share
             layers->dot.subImage.imageRect.offset.y = PTR_BEAM_H;
             pushLayer(ctx, layers, &layers->dot);

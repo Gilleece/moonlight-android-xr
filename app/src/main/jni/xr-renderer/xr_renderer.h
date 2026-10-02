@@ -876,6 +876,8 @@ typedef struct {
     int passthroughBlendSaid;
 
     int cylinderSupported;
+    // The cursor dot's width as last said in the log
+    float dotSizeSaid;
     // The screen's cylinder is held under a full turn, as last said in the log
     int cylinderClampSaid;
     int layerSettingsSupported;
