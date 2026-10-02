@@ -15,6 +15,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Whether the release APK was signed, which decides if the release job runs
+    outputs:
+      signed: ${{ steps.sign.outputs.signed }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
@@ -46,6 +49,7 @@ jobs:
       # still builds and publishes the unsigned APK, which has to be signed by
       # hand the way the README describes.
       - name: Signing key
+        id: sign
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -53,9 +57,11 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "No signing key in the secrets, the release APK stays unsigned"
+            echo "No signing key in the secrets, the release APK stays unsigned and is not attached to the release"
+            echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "signed=true" >> "$GITHUB_OUTPUT"
           echo "$KEYSTORE_BASE64" | base64 -d > release.keystore
           cat > keystore.properties <<EOF
           storeFile=release.keystore
@@ -79,9 +85,11 @@ jobs:
           if-no-files-found: ignore
 
   # The one job that can write to the repository, and all it runs is the
-  # release action on the APK the build job made
+  # release action on the APK the build job made. Only a signed APK is
+  # attached: an unsigned one cannot install over the signed app, so a tag
+  # pushed without the secrets leaves the release's files to the owner.
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && needs.build.outputs.signed == 'true'
     needs: build
     runs-on: ubuntu-latest
     permissions:
