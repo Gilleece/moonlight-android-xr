@@ -967,10 +967,12 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     headAimReset(&ctx->headAim);
     pointerNudgeReset(&ctx->headAimNudge);
     ctx->headAimSaid = -1;
-    // Pointer mode until Java says otherwise, and the pad resting, so the
+    // Pointer mode, as every session starts, and the pad resting, so the
     // first frame it is live holds back whatever is already down
     ctx->padDeadzone = PAD_STICK_DEADZONE_DEFAULT;
+    ctx->padShortcut = PAD_SHORTCUT_MENU_GRIP;
     padToggleReset(&ctx->padToggle);
+    padChordReset(&ctx->padChord, 0);
     padRest(&ctx->pad);
     ctx->padResting = 1;
     // Comfort comes from absolute disparity and depth comes from the steps

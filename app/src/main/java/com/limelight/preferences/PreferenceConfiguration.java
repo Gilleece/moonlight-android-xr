@@ -83,11 +83,13 @@ public class PreferenceConfiguration {
     public static final String VR_HEAD_AIM_PREF_STRING = "checkbox_vr_head_aim";
     public static final String VR_HEAD_AIM_SENSITIVITY_PREF_STRING = "seekbar_vr_head_aim_sensitivity";
     public static final String VR_HEAD_AIM_DEADZONE_PREF_STRING = "seekbar_vr_head_aim_deadzone";
-    // What the controllers are when a session starts: the pointer, or one
-    // gamepad on the host. The two values of that list.
-    public static final String VR_CONTROLLER_MODE_PREF_STRING = "list_vr_controller_mode";
-    public static final String VR_CONTROLLER_MODE_POINTER = "pointer";
-    public static final String VR_CONTROLLER_MODE_GAMEPAD = "gamepad";
+    // The shortcut on the controllers that switches gamepad mode inside a
+    // session, and the three values of that list, in the PAD_SHORTCUT_ order.
+    // The mode itself is never stored: every session starts as the pointer.
+    public static final String VR_GAMEPAD_TOGGLE_PREF_STRING = "list_vr_gamepad_toggle";
+    public static final String VR_GAMEPAD_TOGGLE_MENU_GRIP = "menu_grip";
+    public static final String VR_GAMEPAD_TOGGLE_STICKS = "sticks";
+    public static final String VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS = "triggers_grips";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on. Legacy, and
@@ -226,8 +228,9 @@ public class PreferenceConfiguration {
     // Turning the head moves the host's mouse while the screen is locked to
     // it. Off, since it takes the mouse over for a game that wants it.
     static final boolean DEFAULT_VR_HEAD_AIM = false;
-    // The controllers point, as they always have, until gamepad is chosen
-    static final String DEFAULT_VR_CONTROLLER_MODE = VR_CONTROLLER_MODE_POINTER;
+    // The left menu button held with the left grip, the shortcut gamepad mode
+    // first shipped with
+    static final String DEFAULT_VR_GAMEPAD_TOGGLE = VR_GAMEPAD_TOGGLE_MENU_GRIP;
     private static final boolean DEFAULT_VR_POINTER = true;
     // MiDaS's separation, tenths of a percent of frame width. 5 measured
     // comfortable on device and 7 already strained, once the depth map started
@@ -352,10 +355,9 @@ public class PreferenceConfiguration {
     public boolean vrHeadAim;
     public int vrHeadAimSensitivity;
     public int vrHeadAimDeadZone;
-    // Whether a session starts with the two controllers as one gamepad on the
-    // host rather than as the pointer, which the bar and the switch on the
-    // controllers then turn over for the session
-    public boolean vrGamepadMode;
+    // Which shortcut on the controllers switches them between the pointer and
+    // one gamepad on the host, a PAD_SHORTCUT_ value
+    public int vrGamepadToggle;
     // Run the depth model on every Nth video frame
     public int vrInferenceCadence;
     public int vrConvergence;
@@ -644,21 +646,29 @@ public class PreferenceConfiguration {
     }
 
     /**
-     * Whether the controllers start as a gamepad. Anything but the gamepad
-     * value, an unknown one included, is the pointer.
+     * The gamepad mode shortcut as a PAD_SHORTCUT_ value. Anything it does not
+     * know, an unknown value included, is the menu button and grip.
      */
-    static boolean gamepadAtStart(SharedPreferences prefs) {
-        return VR_CONTROLLER_MODE_GAMEPAD.equals(
-                prefs.getString(VR_CONTROLLER_MODE_PREF_STRING, DEFAULT_VR_CONTROLLER_MODE));
+    static int gamepadToggle(SharedPreferences prefs) {
+        String value = prefs.getString(VR_GAMEPAD_TOGGLE_PREF_STRING, DEFAULT_VR_GAMEPAD_TOGGLE);
+        if (VR_GAMEPAD_TOGGLE_STICKS.equals(value)) {
+            return XrShared.PAD_SHORTCUT_STICKS;
+        }
+        if (VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS.equals(value)) {
+            return XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS;
+        }
+        return XrShared.PAD_SHORTCUT_MENU_GRIP;
     }
 
     /**
-     * What the controllers start as, for a log line, joined the way that line
-     * joins its keys to their values
+     * The gamepad mode shortcut for a log line, by its stored value, joined the
+     * way that line joins its keys to their values
      */
-    public static String controllerModeLabel(boolean gamepad, String join) {
-        return "controllerMode" + join + (gamepad ? VR_CONTROLLER_MODE_GAMEPAD
-                                                  : VR_CONTROLLER_MODE_POINTER);
+    public static String gamepadToggleLabel(int shortcut, String join) {
+        String value = shortcut == XrShared.PAD_SHORTCUT_STICKS ? VR_GAMEPAD_TOGGLE_STICKS
+                : shortcut == XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS
+                        ? VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS : VR_GAMEPAD_TOGGLE_MENU_GRIP;
+        return "gamepadShortcut" + join + value;
     }
 
     /**
@@ -1342,7 +1352,7 @@ public class PreferenceConfiguration {
         config.vrHeadAim = headAimOn(prefs);
         config.vrHeadAimSensitivity = headAimSensitivity(prefs);
         config.vrHeadAimDeadZone = headAimDeadZone(prefs);
-        config.vrGamepadMode = gamepadAtStart(prefs);
+        config.vrGamepadToggle = gamepadToggle(prefs);
         config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
         config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);

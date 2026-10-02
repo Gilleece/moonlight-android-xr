@@ -1,6 +1,9 @@
 // Gamepad mode: the controllers' readings into Moonlight's pad, the dead
-// zones, the grips as bumpers, the controls held back until let go, and the
-// left menu button with the left grip switching modes after half a second
+// zones, the grips as bumpers, the controls held back until let go, the left
+// menu button with the left grip switching modes after half a second, and the
+// two chord shortcuts, both stick clicks or both triggers with both grips,
+// held back from the pad while they form
+#include <stdlib.h>
 #include <string.h>
 
 #include "check.h"
@@ -399,6 +402,477 @@ static void testTheSwitchOnThePad(void) {
     CHECK(sawBumper);
 }
 
+// Both controllers through a chord frame by frame at 72 Hz the way the frame
+// does it, into the pad. What each frame sent is kept, so a test can say
+// whether anything of the chord ever reached the host.
+typedef struct {
+    PadChord chord;
+    int64_t clock;
+    int grips[2];
+    int fired;
+    int abandoned;
+    // OR of every frame's buttons, the highest trigger sent each side, and
+    // the most a stick moved
+    int sentButtons;
+    int sentLT;
+    int sentRT;
+    int sentStick;
+    // The last frame's pad and event
+    PadState last;
+    int event;
+} ChordRun;
+
+static void chordStart(ChordRun* r, int shortcut) {
+    memset(r, 0, sizeof(*r));
+    padChordReset(&r->chord, padChordParts(shortcut));
+    r->clock = 7000000000LL;
+    // Nothing held at the start, so the reset's wait is over on frame one
+    PadHand none = idle();
+    padChordStep(&r->chord, &none, &none, r->clock);
+    r->clock += FRAME_NS;
+}
+
+static void chordFrames(ChordRun* r, int frames, const PadHand* left, const PadHand* right) {
+    for (int i = 0; i < frames; i++) {
+        r->event = padChordStep(&r->chord, left, right, r->clock);
+        r->fired += r->event == PAD_CHORD_FIRED;
+        r->abandoned += r->event == PAD_CHORD_ABANDONED;
+        PadHand l, rr;
+        padChordApply(&r->chord, left, right, &l, &rr);
+        r->grips[0] = padGripDown(l.grip, r->grips[0]);
+        r->grips[1] = padGripDown(rr.grip, r->grips[1]);
+        padMap(&l, &rr, r->grips, 1, PAD_STICK_DEADZONE_DEFAULT, &r->last);
+        r->sentButtons |= r->last.buttons;
+        if (r->last.leftTrigger > r->sentLT) {
+            r->sentLT = r->last.leftTrigger;
+        }
+        if (r->last.rightTrigger > r->sentRT) {
+            r->sentRT = r->last.rightTrigger;
+        }
+        int moved = abs(r->last.leftX) + abs(r->last.leftY) + abs(r->last.rightX)
+                + abs(r->last.rightY);
+        if (moved > r->sentStick) {
+            r->sentStick = moved;
+        }
+        r->clock += FRAME_NS;
+    }
+}
+
+static void chordForget(ChordRun* r) {
+    r->sentButtons = 0;
+    r->sentLT = 0;
+    r->sentRT = 0;
+    r->sentStick = 0;
+    r->fired = 0;
+    r->abandoned = 0;
+}
+
+static void testTheChordsParts(void) {
+    CHECK(PAD_SHORTCUT_MENU_GRIP == 0 && PAD_SHORTCUT_STICKS == 1
+          && PAD_SHORTCUT_TRIGGERS_GRIPS == 2);
+    CHECK(padChordParts(PAD_SHORTCUT_MENU_GRIP) == 0);
+    CHECK(padChordParts(PAD_SHORTCUT_STICKS) == (PAD_PART_LS | PAD_PART_RS));
+    CHECK(padChordParts(PAD_SHORTCUT_TRIGGERS_GRIPS)
+          == (PAD_PART_LT | PAD_PART_RT | PAD_PART_LG | PAD_PART_RG));
+    CHECK(padChordParts(7) == 0);
+    CHECK(padChordParts(-1) == 0);
+    // About a third of a second held, inside a sixth of one to get there
+    CHECK(PAD_CHORD_HOLD_NS == 300000000LL);
+    CHECK(PAD_CHORD_WINDOW_NS == 150000000LL);
+}
+
+// Both stick clicks: neither reaches the pad while it forms, nor while held
+// after it switches, nor does the stick they are pressed in with
+static void testBothSticksSwitch(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_STICKS);
+    PadHand left = idle();
+    PadHand right = idle();
+
+    // L3, then R3 five frames later, with the sticks nudged as they go in
+    left.stickClick = 1;
+    left.stickX = 0.4f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.event == PAD_CHORD_FORMING);
+    CHECK(r.chord.held == PAD_PART_LS);
+    chordFrames(&r, 4, &left, &right);
+    right.stickClick = 1;
+    right.stickY = -0.3f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.chord.held == (PAD_PART_LS | PAD_PART_RS));
+    CHECK(r.chord.allDown);
+    // 0.3 s from both being in is 21.6 frames at 72 Hz: the 22nd after
+    chordFrames(&r, 21, &left, &right);
+    CHECK(r.fired == 0);
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.fired == 1);
+    CHECK(r.event == PAD_CHORD_FIRED);
+    CHECK(r.chord.taken == (PAD_PART_LS | PAD_PART_RS));
+    // Held on: nothing, and still nothing sent
+    chordFrames(&r, 100, &left, &right);
+    CHECK(r.fired == 1);
+    CHECK(r.sentButtons == 0);
+    CHECK(r.sentStick == 0);
+    CHECK(r.abandoned == 0);
+
+    // L3 let go first and pressed again with R3 still in: the switch is
+    // spent, so it goes through and switches nothing
+    left.stickClick = 0;
+    chordFrames(&r, 3, &left, &right);
+    CHECK(r.chord.held == PAD_PART_RS);
+    left.stickClick = 1;
+    chordFrames(&r, 50, &left, &right);
+    CHECK(r.fired == 1);
+    CHECK(r.sentButtons == PAD_LS_CLICK);
+    CHECK((r.last.buttons & PAD_RS_CLICK) == 0);
+    // Both let go: free again, and the next chord switches back
+    left = idle();
+    right = idle();
+    chordFrames(&r, 2, &left, &right);
+    CHECK(r.chord.held == 0 && !r.chord.spent);
+    chordForget(&r);
+    left.stickClick = 1;
+    right.stickClick = 1;
+    chordFrames(&r, 40, &left, &right);
+    CHECK(r.fired == 1);
+    CHECK(r.sentButtons == 0);
+}
+
+// One stick click on its own is the game's, a window late
+static void testOneStickGoesThroughLate(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_STICKS);
+    PadHand left = idle();
+    PadHand right = idle();
+    left.stickClick = 1;
+    // The window is 10.8 frames: held back for 11, through on the 12th
+    chordFrames(&r, 11, &left, &right);
+    CHECK(r.sentButtons == 0);
+    CHECK(r.abandoned == 0);
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.abandoned == 1);
+    CHECK(r.last.buttons == PAD_LS_CLICK);
+    CHECK(r.chord.replay == 0);
+    chordFrames(&r, 30, &left, &right);
+    CHECK(r.last.buttons == PAD_LS_CLICK);
+    // The other one joining late is just R3, not the shortcut
+    right.stickClick = 1;
+    chordFrames(&r, 60, &left, &right);
+    CHECK(r.fired == 0);
+    CHECK(r.last.buttons == (PAD_LS_CLICK | PAD_RS_CLICK));
+    // Let go, both are clean releases
+    left = idle();
+    right = idle();
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.buttons == 0);
+}
+
+// A quick click inside the window is replayed as one frame down
+static void testAQuickClickIsATap(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_STICKS);
+    PadHand left = idle();
+    PadHand right = idle();
+    right.stickClick = 1;
+    chordFrames(&r, 4, &left, &right);
+    CHECK(r.sentButtons == 0);
+    right.stickClick = 0;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.event == PAD_CHORD_ABANDONED);
+    CHECK(r.chord.replay == PAD_PART_RS);
+    CHECK(r.last.buttons == PAD_RS_CLICK);
+    CHECK(padChordSeen(&r.chord, PAD_PART_RS, 0.0f) == 1.0f);
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.buttons == 0);
+    CHECK(r.chord.replay == 0);
+    // And a second click right after starts a window of its own
+    right.stickClick = 1;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.event == PAD_CHORD_FORMING);
+    CHECK(r.last.buttons == 0);
+}
+
+// Both in, then one let go before the hold is over: the one let go is a tap,
+// the one still in goes through, and nothing switches
+static void testAChordLetGoShort(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_STICKS);
+    PadHand left = idle();
+    PadHand right = idle();
+    left.stickClick = 1;
+    right.stickClick = 1;
+    left.stickY = 0.8f;
+    chordFrames(&r, 15, &left, &right);
+    CHECK(r.sentButtons == 0 && r.sentStick == 0);
+    left.stickClick = 0;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.event == PAD_CHORD_ABANDONED);
+    CHECK(r.fired == 0);
+    CHECK(r.last.buttons == (PAD_LS_CLICK | PAD_RS_CLICK));
+    // The stick comes back with its click no longer held
+    CHECK(r.last.leftY == (int)(0.8f * PAD_STICK_FULL));
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.buttons == PAD_RS_CLICK);
+    chordFrames(&r, 100, &left, &right);
+    CHECK(r.fired == 0);
+}
+
+// The hold and the window, on the clock rather than in frames
+static void testTheChordsTiming(void) {
+    PadChord c;
+    PadHand left = idle();
+    PadHand right = idle();
+    padChordReset(&c, padChordParts(PAD_SHORTCUT_STICKS));
+    padChordStep(&c, &left, &right, 0);
+    left.stickClick = 1;
+    CHECK(padChordStep(&c, &left, &right, 1000) == PAD_CHORD_FORMING);
+    right.stickClick = 1;
+    // The second part exactly as the window closes still counts
+    CHECK(padChordStep(&c, &left, &right, 1000 + PAD_CHORD_WINDOW_NS) == PAD_CHORD_NOTHING);
+    int64_t all = 1000 + PAD_CHORD_WINDOW_NS;
+    CHECK(padChordStep(&c, &left, &right, all + PAD_CHORD_HOLD_NS - 1) == PAD_CHORD_NOTHING);
+    CHECK(padChordStep(&c, &left, &right, all + PAD_CHORD_HOLD_NS) == PAD_CHORD_FIRED);
+
+    // One nanosecond later is too late
+    left = idle();
+    right = idle();
+    padChordReset(&c, padChordParts(PAD_SHORTCUT_STICKS));
+    padChordStep(&c, &left, &right, 0);
+    left.stickClick = 1;
+    padChordStep(&c, &left, &right, 1000);
+    right.stickClick = 1;
+    CHECK(padChordStep(&c, &left, &right, 1001 + PAD_CHORD_WINDOW_NS) == PAD_CHORD_ABANDONED);
+    CHECK(c.held == 0);
+    CHECK(padChordStep(&c, &left, &right, 1000 + 5 * PAD_CHORD_HOLD_NS) == PAD_CHORD_NOTHING);
+
+    // Both in the same frame
+    left = idle();
+    right = idle();
+    padChordReset(&c, padChordParts(PAD_SHORTCUT_STICKS));
+    padChordStep(&c, &left, &right, 0);
+    left.stickClick = 1;
+    right.stickClick = 1;
+    CHECK(padChordStep(&c, &left, &right, 50) == PAD_CHORD_FORMING);
+    CHECK(c.allDown);
+    CHECK(padChordStep(&c, &left, &right, 50 + PAD_CHORD_HOLD_NS) == PAD_CHORD_FIRED);
+}
+
+// Both triggers and both grips: a trigger is held back from the moment it
+// would reach the host, so not even its first travel leaks
+static void testTriggersAndGripsSwitch(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_TRIGGERS_GRIPS);
+    PadHand left = idle();
+    PadHand right = idle();
+    // Squeezed over a few frames, a hand at a time, triggers first
+    float ramp[] = { 0.2f, 0.5f, 0.9f, 1.0f };
+    for (int i = 0; i < 4; i++) {
+        right.trigger = ramp[i];
+        chordFrames(&r, 1, &left, &right);
+    }
+    CHECK(r.chord.held == PAD_PART_RT);
+    right.grip = 0.7f;
+    left.trigger = 0.95f;
+    chordFrames(&r, 1, &left, &right);
+    left.grip = 1.0f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.chord.allDown);
+    chordFrames(&r, 25, &left, &right);
+    CHECK(r.fired == 1);
+    chordFrames(&r, 50, &left, &right);
+    CHECK(r.fired == 1);
+    CHECK(r.sentButtons == 0);
+    CHECK(r.sentLT == 0 && r.sentRT == 0);
+    // Let go a part at a time: each stays back until it is let go, and the
+    // rest never come through either
+    right.trigger = 0.0f;
+    chordFrames(&r, 3, &left, &right);
+    left.grip = 0.0f;
+    chordFrames(&r, 3, &left, &right);
+    CHECK(r.sentButtons == 0 && r.sentLT == 0 && r.sentRT == 0);
+    left = idle();
+    right = idle();
+    chordFrames(&r, 2, &left, &right);
+    CHECK(r.chord.held == 0);
+    CHECK(r.sentButtons == 0 && r.sentLT == 0 && r.sentRT == 0);
+}
+
+// The pieces of it on their own are the game's, a window late
+static void testTriggersAndGripsAlone(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_TRIGGERS_GRIPS);
+    PadHand left = idle();
+    PadHand right = idle();
+    // A trigger held part way, a throttle say: back for the window, then
+    // through at what it reads, and on from there without a further wait
+    right.trigger = 0.4f;
+    chordFrames(&r, 11, &left, &right);
+    CHECK(r.sentRT == 0);
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.abandoned == 1);
+    CHECK(r.last.rightTrigger == padTrigger(0.4f));
+    right.trigger = 1.0f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.rightTrigger == 255);
+    // With it already through, the rest of the chord cannot make one
+    left.trigger = 1.0f;
+    left.grip = 1.0f;
+    right.grip = 1.0f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.leftTrigger == 255);
+    CHECK(r.last.buttons == (PAD_LB | PAD_RB));
+    chordFrames(&r, 60, &left, &right);
+    CHECK(r.fired == 0);
+
+    // A trigger tapped inside the window comes through at the furthest it went
+    left = idle();
+    right = idle();
+    chordFrames(&r, 2, &left, &right);
+    chordForget(&r);
+    left.trigger = 0.5f;
+    chordFrames(&r, 1, &left, &right);
+    left.trigger = 0.8f;
+    chordFrames(&r, 1, &left, &right);
+    left.trigger = 0.6f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.sentLT == 0);
+    left.trigger = 0.0f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.leftTrigger == padTrigger(0.8f));
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.leftTrigger == 0);
+
+    // A grip pressed as a bumper and let go inside it is one frame of LB
+    chordForget(&r);
+    left.grip = 0.9f;
+    chordFrames(&r, 3, &left, &right);
+    CHECK(r.sentButtons == 0);
+    left.grip = 0.1f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.buttons == PAD_LB);
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.buttons == 0);
+
+    // A grip only half way is not a bumper, so it starts nothing and is never
+    // held back
+    chordForget(&r);
+    left.grip = 0.5f;
+    chordFrames(&r, 3, &left, &right);
+    CHECK(r.chord.held == 0 && !r.chord.forming);
+
+    // A trigger under its dead zone neither
+    left = idle();
+    left.trigger = 0.1f;
+    chordFrames(&r, 3, &left, &right);
+    CHECK(r.chord.held == 0 && !r.chord.forming);
+}
+
+// All four in, then a trigger eased off past its release: given up
+static void testAChordEasedOff(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_TRIGGERS_GRIPS);
+    PadHand left = idle();
+    PadHand right = idle();
+    left.trigger = right.trigger = 1.0f;
+    left.grip = right.grip = 1.0f;
+    chordFrames(&r, 10, &left, &right);
+    CHECK(r.chord.allDown);
+    // Eased under the press but over the release still counts
+    right.trigger = 0.5f;
+    chordFrames(&r, 5, &left, &right);
+    CHECK(r.abandoned == 0);
+    right.trigger = 0.3f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.abandoned == 1);
+    CHECK(r.fired == 0);
+    // Everything still held goes through at once, the trigger at its travel
+    CHECK(r.last.leftTrigger == 255);
+    CHECK(r.last.rightTrigger == padTrigger(0.3f));
+    CHECK(r.last.buttons == (PAD_LB | PAD_RB));
+    chordFrames(&r, 60, &left, &right);
+    CHECK(r.fired == 0);
+}
+
+// The menu and grip shortcut has no chord, so nothing is ever held back, and
+// with it chosen the chords' controls are simply the pad's
+static void testNoChordHoldsNothing(void) {
+    ChordRun r;
+    chordStart(&r, PAD_SHORTCUT_MENU_GRIP);
+    PadHand left = idle();
+    PadHand right = idle();
+    left.stickClick = right.stickClick = 1;
+    left.trigger = right.trigger = 1.0f;
+    left.grip = right.grip = 1.0f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.event == PAD_CHORD_NOTHING);
+    CHECK(r.last.buttons == (PAD_LS_CLICK | PAD_RS_CLICK | PAD_LB | PAD_RB));
+    CHECK(r.last.leftTrigger == 255 && r.last.rightTrigger == 255);
+    chordFrames(&r, 100, &left, &right);
+    CHECK(r.fired == 0 && r.chord.held == 0);
+    CHECK(padChordSeen(&r.chord, PAD_PART_LT, 0.7f) == 0.7f);
+
+    // With the sticks chosen, triggers and grips are not held either
+    chordStart(&r, PAD_SHORTCUT_STICKS);
+    left = idle();
+    right = idle();
+    left.trigger = right.trigger = 1.0f;
+    left.grip = right.grip = 1.0f;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.event == PAD_CHORD_NOTHING);
+    CHECK(r.last.leftTrigger == 255 && r.last.buttons == (PAD_LB | PAD_RB));
+    chordFrames(&r, 100, &left, &right);
+    CHECK(r.fired == 0);
+    // And with the triggers chosen, the stick clicks
+    chordStart(&r, PAD_SHORTCUT_TRIGGERS_GRIPS);
+    left = idle();
+    right = idle();
+    left.stickClick = right.stickClick = 1;
+    chordFrames(&r, 1, &left, &right);
+    CHECK(r.last.buttons == (PAD_LS_CLICK | PAD_RS_CLICK));
+    chordFrames(&r, 100, &left, &right);
+    CHECK(r.fired == 0);
+}
+
+// A reset with the chord's controls already down never switches by itself:
+// they have to be let go first, and they go straight through meanwhile
+static void testAResetWaitsForRest(void) {
+    PadChord c;
+    PadHand left = idle();
+    PadHand right = idle();
+    left.stickClick = right.stickClick = 1;
+    padChordReset(&c, padChordParts(PAD_SHORTCUT_STICKS));
+    int64_t t = 0;
+    int fired = 0;
+    for (int i = 0; i < 100; i++) {
+        fired += padChordStep(&c, &left, &right, t) == PAD_CHORD_FIRED;
+        CHECK(c.held == 0);
+        t += FRAME_NS;
+    }
+    CHECK(fired == 0);
+    left = idle();
+    right = idle();
+    padChordStep(&c, &left, &right, t);
+    CHECK(!c.spent);
+    // Without parts, a step is nothing at all
+    padChordReset(&c, 0);
+    left.stickClick = right.stickClick = 1;
+    CHECK(padChordStep(&c, &left, &right, t) == PAD_CHORD_NOTHING);
+    CHECK(c.held == 0 && c.replay == 0);
+}
+
+// Readings that are not numbers neither start a chord nor finish one
+static void testTheChordIgnoresNonsense(void) {
+    PadChord c;
+    PadHand left = idle();
+    PadHand right = idle();
+    padChordReset(&c, padChordParts(PAD_SHORTCUT_TRIGGERS_GRIPS));
+    padChordStep(&c, &left, &right, 0);
+    left.trigger = NAN;
+    left.grip = NAN;
+    CHECK(padChordStep(&c, &left, &right, FRAME_NS) == PAD_CHORD_NOTHING);
+    CHECK(c.held == 0);
+}
+
 int main(void) {
     testTheBits();
     testTheButtons();
@@ -410,5 +884,17 @@ int main(void) {
     testTheHoldBack();
     testTheToggle();
     testTheSwitchOnThePad();
+    testTheChordsParts();
+    testBothSticksSwitch();
+    testOneStickGoesThroughLate();
+    testAQuickClickIsATap();
+    testAChordLetGoShort();
+    testTheChordsTiming();
+    testTriggersAndGripsSwitch();
+    testTriggersAndGripsAlone();
+    testAChordEasedOff();
+    testNoChordHoldsNothing();
+    testAResetWaitsForRest();
+    testTheChordIgnoresNonsense();
     return checksDone("xr_gamepad");
 }

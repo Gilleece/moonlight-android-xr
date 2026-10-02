@@ -1,13 +1,15 @@
 // Gamepad mode: the two controllers together as one Xbox pad on the host.
 // What each control reads becomes Moonlight's button bits, triggers and
 // sticks, a control still held from something else is kept off the pad until
-// it is let go, and the left menu button held with the left grip switches the
-// controllers between the pad and the pointer. Plain arithmetic over values
-// handed in, no OpenXR calls and no context, so the host tests reach all of it.
+// it is let go, and a shortcut on the controllers switches them between the
+// pad and the pointer. Plain arithmetic over values handed in, no OpenXR calls
+// and no context, so the host tests reach all of it.
 //
 // The right controller's menu button is the system's on both headsets and
-// never reaches an app, so the switch is the left menu button with the left
-// grip rather than the two menu buttons a flat app gets.
+// never reaches an app, so the shortcut is the left menu button with the left
+// grip rather than the two menu buttons a flat app gets, or by choice both
+// stick clicks, or both triggers with both grips. Only the one chosen does
+// anything.
 
 #ifndef XR_GAMEPAD_H
 #define XR_GAMEPAD_H
@@ -109,8 +111,9 @@ int padHeldIn(const PadState* s);
 // for a panel or for the switch never lands in the game.
 void padHoldBack(int* held, PadState* s);
 
-// The switch between the pad and the pointer, the left menu button and the
-// left grip held together, and whether the menu button is Start meanwhile
+// The menu and grip shortcut between the pad and the pointer, the left menu
+// button and the left grip held together, and whether the menu button is
+// Start meanwhile
 typedef struct {
     // Both held, and since when
     int holding;
@@ -131,5 +134,83 @@ void padToggleReset(PadToggle* t);
 // already down never reaches the host as Start; one made first is Start until
 // the grip joins it.
 int padToggleStep(PadToggle* t, int menu, int grip, int64_t nowNs, int* startOk);
+
+// The other two shortcuts are chords of two or four controls, the parts, each
+// a bit: a stick click, a trigger or a grip, left or right
+#define PAD_PART_LS 0x01
+#define PAD_PART_RS 0x02
+#define PAD_PART_LT 0x04
+#define PAD_PART_RT 0x08
+#define PAD_PART_LG 0x10
+#define PAD_PART_RG 0x20
+#define PAD_PART_COUNT 6
+// The rest of a chord has to be pressed this soon after its first part leaves
+// rest, and all of it then held this long before it switches
+#define PAD_CHORD_WINDOW_NS 150000000LL
+#define PAD_CHORD_HOLD_NS 300000000LL
+
+// What a chord step did, for the log
+#define PAD_CHORD_NOTHING 0
+#define PAD_CHORD_FORMING 1
+#define PAD_CHORD_ABANDONED 2
+#define PAD_CHORD_FIRED 3
+
+// A chord is all its parts pressed within the window of the first leaving
+// rest, from all of them at rest, and then held. Nothing of it may reach the
+// host or the pointer meanwhile, so each part is held back, read as at rest,
+// from the moment it leaves rest until the chord either switches or is given
+// up: the window running out, or a part let go or eased off before the hold
+// is over. Given up, what is still held goes through from that frame on, a
+// little late, and a part pressed and let go inside it is replayed as a tap,
+// one frame at the furthest it went. Once it switches, its parts stay held
+// back until each is let go, and nothing more happens until all are at rest.
+// A part already going through when the others join cannot start one.
+typedef struct {
+    // The chord's parts, none for the menu and grip shortcut or without a
+    // controller in each hand
+    int parts;
+    // Last frame: off rest, and pressed far enough to count for the chord
+    int stirred;
+    int pressed;
+    // A chord may be forming: since when, and whether every part has been
+    // pressed and since when
+    int forming;
+    int64_t startNs;
+    int allDown;
+    int64_t allNs;
+    // Held back while it forms, and how far each went
+    int pending;
+    float peak[PAD_PART_COUNT];
+    // Spent on a switch and held back until let go, and the wait for every
+    // part to be at rest before another can form
+    int taken;
+    int spent;
+    // This frame: the parts read as at rest, and those replayed as a tap
+    int held;
+    int replay;
+} PadChord;
+
+// The parts of a shortcut, none for the menu and grip one
+int padChordParts(int shortcut);
+
+// Starts over with these parts. Whatever is down now has to be let go before
+// a chord can form, so a reset never switches by itself.
+void padChordReset(PadChord* c, int parts);
+
+// One frame of both controllers as read. A part leaves rest past a trigger's
+// dead zone, a grip's bumper press or a stick click, and is pressed for the
+// chord at the bumper's press, held down to its release. Returns a
+// PAD_CHORD_ value; FIRED is the frame to switch.
+int padChordStep(PadChord* c, const PadHand* left, const PadHand* right, int64_t nowNs);
+
+// A part's reading as the pad and the pointer take it this frame: 0 held back,
+// its peak replayed, or the reading as it is
+float padChordSeen(const PadChord* c, int part, float raw);
+
+// Both controllers as the pad takes them: each part through padChordSeen, and
+// a stick centred too while its click is held back, so pressing it in to make
+// the chord does not leak as a nudge
+void padChordApply(const PadChord* c, const PadHand* left, const PadHand* right,
+                   PadHand* outLeft, PadHand* outRight);
 
 #endif

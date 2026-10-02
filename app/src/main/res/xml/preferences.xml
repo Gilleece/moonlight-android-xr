@@ -53,12 +53,12 @@
             android:text="@string/suffix_seekbar_vr_head_aim_deadzone"
             android:title="@string/title_seekbar_vr_head_aim_deadzone"/>
         <ListPreference
-            android:key="list_vr_controller_mode"
-            android:title="@string/title_vr_controller_mode"
-            android:entries="@array/vr_controller_mode_names"
-            android:entryValues="@array/vr_controller_mode_values"
-            android:summary="@string/summary_vr_controller_mode"
-            android:defaultValue="pointer" />
+            android:key="list_vr_gamepad_toggle"
+            android:title="@string/title_vr_gamepad_toggle"
+            android:entries="@array/vr_gamepad_toggle_names"
+            android:entryValues="@array/vr_gamepad_toggle_values"
+            android:summary="@string/summary_vr_gamepad_toggle"
+            android:defaultValue="menu_grip" />
         <CheckBoxPreference
             android:key="checkbox_vr_click_sound"
             android:title="@string/title_vr_click_sound"
@@ -137,10 +137,6 @@
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_vr_debug"
         android:key="category_vr_debug">
-        <Preference
-            android:key="pref_bug_report"
-            android:title="@string/title_bug_report"
-            android:summary="@string/summary_bug_report" />
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_inference_cadence"
             android:defaultValue="3"
@@ -464,4 +460,27 @@
             android:summary="@string/summary_privacy_policy"
             url="https://moonlight-stream.org/privacy.html"/>
     </PreferenceCategory-->
+    <PreferenceCategory android:title="@string/category_about"
+        android:key="category_about">
+        <Preference
+            android:key="pref_about_version"
+            android:title="@string/about_version_no_commit"
+            android:selectable="false"
+            android:persistent="false" />
+        <com.limelight.preferences.WebLauncherPreference
+            android:key="pref_about_licence"
+            android:title="@string/title_about_licence"
+            android:persistent="false"
+            url="https://github.com/Gilleece/moonlight-android-xr/blob/master/LICENSE.txt"/>
+        <Preference
+            android:key="pref_bug_report"
+            android:title="@string/title_bug_report"
+            android:summary="@string/summary_bug_report" />
+        <com.limelight.preferences.WebLauncherPreference
+            android:key="pref_about_kofi"
+            android:title="@string/title_about_kofi"
+            android:summary="@string/summary_about_kofi"
+            android:persistent="false"
+            url="https://ko-fi.com/moonlightxr"/>
+    </PreferenceCategory>
 </PreferenceScreen>

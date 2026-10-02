@@ -60,6 +60,13 @@ float rateStepDown(float hz, const float* rates, int count, float floorHz);
 float rateChoose(float fps, const float* rates, int count, int warpOn, float heldHz,
                  float frameMs);
 
+// Whether the session's display rate has settled, after which a change is
+// news worth a toast: a throttle, a step down, a forced rate. It has once the
+// session has drawn a focused frame and its first request has landed, was in
+// force already, or was given up on; with nothing asked for, the focused frame
+// is enough. Once settled it stays so, whatever is asked for later.
+int rateSettled(int settled, int focusedFrame, float asked, int confirmed);
+
 typedef struct {
     long startNs;
     int settle;

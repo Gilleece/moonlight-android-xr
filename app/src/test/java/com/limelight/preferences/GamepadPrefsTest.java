@@ -24,17 +24,20 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
- * What the controllers are when a session starts, the pointer or one gamepad:
- * its key and values, where it starts, where the settings screen has it, how
- * the settings and report lines say it, and that every language words it and
- * the toasts that say when it switches.
+ * Gamepad mode's shortcut on the controllers: its key, values and default,
+ * where the settings screen has it, how the settings and report lines say it,
+ * the toast and Display tab words for each, and that every language words it.
+ * The mode itself is never a setting: every session starts as the pointer.
  */
 public class GamepadPrefsTest {
 
     private static final String ANDROID = "http://schemas.android.com/apk/res/android";
+    private static final String[] LANGUAGES =
+            { "values", "values-fr", "values-zh-rCN", "values-zh-rTW" };
 
     private static File res(String path) {
         File f = new File("src/main/res/" + path);
@@ -77,25 +80,41 @@ public class GamepadPrefsTest {
         return items;
     }
 
+    private static String strings(String dir) throws Exception {
+        return new String(Files.readAllBytes(res(dir + "/strings.xml").toPath()),
+                StandardCharsets.UTF_8);
+    }
+
+    private static String string(String strings, String key) {
+        Matcher m = Pattern.compile("name=\"" + key + "\">([^<]+)<").matcher(strings);
+        return m.find() ? m.group(1) : null;
+    }
+
     @Test
-    public void theControllersStartAsThePointer() {
-        assertEquals("list_vr_controller_mode",
-                PreferenceConfiguration.VR_CONTROLLER_MODE_PREF_STRING);
-        assertEquals("pointer", PreferenceConfiguration.VR_CONTROLLER_MODE_POINTER);
-        assertEquals("gamepad", PreferenceConfiguration.VR_CONTROLLER_MODE_GAMEPAD);
-        assertEquals("pointer", PreferenceConfiguration.DEFAULT_VR_CONTROLLER_MODE);
+    public void theMenuButtonAndGripIsTheDefault() {
+        assertEquals("list_vr_gamepad_toggle", PreferenceConfiguration.VR_GAMEPAD_TOGGLE_PREF_STRING);
+        assertEquals("menu_grip", PreferenceConfiguration.VR_GAMEPAD_TOGGLE_MENU_GRIP);
+        assertEquals("sticks", PreferenceConfiguration.VR_GAMEPAD_TOGGLE_STICKS);
+        assertEquals("triggers_grips", PreferenceConfiguration.VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS);
+        assertEquals("menu_grip", PreferenceConfiguration.DEFAULT_VR_GAMEPAD_TOGGLE);
+        assertEquals(0, XrShared.PAD_SHORTCUT_MENU_GRIP);
+        assertEquals(1, XrShared.PAD_SHORTCUT_STICKS);
+        assertEquals(2, XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS);
 
         FakePrefs prefs = new FakePrefs();
-        assertFalse(PreferenceConfiguration.gamepadAtStart(prefs));
-        prefs.putString(PreferenceConfiguration.VR_CONTROLLER_MODE_PREF_STRING, "gamepad");
-        assertTrue(PreferenceConfiguration.gamepadAtStart(prefs));
-        prefs.putString(PreferenceConfiguration.VR_CONTROLLER_MODE_PREF_STRING, "pointer");
-        assertFalse(PreferenceConfiguration.gamepadAtStart(prefs));
-        // Anything it does not know is the pointer, as it always was
-        prefs.putString(PreferenceConfiguration.VR_CONTROLLER_MODE_PREF_STRING, "mouse");
-        assertFalse(PreferenceConfiguration.gamepadAtStart(prefs));
+        assertEquals(XrShared.PAD_SHORTCUT_MENU_GRIP, PreferenceConfiguration.gamepadToggle(prefs));
+        prefs.putString(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_PREF_STRING, "sticks");
+        assertEquals(XrShared.PAD_SHORTCUT_STICKS, PreferenceConfiguration.gamepadToggle(prefs));
+        prefs.putString(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_PREF_STRING, "triggers_grips");
+        assertEquals(XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS,
+                PreferenceConfiguration.gamepadToggle(prefs));
+        prefs.putString(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_PREF_STRING, "menu_grip");
+        assertEquals(XrShared.PAD_SHORTCUT_MENU_GRIP, PreferenceConfiguration.gamepadToggle(prefs));
+        // Anything it does not know is the menu button and grip
+        prefs.putString(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_PREF_STRING, "gamepad");
+        assertEquals(XrShared.PAD_SHORTCUT_MENU_GRIP, PreferenceConfiguration.gamepadToggle(prefs));
         // And the pointer's own switches are not touched by it
-        prefs.putString(PreferenceConfiguration.VR_CONTROLLER_MODE_PREF_STRING, "gamepad");
+        prefs.putString(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_PREF_STRING, "sticks");
         assertTrue(PreferenceConfiguration.rayShown(prefs));
         assertTrue(PreferenceConfiguration.pointerSleepOn(prefs));
         assertFalse(PreferenceConfiguration.headAimOn(prefs));
@@ -103,59 +122,107 @@ public class GamepadPrefsTest {
 
     @Test
     public void itIsAListInTheVrSettings() throws Exception {
-        Element list = entry("ListPreference",
-                PreferenceConfiguration.VR_CONTROLLER_MODE_PREF_STRING);
+        Element list = entry("ListPreference", PreferenceConfiguration.VR_GAMEPAD_TOGGLE_PREF_STRING);
         assertNotNull(list);
-        assertEquals("pointer", list.getAttributeNS(ANDROID, "defaultValue"));
-        assertEquals("@array/vr_controller_mode_names", list.getAttributeNS(ANDROID, "entries"));
-        assertEquals("@array/vr_controller_mode_values",
+        assertEquals("menu_grip", list.getAttributeNS(ANDROID, "defaultValue"));
+        assertEquals("@array/vr_gamepad_toggle_names", list.getAttributeNS(ANDROID, "entries"));
+        assertEquals("@array/vr_gamepad_toggle_values",
                 list.getAttributeNS(ANDROID, "entryValues"));
+        assertEquals("@string/summary_vr_gamepad_toggle", list.getAttributeNS(ANDROID, "summary"));
         // A pad works with the mouse switched off, so it waits on nothing
         assertEquals("", list.getAttributeNS(ANDROID, "dependency"));
         assertEquals("category_vr_settings",
                 ((Element) list.getParentNode()).getAttributeNS(ANDROID, "key"));
 
-        List<String> values = array("vr_controller_mode_values");
-        assertEquals(2, values.size());
-        assertEquals(PreferenceConfiguration.VR_CONTROLLER_MODE_POINTER, values.get(0));
-        assertEquals(PreferenceConfiguration.VR_CONTROLLER_MODE_GAMEPAD, values.get(1));
-        List<String> names = array("vr_controller_mode_names");
-        assertEquals(2, names.size());
-        assertEquals("@string/vr_controller_mode_pointer", names.get(0));
-        assertEquals("@string/vr_controller_mode_gamepad", names.get(1));
+        // In the PAD_SHORTCUT_ order
+        List<String> values = array("vr_gamepad_toggle_values");
+        assertEquals(3, values.size());
+        assertEquals(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_MENU_GRIP,
+                values.get(XrShared.PAD_SHORTCUT_MENU_GRIP));
+        assertEquals(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_STICKS,
+                values.get(XrShared.PAD_SHORTCUT_STICKS));
+        assertEquals(PreferenceConfiguration.VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS,
+                values.get(XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS));
+        List<String> names = array("vr_gamepad_toggle_names");
+        assertEquals(3, names.size());
+        assertEquals("@string/vr_gamepad_toggle_menu_grip", names.get(0));
+        assertEquals("@string/vr_gamepad_toggle_sticks", names.get(1));
+        assertEquals("@string/vr_gamepad_toggle_triggers_grips", names.get(2));
+    }
+
+    @Test
+    public void noSessionStartsInGamepadMode() throws Exception {
+        // The start mode setting is gone, its list, its words and its field
+        assertNull(entry("ListPreference", "list_vr_controller_mode"));
+        assertTrue(array("vr_controller_mode_values").isEmpty());
+        for (String dir : LANGUAGES) {
+            String strings = strings(dir);
+            assertFalse(dir, strings.contains("vr_controller_mode\""));
+            assertFalse(dir, strings.contains("vr_controller_mode_"));
+        }
+        for (java.lang.reflect.Field field : PreferenceConfiguration.class.getFields()) {
+            assertFalse(field.getName(), field.getName().equals("vrGamepadMode"));
+        }
     }
 
     @Test
     public void theSettingsAndReportLinesSayIt() {
-        assertEquals("controllerMode=gamepad",
-                PreferenceConfiguration.controllerModeLabel(true, "="));
-        assertEquals("controllerMode=pointer",
-                PreferenceConfiguration.controllerModeLabel(false, "="));
-        assertEquals("controllerMode gamepad",
-                PreferenceConfiguration.controllerModeLabel(true, " "));
-        assertEquals("controllerMode pointer",
-                PreferenceConfiguration.controllerModeLabel(false, " "));
+        assertEquals("gamepadShortcut=menu_grip",
+                PreferenceConfiguration.gamepadToggleLabel(XrShared.PAD_SHORTCUT_MENU_GRIP, "="));
+        assertEquals("gamepadShortcut=sticks",
+                PreferenceConfiguration.gamepadToggleLabel(XrShared.PAD_SHORTCUT_STICKS, "="));
+        assertEquals("gamepadShortcut triggers_grips",
+                PreferenceConfiguration.gamepadToggleLabel(XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS,
+                        " "));
+        assertEquals("gamepadShortcut menu_grip",
+                PreferenceConfiguration.gamepadToggleLabel(7, " "));
     }
 
     @Test
-    public void theToastsSayWhichWayItWent() {
+    public void theToastAndTheListWordTheShortcutPlainly() throws Exception {
         assertEquals(8, XrShared.TOAST_GAMEPAD_MODE);
         assertEquals(9, XrShared.TOAST_POINTER_MODE);
         assertTrue(XrShared.TOAST_GAMEPAD_MODE > XrShared.TOAST_HEAD_AIM_ON);
+        String english = strings("values");
+        assertEquals("Press both thumbsticks to go back to the pointer",
+                string(english, "vr_toast_gamepad_back_sticks"));
+        assertEquals("Squeeze both triggers and both grips to go back to the pointer",
+                string(english, "vr_toast_gamepad_back_triggers_grips"));
+        assertEquals("Hold the left menu button and left grip to go back to the pointer",
+                string(english, "vr_toast_gamepad_back_menu_grip"));
+        assertEquals("Gamepad mode shortcut", string(english, "title_vr_gamepad_toggle"));
+        assertEquals("Hold the left menu button and left grip",
+                string(english, "vr_gamepad_toggle_menu_grip"));
+        assertEquals("Press both thumbsticks (L3 + R3)", string(english, "vr_gamepad_toggle_sticks"));
+        assertEquals("Squeeze both triggers and both grips",
+                string(english, "vr_gamepad_toggle_triggers_grips"));
+        // The old toast line named the menu and grip whatever was chosen
+        for (String dir : LANGUAGES) {
+            assertNull(dir, string(strings(dir), "vr_toast_gamepad_mode_more"));
+        }
     }
 
     @Test
     public void itIsWordedInEveryLanguage() throws Exception {
-        for (String dir : new String[] { "values", "values-fr", "values-zh-rCN", "values-zh-rTW" }) {
-            String strings = new String(Files.readAllBytes(res(dir + "/strings.xml").toPath()),
-                    StandardCharsets.UTF_8);
-            for (String key : new String[] { "title_vr_controller_mode",
-                    "summary_vr_controller_mode", "vr_controller_mode_pointer",
-                    "vr_controller_mode_gamepad", "vr_toast_gamepad_mode",
-                    "vr_toast_gamepad_mode_more", "vr_toast_pointer_mode" }) {
-                Matcher m = Pattern.compile("name=\"" + key + "\">([^<]+)<").matcher(strings);
-                assertTrue(dir + " " + key, m.find());
+        for (String dir : LANGUAGES) {
+            String strings = strings(dir);
+            for (String key : new String[] { "title_vr_gamepad_toggle",
+                    "summary_vr_gamepad_toggle", "vr_gamepad_toggle_menu_grip",
+                    "vr_gamepad_toggle_sticks", "vr_gamepad_toggle_triggers_grips",
+                    "vr_toast_gamepad_mode", "vr_toast_gamepad_back_menu_grip",
+                    "vr_toast_gamepad_back_sticks", "vr_toast_gamepad_back_triggers_grips",
+                    "vr_toast_pointer_mode" }) {
+                assertNotNull(dir + " " + key, string(strings, key));
             }
+            // The list puts the shortcut chosen in its summary, so it carries
+            // exactly one place for it and no other format marks
+            String summary = string(strings, "summary_vr_gamepad_toggle");
+            assertEquals(dir, summary.indexOf("%s"), summary.lastIndexOf("%s"));
+            assertTrue(dir, summary.contains("%s"));
+            assertEquals(dir, 1, summary.split("%", -1).length - 1);
+            assertTrue(dir, String.format(summary, "x").contains("x"));
+            // And says the mode is switched on inside a session
+            assertTrue(dir, summary.contains("Display"));
         }
     }
 
