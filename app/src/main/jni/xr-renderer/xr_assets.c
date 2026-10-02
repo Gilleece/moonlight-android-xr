@@ -425,6 +425,19 @@ int uploadPointerArt(XrCtx* ctx) {
     return ctx->pointerArtReady;
 }
 
+// Whether a direct buffer from Java holds a whole width x height RGBA image.
+// One that is not direct or comes up short is refused rather than read past.
+static int artBufferFits(JNIEnv* env, jobject buffer, const void* px, int width, int height) {
+    jlong need = (jlong)width * height * 4;
+    jlong have = (*env)->GetDirectBufferCapacity(env, buffer);
+    if (px == NULL || have < need) {
+        LOGW("art of %dx%d refused: its buffer holds %lld of the %lld bytes", width, height,
+             (long long)have, (long long)need);
+        return 0;
+    }
+    return 1;
+}
+
 // One sheet of art drawn in Java, a direct buffer of RGBA rows running top
 // down. A sheet that never arrived leaves the swapchain and its ready flag as
 // they were, so a panel that failed to draw is simply not shown.
@@ -435,7 +448,7 @@ static void uploadSheet(JNIEnv* env, XrCtx* ctx, jobject buffer, XrSwapchain cha
         return;
     }
     const unsigned char* px = (*env)->GetDirectBufferAddress(env, buffer);
-    if (px != NULL) {
+    if (artBufferFits(env, buffer, px, width, height)) {
         *ready = uploadFlipped(ctx, chain, images, px, width, height);
     }
 }
@@ -879,8 +892,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadOverlay(JNIEnv* env, job
     if (ctx == NULL || ctx->overlaySwapchain == XR_NULL_HANDLE) {
         return;
     }
+    if (buffer == NULL || width != OVERLAY_WIDTH || height != OVERLAY_HEIGHT) {
+        return;
+    }
     void* pixels = (*env)->GetDirectBufferAddress(env, buffer);
-    if (pixels == NULL || width != OVERLAY_WIDTH || height != OVERLAY_HEIGHT) {
+    if (!artBufferFits(env, buffer, pixels, width, height)) {
         return;
     }
 

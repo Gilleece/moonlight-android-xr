@@ -19,6 +19,14 @@ void audioConvolve(const float* history, int historyStride, const float* filters
                    int lfeChannel, int frames, float* outLeft, float* outRight);
 
 /**
+ * How many floats history has to hold for either convolution to read frames
+ * of every channel: a stride for each channel but the last, then the last
+ * one's taps - 1 samples from the block before and its frames. -1 for
+ * arguments no call could be made with.
+ */
+long audioHistoryFloats(int channelCount, int historyStride, int taps, int frames);
+
+/**
  * Transform size of the overlap save convolution. Sized for the stream's 5 ms
  * packets: 240 frames plus a 175 tap filter's 174 frames of history fit in
  * one transform, and a 10 ms packet goes through in two. Filters must be
