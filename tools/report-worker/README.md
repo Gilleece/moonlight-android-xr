@@ -15,15 +15,19 @@ this app will see means the collector costs nothing and cannot start to.
    own address, which is all this needs.
 2. From this folder, logged into Cloudflare once with `npx wrangler login`:
 
+       npx wrangler kv namespace create LIMITS  # put the id in wrangler.toml
        npx wrangler secret put RESEND_API_KEY   # paste the Resend key
        npx wrangler secret put REPORT_TOKEN     # paste a long random string
        npx wrangler deploy
 
-   If the reports should go somewhere other than the address in
-   `wrangler.toml`, change `RESEND_TO` there first.
+   The KV namespace holds the per sender count described under Limits;
+   uncomment its block in `wrangler.toml` once it exists. If the reports
+   should go somewhere other than the address in `wrangler.toml`, change
+   `RESEND_TO` there first.
 3. The deploy prints the Worker's URL, something like
    `https://moonlight-xr-reports.<account>.workers.dev`. Opening it in a
    browser should say `report collector up`.
+4. Add the rate limiting rule below.
 
 ## Pointing the app at it
 
@@ -39,22 +43,65 @@ file. The `moonlightReportUrl` and `moonlightReportToken` keys in the tracked
 `gradle.properties` are only a fallback, for passing a test collector with
 `-PmoonlightReportUrl=...` on the command line, and stay empty there.
 
+The token is not a secret from anyone who wants it: it is in every APK and
+comes out with any APK tool. All it does is turn away scanners that find the
+URL and post at random. What protects the mailbox and the mail quota from
+someone who has pulled the token out is the checks under Limits and the rate
+limiting rule.
+
 A build without these keeps the report screens' local behaviour: the report
 is saved beside the log and the user is told where it is.
 
 ## Trying it
 
-    gzip -c some.txt | curl -s -X POST -H "X-Report-Token: <token>" \
+    printf 'Moonlight XR bug report\nFrom: \n\ntesting\n' | gzip -c | \
+        curl -s -X POST -H "X-Report-Token: <token>" \
         -H "Content-Type: application/gzip" -H "X-Report-Device: test" \
         --data-binary @- https://moonlight-xr-reports.<account>.workers.dev/report
 
 should answer with the attachment's name and a mail should arrive within a
-minute. Without the token it answers `forbidden`.
+minute. Without the token it answers `forbidden`, and with anything that does
+not unpack to a report it answers `not a report`.
 
 ## Limits
 
-The Worker refuses anything over 4 MB compressed, which is well over two full
-log files. Resend's free tier is a hundred mails a day; past that the Worker
-answers with the refusal and the app keeps its saved copy and says so.
-`wrangler.toml` shows how to also keep every report in an R2 bucket, for
+Every report is checked before anything is sent:
+
+- over 4 MB as posted, or over 12 MB unpacked, which is what two full log
+  files and the text ahead of them come to: 413 `too large`
+- not gzip, or not starting with the line the app starts every report with,
+  `Moonlight XR bug report`: 400 `not a report`
+- a sender that has already had five reports taken today, counted by IP
+  address (by the /64 for IPv6) and reset at midnight UTC: 429
+  `too many reports, try later`
+
+Resend's free tier is a hundred mails a day; past that the Worker answers 429
+as well. The app shows a 429 or a 413 as the collector being busy, keeps its
+saved copy and says where it is.
+
+The daily count lives in the `LIMITS` KV namespace when it is bound. Without
+it each Worker isolate counts in its own memory, which is lost whenever the
+isolate is recycled and is not shared between Cloudflare's locations, so it
+is best effort only.
+
+### Rate limiting rule
+
+On top of that, a rate limiting rule in the Cloudflare dashboard stops a
+flood before it reaches the Worker at all. Under the zone's Security, WAF,
+Rate limiting rules, create one:
+
+- Rule name: `report collector`
+- If incoming requests match: URI Path equals `/report`, which is the
+  expression `(http.request.uri.path eq "/report")`
+- With the same characteristics: IP
+- When rate exceeds: 10 requests per 10 minutes
+- Then take action: Block, for 10 minutes
+
+Two things about where it applies. Zone rules never see `workers.dev`, so the
+Worker has to answer on a custom domain in the zone (the commented `routes`
+line in `wrangler.toml`) and the app's `reportUrl` has to use that domain.
+And the 10 minute period is not offered on every Cloudflare plan; where it
+is missing, the KV count is what holds.
+
+`wrangler.toml` also shows how to keep every report in an R2 bucket, for
 anyone who wants a copy outside their mailbox.

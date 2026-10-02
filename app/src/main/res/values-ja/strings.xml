@@ -448,6 +448,7 @@
     <string name="vr_report_sends">メッセージ、ヘッドセットとビルドの情報、設定、アプリのログを送信します。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。「送信」を押すまで何も送信されません。</string>
     <string name="vr_report_saves">メッセージ、ヘッドセットとビルドの情報、設定、アプリのログを、このヘッドセット上のファイルに保存します。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。</string>
     <string name="vr_report_not_sent">レポートを送信できませんでした</string>
+    <string name="vr_report_busy">レポートの受付サーバーが混み合っています</string>
     <string name="vr_report_saved">レポートを保存しました</string>
     <string name="vr_report_saved_at">保存先: %1$s</string>
     <string name="vr_report_not_written">レポートを保存できませんでした</string>
@@ -468,6 +469,7 @@
     <string name="bug_report_sending">レポートを送信中…</string>
     <string name="bug_report_sent">レポートを送信しました。ありがとうございます</string>
     <string name="bug_report_upload_failed">レポートを送信できませんでした (%1$s)。次の場所に保存しました:\n\n%2$s\n\n接続できるときにもう一度試すか、ヘッドセットからコピーして%3$sにメールで送ってください。</string>
+    <string name="bug_report_busy">レポートの受付サーバーが混み合っています。レポートは次の場所に保存しました:\n\n%1$s\n\nしばらくしてからもう一度試すか、ヘッドセットからコピーして%2$sにメールで送ってください。</string>
     <string name="bug_report_save">レポートを保存</string>
     <string name="bug_report_subject">Moonlight XRのレポート: %1$s、%2$s</string>
     <string name="bug_report_from">返信先: %1$s</string>

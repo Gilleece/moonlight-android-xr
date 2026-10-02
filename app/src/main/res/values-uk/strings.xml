@@ -485,6 +485,7 @@
     <string name="vr_report_sends">Надсилає ваше повідомлення, відомості про шолом і збірку, ваші налаштування та журнал застосунку, у якому можуть бути ім\'я та мережева адреса вашого комп\'ютера. Нічого не надсилається, доки ви не натиснете «Надіслати».</string>
     <string name="vr_report_saves">Зберігає ваше повідомлення, відомості про шолом і збірку, ваші налаштування та журнал застосунку, у якому можуть бути ім\'я та мережева адреса вашого комп\'ютера, у файл на цьому шоломі.</string>
     <string name="vr_report_not_sent">Не вдалося надіслати звіт</string>
+    <string name="vr_report_busy">Сервер звітів зайнятий</string>
     <string name="vr_report_saved">Звіт збережено</string>
     <string name="vr_report_saved_at">Збережено в %1$s</string>
     <string name="vr_report_not_written">Не вдалося зберегти звіт</string>
@@ -505,6 +506,7 @@
     <string name="bug_report_sending">Надсилання звіту…</string>
     <string name="bug_report_sent">Звіт надіслано, дякуємо</string>
     <string name="bug_report_upload_failed">Не вдалося надіслати звіт (%1$s). Його збережено в\n\n%2$s\n\nСпробуйте ще раз за наявності з\'єднання або скопіюйте його зі шолома й надішліть поштою на %3$s.</string>
+    <string name="bug_report_busy">Сервер звітів зайнятий, звіт збережено в\n\n%1$s\n\nСпробуйте пізніше або скопіюйте його зі шолома й надішліть поштою на %2$s.</string>
     <string name="bug_report_save">Зберегти звіт</string>
     <string name="bug_report_subject">Звіт Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Відповісти: %1$s</string>

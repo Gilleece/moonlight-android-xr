@@ -474,6 +474,7 @@
     <string name="vr_report_sends">Verstuurt uw bericht, gegevens over de headset en de build, uw instellingen en het log van de app, dat de naam en het netwerkadres van uw pc kan bevatten. Er wordt niets verstuurd tot u op ‘Versturen’ drukt.</string>
     <string name="vr_report_saves">Slaat uw bericht, gegevens over de headset en de build, uw instellingen en het log van de app, dat de naam en het netwerkadres van uw pc kan bevatten, op in een bestand op deze headset.</string>
     <string name="vr_report_not_sent">Het rapport kon niet worden verstuurd</string>
+    <string name="vr_report_busy">De rapportserver is bezet</string>
     <string name="vr_report_saved">Rapport opgeslagen</string>
     <string name="vr_report_saved_at">Opgeslagen in %1$s</string>
     <string name="vr_report_not_written">Het rapport kon niet worden opgeslagen</string>
@@ -494,6 +495,7 @@
     <string name="bug_report_sending">Rapport wordt verstuurd…</string>
     <string name="bug_report_sent">Rapport verstuurd, bedankt</string>
     <string name="bug_report_upload_failed">Het rapport kon niet worden verstuurd (%1$s). Het is opgeslagen in\n\n%2$s\n\nProbeer het opnieuw met een verbinding, of kopieer het van de headset en e-mail het naar %3$s.</string>
+    <string name="bug_report_busy">De rapportserver is bezet, het rapport is opgeslagen in\n\n%1$s\n\nProbeer het later opnieuw, of kopieer het van de headset en e-mail het naar %2$s.</string>
     <string name="bug_report_save">Rapport opslaan</string>
     <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
     <string name="bug_report_from">Antwoord naar: %1$s</string>

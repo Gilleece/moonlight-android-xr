@@ -51,6 +51,8 @@ public final class BugReport {
         SENT,
         /** Saved, but the collector could not be reached or turned it away */
         NOT_SENT,
+        /** Saved, and the collector turned it away for its limits rather than a fault */
+        BUSY,
         /** Saved, and this build has no collector to send it to */
         SAVED,
         /** Could not be written at all */
@@ -62,7 +64,7 @@ public final class BugReport {
         public final Result result;
         /** Where the report was saved, or null where it was not */
         public final String path;
-        /** What went wrong, for the two results that went wrong, or null */
+        /** What went wrong, for the results that went wrong, or null */
         public final String detail;
 
         Outcome(Result result, String path, String detail) {
@@ -110,6 +112,12 @@ public final class BugReport {
     public static final String RUNTIME_PREF = "xr_last_runtime";
     /** The block a failed VR start logged, until a start succeeds. */
     public static final String START_FAILURE_PREF = "xr_start_failure";
+
+    /**
+     * The first line of every report. The collector refuses a body that does
+     * not unpack to this, so tools/report-worker has the same text.
+     */
+    static final String HEADER = "Moonlight XR bug report\n";
 
     private static final String NAME_PREFIX = "moonlight-xr-report-";
     private static final String NAME_SUFFIX = ".txt";
@@ -166,7 +174,7 @@ public final class BugReport {
     public static String compose(String message, String email, Details d) {
         String note = message == null ? "" : message.trim();
         StringBuilder text = new StringBuilder();
-        text.append("Moonlight XR bug report\n");
+        text.append(HEADER);
         text.append("From: ").append(email == null ? "" : email.trim()).append("\n\n");
         text.append(note.isEmpty() ? "(no message)" : note).append('\n');
 
@@ -301,40 +309,41 @@ public final class BugReport {
     }
 
     /**
-     * Posts a saved report, gzipped: a log is mostly repetition and shrinks
-     * about ten to one, which is kinder to a headset's uplink and keeps the
-     * attachment the collector mails well inside what it can handle. Null
-     * when the collector took it, otherwise what went wrong.
+     * Whether the collector's answer is one of its limits rather than a
+     * fault: too many reports today (429) or a report bigger than it takes
+     * (413). Either way the saved copy is the one to send later.
      */
-    public static String post(File report, String url, Map<String, String> headers,
-                              Transport transport) {
-        File packed = new File(report.getParentFile(), report.getName() + ".gz");
-        try {
-            gzip(report, packed);
-            int code = transport.post(url, headers, packed);
-            if (code / 100 != 2) {
-                return "server answered " + code;
-            }
-            return null;
-        } catch (IOException e) {
-            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-        } finally {
-            packed.delete();
-        }
+    static boolean busy(int code) {
+        return code == 429 || code == 413;
     }
 
     /**
      * Sends a saved report where a collector is set, and says how it went.
      * With no url the report stays where it was saved, which is where says.
+     * It goes gzipped: a log is mostly repetition and shrinks about ten to
+     * one, which is kinder to a headset's uplink and keeps the attachment the
+     * collector mails well inside what it can handle.
      */
     public static Outcome deliver(File report, String where, String url,
                                   Map<String, String> headers, Transport transport) {
         if (url == null || url.isEmpty()) {
             return new Outcome(Result.SAVED, where, null);
         }
-        String failure = post(report, url, headers, transport);
-        return failure == null ? new Outcome(Result.SENT, where, null)
-                : new Outcome(Result.NOT_SENT, where, failure);
+        File packed = new File(report.getParentFile(), report.getName() + ".gz");
+        try {
+            gzip(report, packed);
+            int code = transport.post(url, headers, packed);
+            if (code / 100 == 2) {
+                return new Outcome(Result.SENT, where, null);
+            }
+            return new Outcome(busy(code) ? Result.BUSY : Result.NOT_SENT, where,
+                    "server answered " + code);
+        } catch (IOException e) {
+            return new Outcome(Result.NOT_SENT, where,
+                    e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+        } finally {
+            packed.delete();
+        }
     }
 
     /**

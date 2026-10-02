@@ -1860,6 +1860,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                     case NOT_SENT:
                         showNotice(context.getString(R.string.vr_report_not_sent), where, true);
                         break;
+                    case BUSY:
+                        showNotice(context.getString(R.string.vr_report_busy), where, true);
+                        break;
                     case SAVED:
                         showNotice(context.getString(R.string.vr_report_saved), where, true);
                         break;

@@ -481,6 +481,7 @@
     <string name="vr_report_sends">Отправляет ваше сообщение, сведения о шлеме и сборке, ваши настройки и журнал приложения, в котором могут быть имя и сетевой адрес вашего компьютера. Ничего не отправляется, пока вы не нажмёте «Отправить».</string>
     <string name="vr_report_saves">Сохраняет ваше сообщение, сведения о шлеме и сборке, ваши настройки и журнал приложения, в котором могут быть имя и сетевой адрес вашего компьютера, в файл на этом шлеме.</string>
     <string name="vr_report_not_sent">Не удалось отправить отчёт</string>
+    <string name="vr_report_busy">Сервер отчётов занят</string>
     <string name="vr_report_saved">Отчёт сохранён</string>
     <string name="vr_report_saved_at">Сохранён в %1$s</string>
     <string name="vr_report_not_written">Не удалось сохранить отчёт</string>
@@ -501,6 +502,7 @@
     <string name="bug_report_sending">Отправка отчёта…</string>
     <string name="bug_report_sent">Отчёт отправлен, спасибо</string>
     <string name="bug_report_upload_failed">Не удалось отправить отчёт (%1$s). Он сохранён в\n\n%2$s\n\nПовторите попытку при наличии соединения или скопируйте его со шлема и отправьте по почте на %3$s.</string>
+    <string name="bug_report_busy">Сервер отчётов занят, отчёт сохранён в\n\n%1$s\n\nПовторите попытку позже или скопируйте его со шлема и отправьте по почте на %2$s.</string>
     <string name="bug_report_save">Сохранить отчёт</string>
     <string name="bug_report_subject">Отчёт Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Ответить: %1$s</string>

@@ -487,6 +487,7 @@
     <string name="vr_report_sends">Envía tu mensaje, los datos del visor y de la versión, tu configuración y el registro de la aplicación, que puede incluir el nombre y la dirección de tu PC en la red. No se envía nada hasta que pulses «Enviar».</string>
     <string name="vr_report_saves">Guarda tu mensaje, los datos del visor y de la versión, tu configuración y el registro de la aplicación, que puede incluir el nombre y la dirección de tu PC en la red, en un archivo de este visor.</string>
     <string name="vr_report_not_sent">No se pudo enviar el informe</string>
+    <string name="vr_report_busy">El servidor de informes está ocupado</string>
     <string name="vr_report_saved">Informe guardado</string>
     <string name="vr_report_saved_at">Guardado en %1$s</string>
     <string name="vr_report_not_written">No se pudo guardar el informe</string>
@@ -507,6 +508,7 @@
     <string name="bug_report_sending">Enviando el informe…</string>
     <string name="bug_report_sent">Informe enviado, gracias</string>
     <string name="bug_report_upload_failed">No se pudo enviar el informe (%1$s). Se ha guardado en\n\n%2$s\n\nVuelve a intentarlo con conexión, o cópialo del visor y envíalo por correo a %3$s.</string>
+    <string name="bug_report_busy">El servidor de informes está ocupado, el informe se ha guardado en\n\n%1$s\n\nVuelve a intentarlo más tarde, o cópialo del visor y envíalo por correo a %2$s.</string>
     <string name="bug_report_save">Guardar el informe</string>
     <string name="bug_report_subject">Informe de Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Responder a: %1$s</string>

@@ -141,7 +141,8 @@ public class BugReportActivity extends Activity {
     }
 
     // Posts the report to the collector off the main thread and says how it
-    // went. A failure leaves the saved copy where it is and says where.
+    // went. A failure leaves the saved copy where it is and says where, and a
+    // collector at its limits is told apart from one that failed.
     private void upload(final File report, final String email, final String message,
                         final String where) {
         final Button send = findViewById(R.id.reportSend);
@@ -151,8 +152,9 @@ public class BugReportActivity extends Activity {
         new Thread() {
             @Override
             public void run() {
-                final String failure = BugReport.post(report, BuildConfig.REPORT_URL,
-                        BugReport.headersFor(email, message), BugReport.HTTP);
+                final BugReport.Outcome outcome = BugReport.deliver(report, where,
+                        BuildConfig.REPORT_URL, BugReport.headersFor(email, message),
+                        BugReport.HTTP);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
@@ -160,16 +162,19 @@ public class BugReportActivity extends Activity {
                         if (isFinishing()) {
                             return;
                         }
-                        if (failure == null) {
+                        if (outcome.result == BugReport.Result.SENT) {
                             Toast.makeText(BugReportActivity.this, R.string.bug_report_sent,
                                     Toast.LENGTH_LONG).show();
                             finish();
                             return;
                         }
+                        String text = outcome.result == BugReport.Result.BUSY
+                                ? getString(R.string.bug_report_busy, where, REPORT_ADDRESS)
+                                : getString(R.string.bug_report_upload_failed, outcome.detail,
+                                        where, REPORT_ADDRESS);
                         new AlertDialog.Builder(BugReportActivity.this)
                                 .setTitle(R.string.title_bug_report)
-                                .setMessage(getString(R.string.bug_report_upload_failed, failure,
-                                        where, REPORT_ADDRESS))
+                                .setMessage(text)
                                 .setPositiveButton(android.R.string.ok, null)
                                 .show();
                     }

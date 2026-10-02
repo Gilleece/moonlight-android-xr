@@ -403,6 +403,7 @@
     <string name="vr_report_sends">将发送您的说明、头显与版本信息、您的设置以及应用日志，日志中可能包含您电脑在局域网中的名称和地址。在您点击“发送报告”之前不会发送任何内容。</string>
     <string name="vr_report_saves">将把您的说明、头显与版本信息、您的设置以及应用日志保存为此头显上的一个文件，日志中可能包含您电脑在局域网中的名称和地址。</string>
     <string name="vr_report_not_sent">报告发送失败</string>
+    <string name="vr_report_busy">报告服务器繁忙</string>
     <string name="vr_report_saved">报告已保存</string>
     <string name="vr_report_saved_at">已保存至 %1$s</string>
     <string name="vr_report_not_written">无法保存报告</string>
@@ -424,6 +425,7 @@
     <string name="bug_report_sending">正在发送报告…</string>
     <string name="bug_report_sent">报告已发送，感谢您的反馈！</string>
     <string name="bug_report_upload_failed">报告发送失败 (%1$s)。文件已保存至：\n\n%2$s\n\n请检查网络后重试，或将该文件从头显导出并邮件发送至 %3$s。</string>
+    <string name="bug_report_busy">报告服务器繁忙，报告已保存至：\n\n%1$s\n\n请稍后重试，或将该文件从头显导出并邮件发送至 %2$s。</string>
     <string name="bug_report_save">保存报告到本地</string>
     <string name="bug_report_subject">Moonlight XR 错误报告: %1$s, %2$s</string>
     <string name="bug_report_from">回复至: %1$s</string>

@@ -470,6 +470,7 @@
     <string name="vr_report_sends">Odešle vaši zprávu, údaje o headsetu a sestavení, vaše nastavení a protokol aplikace, který může obsahovat název a síťovou adresu vašeho PC. Nic se neodešle, dokud nestisknete „Odeslat“.</string>
     <string name="vr_report_saves">Uloží vaši zprávu, údaje o headsetu a sestavení, vaše nastavení a protokol aplikace, který může obsahovat název a síťovou adresu vašeho PC, do souboru v tomto headsetu.</string>
     <string name="vr_report_not_sent">Hlášení se nepodařilo odeslat</string>
+    <string name="vr_report_busy">Server pro hlášení je přetížený</string>
     <string name="vr_report_saved">Hlášení uloženo</string>
     <string name="vr_report_saved_at">Uloženo do %1$s</string>
     <string name="vr_report_not_written">Hlášení se nepodařilo uložit</string>
@@ -490,6 +491,7 @@
     <string name="bug_report_sending">Odesílání hlášení…</string>
     <string name="bug_report_sent">Hlášení odesláno, děkujeme</string>
     <string name="bug_report_upload_failed">Hlášení se nepodařilo odeslat (%1$s). Bylo uloženo do\n\n%2$s\n\nZkuste to znovu s připojením, nebo ho zkopírujte z headsetu a pošlete e-mailem na %3$s.</string>
+    <string name="bug_report_busy">Server pro hlášení je přetížený, hlášení bylo uloženo do\n\n%1$s\n\nZkuste to později znovu, nebo ho zkopírujte z headsetu a pošlete e-mailem na %2$s.</string>
     <string name="bug_report_save">Uložit hlášení</string>
     <string name="bug_report_subject">Hlášení Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Odpovědět na: %1$s</string>

@@ -474,6 +474,7 @@
     <string name="vr_report_sends">Mesajınızı, başlık ve sürüm bilgilerini, ayarlarınızı ve bilgisayarınızın ağdaki adını ve adresini içerebilen uygulama günlüğünü gönderir. “Gönder”e basana kadar hiçbir şey gönderilmez.</string>
     <string name="vr_report_saves">Mesajınızı, başlık ve sürüm bilgilerini, ayarlarınızı ve bilgisayarınızın ağdaki adını ve adresini içerebilen uygulama günlüğünü bu başlıktaki bir dosyaya kaydeder.</string>
     <string name="vr_report_not_sent">Rapor gönderilemedi</string>
+    <string name="vr_report_busy">Rapor sunucusu meşgul</string>
     <string name="vr_report_saved">Rapor kaydedildi</string>
     <string name="vr_report_saved_at">Kaydedildiği yer: %1$s</string>
     <string name="vr_report_not_written">Rapor kaydedilemedi</string>
@@ -494,6 +495,7 @@
     <string name="bug_report_sending">Rapor gönderiliyor…</string>
     <string name="bug_report_sent">Rapor gönderildi, teşekkürler</string>
     <string name="bug_report_upload_failed">Rapor gönderilemedi (%1$s). Şuraya kaydedildi:\n\n%2$s\n\nBağlantınız olduğunda yeniden deneyin ya da başlıktan kopyalayıp %3$s adresine e-postayla gönderin.</string>
+    <string name="bug_report_busy">Rapor sunucusu meşgul, rapor şuraya kaydedildi:\n\n%1$s\n\nDaha sonra yeniden deneyin ya da başlıktan kopyalayıp %2$s adresine e-postayla gönderin.</string>
     <string name="bug_report_save">Raporu kaydet</string>
     <string name="bug_report_subject">Moonlight XR raporu: %1$s, %2$s</string>
     <string name="bug_report_from">Yanıt adresi: %1$s</string>

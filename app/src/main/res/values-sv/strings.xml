@@ -474,6 +474,7 @@
     <string name="vr_report_sends">Skickar ditt meddelande, uppgifter om headset och version, dina inställningar och appens logg, som kan innehålla datorns namn och adress i nätverket. Inget skickas förrän du trycker på ”Skicka”.</string>
     <string name="vr_report_saves">Sparar ditt meddelande, uppgifter om headset och version, dina inställningar och appens logg, som kan innehålla datorns namn och adress i nätverket, i en fil på det här headsetet.</string>
     <string name="vr_report_not_sent">Rapporten kunde inte skickas</string>
+    <string name="vr_report_busy">Rapportservern är upptagen</string>
     <string name="vr_report_saved">Rapporten sparad</string>
     <string name="vr_report_saved_at">Sparad i %1$s</string>
     <string name="vr_report_not_written">Rapporten kunde inte sparas</string>
@@ -494,6 +495,7 @@
     <string name="bug_report_sending">Skickar rapporten…</string>
     <string name="bug_report_sent">Rapporten skickad, tack</string>
     <string name="bug_report_upload_failed">Rapporten kunde inte skickas (%1$s). Den har sparats i\n\n%2$s\n\nFörsök igen med en anslutning, eller kopiera den från headsetet och mejla den till %3$s.</string>
+    <string name="bug_report_busy">Rapportservern är upptagen, rapporten har sparats i\n\n%1$s\n\nFörsök igen senare, eller kopiera den från headsetet och mejla den till %2$s.</string>
     <string name="bug_report_save">Spara rapporten</string>
     <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
     <string name="bug_report_from">Svara till: %1$s</string>

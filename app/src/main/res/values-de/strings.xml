@@ -488,6 +488,7 @@
     <string name="vr_report_sends">Sendet Ihre Nachricht, Angaben zu Headset und Build, Ihre Einstellungen und das Log der App, das den Namen und die Netzwerkadresse Ihres PCs enthalten kann. Nichts wird gesendet, bevor Sie auf „Senden“ drücken.</string>
     <string name="vr_report_saves">Speichert Ihre Nachricht, Angaben zu Headset und Build, Ihre Einstellungen und das Log der App, das den Namen und die Netzwerkadresse Ihres PCs enthalten kann, in einer Datei auf diesem Headset.</string>
     <string name="vr_report_not_sent">Der Bericht konnte nicht gesendet werden</string>
+    <string name="vr_report_busy">Der Berichtsserver ist ausgelastet</string>
     <string name="vr_report_saved">Bericht gespeichert</string>
     <string name="vr_report_saved_at">Gespeichert unter %1$s</string>
     <string name="vr_report_not_written">Der Bericht konnte nicht gespeichert werden</string>
@@ -508,6 +509,7 @@
     <string name="bug_report_sending">Bericht wird gesendet…</string>
     <string name="bug_report_sent">Bericht gesendet, danke</string>
     <string name="bug_report_upload_failed">Der Bericht konnte nicht gesendet werden (%1$s). Er wurde gespeichert unter\n\n%2$s\n\nVersuchen Sie es mit einer Verbindung erneut oder kopieren Sie ihn vom Headset und senden Sie ihn per E-Mail an %3$s.</string>
+    <string name="bug_report_busy">Der Berichtsserver ist ausgelastet, der Bericht wurde gespeichert unter\n\n%1$s\n\nVersuchen Sie es später erneut oder kopieren Sie ihn vom Headset und senden Sie ihn per E-Mail an %2$s.</string>
     <string name="bug_report_save">Bericht speichern</string>
     <string name="bug_report_subject">Moonlight XR Bericht: %1$s, %2$s</string>
     <string name="bug_report_from">Antwort an: %1$s</string>

@@ -489,6 +489,7 @@
     <string name="vr_report_sends">메시지, 헤드셋과 빌드 정보, 설정, 앱 로그를 보냅니다. 로그에는 네트워크상 PC의 이름과 주소가 포함될 수 있습니다. ‘보내기’를 누르기 전에는 아무것도 보내지 않습니다.</string>
     <string name="vr_report_saves">메시지, 헤드셋과 빌드 정보, 설정, 앱 로그를 이 헤드셋의 파일로 저장합니다. 로그에는 네트워크상 PC의 이름과 주소가 포함될 수 있습니다.</string>
     <string name="vr_report_not_sent">보고서를 보내지 못했습니다</string>
+    <string name="vr_report_busy">보고서 서버가 혼잡합니다</string>
     <string name="vr_report_saved">보고서를 저장했습니다</string>
     <string name="vr_report_saved_at">저장 위치: %1$s</string>
     <string name="vr_report_not_written">보고서를 저장하지 못했습니다</string>
@@ -509,6 +510,7 @@
     <string name="bug_report_sending">보고서를 보내는 중…</string>
     <string name="bug_report_sent">보고서를 보냈습니다. 감사합니다</string>
     <string name="bug_report_upload_failed">보고서를 보내지 못했습니다 (%1$s). 다음 위치에 저장했습니다.\n\n%2$s\n\n연결된 상태에서 다시 시도하거나, 헤드셋에서 복사해 %3$s(으)로 이메일을 보내 주세요.</string>
+    <string name="bug_report_busy">보고서 서버가 혼잡합니다. 보고서를 다음 위치에 저장했습니다.\n\n%1$s\n\n나중에 다시 시도하거나, 헤드셋에서 복사해 %2$s(으)로 이메일을 보내 주세요.</string>
     <string name="bug_report_save">보고서 저장</string>
     <string name="bug_report_subject">Moonlight XR 보고서: %1$s, %2$s</string>
     <string name="bug_report_from">회신 주소: %1$s</string>

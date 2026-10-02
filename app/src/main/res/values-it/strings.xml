@@ -490,6 +490,7 @@
     <string name="vr_report_sends">Invia il tuo messaggio, i dati del visore e della build, le tue impostazioni e il log dell\'app, che può includere il nome e l\'indirizzo del tuo PC sulla rete. Non viene inviato nulla finché non premi «Invia».</string>
     <string name="vr_report_saves">Salva il tuo messaggio, i dati del visore e della build, le tue impostazioni e il log dell\'app, che può includere il nome e l\'indirizzo del tuo PC sulla rete, in un file su questo visore.</string>
     <string name="vr_report_not_sent">Non è stato possibile inviare la segnalazione</string>
+    <string name="vr_report_busy">Il server delle segnalazioni è occupato</string>
     <string name="vr_report_saved">Segnalazione salvata</string>
     <string name="vr_report_saved_at">Salvata in %1$s</string>
     <string name="vr_report_not_written">Non è stato possibile salvare la segnalazione</string>
@@ -510,6 +511,7 @@
     <string name="bug_report_sending">Invio della segnalazione…</string>
     <string name="bug_report_sent">Segnalazione inviata, grazie</string>
     <string name="bug_report_upload_failed">Non è stato possibile inviare la segnalazione (%1$s). È stata salvata in\n\n%2$s\n\nRiprova con una connessione, oppure copiala dal visore e inviala per email a %3$s.</string>
+    <string name="bug_report_busy">Il server delle segnalazioni è occupato, la segnalazione è stata salvata in\n\n%1$s\n\nRiprova più tardi, oppure copiala dal visore e inviala per email a %2$s.</string>
     <string name="bug_report_save">Salva la segnalazione</string>
     <string name="bug_report_subject">Segnalazione Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Rispondi a: %1$s</string>

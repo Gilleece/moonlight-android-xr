@@ -448,6 +448,7 @@
     <string name="vr_report_sends">Sends your message, the headset and build details, your settings and the app\'s log, which can include your PC\'s name and address on your network. Nothing is sent until you press Send.</string>
     <string name="vr_report_saves">Saves your message, the headset and build details, your settings and the app\'s log, which can include your PC\'s name and address on your network, to a file on this headset.</string>
     <string name="vr_report_not_sent">The report could not be sent</string>
+    <string name="vr_report_busy">The collector is busy</string>
     <string name="vr_report_saved">Report saved</string>
     <string name="vr_report_saved_at">Saved at %1$s</string>
     <string name="vr_report_not_written">The report could not be saved</string>
@@ -468,6 +469,7 @@
     <string name="bug_report_sending">Sending the report…</string>
     <string name="bug_report_sent">Report sent, thank you</string>
     <string name="bug_report_upload_failed">The report could not be sent (%1$s). It has been saved to\n\n%2$s\n\nTry again with a connection, or copy it off the headset and email it to %3$s.</string>
+    <string name="bug_report_busy">The collector is busy, the report is saved at\n\n%1$s\n\nTry again later, or copy it off the headset and email it to %2$s.</string>
     <string name="bug_report_save">Save the report</string>
     <string name="bug_report_subject">Moonlight XR report: %1$s, %2$s</string>
     <string name="bug_report_from">Reply to: %1$s</string>

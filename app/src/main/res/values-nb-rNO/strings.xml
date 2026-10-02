@@ -441,6 +441,7 @@
     <string name="vr_report_sends">Sender meldingen din, opplysninger om headset og versjon, innstillingene dine og appens logg, som kan inneholde navnet og adressen til PC-en din på nettverket. Ingenting sendes før du trykker «Send».</string>
     <string name="vr_report_saves">Lagrer meldingen din, opplysninger om headset og versjon, innstillingene dine og appens logg, som kan inneholde navnet og adressen til PC-en din på nettverket, i en fil på dette headsetet.</string>
     <string name="vr_report_not_sent">Rapporten kunne ikke sendes</string>
+    <string name="vr_report_busy">Rapportserveren er opptatt</string>
     <string name="vr_report_saved">Rapporten er lagret</string>
     <string name="vr_report_saved_at">Lagret i %1$s</string>
     <string name="vr_report_not_written">Rapporten kunne ikke lagres</string>
@@ -461,6 +462,7 @@
     <string name="bug_report_sending">Sender rapporten…</string>
     <string name="bug_report_sent">Rapporten er sendt, takk</string>
     <string name="bug_report_upload_failed">Rapporten kunne ikke sendes (%1$s). Den er lagret i\n\n%2$s\n\nPrøv igjen med en tilkobling, eller kopier den fra headsetet og send den med e-post til %3$s.</string>
+    <string name="bug_report_busy">Rapportserveren er opptatt, rapporten er lagret i\n\n%1$s\n\nPrøv igjen senere, eller kopier den fra headsetet og send den med e-post til %2$s.</string>
     <string name="bug_report_save">Lagre rapporten</string>
     <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
     <string name="bug_report_from">Svar til: %1$s</string>

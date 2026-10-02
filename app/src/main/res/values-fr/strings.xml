@@ -410,6 +410,7 @@
     <string name="vr_report_sends">Envoie votre message, les détails du casque et de la version, vos paramètres et le journal de l\'application, qui peut contenir le nom et l\'adresse de votre PC sur votre réseau. Rien n\'est envoyé avant que vous n\'appuyiez sur Envoyer.</string>
     <string name="vr_report_saves">Enregistre votre message, les détails du casque et de la version, vos paramètres et le journal de l\'application, qui peut contenir le nom et l\'adresse de votre PC sur votre réseau, dans un fichier sur ce casque.</string>
     <string name="vr_report_not_sent">Le rapport n\'a pas pu être envoyé</string>
+    <string name="vr_report_busy">Le serveur de rapports est occupé</string>
     <string name="vr_report_saved">Rapport enregistré</string>
     <string name="vr_report_saved_at">Enregistré dans %1$s</string>
     <string name="vr_report_not_written">Le rapport n\'a pas pu être enregistré</string>
@@ -443,6 +444,7 @@
     <string name="bug_report_sending">Envoi du rapport…</string>
     <string name="bug_report_sent">Rapport envoyé, merci</string>
     <string name="bug_report_upload_failed">Le rapport n\'a pas pu être envoyé (%1$s). Il a été enregistré dans\n\n%2$s\n\nRéessayez avec une connexion, ou copiez-le hors du casque et envoyez-le par e-mail à %3$s.</string>
+    <string name="bug_report_busy">Le serveur de rapports est occupé, le rapport est enregistré dans\n\n%1$s\n\nRéessayez plus tard, ou copiez-le hors du casque et envoyez-le par e-mail à %2$s.</string>
     <string name="bug_report_save">Enregistrer le rapport</string>
     <string name="bug_report_subject">Rapport Moonlight XR : %1$s, %2$s</string>
     <string name="bug_report_from">Répondre à : %1$s</string>

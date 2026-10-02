@@ -395,6 +395,7 @@
     <string name="vr_report_sends">將傳送您的說明、頭戴裝置與版本資訊、您的設定以及應用程式記錄檔，記錄檔中可能包含您電腦在區域網路中的名稱與位址。在您按下「傳送」之前不會傳送任何內容。</string>
     <string name="vr_report_saves">將把您的說明、頭戴裝置與版本資訊、您的設定以及應用程式記錄檔儲存為此頭戴裝置上的檔案，記錄檔中可能包含您電腦在區域網路中的名稱與位址。</string>
     <string name="vr_report_not_sent">無法傳送報告</string>
+    <string name="vr_report_busy">報告伺服器忙碌中</string>
     <string name="vr_report_saved">報告已儲存</string>
     <string name="vr_report_saved_at">已儲存至 %1$s</string>
     <string name="vr_report_not_written">無法儲存報告</string>
@@ -416,6 +417,7 @@
     <string name="bug_report_sending">正在傳送報告…</string>
     <string name="bug_report_sent">報告已傳送，感謝您的回饋！</string>
     <string name="bug_report_upload_failed">無法傳送報告 (%1$s)。已儲存至：\n\n%2$s\n\n請在有連線時重試，或將檔案從頭戴裝置複製出來並傳送電子郵件至 %3$s。</string>
+    <string name="bug_report_busy">報告伺服器忙碌中，報告已儲存至：\n\n%1$s\n\n請稍後重試，或將檔案從頭戴裝置複製出來並傳送電子郵件至 %2$s。</string>
     <string name="bug_report_save">儲存報告</string>
     <string name="bug_report_subject">Moonlight XR 問題回報：%1$s，%2$s</string>
     <string name="bug_report_from">回覆給：%1$s</string>

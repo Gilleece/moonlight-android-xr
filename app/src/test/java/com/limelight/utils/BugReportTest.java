@@ -250,6 +250,33 @@ public class BugReportTest {
     }
 
     @Test
+    public void aCollectorAtItsLimitsIsBusyNotFailed() throws IOException {
+        File dir = folder.newFolder("reports");
+        for (int code : new int[] { 429, 413, 400, 502 }) {
+            Recorder net = new Recorder();
+            net.answer = code;
+            BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
+                    "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"),
+                    net);
+
+            assertEquals(String.valueOf(code), code == 429 || code == 413
+                    ? BugReport.Result.BUSY : BugReport.Result.NOT_SENT, outcome.result);
+            assertEquals("server answered " + code, outcome.detail);
+            assertTrue(new File(outcome.path).isFile());
+        }
+    }
+
+    @Test
+    public void theCollectorLooksForTheSameFirstLine() throws IOException {
+        assertTrue(BugReport.compose("x", "", details()).startsWith(BugReport.HEADER));
+        // The worker sits outside the app, so the test is what keeps the two alike
+        String worker = new String(read(new FileInputStream(
+                new File("../tools/report-worker/worker.js"))), StandardCharsets.UTF_8);
+        String quoted = BugReport.HEADER.replace("\n", "\\n");
+        assertTrue(worker.contains("const REPORT_HEADER = '" + quoted + "';"));
+    }
+
+    @Test
     public void noNetworkIsNotSentAndSaysWhy() throws IOException {
         File dir = folder.newFolder("reports");
         Recorder net = new Recorder();

@@ -474,6 +474,7 @@
     <string name="vr_report_sends">Wysyła twoją wiadomość, dane gogli i wersji, twoje ustawienia oraz dziennik aplikacji, który może zawierać nazwę i adres twojego komputera w sieci. Nic nie zostanie wysłane, dopóki nie naciśniesz „Wyślij”.</string>
     <string name="vr_report_saves">Zapisuje twoją wiadomość, dane gogli i wersji, twoje ustawienia oraz dziennik aplikacji, który może zawierać nazwę i adres twojego komputera w sieci, do pliku na tych goglach.</string>
     <string name="vr_report_not_sent">Nie udało się wysłać zgłoszenia</string>
+    <string name="vr_report_busy">Serwer zgłoszeń jest zajęty</string>
     <string name="vr_report_saved">Zgłoszenie zapisane</string>
     <string name="vr_report_saved_at">Zapisano w %1$s</string>
     <string name="vr_report_not_written">Nie udało się zapisać zgłoszenia</string>
@@ -494,6 +495,7 @@
     <string name="bug_report_sending">Wysyłanie zgłoszenia…</string>
     <string name="bug_report_sent">Zgłoszenie wysłane, dziękujemy</string>
     <string name="bug_report_upload_failed">Nie udało się wysłać zgłoszenia (%1$s). Zostało zapisane w\n\n%2$s\n\nSpróbuj ponownie z połączeniem albo skopiuj je z gogli i wyślij e-mailem na adres %3$s.</string>
+    <string name="bug_report_busy">Serwer zgłoszeń jest zajęty, zgłoszenie zostało zapisane w\n\n%1$s\n\nSpróbuj ponownie później albo skopiuj je z gogli i wyślij e-mailem na adres %2$s.</string>
     <string name="bug_report_save">Zapisz zgłoszenie</string>
     <string name="bug_report_subject">Zgłoszenie Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Odpowiedz do: %1$s</string>
