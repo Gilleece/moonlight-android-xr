@@ -22,7 +22,9 @@ RES = os.path.normpath(os.path.join(HERE, "..", "app", "src", "main", "res"))
 
 # Folder suffixes after "values-" of the locales that must be complete. Each
 # joins the list as it is filled in.
-COMPLETE = []
+COMPLETE = [
+    "fr", "zh-rCN", "zh-rTW",
+]
 
 # A Java format specifier. No space flag, so "0 % est" in prose is not one.
 PLACEHOLDER = re.compile(r"%(?:\d+\$)?[-#+0,(]*\d*(?:\.\d+)?[bBhHsScCdoxXeEfgGaAtTn%]")
