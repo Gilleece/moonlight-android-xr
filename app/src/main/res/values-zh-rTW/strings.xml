@@ -307,11 +307,11 @@
     <string name="title_vr_head_aim">頭部控制滑鼠</string>
     <string name="summary_vr_head_aim">僅在螢幕鎖定到頭部時生效：轉動頭部會像遊戲的視角控制一樣移動滑鼠，適合第一人稱遊戲。控制器游標和實體滑鼠仍可同時使用。開啟面板時會暫停，螢幕下方的頭部控制按鈕可在本次階段中切換它。</string>
     <string name="title_seekbar_vr_head_aim_sensitivity">頭部控制靈敏度</string>
-    <string name="summary_seekbar_vr_head_aim_sensitivity">頭部每轉動一度時滑鼠移動的距離。配合遊戲本身的滑鼠靈敏度調整，直到視角轉動的幅度與頭部一致。頭戴裝置內設定面板的 Screen 分頁調整的是同一個數值。</string>
+    <string name="summary_seekbar_vr_head_aim_sensitivity">頭部每轉動一度時滑鼠移動的距離。配合遊戲本身的滑鼠靈敏度調整，直到視角轉動的幅度與頭部一致。頭戴裝置內設定面板的「螢幕」分頁調整的是同一個數值。</string>
     <string name="title_seekbar_vr_head_aim_deadzone">頭部控制死區</string>
     <string name="summary_seekbar_vr_head_aim_deadzone">頭部轉動慢於此速度時不傳送任何移動，可避免頭部靜止時追蹤抖動移動滑鼠。設為 0 則傳送所有移動。</string>
     <string name="title_vr_gamepad_toggle">遊戲控制器模式快速鍵</string>
-    <string name="summary_vr_gamepad_toggle">目前：%s。遊戲控制器模式會把兩個控制器合起來在電腦上作為一個 Xbox 控制器：搖桿、A、B、X、Y 鍵、扳機、握把作為肩鍵、搖桿按下，以及左手選單鍵作為 Start。它只能在階段中透過設定面板的 Display 分頁或螢幕下方的遊戲控制器按鈕開啟，每次階段開始時控制器都是游標。之後可以用此快速鍵在兩者之間切換。選擇搖桿或扳機與握把時，這些按鍵傳給遊戲會稍晚一點，因為快速鍵要先判斷它們是不是在按快速鍵。</string>
+    <string name="summary_vr_gamepad_toggle">目前：%s。遊戲控制器模式會把兩個控制器合起來在電腦上作為一個 Xbox 控制器：搖桿、A、B、X、Y 鍵、扳機、握把作為肩鍵、搖桿按下，以及左手選單鍵作為 Start。它只能在階段中透過設定面板的「顯示」分頁或螢幕下方的遊戲控制器按鈕開啟，每次階段開始時控制器都是游標。之後可以用此快速鍵在兩者之間切換。選擇搖桿或扳機與握把時，這些按鍵傳給遊戲會稍晚一點，因為快速鍵要先判斷它們是不是在按快速鍵。</string>
     <string name="vr_gamepad_toggle_menu_grip">按住左手選單鍵和左手握把</string>
     <string name="vr_gamepad_toggle_sticks">同時按下兩個搖桿 (L3 + R3)</string>
     <string name="vr_gamepad_toggle_triggers_grips">同時握緊兩個扳機和兩個握把</string>
@@ -347,7 +347,7 @@
     <string name="title_vr_env_res">虛擬環境解析度</string>
     <string name="summary_vr_env_res">螢幕周圍 3D 虛擬房間的渲染清晰度。畫質越高越消耗 GPU 效能。極致為實驗性功能，可能導致延遲或掉影格。</string>
     <string name="title_seekbar_vr_picture_brightness">畫面亮度</string>
-    <string name="summary_seekbar_vr_picture_brightness">提高或降低頭戴裝置中整個畫面的亮度。0 為串流的原始畫面。頭戴裝置內設定面板的 Picture 分頁調整的是同樣的四個數值。</string>
+    <string name="summary_seekbar_vr_picture_brightness">提高或降低頭戴裝置中整個畫面的亮度。0 為串流的原始畫面。頭戴裝置內設定面板的「畫面」分頁調整的是同樣的四個數值。</string>
     <string name="title_seekbar_vr_picture_contrast">畫面對比</string>
     <string name="summary_seekbar_vr_picture_contrast">以中灰為中心拉開或收攏畫面的明暗層次。100% 為串流的原始畫面。</string>
     <string name="title_seekbar_vr_picture_gamma">畫面伽瑪</string>
