@@ -1119,6 +1119,10 @@ typedef struct {
     // it, since one that will not loses only this.
     XrAction menuAction;
     int menuBound;
+    // Each controller's vibration, only for the host's rumble in gamepad mode,
+    // and whether any profile took it
+    XrAction hapticAction;
+    int hapticBound;
     XrSpace aimSpaces[SRC_COUNT];
     XrPath handPaths[HAND_COUNT];
     int inputReady;
@@ -1253,6 +1257,13 @@ typedef struct {
     int padHeld;
     int padPutAway;
     int padButtonsSaid;
+    // The host's rumble on the pad, and for the log: whether it is on, the
+    // pulses armed since it came on, and whether each controller's first
+    // pulse has said how the runtime took it
+    PadRumble rumble;
+    int rumbleOn;
+    long rumblePulses;
+    int rumbleResultSaid[HAND_COUNT];
     // The bundled controller model, drawn at each hand's grip into a
     // projection layer of its own over the picture: whether it is wanted, the
     // setting the Display tab's row also writes, and its buffers once Java has
@@ -1645,6 +1656,7 @@ typedef void (*PFNDELETEQUERIESEXT)(GLsizei, const GLuint*);
 
 // xr_session.c: instance, session, swapchain and lifecycle
 int checkXr(XrResult res, const char* what);
+const char* xrResultName(XrResult res);
 
 // xr_gl.c: GL setup, the warp passes and the GPU timer
 extern const float VERTEX_DATA[16];

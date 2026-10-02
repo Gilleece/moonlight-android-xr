@@ -612,6 +612,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
+        // Gamepad mode's pad rumbles the session's own controllers
+        controllerHandler.setXrRumble((low, high) -> {
+            MediaCodecDecoderRenderer renderer = decoderRenderer;
+            XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+            if (xrRenderer != null) {
+                xrRenderer.setRumble(low, high);
+            }
+        });
         keyboardTranslator = new KeyboardTranslator();
         vrKeyboard = new VrKeyboard(new VrKeyboard.Sink() {
             @Override

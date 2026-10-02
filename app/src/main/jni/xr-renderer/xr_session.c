@@ -7,7 +7,7 @@
 
 // Every XrResult by its name, which is what a log should carry and what
 // anyone reading it will search for
-static const char* xrResultName(XrResult res) {
+const char* xrResultName(XrResult res) {
     switch (res) {
 #define XR_RESULT_NAME_CASE(name, value) case name: return #name;
         XR_LIST_ENUM_XrResult(XR_RESULT_NAME_CASE)

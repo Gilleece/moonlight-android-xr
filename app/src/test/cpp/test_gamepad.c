@@ -2,7 +2,8 @@
 // zones, the grips as bumpers, the controls held back until let go, the left
 // menu button with the left grip switching modes after half a second, and the
 // two chord shortcuts, both stick clicks or both triggers with both grips,
-// held back from the pad while they form
+// held back from the pad while they form, and the host's rumble on the two
+// controllers
 #include <stdlib.h>
 #include <string.h>
 
@@ -873,6 +874,142 @@ static void testTheChordIgnoresNonsense(void) {
     CHECK(c.held == 0);
 }
 
+// The host's 16 bit motor levels as amplitudes, a Java short's sign bit
+// included
+static void testTheRumbleLevels(void) {
+    CHECK(padRumbleAmplitude(0) == 0.0f);
+    CHECK(padRumbleAmplitude(0xffff) == 1.0f);
+    CHECK_NEAR(padRumbleAmplitude(0x8000), 32768.0 / 65535.0, 1e-6);
+    CHECK_NEAR(padRumbleAmplitude(0x4000), 16384.0 / 65535.0, 1e-6);
+    CHECK_NEAR(padRumbleAmplitude(1), 1.0 / 65535.0, 1e-9);
+    // As a short arrives sign extended
+    CHECK(padRumbleAmplitude(-1) == 1.0f);
+    CHECK_NEAR(padRumbleAmplitude((short)0x8000), 32768.0 / 65535.0, 1e-6);
+    CHECK_NEAR(padRumbleAmplitude((short)0xc000), 49152.0 / 65535.0, 1e-6);
+    // Never past either end
+    for (int m = -70000; m <= 70000; m += 997) {
+        float a = padRumbleAmplitude(m);
+        CHECK(a >= 0.0f && a <= 1.0f);
+    }
+    // Low on the left, high on the right
+    PadRumble r;
+    padRumbleReset(&r);
+    padRumbleAsk(&r, 0xffff, 0x4000);
+    CHECK(r.want[0] == 1.0f);
+    CHECK_NEAR(r.want[1], 16384.0 / 65535.0, 1e-6);
+    CHECK(r.fresh);
+}
+
+static void testTheRumblePulses(void) {
+    PadRumble r;
+    int live[2] = { 1, 1 };
+    int action[2];
+    float amp[2];
+    padRumbleReset(&r);
+    // Nothing asked, nothing done
+    padRumbleStep(&r, live, 0, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_KEEP);
+
+    // Asked: both at once, each its own motor
+    int64_t t = 1000000000LL;
+    padRumbleAsk(&r, 0x8000, 0xffff);
+    padRumbleStep(&r, live, t, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_APPLY && action[1] == PAD_RUMBLE_APPLY);
+    CHECK_NEAR(amp[0], 32768.0 / 65535.0, 1e-6);
+    CHECK(amp[1] == 1.0f);
+    CHECK(!r.fresh);
+    // Not again until the rearm, which comes well inside a pulse
+    CHECK(PAD_RUMBLE_REARM_NS < PAD_RUMBLE_PULSE_NS);
+    CHECK(PAD_RUMBLE_PULSE_NS - PAD_RUMBLE_REARM_NS > 2 * FRAME_NS);
+    int64_t last = t;
+    int applies = 0;
+    int64_t worstGap = 0;
+    for (int64_t now = t + FRAME_NS; now < t + 1000000000LL; now += FRAME_NS) {
+        padRumbleStep(&r, live, now, action, amp);
+        CHECK(action[0] == action[1]);
+        CHECK(action[0] != PAD_RUMBLE_STOP);
+        if (action[0] == PAD_RUMBLE_APPLY) {
+            applies++;
+            if (now - last > worstGap) {
+                worstGap = now - last;
+            }
+            last = now;
+        }
+    }
+    // A held rumble is armed again about every 50 ms, each pulse running
+    // into the next, so a second of it never stutters
+    CHECK(applies >= 15 && applies <= 20);
+    CHECK(worstGap < PAD_RUMBLE_PULSE_NS);
+    CHECK(worstGap >= PAD_RUMBLE_REARM_NS);
+
+    // A fresh word from the host arms at once, even with the same values
+    padRumbleStep(&r, live, last + FRAME_NS, action, amp);
+    padRumbleAsk(&r, 0x8000, 0xffff);
+    padRumbleStep(&r, live, last + 2 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_APPLY && action[1] == PAD_RUMBLE_APPLY);
+    last += 2 * FRAME_NS;
+
+    // A change on one motor alone: that side applies, the other waits
+    padRumbleStep(&r, live, last + FRAME_NS, action, amp);
+    r.want[1] = 0.25f;
+    padRumbleStep(&r, live, last + 2 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_APPLY);
+    CHECK(amp[1] == 0.25f);
+    last += 2 * FRAME_NS;
+
+    // The low motor let go: the left stops, once, and the right goes on
+    padRumbleAsk(&r, 0, 0x4000);
+    padRumbleStep(&r, live, last + FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_STOP && action[1] == PAD_RUMBLE_APPLY);
+    padRumbleStep(&r, live, last + 2 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP);
+
+    // 0/0 stops both, once
+    padRumbleAsk(&r, 0, 0);
+    padRumbleStep(&r, live, last + 3 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_STOP);
+    for (int i = 0; i < 20; i++) {
+        padRumbleStep(&r, live, last + (4 + i) * FRAME_NS, action, amp);
+        CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_KEEP);
+    }
+}
+
+// A controller that is not the pad's, or the pad out of the session's reach,
+// is stopped and left alone, and picks the host's rumble up again when it is
+// back while the host still wants it
+static void testTheRumbleOffThePad(void) {
+    PadRumble r;
+    int both[2] = { 1, 1 };
+    int leftOnly[2] = { 1, 0 };
+    int none[2] = { 0, 0 };
+    int action[2];
+    float amp[2];
+    padRumbleReset(&r);
+    padRumbleAsk(&r, 0xffff, 0xffff);
+    padRumbleStep(&r, leftOnly, 0, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_APPLY && action[1] == PAD_RUMBLE_KEEP);
+    padRumbleStep(&r, both, FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_APPLY);
+    // Out of the pad: both stop, once
+    padRumbleStep(&r, none, 2 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_STOP && action[1] == PAD_RUMBLE_STOP);
+    padRumbleStep(&r, none, 3 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_KEEP);
+    // A word from the host meanwhile arms nothing
+    padRumbleAsk(&r, 0xffff, 0);
+    padRumbleStep(&r, none, 4 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_KEEP);
+    // Back: what the host still wants, at once
+    padRumbleStep(&r, both, 5 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_APPLY && action[1] == PAD_RUMBLE_KEEP);
+    CHECK(amp[0] == 1.0f);
+    // A reset forgets what was asked and stops nothing, so whatever runs is
+    // stopped before it
+    padRumbleReset(&r);
+    padRumbleStep(&r, both, 6 * FRAME_NS, action, amp);
+    CHECK(action[0] == PAD_RUMBLE_KEEP && action[1] == PAD_RUMBLE_KEEP);
+}
+
 int main(void) {
     testTheBits();
     testTheButtons();
@@ -896,5 +1033,8 @@ int main(void) {
     testNoChordHoldsNothing();
     testAResetWaitsForRest();
     testTheChordIgnoresNonsense();
+    testTheRumbleLevels();
+    testTheRumblePulses();
+    testTheRumbleOffThePad();
     return checksDone("xr_gamepad");
 }

@@ -131,8 +131,16 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     private short currentControllers, initialControllers;
 
     // The VR session's two controllers as one pad, while its gamepad mode has
-    // them plugged in. Main thread, like the rest of this class's pads.
-    private XrPadContext xrPad;
+    // them plugged in. Main thread, like the rest of this class's pads, and
+    // read by the host's rumble from the connection's thread.
+    private volatile XrPadContext xrPad;
+    // Where that pad's rumble goes: the session's own controllers
+    private volatile XrRumble xrRumble;
+
+    /** The host's rumble for the VR controllers' pad, the motors as they came. Any thread. */
+    public interface XrRumble {
+        void rumble(short lowFreqMotor, short highFreqMotor);
+    }
 
     public ControllerHandler(Activity activityContext, NvConnection conn, GameGestures gestures, PreferenceConfiguration prefConfig) {
         this.activityContext = activityContext;
@@ -2071,6 +2079,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return;
         }
 
+        // The VR controllers' pad has no Android vibrator, so its rumble goes
+        // to the session
+        XrPadContext pad = xrPad;
+        XrRumble sink = xrRumble;
+        if (pad != null && sink != null && pad.controllerNumber == controllerNumber) {
+            foundMatchingDevice = vibrated = true;
+            sink.rumble(lowFreqMotor, highFreqMotor);
+        }
+
         for (int i = 0; i < inputDeviceContexts.size(); i++) {
             InputDeviceContext deviceContext = inputDeviceContexts.valueAt(i);
 
@@ -2857,6 +2874,11 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         context.inputMap = buttonFlags;
 
         sendControllerInputPacket(context);
+    }
+
+    /** Where the VR controllers' pad sends the host's rumble. */
+    public void setXrRumble(XrRumble sink) {
+        xrRumble = sink;
     }
 
     /**

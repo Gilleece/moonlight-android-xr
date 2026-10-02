@@ -213,4 +213,43 @@ float padChordSeen(const PadChord* c, int part, float raw);
 void padChordApply(const PadChord* c, const PadHand* left, const PadHand* right,
                    PadHand* outLeft, PadHand* outRight);
 
+// The host's rumble on the controllers: the low frequency motor on the left,
+// the high on the right. The host only says when it changes, so each
+// controller is given a pulse that outlasts a frame and armed again before it
+// runs out for as long as the host wants it. A frame loop that stops leaves
+// at most one pulse running.
+#define PAD_RUMBLE_PULSE_NS 100000000LL
+#define PAD_RUMBLE_REARM_NS 50000000LL
+
+// What a frame asks of each controller's haptics
+#define PAD_RUMBLE_KEEP 0
+#define PAD_RUMBLE_APPLY 1
+#define PAD_RUMBLE_STOP 2
+
+typedef struct {
+    // What the host asks for, left then right, 0 to 1, and whether it has
+    // asked since the last frame
+    float want[2];
+    int fresh;
+    // What each controller was last given and when, 0 once stopped
+    float given[2];
+    int64_t givenNs[2];
+} PadRumble;
+
+// A motor's level as the host sends it, 0 to 65535 (a Java short is taken as
+// unsigned), as an amplitude from 0 to 1
+float padRumbleAmplitude(int motor);
+
+// Nothing asked for, nothing running
+void padRumbleReset(PadRumble* r);
+
+// The host's latest, the two motors as they came. The same values again still
+// arm a pulse at once.
+void padRumbleAsk(PadRumble* r, int lowMotor, int highMotor);
+
+// One frame. live says, left then right, whether that controller is the pad's
+// now; one that is not is stopped if it was running. Each action is a
+// PAD_RUMBLE_ value and amp the amplitude to apply with.
+void padRumbleStep(PadRumble* r, const int live[2], int64_t nowNs, int action[2], float amp[2]);
+
 #endif

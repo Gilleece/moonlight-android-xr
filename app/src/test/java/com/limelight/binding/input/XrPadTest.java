@@ -7,11 +7,12 @@ import com.limelight.nvstream.jni.MoonBridge;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
 
 /**
  * Gamepad mode's pad: the number it takes beside real pads, what it says it
- * is when it arrives, its button bits against the packet's own, and the slots
- * the frame hands it back in.
+ * is when it arrives, its button bits against the packet's own, the slots
+ * the frame hands it back in, and the host's rumble on its way down.
  */
 public class XrPadTest {
 
@@ -31,9 +32,12 @@ public class XrPadTest {
     }
 
     @Test
-    public void itArrivesAsAnXboxPadWithAnalogueTriggers() {
+    public void itArrivesAsAnXboxPadWithAnalogueTriggersAndRumble() {
         assertEquals(MoonBridge.LI_CTYPE_XBOX, XrPad.TYPE);
-        assertEquals(MoonBridge.LI_CCAP_ANALOG_TRIGGERS, XrPad.CAPABILITIES);
+        assertEquals(MoonBridge.LI_CCAP_ANALOG_TRIGGERS | MoonBridge.LI_CCAP_RUMBLE,
+                XrPad.CAPABILITIES);
+        // Not the triggers' own rumble, which the controllers cannot do apart
+        assertEquals(0, XrPad.CAPABILITIES & MoonBridge.LI_CCAP_TRIGGER_RUMBLE);
         assertEquals(ControllerPacket.A_FLAG | ControllerPacket.B_FLAG | ControllerPacket.X_FLAG
                 | ControllerPacket.Y_FLAG | ControllerPacket.LB_FLAG | ControllerPacket.RB_FLAG
                 | ControllerPacket.LS_CLK_FLAG | ControllerPacket.RS_CLK_FLAG
@@ -72,5 +76,39 @@ public class XrPadTest {
         // slots exactly
         assertEquals(32766, (int)(float)32766);
         assertEquals(XrShared.PAD_BUTTONS, (int)(float)XrShared.PAD_BUTTONS);
+    }
+
+    @Test
+    public void theRumbleWordCarriesBothMotorsWhole() {
+        long word = XrPad.rumbleWord(1, 0x1234, 0xabcd);
+        assertEquals(0x1234, XrPad.rumbleLow(word));
+        assertEquals(0xabcd, XrPad.rumbleHigh(word));
+        // A Java short off the connection has its sign bit set past 0x7fff,
+        // and still reads as the unsigned level the host meant
+        word = XrPad.rumbleWord(2, (short)0xffff, (short)0x8000);
+        assertEquals(0xffff, XrPad.rumbleLow(word));
+        assertEquals(0x8000, XrPad.rumbleHigh(word));
+        word = XrPad.rumbleWord(3, (short)0, (short)-1);
+        assertEquals(0, XrPad.rumbleLow(word));
+        assertEquals(0xffff, XrPad.rumbleHigh(word));
+        // Neither motor reaches into the other
+        word = XrPad.rumbleWord(4, 0, 0xffff);
+        assertEquals(0, XrPad.rumbleLow(word));
+        word = XrPad.rumbleWord(5, 0xffff, 0);
+        assertEquals(0, XrPad.rumbleHigh(word));
+    }
+
+    @Test
+    public void theSameRumbleAgainIsANewWord() {
+        // The frame loop hands a word down when it differs from the last, so
+        // the host repeating itself still re-arms the controllers
+        assertNotEquals(XrPad.rumbleWord(1, 0x8000, 0x8000), XrPad.rumbleWord(2, 0x8000, 0x8000));
+        assertEquals(XrPad.rumbleWord(7, 0x10, 0x20), XrPad.rumbleWord(7, 0x10, 0x20));
+        // A stop is a word too, never the one before any word came
+        assertNotEquals(0L, XrPad.rumbleWord(1, 0, 0));
+        // And the count does not reach the motors however far it runs
+        long word = XrPad.rumbleWord(0x7fffffffL, 0x0102, 0x0304);
+        assertEquals(0x0102, XrPad.rumbleLow(word));
+        assertEquals(0x0304, XrPad.rumbleHigh(word));
     }
 }

@@ -20,6 +20,7 @@ import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.R;
 import com.limelight.binding.input.EyeTrackingPermission;
+import com.limelight.binding.input.XrPad;
 import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.XrDisplayRates;
 import com.limelight.utils.BugReport;
@@ -161,6 +162,12 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // only.
     private boolean padPlugged;
     private final int[] padSent = new int[IN_PAD_RY - IN_PAD_BUTTONS + 1];
+    // The host's rumble on that pad as the last word said it, written from
+    // the connection's thread, and the word last handed down, frame loop only
+    private final Object rumbleLock = new Object();
+    private long rumbleCount;
+    private volatile long rumbleWord;
+    private long rumbleHanded;
     // The head's yaw against the screen, for the virtual surround. Written by
     // the frame loop and read by the audio thread once a block.
     private volatile float headYaw;
@@ -364,6 +371,19 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     }
 
     /**
+     * The host's rumble for gamepad mode's pad, the two motors as they came:
+     * the low one on the left controller, the high one on the right, until
+     * the host says otherwise or the pad comes out. Any thread; the frame
+     * loop picks it up.
+     */
+    public void setRumble(short lowFreqMotor, short highFreqMotor) {
+        synchronized (rumbleLock) {
+            rumbleCount++;
+            rumbleWord = XrPad.rumbleWord(rumbleCount, lowFreqMotor, highFreqMotor);
+        }
+    }
+
+    /**
      * Whether the session has been focused yet. Until it has, the runtime may
      * still be holding the launch, behind a boundary prompt for one, and the
      * activity can be stopped meanwhile without the user having left. Any
@@ -523,6 +543,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // Whether a session starts in gamepad mode, and the sticks' dead zone in
     // the whole percent the settings keep for a real pad
     private native void nativeSetGamepad(long ctx, int shortcut, int deadzonePercent);
+    // The host's rumble on the pad, each motor 0 to 65535
+    private native void nativeSetRumble(long ctx, int lowMotor, int highMotor);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -1082,6 +1104,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             // from it on both sides of the frame, so a press takes effect on
             // the next one with no native state to keep in step.
             boolean headLocked = prefs.vrHeadLocked;
+
+            // Each word from the host arms the controllers on this pass
+            long rumble = rumbleWord;
+            if (rumble != rumbleHanded) {
+                rumbleHanded = rumble;
+                nativeSetRumble(nativeCtx, XrPad.rumbleLow(rumble), XrPad.rumbleHigh(rumble));
+            }
 
             // The pointer sleep row on the panel writes back to this same
             // object, so it is read fresh each frame like head lock
