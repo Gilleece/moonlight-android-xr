@@ -1298,9 +1298,10 @@ final class XrPanels {
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
     }
 
-    // About tab: the app's name and version, where its log is, and the button
-    // that opens the report sheet, drawn the way the reset buttons are. The
-    // ring under the ray is the native side's.
+    // About tab: the app's name and version, where its log is, then Ko-fi
+    // over the button that opens the report sheet, both drawn the way the
+    // reset buttons are, each with a quiet line under it. The ring under the
+    // ray is the native side's.
     private void drawCogAbout(Canvas canvas) {
         final float mid = COG_TEX_W * 0.5f;
         final float room = COG_TEX_W - 80.0f;
@@ -1308,7 +1309,7 @@ final class XrPanels {
         name.setTextSize(30.0f);
         name.setTextAlign(Paint.Align.CENTER);
         name.setColor(Color.WHITE);
-        canvas.drawText(COG_ABOUT_NAME, mid, 0.28f * COG_TEX_H, name);
+        canvas.drawText(COG_ABOUT_NAME, mid, 0.25f * COG_TEX_H, name);
 
         Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
         line.setTextSize(19.0f);
@@ -1316,35 +1317,45 @@ final class XrPanels {
         line.setColor(0xB0FFFFFF);
         String version = "Version " + BuildConfig.VERSION_NAME
                 + (BuildConfig.GIT_HASH.isEmpty() ? "" : ", commit " + BuildConfig.GIT_HASH);
-        canvas.drawText(Toast.fit(version, line, room), mid, 0.36f * COG_TEX_H, line);
+        canvas.drawText(Toast.fit(version, line, room), mid, 0.32f * COG_TEX_H, line);
         String log = FileLog.getLogPath();
         canvas.drawText(Toast.fit("Log file: " + (log != null ? BugReport.shortPath(log) : "off"),
-                line, room), mid, 0.43f * COG_TEX_H, line);
+                line, room), mid, 0.38f * COG_TEX_H, line);
 
+        // Each button's line, where the other tabs say why a row is dead
+        Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        hint.setTextSize(17.0f);
+        hint.setTextAlign(Paint.Align.CENTER);
+        hint.setColor(0x80FFFFFF);
+
+        drawAboutButton(canvas, COG_KOFI_L, COG_KOFI_T, COG_KOFI_R, COG_KOFI_B,
+                context.getString(R.string.title_about_kofi));
+        canvas.drawText(Toast.fit(context.getString(R.string.summary_about_kofi), hint, room),
+                mid, (COG_KOFI_B + 0.05f) * COG_TEX_H, hint);
+
+        drawAboutButton(canvas, COG_REPORT_L, COG_REPORT_T, COG_REPORT_R, COG_REPORT_B,
+                context.getString(R.string.title_bug_report));
+        canvas.drawText(BugReport.collectorConfigured()
+                        ? "Sends a note with the headset, your settings and the log"
+                        : "Saves a note with the headset, your settings and the log",
+                mid, (COG_REPORT_B + 0.05f) * COG_TEX_H, hint);
+    }
+
+    // One of the About tab's buttons, plain like the reset buttons
+    private static void drawAboutButton(Canvas canvas, float l, float t, float r, float b,
+                                        String text) {
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         paint.setColor(0xEEFFFFFF);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeWidth(4.0f);
-        RectF button = new RectF(COG_REPORT_L * COG_TEX_W, COG_REPORT_T * COG_TEX_H,
-                COG_REPORT_R * COG_TEX_W, COG_REPORT_B * COG_TEX_H);
+        RectF button = new RectF(l * COG_TEX_W, t * COG_TEX_H, r * COG_TEX_W, b * COG_TEX_H);
         canvas.drawRoundRect(button, 14.0f, 14.0f, paint);
         Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
         label.setTextSize(24.0f);
         label.setTextAlign(Paint.Align.CENTER);
         label.setColor(Color.WHITE);
-        canvas.drawText(Toast.fit(context.getString(R.string.title_bug_report), label,
-                button.width() - 24.0f), button.centerX(),
+        canvas.drawText(Toast.fit(text, label, button.width() - 24.0f), button.centerX(),
                 button.centerY() - (label.ascent() + label.descent()) * 0.5f, label);
-
-        // What it does, under it, where the other tabs say why a row is dead
-        Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        hint.setTextSize(17.0f);
-        hint.setTextAlign(Paint.Align.CENTER);
-        hint.setColor(0x80FFFFFF);
-        canvas.drawText(BugReport.collectorConfigured()
-                        ? "Sends a note with the headset, your settings and the log"
-                        : "Saves a note with the headset, your settings and the log",
-                mid, 0.80f * COG_TEX_H, hint);
     }
 
     /**

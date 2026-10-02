@@ -474,7 +474,7 @@ static void testEveryTrackHasItsSteps(void) {
     CHECK(cogTrackSteps(COG_TAB_SCREEN, COG_SLIDER_ROTATE) % 2 == 0);
 }
 
-// The About tab's button sits clear of the tab bar and the panel's edges, and
+// The About tab's buttons sit clear of the tab bar and the panel's edges, and
 // the report sheet's fields and buttons are where a press on each lands
 static void testTheReportParts(void) {
     CHECK(COG_REPORT_T > COG_TAB_BAR_B);
@@ -484,6 +484,20 @@ static void testTheReportParts(void) {
     CHECK(!cogReportButtonAt(COG_REPORT_L - 0.01f, COG_REPORT_T + 0.01f));
     CHECK(!cogReportButtonAt(0.5f, COG_REPORT_B + 0.01f));
     CHECK(!cogReportButtonAt(0.5f, 0.08f));
+
+    // Ko-fi directly above the report button, with room between the two for
+    // the line under it, and the same width
+    CHECK(COG_KOFI_T > COG_TAB_BAR_B && COG_KOFI_T < COG_KOFI_B);
+    CHECK(COG_KOFI_B + 0.08f < COG_REPORT_T);
+    CHECK(COG_KOFI_L == COG_REPORT_L && COG_KOFI_R == COG_REPORT_R);
+    float kofiV = (COG_KOFI_T + COG_KOFI_B) * 0.5f;
+    float reportV = (COG_REPORT_T + COG_REPORT_B) * 0.5f;
+    CHECK(cogKofiButtonAt(0.5f, kofiV));
+    CHECK(!cogReportButtonAt(0.5f, kofiV));
+    CHECK(!cogKofiButtonAt(0.5f, reportV));
+    CHECK(!cogKofiButtonAt(0.5f, (COG_KOFI_B + COG_REPORT_T) * 0.5f));
+    CHECK(!cogReportButtonAt(0.5f, (COG_KOFI_B + COG_REPORT_T) * 0.5f));
+    CHECK(!cogKofiButtonAt(COG_KOFI_R + 0.01f, kofiV));
 
     float mid = (REPORT_FIELD_L + REPORT_FIELD_R) * 0.5f;
     CHECK(reportZone(mid, (REPORT_NOTE_T + REPORT_NOTE_B) * 0.5f) == REPORT_ZONE_NOTE);

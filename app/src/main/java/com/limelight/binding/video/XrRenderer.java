@@ -329,6 +329,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         void onVrModifiers(int modifiers);
         // The exit prompt was confirmed, so the session is to end
         void onVrExit();
+        // A link pressed on a panel, for the activity to open in the browser
+        void onVrOpenLink(String url);
     }
 
     public void setInputListener(InputListener listener) {
@@ -405,6 +407,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
 
     // How long a start is waited for before it counts as failed
     private static final int INIT_WAIT_SECONDS = 5;
+
+    // Where the About tab's Ko-fi button goes, the same page as the 2D
+    // settings' About row
+    static final String SUPPORT_URL = "https://ko-fi.com/moonlightxr";
 
     private static native void nativeSetFileLog(String path, int level);
     // Where the last start that failed stopped, as XrStartFailure reads it, or
@@ -1527,6 +1533,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (inputState[IN_EXIT] != 0.0f) {
                 inputState[IN_EXIT] = 0.0f;
                 inputListener.onVrExit();
+            }
+
+            if (inputState[IN_KOFI] != 0.0f) {
+                FileLog.event("Ko-fi pressed on the About tab, opening " + SUPPORT_URL);
+                inputListener.onVrOpenLink(SUPPORT_URL);
             }
         }
 

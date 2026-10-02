@@ -120,8 +120,10 @@ int cogStepIndex(float t, int steps, int dir);
 // is one of the COG_TAB_ values, or anything past them for the Room tab.
 int cogTrackSteps(int tab, int row);
 
-// Whether a point on the settings panel is on the About tab's button
+// Whether a point on the settings panel is on the About tab's report button,
+// or its Ko-fi button
 int cogReportButtonAt(float pu, float pv);
+int cogKofiButtonAt(float pu, float pv);
 
 // Which part of the report sheet a point on it is over, one of the
 // REPORT_ZONE_ values, u and v across the sheet from its top left

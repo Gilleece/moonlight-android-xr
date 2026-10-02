@@ -185,7 +185,10 @@
 // Set to 1 the frame the hand lock hint is put away with "Don't show this
 // again", which Java stores so later sessions skip it. 0 otherwise.
 #define IN_HINT     (IN_PAD_RY + 1)
-#define IN_SLOTS    (IN_HINT + 1)
+// Set to 1 the frame the About tab's Ko-fi button is pressed, which Java opens
+// in the browser. 0 otherwise.
+#define IN_KOFI     (IN_HINT + 1)
+#define IN_SLOTS    (IN_KOFI + 1)
 
 // Gamepad mode's buttons, in the bits Moonlight's controller packet carries
 // them in, which are ControllerPacket's flags: the four face buttons, the
@@ -475,12 +478,18 @@
 // with a tick at the picture as streamed, over the reset button. Live in
 // every session and every room, since the grade only changes colours.
 
-// About tab: the app and its version, and no rows, only the button that puts
-// the panel away for the report sheet. Where the button sits on the panel.
+// About tab: the app and its version, and no rows, only two buttons: the one
+// that opens Ko-fi in the browser, with a line under it saying it is optional,
+// over the one that puts the panel away for the report sheet. Where the
+// buttons sit on the panel.
+#define COG_KOFI_L 0.25f
+#define COG_KOFI_R 0.75f
+#define COG_KOFI_T 0.45f
+#define COG_KOFI_B 0.57f
 #define COG_REPORT_L 0.25f
 #define COG_REPORT_R 0.75f
-#define COG_REPORT_T 0.60f
-#define COG_REPORT_B 0.72f
+#define COG_REPORT_T 0.69f
+#define COG_REPORT_B 0.81f
 
 // Display tab rows. Cells rather than a track, so a press picks one instead of
 // dragging a value. The head aim, gamepad and ray rows are the bar's buttons

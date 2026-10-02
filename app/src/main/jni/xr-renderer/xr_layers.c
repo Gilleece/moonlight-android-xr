@@ -27,8 +27,8 @@
 //     button, the panel, the clock, the strip of values, four thumbs, the
 //     hover ring, ray and cursor: 16.
 //   About tab in a room: no rows, so the room, the glow, both eyes, the
-//     stats, the cog button, the panel, the clock, the ring on its button,
-//     ray and cursor: 11.
+//     stats, the cog button, the panel, the clock, the ring on whichever of
+//     its two buttons is under the ray, ray and cursor: 11.
 //   The bar: the pill and all seven buttons (exit, gamepad, environment, cog,
 //     keyboard, ray, 3D) over the glow, both eyes, the stats, ray and cursor:
 //     14, and 14 in a room, where the pill gives way to the room's own layer.
@@ -865,20 +865,24 @@ static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers)
             }
         }
 
-        // The About tab's button gets the hover ring the cells do, in the
-        // same slot
-        if (face == COG_TAB_ABOUT && ctx->cogReportHot && ctx->outlineReady) {
+        // The About tab's buttons get the hover ring the cells do, in the
+        // same slot, since the ray is on one of them at most
+        if (face == COG_TAB_ABOUT && (ctx->cogReportHot || ctx->cogKofiHot)
+                && ctx->outlineReady) {
+            float l = ctx->cogKofiHot ? COG_KOFI_L : COG_REPORT_L;
+            float r = ctx->cogKofiHot ? COG_KOFI_R : COG_REPORT_R;
+            float t = ctx->cogKofiHot ? COG_KOFI_T : COG_REPORT_T;
+            float b = ctx->cogKofiHot ? COG_KOFI_B : COG_REPORT_B;
             Vec3 local;
-            local.x = ((COG_REPORT_L + COG_REPORT_R) * 0.5f - 0.5f) * ctx->cogW;
-            local.y = (0.5f - (COG_REPORT_T + COG_REPORT_B) * 0.5f) * ctx->cogH;
+            local.x = ((l + r) * 0.5f - 0.5f) * ctx->cogW;
+            local.y = (0.5f - (t + b) * 0.5f) * ctx->cogH;
             local.z = 0.004f;
             XrCompositionLayerQuad* mark = &layers->cogMark[COG_OPTION_COUNT];
             quadLayer(mark, fadeNext(ctx, layers, FADE_COG, 0, level),
                       XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
                       ctx->outlineSwapchain, OUTLINE_TEX, OUTLINE_TEX, view->space,
-                      poseOffset(ctx->cogPose, local),
-                      (COG_REPORT_R - COG_REPORT_L) * ctx->cogW * 1.04f,
-                      (COG_REPORT_B - COG_REPORT_T) * ctx->cogH * 1.12f);
+                      poseOffset(ctx->cogPose, local), (r - l) * ctx->cogW * 1.04f,
+                      (b - t) * ctx->cogH * 1.12f);
             pushLayer(ctx, layers, mark);
         }
 

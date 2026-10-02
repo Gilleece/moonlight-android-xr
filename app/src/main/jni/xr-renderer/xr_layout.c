@@ -252,6 +252,10 @@ int cogReportButtonAt(float pu, float pv) {
     return pu >= COG_REPORT_L && pu <= COG_REPORT_R && pv >= COG_REPORT_T && pv <= COG_REPORT_B;
 }
 
+int cogKofiButtonAt(float pu, float pv) {
+    return pu >= COG_KOFI_L && pu <= COG_KOFI_R && pv >= COG_KOFI_T && pv <= COG_KOFI_B;
+}
+
 // The two fields across the sheet, one over the other, then the two buttons
 // side by side under them. Everything else on it is words.
 int reportZone(float u, float v) {

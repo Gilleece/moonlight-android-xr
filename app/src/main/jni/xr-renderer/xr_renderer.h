@@ -1524,6 +1524,8 @@ typedef struct {
     int cogReportHot;
     XrPosef reportPose;
     float reportW, reportH;
+    // The About tab's Ko-fi button being under the ray
+    int cogKofiHot;
 
     // Curvature the panel asked for, or -1 while the preference still owns it,
     // alongside the preference itself so both are readable away from the JNI

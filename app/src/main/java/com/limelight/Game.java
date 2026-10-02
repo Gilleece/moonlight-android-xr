@@ -37,6 +37,7 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.ui.GameGestures;
 import com.limelight.ui.StreamView;
 import com.limelight.utils.Dialog;
+import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
 import com.limelight.utils.SpinnerDialog;
@@ -3124,6 +3125,23 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             @Override
             public void run() {
                 finish();
+            }
+        });
+    }
+
+    /**
+     * A link pressed on a panel in the session, Ko-fi on the About tab. It
+     * goes out from this activity as a VIEW intent, the way the 2D settings'
+     * links do, and the headset's browser opens it.
+     */
+    @Override
+    public void onVrOpenLink(final String url) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (!isFinishing()) {
+                    HelpLauncher.launchUrl(Game.this, url);
+                }
             }
         });
     }

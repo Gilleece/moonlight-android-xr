@@ -2019,6 +2019,7 @@ static void clearHotState(XrCtx* ctx) {
     ctx->padButtonHot = 0;
     ctx->reportHoverZone = REPORT_ZONE_NONE;
     ctx->cogReportHot = 0;
+    ctx->cogKofiHot = 0;
 }
 
 // The picker is modal: while it is open the ray belongs to it and nothing
@@ -2319,13 +2320,21 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
         }
 
         // The About tab has no rows, only the button that opens the report
-        // sheet in the panel's place
+        // sheet in the panel's place and the one Java opens Ko-fi from in the
+        // browser, which leaves the panel as it is
         if (face == COG_TAB_ABOUT) {
             ctx->cogReportHot = cogReportButtonAt(pu, pv);
+            ctx->cogKofiHot = cogKofiButtonAt(pu, pv);
             if (ctx->cogReportHot && ctx->triggerEdge[h]) {
                 ctx->clickPending = 1;
                 openReport(ctx, f);
                 swallowTrigger(ctx, h);
+            }
+            else if (ctx->cogKofiHot && ctx->triggerEdge[h]) {
+                ctx->clickPending = 1;
+                f->out[IN_KOFI] = 1.0f;
+                swallowTrigger(ctx, h);
+                LOGEV("Ko-fi pressed on the About tab");
             }
             break;
         }
