@@ -3111,6 +3111,25 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     /**
+     * The runtime ended the VR session under a running stream, so the host
+     * would go on encoding to a headset showing nothing. It ends the way the
+     * exit button ends it: finishing stops the stream on the way out.
+     */
+    @Override
+    public void onVrSessionEnded(final String reason) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing()) {
+                    return;
+                }
+                FileLog.event("VR session ended by the runtime (" + reason + "), ending the stream");
+                finish();
+            }
+        });
+    }
+
+    /**
      * The exit button in the session was confirmed. Finishing is the same way
      * out the quit shortcut takes, and it carries the teardown and the trip
      * back to the PC list with it, so there is nothing to disconnect here.

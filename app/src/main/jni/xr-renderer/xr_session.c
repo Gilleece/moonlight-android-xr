@@ -611,6 +611,22 @@ static int initSwapchain(XrCtx* ctx) {
     return 1;
 }
 
+// The frame loop ends for a reason of the runtime's, which Java hands on to
+// the activity so the stream ends with it. The first reason is the one kept.
+static void runtimeEnded(XrCtx* ctx, const char* what, XrResult res) {
+    ctx->exitRequested = 1;
+    if (ctx->exitReason[0] != '\0') {
+        return;
+    }
+    if (res != XR_SUCCESS) {
+        snprintf(ctx->exitReason, sizeof(ctx->exitReason), "%s, %s", what, xrResultName(res));
+    }
+    else {
+        snprintf(ctx->exitReason, sizeof(ctx->exitReason), "%s", what);
+    }
+    LOGEV("frame loop ending: %s", ctx->exitReason);
+}
+
 static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
     LOGI("session state %d -> %d", ctx->sessionState, newState);
     ctx->sessionState = newState;
@@ -639,7 +655,9 @@ static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
         case XR_SESSION_STATE_EXITING:
         case XR_SESSION_STATE_LOSS_PENDING:
             ctx->sessionRunning = 0;
-            ctx->exitRequested = 1;
+            runtimeEnded(ctx, newState == XR_SESSION_STATE_EXITING ? "session exiting"
+                                                                   : "session loss pending",
+                         XR_SUCCESS);
             break;
         default:
             break;
@@ -691,7 +709,7 @@ static void pollEvents(XrCtx* ctx) {
                 perfNotice(ctx, (XrEventDataPerfSettingsEXT*)&event);
                 break;
             case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
-                ctx->exitRequested = 1;
+                runtimeEnded(ctx, "instance loss pending", XR_SUCCESS);
                 break;
             default:
                 break;
@@ -1113,11 +1131,27 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     }
     ctx->waitingSinceNs = 0;
 
+    // The fail knob's exit, which only a debug build reads: the runtime asked
+    // to end a focused session, and the states that follow end the loop
+    if (ctx->exitKnob && ctx->sessionState == XR_SESSION_STATE_FOCUSED) {
+        int64_t now = nowNs();
+        if (ctx->exitKnobAtNs == 0) {
+            ctx->exitKnobAtNs = now + EXIT_KNOB_DELAY_NS;
+        }
+        else if (now >= ctx->exitKnobAtNs) {
+            ctx->exitKnob = 0;
+            LOGEV("exit knob: asking the runtime to end the session");
+            checkXr(xrRequestExitSession(ctx->session), "xrRequestExitSession");
+        }
+    }
+
     XrFrameState frameState = { XR_TYPE_FRAME_STATE };
     if (!checkXr(xrWaitFrame(ctx->session, NULL, &frameState), "xrWaitFrame")) {
+        runtimeEnded(ctx, "xrWaitFrame failed", lastFailedResult);
         return FRAME_EXIT;
     }
     if (!checkXr(xrBeginFrame(ctx->session, NULL), "xrBeginFrame")) {
+        runtimeEnded(ctx, "xrBeginFrame failed", lastFailedResult);
         return FRAME_EXIT;
     }
 
@@ -1125,6 +1159,17 @@ Java_com_limelight_binding_video_XrRenderer_nativeWaitBeginFrame(JNIEnv* env, jo
     ctx->shouldRender = frameState.shouldRender;
     displayFrameBegun(ctx, &frameState);
     return FRAME_RENDER;
+}
+
+// Why the runtime ended the frame loop, or null where it did not say
+JNIEXPORT jstring JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetExitReason(JNIEnv* env, jobject thiz,
+                                                                jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL || ctx->exitReason[0] == '\0') {
+        return NULL;
+    }
+    return (*env)->NewStringUTF(env, ctx->exitReason);
 }
 
 // Whether the session has been focused at least once, which is when the launch

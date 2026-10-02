@@ -423,7 +423,10 @@ typedef struct XrCompositionLayerSettingsFB {
 #define FADE_KNOB_MAX_MS 10000
 // A start step to make fail for real, so the failure report can be seen on a
 // headset whose runtime works: instance, system or session. Read at start.
+// exit lets the start through and asks the runtime to end the session
+// EXIT_KNOB_DELAY_NS after it is first focused, as the system menu's quit does.
 #define PROP_START_FAIL "debug.moonlight.xrfail"
+#define EXIT_KNOB_DELAY_NS 5000000000LL
 
 // What the session asks the runtime's performance levels for
 #define PERF_LEVEL_NONE 0
@@ -844,6 +847,13 @@ typedef struct {
     XrSessionState sessionState;
     int sessionRunning;
     int exitRequested;
+    // Why the runtime ended the frame loop, which Java hands to the activity,
+    // empty until it has
+    char exitReason[96];
+    // The fail knob's exit: the session is asked to end once, this long after
+    // it was first focused
+    int exitKnob;
+    int64_t exitKnobAtNs;
     // Whether the session has ever been focused, which Java reads to know the
     // launch is through, and since when the runtime has kept it from running,
     // for the line that says it is still waiting

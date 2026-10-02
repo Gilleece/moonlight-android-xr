@@ -83,6 +83,13 @@ void readStartKnobs(XrCtx* ctx) {
     if (ctx->perfLevel != perf) {
         LOGEV("performance level knob %d", ctx->perfLevel);
     }
+    char fail[PROP_VALUE_MAX];
+    fail[0] = '\0';
+    if (__system_property_get(PROP_START_FAIL, fail) > 0 && strcmp(fail, "exit") == 0) {
+        ctx->exitKnob = 1;
+        LOGEV("exit knob: the session will be asked to end %lld s after it is focused",
+              EXIT_KNOB_DELAY_NS / 1000000000LL);
+    }
 }
 
 // Whether the start is to fail for real at this step, which the step then

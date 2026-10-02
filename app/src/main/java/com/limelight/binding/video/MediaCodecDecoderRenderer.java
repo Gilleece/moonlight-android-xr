@@ -524,6 +524,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     // go back out through it
                     renderer.setInputListener((XrRenderer.InputListener) activity);
                 }
+                if (activity instanceof XrRenderer.SessionListener) {
+                    // And is told when the runtime ends the session under it
+                    renderer.setSessionListener((XrRenderer.SessionListener) activity);
+                }
                 if (renderer.start(activity, initialWidth, initialHeight, prefs)) {
                     xrRenderer = renderer;
                 }
