@@ -52,6 +52,8 @@ import org.cgutman.shieldcontrollerextensions.SceConnectionType;
 import org.cgutman.shieldcontrollerextensions.SceManager;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class ControllerHandler implements InputManager.InputDeviceListener, UsbDriverListener {
@@ -380,9 +382,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     public static short getAttachedControllerMask(Context context) {
         int count = 0;
-        short mask = 0;
+        List<AttachedPads.Device> devices = new ArrayList<>();
 
-        // Count all input devices that are gamepads
+        // Count all input devices that are gamepads, but not a headset's own
+        // controllers, which are no pad on the host
         InputManager im = (InputManager) context.getSystemService(Context.INPUT_SERVICE);
         for (int id : im.getInputDeviceIds()) {
             InputDevice dev = im.getInputDevice(id);
@@ -390,13 +393,19 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 continue;
             }
 
-            if (hasJoystickAxes(dev)) {
+            AttachedPads.Device device = new AttachedPads.Device(dev.getVendorId(), hasJoystickAxes(dev));
+            if (AttachedPads.counts(device)) {
                 LimeLog.info("Counting InputDevice: "+dev.getName());
-                mask |= 1 << count++;
+                count++;
             }
+            else if (hasJoystickAxes(dev)) {
+                LimeLog.info("Not counting the headset's own InputDevice: "+dev.getName());
+            }
+            devices.add(device);
         }
 
         // Count all USB devices that match our drivers
+        int usbPads = 0;
         if (PreferenceConfiguration.readPreferences(context).usbDriver) {
             UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
             if (usbManager != null) {
@@ -406,19 +415,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     if (UsbDriverService.shouldClaimDevice(dev, false) &&
                             !UsbDriverService.isRecognizedInputDevice(dev)) {
                         LimeLog.info("Counting UsbDevice: "+dev.getDeviceName());
-                        mask |= 1 << count++;
+                        usbPads++;
                     }
                 }
             }
         }
+        count += usbPads;
 
-        if (PreferenceConfiguration.readPreferences(context).onscreenController) {
+        boolean onscreen = PreferenceConfiguration.readPreferences(context).onscreenController;
+        if (onscreen) {
             LimeLog.info("Counting OSC gamepad");
-            mask |= 1;
         }
 
         LimeLog.info("Enumerated "+count+" gamepads");
-        return mask;
+        return AttachedPads.mask(devices, usbPads, onscreen);
     }
 
     private void releaseControllerNumber(GenericControllerContext context) {

@@ -628,6 +628,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " clickSound=" + prefConfig.vrClickSound
                 + " doffGrace=" + prefConfig.vrDoffGrace
                 + " " + PreferenceConfiguration.pictureLabel(prefConfig.vrPicture, "=")
+                + " gamepadMask=0x" + Integer.toHexString(gamepadMask)
                 + " audio=" + prefConfig.audioConfiguration.channelCount
                 + " virtualSurround=" + prefConfig.vrVirtualSurround);
 
