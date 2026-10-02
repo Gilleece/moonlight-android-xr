@@ -236,6 +236,27 @@ public class BugReportTest {
     }
 
     @Test
+    public void onlyAnHttpsCollectorIsUsed() throws IOException {
+        assertEquals("https://collector.example/report",
+                BugReport.usableUrl(" https://collector.example/report "));
+        assertEquals("HTTPS://collector.example/report",
+                BugReport.usableUrl("HTTPS://collector.example/report"));
+        assertEquals("", BugReport.usableUrl("http://collector.example/report"));
+        assertEquals("", BugReport.usableUrl("collector.example/report"));
+        assertEquals("", BugReport.usableUrl(""));
+        assertEquals("", BugReport.usableUrl(null));
+
+        // A plain http collector is treated as none: saved, never posted
+        File dir = folder.newFolder("reports");
+        Recorder net = new Recorder();
+        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
+                "http://collector.example/report", BugReport.headers(TOKEN, "d", "v", "", "m"),
+                net);
+        assertEquals(BugReport.Result.SAVED, outcome.result);
+        assertTrue(net.urls.isEmpty());
+    }
+
+    @Test
     public void aRefusalIsNotSentAndSaysWhy() throws IOException {
         File dir = folder.newFolder("reports");
         Recorder net = new Recorder();

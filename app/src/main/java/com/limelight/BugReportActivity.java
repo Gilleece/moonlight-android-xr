@@ -153,7 +153,7 @@ public class BugReportActivity extends Activity {
             @Override
             public void run() {
                 final BugReport.Outcome outcome = BugReport.deliver(report, where,
-                        BuildConfig.REPORT_URL, BugReport.headersFor(email, message),
+                        BugReport.collectorUrl(), BugReport.headersFor(email, message),
                         BugReport.HTTP);
                 runOnUiThread(new Runnable() {
                     @Override

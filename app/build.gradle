@@ -17,6 +17,14 @@ def canSign = signingProps.containsKey('storePassword')
 // reports on the device and says where, see tools/report-worker.
 def reportUrl = signingProps.getProperty('reportUrl', project.findProperty('moonlightReportUrl') ?: '')
 def reportToken = signingProps.getProperty('reportToken', project.findProperty('moonlightReportToken') ?: '')
+// A report carries the log, so it only ever travels over https. The app treats
+// any other address as no collector, and the build says so rather than ship one.
+if (!reportUrl.toString().trim().isEmpty()
+        && !reportUrl.toString().trim().toLowerCase(Locale.ROOT).startsWith('https://')) {
+    throw new GradleException("reportUrl has to start with https://, and '"
+            + reportUrl.toString().trim() + "' does not. Fix it in keystore.properties"
+            + " or -PmoonlightReportUrl, or leave it empty for a build without a collector.")
+}
 def javaString = { String value ->
     '"' + value.trim().replace('\\', '\\\\').replace('"', '\\"') + '"'
 }

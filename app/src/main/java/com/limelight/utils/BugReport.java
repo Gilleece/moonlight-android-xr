@@ -133,7 +133,22 @@ public final class BugReport {
 
     /** Whether this build knows where to send reports. */
     public static boolean collectorConfigured() {
-        return !BuildConfig.REPORT_URL.isEmpty();
+        return !collectorUrl().isEmpty();
+    }
+
+    /** Where this build sends reports, or empty where it has nowhere. */
+    public static String collectorUrl() {
+        return usableUrl(BuildConfig.REPORT_URL);
+    }
+
+    /**
+     * A collector address as it can be used, or empty: a report carries the
+     * log, so it only ever travels over https, and any other address counts
+     * as no collector at all. The build refuses one too.
+     */
+    static String usableUrl(String url) {
+        String trimmed = url == null ? "" : url.trim();
+        return trimmed.toLowerCase(Locale.ROOT).startsWith("https://") ? trimmed : "";
     }
 
     /** Whether a note has anything in it but spaces. */
@@ -319,20 +334,21 @@ public final class BugReport {
 
     /**
      * Sends a saved report where a collector is set, and says how it went.
-     * With no url the report stays where it was saved, which is where says.
-     * It goes gzipped: a log is mostly repetition and shrinks about ten to
-     * one, which is kinder to a headset's uplink and keeps the attachment the
-     * collector mails well inside what it can handle.
+     * With no url, or one that is not https, the report stays where it was
+     * saved, which is where says. It goes gzipped: a log is mostly repetition
+     * and shrinks about ten to one, which is kinder to a headset's uplink and
+     * keeps the attachment the collector mails well inside what it can handle.
      */
     public static Outcome deliver(File report, String where, String url,
                                   Map<String, String> headers, Transport transport) {
-        if (url == null || url.isEmpty()) {
+        String target = usableUrl(url);
+        if (target.isEmpty()) {
             return new Outcome(Result.SAVED, where, null);
         }
         File packed = new File(report.getParentFile(), report.getName() + ".gz");
         try {
             gzip(report, packed);
-            int code = transport.post(url, headers, packed);
+            int code = transport.post(target, headers, packed);
             if (code / 100 == 2) {
                 return new Outcome(Result.SENT, where, null);
             }
@@ -386,8 +402,7 @@ public final class BugReport {
         String header = compose(message, email, gather(context, session));
         Map<String, String> headers = headers(BuildConfig.REPORT_TOKEN, deviceName(),
                 BuildConfig.VERSION_NAME, email, message);
-        return fileReport(reportDir(context), header, logFiles(), BuildConfig.REPORT_URL,
-                headers, HTTP);
+        return fileReport(reportDir(context), header, logFiles(), collectorUrl(), headers, HTTP);
     }
 
     /**
