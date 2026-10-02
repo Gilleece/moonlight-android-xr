@@ -423,7 +423,6 @@
     <string name="vr_panel_log_file">Lokitiedosto: %1$s</string>
     <string name="vr_panel_log_file_off">Lokitiedosto: pois</string>
     <string name="vr_panel_report_sends">Lähettää viestin, lasien tiedot, asetukset ja lokin</string>
-    <string name="vr_panel_report_saves">Tallentaa viestin, lasien tiedot, asetukset ja lokin</string>
     <string name="vr_panel_rooms">Huoneet</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -440,11 +439,6 @@
     <string name="vr_report_optional">Valinnainen</string>
     <string name="vr_report_email_bad">Tämä ei näytä sähköpostiosoitteelta</string>
     <string name="vr_report_sends">Lähettää viestisi, lasien ja version tiedot, asetuksesi ja sovelluksen lokin, jossa voi olla tietokoneesi nimi ja osoite verkossa. Mitään ei lähetetä, ennen kuin painat ”Lähetä”.</string>
-    <string name="vr_report_saves">Tallentaa viestisi, lasien ja version tiedot, asetuksesi ja sovelluksen lokin, jossa voi olla tietokoneesi nimi ja osoite verkossa, tiedostoon näille laseille.</string>
-    <string name="vr_report_not_sent">Raporttia ei voitu lähettää</string>
-    <string name="vr_report_busy">Raporttipalvelin on ruuhkautunut</string>
-    <string name="vr_report_saved">Raportti tallennettu</string>
-    <string name="vr_report_saved_at">Tallennettu: %1$s</string>
     <string name="vr_report_not_written">Raporttia ei voitu tallentaa</string>
     <string name="vr_battery">Akku %1$d %%</string>
     <string name="title_bug_report">Ilmoita ongelmasta</string>
@@ -463,17 +457,12 @@
     <string name="bug_report_log_off">pois. Ota ”Tallenna lokitiedosto” käyttöön ja toista ongelma ensin, muuten raportissa ei ole lokia.</string>
     <string name="bug_report_email_hint">Sähköpostiosoitteesi vastausta varten</string>
     <string name="bug_report_message_hint">Mitä tapahtui?</string>
-    <string name="bug_report_send">Lähetä sähköpostilla</string>
     <string name="bug_report_send_direct">Lähetä</string>
     <string name="bug_report_sending">Lähetetään raporttia…</string>
-    <string name="bug_report_sent">Raportti lähetetty, kiitos</string>
-    <string name="bug_report_upload_failed">Raporttia ei voitu lähettää (%1$s). Se on tallennettu sijaintiin\n\n%2$s\n\nYritä uudelleen, kun yhteys toimii, tai kopioi se laseilta ja lähetä sähköpostilla osoitteeseen %3$s.</string>
-    <string name="bug_report_busy">Raporttipalvelin on ruuhkautunut, raportti on tallennettu sijaintiin\n\n%1$s\n\nYritä myöhemmin uudelleen, tai kopioi se laseilta ja lähetä sähköpostilla osoitteeseen %2$s.</string>
-    <string name="bug_report_save">Tallenna raportti</string>
-    <string name="bug_report_subject">Moonlight XR -raportti: %1$s, %2$s</string>
-    <string name="bug_report_from">Vastausosoite: %1$s</string>
-    <string name="bug_report_saved">Raportti on tallennettu sijaintiin\n\n%1$s</string>
-    <string name="bug_report_no_mail">Tässä laitteessa ei ole sähköpostisovellusta, joten raportti on tallennettu sijaintiin\n\n%1$s\n\nKopioi se laseilta ja liitä sähköpostiin osoitteeseen %2$s.</string>
+    <string name="bug_report_sent">Raportti lähetetty</string>
+    <string name="bug_report_not_sent_at">Lähetys epäonnistui, tallennettu:</string>
+    <string name="bug_report_busy_at">Palvelin ruuhkautunut, tallennettu:</string>
+    <string name="bug_report_no_collector_at">Versio ilman palvelinta, tallennettu:</string>
     <string name="bug_report_failed">Raporttia ei voitu kirjoittaa: %1$s</string>
     <string name="title_vr_file_log">Tallenna lokitiedosto</string>
     <string name="summary_vr_file_log">Pitää tekstimuotoista lokia kansiossa Download/MoonlightXR, josta lasien tiedostonhallinta löytää sen ja voit liittää sen virheraporttiin. Lokissa voi olla tietokoneesi nimi ja osoite verkossa. Kun loki on 5 Mt, se siirtyy tiedostoon moonlight.previous.log, joten yhdessä ne vievät enintään 10 Mt. Käynnistä sovellus uudelleen, jotta muutos tulee voimaan.</string>

@@ -454,7 +454,6 @@
     <string name="vr_panel_log_file">Plik dziennika: %1$s</string>
     <string name="vr_panel_log_file_off">Plik dziennika: wyłączony</string>
     <string name="vr_panel_report_sends">Wysyła notatkę z danymi gogli, ustawieniami i dziennikiem</string>
-    <string name="vr_panel_report_saves">Zapisuje notatkę z danymi gogli, ustawieniami i dziennikiem</string>
     <string name="vr_panel_rooms">Sale</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -471,11 +470,6 @@
     <string name="vr_report_optional">Opcjonalnie</string>
     <string name="vr_report_email_bad">To nie wygląda na adres e-mail</string>
     <string name="vr_report_sends">Wysyła twoją wiadomość, dane gogli i wersji, twoje ustawienia oraz dziennik aplikacji, który może zawierać nazwę i adres twojego komputera w sieci. Nic nie zostanie wysłane, dopóki nie naciśniesz „Wyślij”.</string>
-    <string name="vr_report_saves">Zapisuje twoją wiadomość, dane gogli i wersji, twoje ustawienia oraz dziennik aplikacji, który może zawierać nazwę i adres twojego komputera w sieci, do pliku na tych goglach.</string>
-    <string name="vr_report_not_sent">Nie udało się wysłać zgłoszenia</string>
-    <string name="vr_report_busy">Serwer zgłoszeń jest zajęty</string>
-    <string name="vr_report_saved">Zgłoszenie zapisane</string>
-    <string name="vr_report_saved_at">Zapisano w %1$s</string>
     <string name="vr_report_not_written">Nie udało się zapisać zgłoszenia</string>
     <string name="vr_battery">Bateria %1$d%%</string>
     <string name="title_bug_report">Zgłoś problem</string>
@@ -494,17 +488,12 @@
     <string name="bug_report_log_off">wyłączony. Włącz „Zapisuj plik dziennika” i najpierw odtwórz problem, inaczej zgłoszenie nie będzie zawierać dziennika.</string>
     <string name="bug_report_email_hint">Twój adres e-mail, do odpowiedzi</string>
     <string name="bug_report_message_hint">Co się stało?</string>
-    <string name="bug_report_send">Wyślij e-mailem</string>
     <string name="bug_report_send_direct">Wyślij</string>
     <string name="bug_report_sending">Wysyłanie zgłoszenia…</string>
-    <string name="bug_report_sent">Zgłoszenie wysłane, dziękujemy</string>
-    <string name="bug_report_upload_failed">Nie udało się wysłać zgłoszenia (%1$s). Zostało zapisane w\n\n%2$s\n\nSpróbuj ponownie z połączeniem albo skopiuj je z gogli i wyślij e-mailem na adres %3$s.</string>
-    <string name="bug_report_busy">Serwer zgłoszeń jest zajęty, zgłoszenie zostało zapisane w\n\n%1$s\n\nSpróbuj ponownie później albo skopiuj je z gogli i wyślij e-mailem na adres %2$s.</string>
-    <string name="bug_report_save">Zapisz zgłoszenie</string>
-    <string name="bug_report_subject">Zgłoszenie Moonlight XR: %1$s, %2$s</string>
-    <string name="bug_report_from">Odpowiedz do: %1$s</string>
-    <string name="bug_report_saved">Zgłoszenie zostało zapisane w\n\n%1$s</string>
-    <string name="bug_report_no_mail">Na tym urządzeniu nie ma aplikacji pocztowej, więc zgłoszenie zostało zapisane w\n\n%1$s\n\nSkopiuj je z gogli i dołącz do e-maila na adres %2$s.</string>
+    <string name="bug_report_sent">Zgłoszenie wysłane</string>
+    <string name="bug_report_not_sent_at">Nie udało się wysłać, zapisano w</string>
+    <string name="bug_report_busy_at">Serwer zajęty, zapisano w</string>
+    <string name="bug_report_no_collector_at">Wersja bez serwera, zapisano w</string>
     <string name="bug_report_failed">Nie udało się zapisać zgłoszenia: %1$s</string>
     <string name="title_vr_file_log">Zapisuj plik dziennika</string>
     <string name="summary_vr_file_log">Prowadzi tekstowy dziennik w Download/MoonlightXR, gdzie menedżer plików w goglach może go znaleźć, a ty możesz go dołączyć do zgłoszenia błędu. Może zawierać nazwę i adres twojego komputera w sieci. Po osiągnięciu 5 MB przechodzi do moonlight.previous.log, więc oba razem nigdy nie zajmują więcej niż 10 MB. Uruchom aplikację ponownie, aby zmiana zadziałała.</string>

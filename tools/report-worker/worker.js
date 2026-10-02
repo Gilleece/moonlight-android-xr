@@ -1,14 +1,19 @@
 // Collects bug reports from the app and emails them on through Resend.
 //
-// The app POSTs one gzipped text file per report to /report with a few headers
-// about where it came from. The Worker checks the token, caps the size, checks
-// the file starts as a report, holds each sender to a few a day, and sends
-// the file as an attachment to the address in RESEND_TO, with the user's
-// message quoted in the body and their address as the reply-to. Everything
-// involved has a hard free tier that stops rather than bills: the Worker at its
-// daily request count, Resend at its daily email count, KV at its daily writes.
-// A report that arrives past any of them just gets a refusal, and the app keeps
-// its saved copy.
+// The app POSTs one JSON object per report to /report, with the token as a
+// bearer token:
+//
+//   { "note": "...", "replyTo": "..." or null, "summary": "...", "log": "...",
+//     "fileName": "moonlight-xr-report-<date>.txt" }
+//
+// The Worker checks the token, caps the size of the body and of each field,
+// checks the summary starts as a report, holds each sender to a few a day,
+// and sends the summary and the log as one text attachment to the address in
+// RESEND_TO, with the user's note in the body and their address as the
+// reply-to. Everything involved has a hard free tier that stops rather than
+// bills: the Worker at its daily request count, Resend at its daily email
+// count, KV at its daily writes. A report that arrives past any of them just
+// gets a refusal, and the app keeps a saved copy.
 //
 // Optionally the report is also kept in an R2 bucket, when one is bound. R2 is
 // metered rather than capped, so that is off unless wanted.
@@ -17,16 +22,17 @@
 // secret. The report token ships inside every APK, so it only stops drive-by
 // scanners; the checks after it are what hold off anyone who has pulled it out.
 
-// Comfortably above two full 5 MB log files, gzipped, plus the report's header.
-// The app compresses before sending, and its logs shrink eight to twenty to
-// one, so this also bounds what a real report can come to unpacked.
-const MAX_BYTES = 4 * 1024 * 1024;
+// The whole body as posted, and each field in it. The app cuts the logs to
+// their newest 6 MB and the note and summary to their limits before sending,
+// so a report from it always fits.
+const MAX_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_NOTE = 4000;
+const MAX_SUMMARY = 8000;
+const MAX_LOG = 6 * 1024 * 1024;
+const MAX_REPLY_TO = 254;
 
-// How much of the body is unpacked to see it is a report: the start only,
-// since unpacking all of a full one costs more CPU than the free tier allows
-const HEAD_BYTES = 4096;
-
-// The first line of every report, as BugReport.compose in the app writes it
+// The first line of every report's summary, as BugReport.compose in the app
+// writes it, with the version on the line after
 const REPORT_HEADER = 'Moonlight XR bug report\n';
 
 // Reports a day from one sender before it is told to come back later. Well
@@ -41,11 +47,6 @@ const COUNT_TTL_SECONDS = 2 * 24 * 60 * 60;
 // is the real limit then.
 const memoryCounts = new Map();
 
-function headerOrDefault(request, name, fallback) {
-    const value = request.headers.get(name);
-    return value === null || value.trim() === '' ? fallback : value.trim();
-}
-
 // Only what a filename and a mail subject can safely carry
 function safeName(text, max) {
     return text.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, max);
@@ -53,7 +54,7 @@ function safeName(text, max) {
 
 // A plain address and nothing else: no display name, no list, no quoting
 function looksLikeAddress(text) {
-    return text.length <= 254
+    return text.length <= MAX_REPLY_TO
         && /^[A-Za-z0-9._%+'-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/.test(text);
 }
 
@@ -159,47 +160,44 @@ async function readCapped(stream, max) {
     return out;
 }
 
-// The body a slice at a time, and only as the reader asks, so the unpacking
-// below never gets more of it than it needs
-function slices(body) {
-    let at = 0;
-    return new ReadableStream({
-        pull(controller) {
-            if (at >= body.byteLength) {
-                controller.close();
-                return;
-            }
-            controller.enqueue(body.slice(at, at + HEAD_BYTES));
-            at += HEAD_BYTES;
-        },
-    }, { highWaterMark: 0 });
+// The report out of the body, or a refusal: the five fields, each the right
+// type and within its limit, and a summary that starts as a report. Too big
+// is 413, anything else wrong is 400.
+function parseReport(bytes) {
+    let report;
+    try {
+        report = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    } catch (e) {
+        return { refusal: refuse(400, 'bad body: not JSON') };
+    }
+    if (report === null || typeof report !== 'object' || Array.isArray(report)) {
+        return { refusal: refuse(400, 'bad body: not an object') };
+    }
+    const { note, replyTo, summary, log, fileName } = report;
+    if (typeof note !== 'string' || typeof summary !== 'string' || typeof log !== 'string'
+            || typeof fileName !== 'string' || (replyTo !== null && typeof replyTo !== 'string')) {
+        return { refusal: refuse(400, 'bad body: a field is missing or of the wrong type') };
+    }
+    if (note.length > MAX_NOTE || summary.length > MAX_SUMMARY || log.length > MAX_LOG
+            || (replyTo !== null && replyTo.length > MAX_REPLY_TO)) {
+        return { refusal: refuse(413, 'too large') };
+    }
+    if (!summary.startsWith(REPORT_HEADER)) {
+        return { refusal: refuse(400, 'bad body: not a report') };
+    }
+    if (!/^[A-Za-z0-9._-]{1,96}\.txt$/.test(fileName)) {
+        return { refusal: refuse(400, 'bad body: fileName') };
+    }
+    return { note, replyTo: replyTo === null ? '' : replyTo.trim(), summary, log, fileName };
 }
 
-// Whether the body unpacks to something starting with the report's first
-// line. Only the first few KB are unpacked and the rest is left alone;
-// anything that is not gzip at all is not a report.
-async function startsAsReport(body) {
-    const wanted = REPORT_HEADER.length;
-    const head = new Uint8Array(wanted);
-    let have = 0;
-    let seen = 0;
-    try {
-        const reader = slices(body).pipeThrough(new DecompressionStream('gzip')).getReader();
-        while (have < wanted && seen < HEAD_BYTES) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-            const take = Math.min(wanted - have, value.byteLength);
-            head.set(value.subarray(0, take), have);
-            have += take;
-            seen += value.byteLength;
-        }
-        await reader.cancel();
-    } catch (e) {
-        return false;
-    }
-    return new TextDecoder().decode(head.subarray(0, have)) === REPORT_HEADER;
+// A line of the summary by what it starts with, for the mail's subject,
+// looked for only past the line after, so the user's note cannot stand in
+function summaryLine(summary, prefix, after) {
+    const lines = summary.split('\n');
+    const from = after ? lines.indexOf(after) + 1 : 0;
+    const line = from > 0 || !after ? lines.slice(from).find((l) => l.startsWith(prefix)) : undefined;
+    return line === undefined ? '' : line.slice(prefix.length).trim();
 }
 
 export default {
@@ -213,15 +211,20 @@ export default {
         if (request.method !== 'POST' || url.pathname !== '/report') {
             return new Response('not found', { status: 404 });
         }
-        if (env.REPORT_TOKEN && request.headers.get('X-Report-Token') !== env.REPORT_TOKEN) {
-            return new Response('forbidden', { status: 403 });
+        if (env.REPORT_TOKEN
+                && request.headers.get('Authorization') !== `Bearer ${env.REPORT_TOKEN}`) {
+            return refuse(401, 'wrong token');
         }
         if (!env.RESEND_API_KEY && !env.REPORTS) {
             return new Response('collector has nowhere to put reports', { status: 500 });
         }
+        const type = (request.headers.get('Content-Type') || '').split(';')[0].trim();
+        if (type.toLowerCase() !== 'application/json') {
+            return refuse(400, 'bad body: not application/json');
+        }
 
         const declared = Number(request.headers.get('Content-Length') || 0);
-        if (declared > MAX_BYTES) {
+        if (declared > MAX_BODY_BYTES) {
             return refuse(413, 'too large');
         }
 
@@ -232,32 +235,34 @@ export default {
             return refuse(429, 'too many reports, try later');
         }
 
-        const body = await readCapped(request.body, MAX_BYTES);
+        const body = await readCapped(request.body, MAX_BODY_BYTES);
         if (body === null) {
             return refuse(413, 'too large');
         }
-        if (body.byteLength === 0 || !(await startsAsReport(body))) {
-            return refuse(400, 'not a report');
+        const report = parseReport(body);
+        if (report.refusal) {
+            return report.refusal;
         }
 
-        const device = safeName(headerOrDefault(request, 'X-Report-Device', 'unknown-device'), 60);
-        const version = headerOrDefault(request, 'X-Report-Version', '').slice(0, 120);
-        const email = headerOrDefault(request, 'X-Report-Email', '').slice(0, 254);
-        // The first part of the report is the user's own message, sent again in
-        // clear so it can go in the mail body without unpacking the attachment
-        const summary = headerOrDefault(request, 'X-Report-Summary', '').slice(0, 2000);
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const name = `${stamp}_${device}_${crypto.randomUUID().slice(0, 8)}.txt.gz`;
+        // The version is the summary's second line, the device in the block
+        // the app writes after the note
+        const version = summaryLine(report.summary, 'Version:').slice(0, 120);
+        const device = safeName(summaryLine(report.summary, 'device ',
+                                            '----- app and device -----') || 'unknown-device', 60);
+        // The attachment is the report as the app would have saved it: the
+        // summary, then the logs
+        const text = new TextEncoder().encode(report.summary + report.log);
 
         if (env.REPORTS) {
-            await env.REPORTS.put(name, body, {
-                httpMetadata: { contentType: 'application/gzip' },
-                customMetadata: { email, version, device },
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            await env.REPORTS.put(`${stamp}_${report.fileName}`, text, {
+                httpMetadata: { contentType: 'text/plain; charset=utf-8' },
+                customMetadata: { replyTo: report.replyTo, version, device },
             });
         }
 
         if (env.RESEND_API_KEY) {
-            const sent = await sendMail(env, name, device, version, email, summary, body);
+            const sent = await sendMail(env, report, version, device, text);
             if (!sent.ok && !env.REPORTS) {
                 // Resend's daily cap comes back as a 429, which the app shows
                 // as busy, and a real fault as anything else. Either way the
@@ -269,19 +274,19 @@ export default {
         }
 
         await countOne(env, key, count);
-        return new Response(name, { status: 200 });
+        return new Response(report.fileName, { status: 200 });
     },
 };
 
-async function sendMail(env, name, device, version, email, summary, body) {
+async function sendMail(env, report, version, device, text) {
     const subject = `Moonlight XR report: ${device} ${version}`.trim().replace(/[\r\n]+/g, ' ');
-    const text = [
+    const body = [
         `Device: ${device}`,
         `Version: ${version || '(not given)'}`,
-        `Reply to: ${email || '(no address given)'}`,
-        `Report: ${name}`,
+        `Reply to: ${report.replyTo || '(no address given)'}`,
+        `Report: ${report.fileName}`,
         '',
-        summary || '(no message)',
+        report.note.trim() || '(no message)',
         '',
         'The full report, with the settings and the log, is attached.',
     ].join('\n');
@@ -290,14 +295,14 @@ async function sendMail(env, name, device, version, email, summary, body) {
         from: env.RESEND_FROM,
         to: [env.RESEND_TO],
         subject,
-        text,
-        attachments: [{ filename: name, content: base64(body) }],
+        text: body,
+        attachments: [{ filename: report.fileName, content: base64(text) }],
     };
     // A bad address would make Resend refuse the whole mail, and anything
     // fancier than a plain one could add recipients, so only a plain address
     // becomes the reply-to
-    if (looksLikeAddress(email)) {
-        mail.reply_to = email;
+    if (looksLikeAddress(report.replyTo)) {
+        mail.reply_to = report.replyTo;
     }
 
     const response = await fetch('https://api.resend.com/emails', {

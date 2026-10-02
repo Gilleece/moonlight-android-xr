@@ -469,7 +469,6 @@
     <string name="vr_panel_log_file">로그 파일: %1$s</string>
     <string name="vr_panel_log_file_off">로그 파일: 꺼짐</string>
     <string name="vr_panel_report_sends">헤드셋 정보, 설정, 로그와 함께 메모를 보냅니다</string>
-    <string name="vr_panel_report_saves">헤드셋 정보, 설정, 로그와 함께 메모를 저장합니다</string>
     <string name="vr_panel_rooms">룸</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -486,11 +485,6 @@
     <string name="vr_report_optional">선택 사항</string>
     <string name="vr_report_email_bad">올바른 이메일 주소가 아닌 것 같습니다</string>
     <string name="vr_report_sends">메시지, 헤드셋과 빌드 정보, 설정, 앱 로그를 보냅니다. 로그에는 네트워크상 PC의 이름과 주소가 포함될 수 있습니다. ‘보내기’를 누르기 전에는 아무것도 보내지 않습니다.</string>
-    <string name="vr_report_saves">메시지, 헤드셋과 빌드 정보, 설정, 앱 로그를 이 헤드셋의 파일로 저장합니다. 로그에는 네트워크상 PC의 이름과 주소가 포함될 수 있습니다.</string>
-    <string name="vr_report_not_sent">보고서를 보내지 못했습니다</string>
-    <string name="vr_report_busy">보고서 서버가 혼잡합니다</string>
-    <string name="vr_report_saved">보고서를 저장했습니다</string>
-    <string name="vr_report_saved_at">저장 위치: %1$s</string>
     <string name="vr_report_not_written">보고서를 저장하지 못했습니다</string>
     <string name="vr_battery">배터리 %1$d%%</string>
     <string name="title_bug_report">문제 신고</string>
@@ -509,17 +503,12 @@
     <string name="bug_report_log_off">꺼짐. ‘로그 파일 저장’을 켜고 먼저 문제를 재현하세요. 그렇지 않으면 보고서에 로그가 포함되지 않습니다.</string>
     <string name="bug_report_email_hint">답장을 받을 이메일 주소</string>
     <string name="bug_report_message_hint">무슨 일이 있었나요?</string>
-    <string name="bug_report_send">이메일로 보내기</string>
     <string name="bug_report_send_direct">보내기</string>
     <string name="bug_report_sending">보고서를 보내는 중…</string>
-    <string name="bug_report_sent">보고서를 보냈습니다. 감사합니다</string>
-    <string name="bug_report_upload_failed">보고서를 보내지 못했습니다 (%1$s). 다음 위치에 저장했습니다.\n\n%2$s\n\n연결된 상태에서 다시 시도하거나, 헤드셋에서 복사해 %3$s(으)로 이메일을 보내 주세요.</string>
-    <string name="bug_report_busy">보고서 서버가 혼잡합니다. 보고서를 다음 위치에 저장했습니다.\n\n%1$s\n\n나중에 다시 시도하거나, 헤드셋에서 복사해 %2$s(으)로 이메일을 보내 주세요.</string>
-    <string name="bug_report_save">보고서 저장</string>
-    <string name="bug_report_subject">Moonlight XR 보고서: %1$s, %2$s</string>
-    <string name="bug_report_from">회신 주소: %1$s</string>
-    <string name="bug_report_saved">보고서를 다음 위치에 저장했습니다.\n\n%1$s</string>
-    <string name="bug_report_no_mail">이 기기에는 이메일 앱이 없어 보고서를 다음 위치에 저장했습니다.\n\n%1$s\n\n헤드셋에서 복사한 뒤 %2$s(으)로 보내는 이메일에 첨부해 주세요.</string>
+    <string name="bug_report_sent">보고서를 보냈습니다</string>
+    <string name="bug_report_not_sent_at">보내지 못했습니다. 저장 위치:</string>
+    <string name="bug_report_busy_at">서버가 혼잡합니다. 저장 위치:</string>
+    <string name="bug_report_no_collector_at">수집 서버 없는 빌드. 저장 위치:</string>
     <string name="bug_report_failed">보고서를 쓰지 못했습니다: %1$s</string>
     <string name="title_vr_file_log">로그 파일 저장</string>
     <string name="summary_vr_file_log">Download/MoonlightXR에 텍스트 로그를 남깁니다. 헤드셋의 파일 관리자로 찾을 수 있으며 버그 보고서에 첨부할 수 있습니다. 로그에는 네트워크상 PC의 이름과 주소가 포함될 수 있습니다. 5MB가 되면 moonlight.previous.log로 넘어가므로 두 파일을 합쳐도 10MB를 넘지 않습니다. 변경 사항은 앱을 다시 시작해야 적용됩니다.</string>

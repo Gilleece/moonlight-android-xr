@@ -243,16 +243,17 @@ underruns to the usual figures, with the clock and battery on its first line.
 ## Reporting a problem
 
 Use Report a problem under About at the end of the settings, or on the About tab of the panel
-inside a session. Write what happened, and your email if you want a reply. The report carries your
-note, the version and the commit it was built from, the headset, your settings and environment,
-why VR last failed to start if it did, and both log files. The log can include your PC's name and
-its address on your network.
+inside a session. Write what happened, and your email if you want a reply, then press Send. The
+report carries your note, the version and the commit it was built from, the headset, your settings
+and environment, why VR last failed to start if it did, and the newest 6 MB of the two log files.
+The log can include your PC's name and its address on your network.
 
-A build that has a collector set up sends the report straight there, which works from a headset
-with no email app. Otherwise, or when sending fails, the report is saved beside the log in
-`Download/MoonlightXR` and the screen shows the path. Without a collector the settings screen also
-offers to send it by email, and on a headset with no email app it says where to send the saved
-file. Only the newest five reports are kept.
+Send posts the report to the collector the build was made with, which works from a headset with no
+email app, and nothing is kept on the headset. Only when that fails is the report saved beside the
+log in `Download/MoonlightXR`, with both logs whole, and the screen says why and shows the path:
+"Could not send", "The collector is busy" when it is at its limits, or "This build has no
+collector" for a build made without one (see [Report collector](#report-collector)). Only the
+newest five saved reports are kept.
 
 The log itself is `Download/MoonlightXR/moonlight.log`, which the headset's file manager can open
 and which can be copied off over USB without adb. "Save a log file" sets how much goes in it, and
@@ -292,10 +293,12 @@ push. A tag starting with `v` also publishes the release APK, signed when the re
 ### Report collector
 
 With `reportUrl` and `reportToken` set in `keystore.properties` (or `moonlightReportUrl` and
-`moonlightReportToken` passed with `-P`), both report screens send the report, gzipped, to the
-collector in `tools/report-worker`, a Cloudflare Worker that emails it on as an attachment. Both
-values are baked into the APK, which is why they belong in the ignored file rather than in
-`gradle.properties`. Without them reports are saved on the headset.
+`moonlightReportToken` passed with `-P`), Send posts the report to that https URL as JSON, with the
+token as a bearer token. `tools/report-worker` is a Cloudflare Worker that takes exactly that and
+emails it on as an attachment; its README has the fields, the limits and the answers. Both values
+are baked into the APK, which is why they belong in the ignored file rather than in
+`gradle.properties`. A build without them still has Send, which then saves the report on the
+headset and says the build has no collector.
 
 ### Release APK
 

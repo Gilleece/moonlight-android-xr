@@ -1,11 +1,12 @@
 # Report collector
 
 The Cloudflare Worker the app's "Report a problem" screens send to, the one in
-the settings and the sheet on the About tab inside a session. It takes
-the gzipped report and emails it on through Resend as an attachment, with the
-user's message in the body and their address as the reply-to. Both services
-have free tiers that stop rather than bill when exceeded, which at any volume
-this app will see means the collector costs nothing and cannot start to.
+the settings and the sheet on the About tab inside a session. It takes the
+report as JSON and emails it on through Resend with the summary and the logs
+as one text attachment, the user's note in the body and their address as the
+reply-to. Both services have free tiers that stop rather than bill when
+exceeded, which at any volume this app will see means the collector costs
+nothing and cannot start to.
 
 ## Setting it up
 
@@ -49,38 +50,67 @@ URL and post at random. What protects the mailbox and the mail quota from
 someone who has pulled the token out is the checks under Limits and the rate
 limiting rule.
 
-A build without these keeps the report screens' local behaviour: the report
-is saved beside the log and the user is told where it is.
+A build without these still has Send, which then saves the report beside the
+log and tells the user the build has no collector and where the file is.
+
+## What the app sends
+
+One POST to the configured URL with `Authorization: Bearer <reportToken>`
+and `Content-Type: application/json`, the body uncompressed UTF-8:
+
+    {
+      "note": "what the user typed, up to 4000 characters",
+      "replyTo": "their address, or null",
+      "summary": "Moonlight XR bug report\nVersion: ...\n... up to 8000 characters",
+      "log": "both log files, oldest first, up to 6 MB",
+      "fileName": "moonlight-xr-report-<yyyyMMdd-HHmmss>.txt"
+    }
+
+The summary is everything a saved report has before the logs: the first line
+`Moonlight XR bug report`, the version on the line after, the note, the
+headset, the settings. Two full logs come to 10 MB, so the app sends only the
+newest 6 MB of them: whole files go first, then the start of the file the cut
+falls in, up to the next line, and the log then starts with a line saying how
+many bytes were left out. The body stays under 8 MB.
+
+The answers it reads: 200 sent; 401 wrong token; 413 too large; 429 too many
+reports for now; 400 a body that is not a report. A 413 or a 429 shows as
+the collector being busy, anything else that is not a 2xx as could not send,
+and either way the report is saved beside the log and the path shown.
 
 ## Trying it
 
-    printf 'Moonlight XR bug report\nFrom: \n\ntesting\n' | gzip -c | \
-        curl -s -X POST -H "X-Report-Token: <token>" \
-        -H "Content-Type: application/gzip" -H "X-Report-Device: test" \
-        --data-binary @- https://moonlight-xr-reports.<account>.workers.dev/report
+    printf '{"note":"testing","replyTo":null,"summary":"Moonlight XR bug report\\nVersion: test\\n","log":"","fileName":"moonlight-xr-report-test.txt"}' | \
+        curl -s -X POST -H "Authorization: Bearer <token>" \
+        -H "Content-Type: application/json" --data-binary @- \
+        https://moonlight-xr-reports.<account>.workers.dev/report
 
 should answer with the attachment's name and a mail should arrive within a
-minute. Without the token it answers `forbidden`, and with anything that does
-not unpack to a report it answers `not a report`.
+minute. Without the token it answers 401 `wrong token`, and with anything
+that is not a report 400 `bad body` and why.
 
 ## Limits
 
 Every report is checked before anything is sent:
 
-- over 4 MB as posted: 413 `too large`. The app's logs compress eight to
-  twenty to one, so two full 5 MB logs come to a megabyte or so and this
-  also bounds what a report can be unpacked.
-- not gzip, or not starting with the line the app starts every report with,
-  `Moonlight XR bug report`: 400 `not a report`. Only the first 4 KB is
-  unpacked to check, since unpacking a whole report would cost more CPU than
-  the free tier allows a request, and the report is mailed as it arrived.
+- the body over 8 MB as posted, or a note over 4000 characters, a summary
+  over 8000 or a log over 6 MB: 413 `too large`
+- not JSON, a field missing or of the wrong type, a summary not starting with
+  `Moonlight XR bug report`, or a file name that is not a plain `.txt` name:
+  400 `bad body`
 - a sender that has already had five reports taken today, counted by IP
   address (by the /64 for IPv6) and reset at midnight UTC: 429
   `too many reports, try later`
 
 Resend's free tier is a hundred mails a day; past that the Worker answers 429
-as well. The app shows a 429 or a 413 as the collector being busy, keeps its
-saved copy and says where it is.
+as well.
+
+A report with a full 6 MB of log costs the Worker about 47 ms of CPU to parse,
+encode and hand to Resend (measured in Node on a laptop), against 0.5 ms for
+one with a log at the default level. The Workers Free plan allows 10 ms of CPU
+a request, so on that plan the biggest reports can be refused with a 5xx, which
+the app shows as could not send, keeping its copy; the Paid plan's limit is
+well clear of it.
 
 The daily count lives in the `LIMITS` KV namespace when it is bound. Without
 it each Worker isolate counts in its own memory, which is lost whenever the

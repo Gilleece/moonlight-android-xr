@@ -454,7 +454,6 @@
     <string name="vr_panel_log_file">Logbestand: %1$s</string>
     <string name="vr_panel_log_file_off">Logbestand: uit</string>
     <string name="vr_panel_report_sends">Verstuurt een notitie met de headset, uw instellingen en het log</string>
-    <string name="vr_panel_report_saves">Slaat een notitie op met de headset, uw instellingen en het log</string>
     <string name="vr_panel_rooms">Ruimtes</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Shift</string>
@@ -471,11 +470,6 @@
     <string name="vr_report_optional">Optioneel</string>
     <string name="vr_report_email_bad">Dat lijkt geen e-mailadres</string>
     <string name="vr_report_sends">Verstuurt uw bericht, gegevens over de headset en de build, uw instellingen en het log van de app, dat de naam en het netwerkadres van uw pc kan bevatten. Er wordt niets verstuurd tot u op ‘Versturen’ drukt.</string>
-    <string name="vr_report_saves">Slaat uw bericht, gegevens over de headset en de build, uw instellingen en het log van de app, dat de naam en het netwerkadres van uw pc kan bevatten, op in een bestand op deze headset.</string>
-    <string name="vr_report_not_sent">Het rapport kon niet worden verstuurd</string>
-    <string name="vr_report_busy">De rapportserver is bezet</string>
-    <string name="vr_report_saved">Rapport opgeslagen</string>
-    <string name="vr_report_saved_at">Opgeslagen in %1$s</string>
     <string name="vr_report_not_written">Het rapport kon niet worden opgeslagen</string>
     <string name="vr_battery">Batterij %1$d%%</string>
     <string name="title_bug_report">Een probleem melden</string>
@@ -494,17 +488,12 @@
     <string name="bug_report_log_off">uit. Zet ‘Logbestand opslaan’ aan en reproduceer eerst het probleem, anders bevat het rapport geen log.</string>
     <string name="bug_report_email_hint">Uw e-mailadres, voor een antwoord</string>
     <string name="bug_report_message_hint">Wat is er gebeurd?</string>
-    <string name="bug_report_send">Versturen per e-mail</string>
     <string name="bug_report_send_direct">Versturen</string>
     <string name="bug_report_sending">Rapport wordt verstuurd…</string>
-    <string name="bug_report_sent">Rapport verstuurd, bedankt</string>
-    <string name="bug_report_upload_failed">Het rapport kon niet worden verstuurd (%1$s). Het is opgeslagen in\n\n%2$s\n\nProbeer het opnieuw met een verbinding, of kopieer het van de headset en e-mail het naar %3$s.</string>
-    <string name="bug_report_busy">De rapportserver is bezet, het rapport is opgeslagen in\n\n%1$s\n\nProbeer het later opnieuw, of kopieer het van de headset en e-mail het naar %2$s.</string>
-    <string name="bug_report_save">Rapport opslaan</string>
-    <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
-    <string name="bug_report_from">Antwoord naar: %1$s</string>
-    <string name="bug_report_saved">Het rapport is opgeslagen in\n\n%1$s</string>
-    <string name="bug_report_no_mail">Er is geen e-mailapp op dit apparaat, dus het rapport is opgeslagen in\n\n%1$s\n\nKopieer het van de headset en voeg het toe aan een e-mail aan %2$s.</string>
+    <string name="bug_report_sent">Rapport verstuurd</string>
+    <string name="bug_report_not_sent_at">Versturen mislukt, opgeslagen in</string>
+    <string name="bug_report_busy_at">Server bezet, opgeslagen in</string>
+    <string name="bug_report_no_collector_at">Build zonder server, opgeslagen in</string>
     <string name="bug_report_failed">Kon het rapport niet schrijven: %1$s</string>
     <string name="title_vr_file_log">Logbestand opslaan</string>
     <string name="summary_vr_file_log">Houdt een tekstlog bij in Download/MoonlightXR, waar de bestandsbeheerder op de headset het kan vinden en u het aan een foutmelding kunt toevoegen. Het kan de naam en het netwerkadres van uw pc bevatten. Bij 5 MB schuift het door naar moonlight.previous.log, zodat de twee samen nooit meer dan 10 MB innemen. Start de app opnieuw om een wijziging toe te passen.</string>

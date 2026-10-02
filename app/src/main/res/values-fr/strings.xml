@@ -408,11 +408,6 @@
     <string name="vr_report_optional">Facultatif</string>
     <string name="vr_report_email_bad">Cela ne ressemble pas à une adresse e-mail</string>
     <string name="vr_report_sends">Envoie votre message, les détails du casque et de la version, vos paramètres et le journal de l\'application, qui peut contenir le nom et l\'adresse de votre PC sur votre réseau. Rien n\'est envoyé avant que vous n\'appuyiez sur Envoyer.</string>
-    <string name="vr_report_saves">Enregistre votre message, les détails du casque et de la version, vos paramètres et le journal de l\'application, qui peut contenir le nom et l\'adresse de votre PC sur votre réseau, dans un fichier sur ce casque.</string>
-    <string name="vr_report_not_sent">Le rapport n\'a pas pu être envoyé</string>
-    <string name="vr_report_busy">Le serveur de rapports est occupé</string>
-    <string name="vr_report_saved">Rapport enregistré</string>
-    <string name="vr_report_saved_at">Enregistré dans %1$s</string>
     <string name="vr_report_not_written">Le rapport n\'a pas pu être enregistré</string>
     <string name="vr_battery">Batterie %1$d %%</string>
     <string name="title_vr_file_log">Enregistrer un fichier journal</string>
@@ -444,17 +439,12 @@
     <string name="bug_report_log_off">désactivé. Activez « Enregistrer un fichier journal » et reproduisez d\'abord le problème, sinon le rapport ne contiendra aucun journal.</string>
     <string name="bug_report_email_hint">Votre adresse e-mail, pour une réponse</string>
     <string name="bug_report_message_hint">Que s\'est-il passé ?</string>
-    <string name="bug_report_send">Envoyer par e-mail</string>
     <string name="bug_report_send_direct">Envoyer</string>
     <string name="bug_report_sending">Envoi du rapport…</string>
-    <string name="bug_report_sent">Rapport envoyé, merci</string>
-    <string name="bug_report_upload_failed">Le rapport n\'a pas pu être envoyé (%1$s). Il a été enregistré dans\n\n%2$s\n\nRéessayez avec une connexion, ou copiez-le hors du casque et envoyez-le par e-mail à %3$s.</string>
-    <string name="bug_report_busy">Le serveur de rapports est occupé, le rapport est enregistré dans\n\n%1$s\n\nRéessayez plus tard, ou copiez-le hors du casque et envoyez-le par e-mail à %2$s.</string>
-    <string name="bug_report_save">Enregistrer le rapport</string>
-    <string name="bug_report_subject">Rapport Moonlight XR : %1$s, %2$s</string>
-    <string name="bug_report_from">Répondre à : %1$s</string>
-    <string name="bug_report_saved">Le rapport a été enregistré dans\n\n%1$s</string>
-    <string name="bug_report_no_mail">Il n\'y a pas d\'application e-mail sur cet appareil, le rapport a donc été enregistré dans\n\n%1$s\n\nCopiez-le hors du casque et joignez-le à un e-mail à %2$s.</string>
+    <string name="bug_report_sent">Rapport envoyé</string>
+    <string name="bug_report_not_sent_at">Envoi impossible, enregistré dans</string>
+    <string name="bug_report_busy_at">Serveur occupé, enregistré dans</string>
+    <string name="bug_report_no_collector_at">Version sans serveur, enregistré dans</string>
     <string name="bug_report_failed">Impossible d\'écrire le rapport : %1$s</string>
     <!-- VR list options -->
     <string name="vr_depth_source_zipdepth">V2.0 - 3D basée sur ZipDepth (recommandé)</string>
@@ -542,7 +532,6 @@
     <string name="vr_panel_log_file">Fichier journal : %1$s</string>
     <string name="vr_panel_log_file_off">Fichier journal : désactivé</string>
     <string name="vr_panel_report_sends">Envoie une note avec le casque, vos réglages et le journal</string>
-    <string name="vr_panel_report_saves">Enregistre une note avec le casque, vos réglages et le journal</string>
     <string name="vr_panel_rooms">Salles</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Maj</string>

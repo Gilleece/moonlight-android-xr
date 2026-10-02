@@ -467,7 +467,6 @@
     <string name="vr_panel_log_file">Registro: %1$s</string>
     <string name="vr_panel_log_file_off">Registro: desactivado</string>
     <string name="vr_panel_report_sends">Envía una nota con el visor, tu configuración y el registro</string>
-    <string name="vr_panel_report_saves">Guarda una nota con el visor, tu configuración y el registro</string>
     <string name="vr_panel_rooms">Salas</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Mayús</string>
@@ -484,11 +483,6 @@
     <string name="vr_report_optional">Opcional</string>
     <string name="vr_report_email_bad">Eso no parece una dirección de correo</string>
     <string name="vr_report_sends">Envía tu mensaje, los datos del visor y de la versión, tu configuración y el registro de la aplicación, que puede incluir el nombre y la dirección de tu PC en la red. No se envía nada hasta que pulses «Enviar».</string>
-    <string name="vr_report_saves">Guarda tu mensaje, los datos del visor y de la versión, tu configuración y el registro de la aplicación, que puede incluir el nombre y la dirección de tu PC en la red, en un archivo de este visor.</string>
-    <string name="vr_report_not_sent">No se pudo enviar el informe</string>
-    <string name="vr_report_busy">El servidor de informes está ocupado</string>
-    <string name="vr_report_saved">Informe guardado</string>
-    <string name="vr_report_saved_at">Guardado en %1$s</string>
     <string name="vr_report_not_written">No se pudo guardar el informe</string>
     <string name="vr_battery">Batería %1$d %%</string>
     <string name="title_bug_report">Informar de un problema</string>
@@ -507,17 +501,12 @@
     <string name="bug_report_log_off">desactivado. Activa «Guardar un archivo de registro» y reproduce el problema primero, o el informe no llevará registro.</string>
     <string name="bug_report_email_hint">Tu correo electrónico, para responderte</string>
     <string name="bug_report_message_hint">¿Qué ha pasado?</string>
-    <string name="bug_report_send">Enviar por correo</string>
     <string name="bug_report_send_direct">Enviar</string>
     <string name="bug_report_sending">Enviando el informe…</string>
-    <string name="bug_report_sent">Informe enviado, gracias</string>
-    <string name="bug_report_upload_failed">No se pudo enviar el informe (%1$s). Se ha guardado en\n\n%2$s\n\nVuelve a intentarlo con conexión, o cópialo del visor y envíalo por correo a %3$s.</string>
-    <string name="bug_report_busy">El servidor de informes está ocupado, el informe se ha guardado en\n\n%1$s\n\nVuelve a intentarlo más tarde, o cópialo del visor y envíalo por correo a %2$s.</string>
-    <string name="bug_report_save">Guardar el informe</string>
-    <string name="bug_report_subject">Informe de Moonlight XR: %1$s, %2$s</string>
-    <string name="bug_report_from">Responder a: %1$s</string>
-    <string name="bug_report_saved">El informe se ha guardado en\n\n%1$s</string>
-    <string name="bug_report_no_mail">No hay ninguna aplicación de correo en este dispositivo, así que el informe se ha guardado en\n\n%1$s\n\nCópialo del visor y adjúntalo a un correo para %2$s.</string>
+    <string name="bug_report_sent">Informe enviado</string>
+    <string name="bug_report_not_sent_at">No se pudo enviar, guardado en</string>
+    <string name="bug_report_busy_at">Servidor ocupado, guardado en</string>
+    <string name="bug_report_no_collector_at">Versión sin servidor, guardado en</string>
     <string name="bug_report_failed">No se pudo escribir el informe: %1$s</string>
     <string name="title_vr_file_log">Guardar un archivo de registro</string>
     <string name="summary_vr_file_log">Guarda un registro en texto plano en Download/MoonlightXR, donde el gestor de archivos del visor puede encontrarlo y puedes adjuntarlo a un informe de errores. Puede incluir el nombre y la dirección de tu PC en la red. Al llegar a 5 MB pasa a moonlight.previous.log, así que entre los dos nunca ocupan más de 10 MB. Reinicia la aplicación para que el cambio surta efecto.</string>

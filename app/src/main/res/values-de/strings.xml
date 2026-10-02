@@ -468,7 +468,6 @@
     <string name="vr_panel_log_file">Logdatei: %1$s</string>
     <string name="vr_panel_log_file_off">Logdatei: aus</string>
     <string name="vr_panel_report_sends">Sendet eine Nachricht mit Headset, Einstellungen und Log</string>
-    <string name="vr_panel_report_saves">Speichert eine Nachricht mit Headset, Einstellungen und Log</string>
     <string name="vr_panel_rooms">Räume</string>
     <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
     <string name="vr_key_shift">Umschalt</string>
@@ -485,11 +484,6 @@
     <string name="vr_report_optional">Optional</string>
     <string name="vr_report_email_bad">Das sieht nicht nach einer E-Mail-Adresse aus</string>
     <string name="vr_report_sends">Sendet Ihre Nachricht, Angaben zu Headset und Build, Ihre Einstellungen und das Log der App, das den Namen und die Netzwerkadresse Ihres PCs enthalten kann. Nichts wird gesendet, bevor Sie auf „Senden“ drücken.</string>
-    <string name="vr_report_saves">Speichert Ihre Nachricht, Angaben zu Headset und Build, Ihre Einstellungen und das Log der App, das den Namen und die Netzwerkadresse Ihres PCs enthalten kann, in einer Datei auf diesem Headset.</string>
-    <string name="vr_report_not_sent">Der Bericht konnte nicht gesendet werden</string>
-    <string name="vr_report_busy">Der Berichtsserver ist ausgelastet</string>
-    <string name="vr_report_saved">Bericht gespeichert</string>
-    <string name="vr_report_saved_at">Gespeichert unter %1$s</string>
     <string name="vr_report_not_written">Der Bericht konnte nicht gespeichert werden</string>
     <string name="vr_battery">Akku %1$d %%</string>
     <string name="title_bug_report">Problem melden</string>
@@ -508,17 +502,12 @@
     <string name="bug_report_log_off">aus. Schalten Sie „Logdatei speichern“ ein und reproduzieren Sie das Problem zuerst, sonst enthält der Bericht kein Log.</string>
     <string name="bug_report_email_hint">Ihre E-Mail-Adresse, für eine Antwort</string>
     <string name="bug_report_message_hint">Was ist passiert?</string>
-    <string name="bug_report_send">Per E-Mail senden</string>
     <string name="bug_report_send_direct">Senden</string>
     <string name="bug_report_sending">Bericht wird gesendet…</string>
-    <string name="bug_report_sent">Bericht gesendet, danke</string>
-    <string name="bug_report_upload_failed">Der Bericht konnte nicht gesendet werden (%1$s). Er wurde gespeichert unter\n\n%2$s\n\nVersuchen Sie es mit einer Verbindung erneut oder kopieren Sie ihn vom Headset und senden Sie ihn per E-Mail an %3$s.</string>
-    <string name="bug_report_busy">Der Berichtsserver ist ausgelastet, der Bericht wurde gespeichert unter\n\n%1$s\n\nVersuchen Sie es später erneut oder kopieren Sie ihn vom Headset und senden Sie ihn per E-Mail an %2$s.</string>
-    <string name="bug_report_save">Bericht speichern</string>
-    <string name="bug_report_subject">Moonlight XR Bericht: %1$s, %2$s</string>
-    <string name="bug_report_from">Antwort an: %1$s</string>
-    <string name="bug_report_saved">Der Bericht wurde gespeichert unter\n\n%1$s</string>
-    <string name="bug_report_no_mail">Auf diesem Gerät gibt es keine E-Mail-App, daher wurde der Bericht gespeichert unter\n\n%1$s\n\nKopieren Sie ihn vom Headset und hängen Sie ihn an eine E-Mail an %2$s an.</string>
+    <string name="bug_report_sent">Bericht gesendet</string>
+    <string name="bug_report_not_sent_at">Senden fehlgeschlagen, gespeichert unter</string>
+    <string name="bug_report_busy_at">Server ausgelastet, gespeichert unter</string>
+    <string name="bug_report_no_collector_at">Build ohne Server, gespeichert unter</string>
     <string name="bug_report_failed">Der Bericht konnte nicht geschrieben werden: %1$s</string>
     <string name="title_vr_file_log">Logdatei speichern</string>
     <string name="summary_vr_file_log">Ein Textlog in Download/MoonlightXR führen, wo der Dateimanager im Headset es findet und Sie es an einen Fehlerbericht anhängen können. Es kann den Namen und die Netzwerkadresse Ihres PCs enthalten. Bei 5 MB geht es in moonlight.previous.log über, sodass beide zusammen nie mehr als 10 MB belegen. Starten Sie die App neu, damit eine Änderung wirkt.</string>

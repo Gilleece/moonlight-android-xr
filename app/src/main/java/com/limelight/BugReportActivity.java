@@ -2,11 +2,7 @@ package com.limelight;
 
 import android.app.Activity;
 import android.app.AlertDialog;
-import android.content.ActivityNotFoundException;
-import android.content.Intent;
-import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.os.Build;
+import android.content.DialogInterface;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.view.View;
@@ -18,24 +14,23 @@ import android.widget.Toast;
 import com.limelight.utils.BugReport;
 import com.limelight.utils.UiHelper;
 
-import java.io.File;
-import java.io.IOException;
-
 /**
  * Puts together everything a bug report needs and sends it, so a user does
  * not have to find the log file, work out what device they have, or remember
  * which settings they were on. What goes in the report and how it is posted
  * is BugReport, which the sheet inside the session uses too.
  *
- * Headsets rarely have an email app, so the report is always saved next to
- * the log first and the email is a second step that may not be possible. In
- * that case the user is told where the file is and where to send it.
+ * There is one action, Send. The report goes to the collector the build was
+ * made with; only where that fails, or the build has none, is it saved beside
+ * the log, and the user is told why and where.
  */
 public class BugReportActivity extends Activity {
     public static final String REPORT_ADDRESS = "hello@seangilleece.com";
 
     private EditText emailView;
     private EditText messageView;
+    private Button sendButton;
+    private Toast sendingToast;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,139 +50,109 @@ public class BugReportActivity extends Activity {
         intro.setText(getString(R.string.bug_report_intro, REPORT_ADDRESS,
                 logPath != null ? logPath : getString(R.string.bug_report_log_off)));
 
-        // With a collector to send to the button says so, since that path
-        // needs no email app and works from a headset
-        Button send = findViewById(R.id.reportSend);
-        if (BugReport.collectorConfigured()) {
-            send.setText(R.string.bug_report_send_direct);
-        }
-
         findViewById(R.id.reportBack).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 finish();
             }
         });
-        send.setOnClickListener(new View.OnClickListener() {
+        sendButton = findViewById(R.id.reportSend);
+        sendButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                sendReport(true);
-            }
-        });
-        Button save = findViewById(R.id.reportSave);
-        save.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                sendReport(false);
+                sendReport();
             }
         });
     }
 
-    private void sendReport(boolean byEmail) {
-        String email = emailView.getText().toString().trim();
-        String message = messageView.getText().toString().trim();
+    // The same checks the sheet in the session makes: a note, and an address
+    // that could be answered or none
+    private void sendReport() {
+        final String email = emailView.getText().toString().trim();
+        final String message = messageView.getText().toString().trim();
+        if (!BugReport.hasNote(message)) {
+            messageView.setError(getString(R.string.bug_report_message_hint));
+            messageView.requestFocus();
+            return;
+        }
+        if (!BugReport.addressOk(email)) {
+            emailView.setError(getString(R.string.vr_report_email_bad));
+            emailView.requestFocus();
+            return;
+        }
         PreferenceManager.getDefaultSharedPreferences(this).edit()
                 .putString(BugReport.EMAIL_PREF, email).apply();
 
-        File report;
-        try {
-            report = BugReport.save(this, message, email);
-        } catch (IOException e) {
-            Toast.makeText(this, getString(R.string.bug_report_failed, e.getMessage()),
-                    Toast.LENGTH_LONG).show();
-            return;
+        sendButton.setEnabled(false);
+        if (BugReport.collectorConfigured()) {
+            sendingToast = Toast.makeText(this, R.string.bug_report_sending, Toast.LENGTH_SHORT);
+            sendingToast.show();
         }
 
-        // Saved beside the log, where the headset's file manager can see it,
-        // for the case where it cannot leave the device and travels by hand
-        String where = report.getAbsolutePath();
-
-        // A build that knows where reports go sends them straight there, which
-        // is the only way off a headset with no email app
-        if (byEmail && BugReport.collectorConfigured()) {
-            upload(report, email, message, where);
-            return;
-        }
-
-        if (!byEmail || !haveMailApp()) {
-            String text = byEmail
-                    ? getString(R.string.bug_report_no_mail, where, REPORT_ADDRESS)
-                    : getString(R.string.bug_report_saved, where);
-            new AlertDialog.Builder(this)
-                    .setTitle(R.string.title_bug_report)
-                    .setMessage(text)
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show();
-            return;
-        }
-
-        Intent send = new Intent(Intent.ACTION_SEND);
-        send.setType("text/plain");
-        send.putExtra(Intent.EXTRA_EMAIL, new String[] { REPORT_ADDRESS });
-        send.putExtra(Intent.EXTRA_SUBJECT, getString(R.string.bug_report_subject,
-                Build.MANUFACTURER + " " + Build.MODEL, BuildConfig.VERSION_NAME));
-        send.putExtra(Intent.EXTRA_TEXT, message + "\n\n" + getString(R.string.bug_report_from, email));
-        send.putExtra(Intent.EXTRA_STREAM, ReportContentProvider.uriFor(report));
-        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivity(Intent.createChooser(send, getString(R.string.title_bug_report)));
-        } catch (ActivityNotFoundException e) {
-            new AlertDialog.Builder(this)
-                    .setTitle(R.string.title_bug_report)
-                    .setMessage(getString(R.string.bug_report_no_mail, where, REPORT_ADDRESS))
-                    .setPositiveButton(android.R.string.ok, null)
-                    .show();
-        }
-    }
-
-    // Posts the report to the collector off the main thread and says how it
-    // went. A failure leaves the saved copy where it is and says where, and a
-    // collector at its limits is told apart from one that failed.
-    private void upload(final File report, final String email, final String message,
-                        final String where) {
-        final Button send = findViewById(R.id.reportSend);
-        send.setEnabled(false);
-        Toast.makeText(this, R.string.bug_report_sending, Toast.LENGTH_SHORT).show();
-
-        new Thread() {
+        // The post can take a while over a headset's wifi, so it never runs
+        // on the main thread
+        Thread send = new Thread() {
             @Override
             public void run() {
-                final BugReport.Outcome outcome = BugReport.deliver(report, where,
-                        BugReport.collectorUrl(), BugReport.headersFor(email, message),
-                        BugReport.HTTP);
+                final BugReport.Outcome outcome = BugReport.send(BugReportActivity.this, message,
+                        email, null);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        send.setEnabled(true);
-                        if (isFinishing()) {
-                            return;
+                        sendButton.setEnabled(true);
+                        if (!isFinishing()) {
+                            showOutcome(outcome);
                         }
-                        if (outcome.result == BugReport.Result.SENT) {
-                            Toast.makeText(BugReportActivity.this, R.string.bug_report_sent,
-                                    Toast.LENGTH_LONG).show();
-                            finish();
-                            return;
-                        }
-                        String text = outcome.result == BugReport.Result.BUSY
-                                ? getString(R.string.bug_report_busy, where, REPORT_ADDRESS)
-                                : getString(R.string.bug_report_upload_failed, outcome.detail,
-                                        where, REPORT_ADDRESS);
-                        new AlertDialog.Builder(BugReportActivity.this)
-                                .setTitle(R.string.title_bug_report)
-                                .setMessage(text)
-                                .setPositiveButton(android.R.string.ok, null)
-                                .show();
                     }
                 });
             }
-        }.start();
+        };
+        send.setName("Bug report send");
+        send.start();
     }
 
-    // Whether anything on this device can take a mail. Most headsets have
-    // nothing, and a chooser with no entries is worse than saying so.
-    private boolean haveMailApp() {
-        Intent probe = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + REPORT_ADDRESS));
-        return !getPackageManager().queryIntentActivities(probe, PackageManager.MATCH_DEFAULT_ONLY)
-                .isEmpty();
+    // Said in a dialog either way: a toast queued as the screen closes is
+    // dropped on a headset, so a sent report closes the screen once read
+    private void showOutcome(BugReport.Outcome outcome) {
+        if (sendingToast != null) {
+            sendingToast.cancel();
+            sendingToast = null;
+        }
+        if (outcome.result == BugReport.Result.SENT) {
+            new AlertDialog.Builder(this)
+                    .setTitle(R.string.title_bug_report)
+                    .setMessage(R.string.bug_report_sent)
+                    .setPositiveButton(android.R.string.ok, null)
+                    .setOnDismissListener(new DialogInterface.OnDismissListener() {
+                        @Override
+                        public void onDismiss(DialogInterface dialog) {
+                            finish();
+                        }
+                    })
+                    .show();
+            return;
+        }
+
+        String text;
+        switch (outcome.result) {
+            case NO_COLLECTOR:
+                text = getString(R.string.bug_report_no_collector_at) + "\n\n" + outcome.path;
+                break;
+            case BUSY:
+                text = getString(R.string.bug_report_busy_at) + "\n\n" + outcome.path;
+                break;
+            case NOT_SENT:
+                text = getString(R.string.bug_report_not_sent_at) + "\n\n" + outcome.path
+                        + (outcome.detail != null ? "\n\n(" + outcome.detail + ")" : "");
+                break;
+            default:
+                text = getString(R.string.bug_report_failed, outcome.detail);
+                break;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.title_bug_report)
+                .setMessage(text)
+                .setPositiveButton(android.R.string.ok, null)
+                .show();
     }
 }

@@ -1461,9 +1461,8 @@ final class XrPanels {
 
         drawAboutButton(canvas, COG_REPORT_L, COG_REPORT_T, COG_REPORT_R, COG_REPORT_B,
                 context.getString(R.string.title_bug_report));
-        canvas.drawText(Toast.fit(context.getString(BugReport.collectorConfigured()
-                        ? R.string.vr_panel_report_sends : R.string.vr_panel_report_saves),
-                hint, room), mid, (COG_REPORT_B + 0.05f) * COG_TEX_H, hint);
+        canvas.drawText(Toast.fit(context.getString(R.string.vr_panel_report_sends), hint, room),
+                mid, (COG_REPORT_B + 0.05f) * COG_TEX_H, hint);
     }
 
     // One of the About tab's buttons, plain like the reset buttons
@@ -1518,18 +1517,16 @@ final class XrPanels {
         private final String cancelText;
         private final String sendText;
 
-        ReportSheet(Context context, boolean collector) {
+        ReportSheet(Context context) {
             titleText = context.getString(R.string.title_bug_report);
             noteLabel = context.getString(R.string.bug_report_message_hint);
             noteHint = context.getString(R.string.vr_report_note_hint);
             addressLabel = context.getString(R.string.bug_report_email_hint);
             addressHint = context.getString(R.string.vr_report_optional);
             addressBad = context.getString(R.string.vr_report_email_bad);
-            whatGoes = context.getString(collector ? R.string.vr_report_sends
-                                                   : R.string.vr_report_saves);
+            whatGoes = context.getString(R.string.vr_report_sends);
             cancelText = context.getString(android.R.string.cancel);
-            sendText = context.getString(collector ? R.string.bug_report_send_direct
-                                                   : R.string.bug_report_save);
+            sendText = context.getString(R.string.bug_report_send_direct);
             stroke.setStyle(Paint.Style.STROKE);
             title.setTextSize(32.0f);
             title.setTextAlign(Paint.Align.CENTER);
