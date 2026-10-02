@@ -26,15 +26,26 @@
 #define PINCH_VALUE_OFF 0.35f
 #define PINCH_ON_M 0.020f
 #define PINCH_OFF_M 0.032f
+// The EXT hand profile's value has a pair of its own. On the Pico 4 Ultra it
+// reads 1.0 pinched and only falls to between 0.47 and 0.7 as the fingers
+// open, which the pair above would never let go of.
+#define PINCH_EXT_VALUE_ON 0.9f
+#define PINCH_EXT_VALUE_OFF 0.7f
 
 // Which source a hand reads: whether a hand profile with its pinch bound is
 // current on it, whether the runtime gives the aim flags, and the joints
 int pinchSource(int valueBound, int aimOffered, int jointsOffered);
 
-// One frame of a hand's pinch off its source: the value, the aim flag or the
-// gap between the tips, with tipsValid saying whether the tips were located.
-// wasDown is the pinch last frame, as this said it.
-int pinchStep(int source, int wasDown, float value, int aimPinching, int tipsValid, float gap);
+// The pair the runtime's value presses and lets go at, ext saying whether the
+// hand is on the EXT hand profile rather than the Microsoft one
+void pinchValuePair(int ext, float* outOn, float* outOff);
+
+// One frame of a hand's pinch off its source: the value, on the pair ext
+// picks, the aim flag or the gap between the tips, with tipsValid saying
+// whether the tips were located. wasDown is the pinch last frame, as this
+// said it.
+int pinchStep(int source, int ext, int wasDown, float value, int aimPinching, int tipsValid,
+              float gap);
 
 // An analog value with a gap between pressing and letting go, so a value
 // sitting near one threshold does not chatter

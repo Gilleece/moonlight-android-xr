@@ -203,18 +203,20 @@ static void pushLayer(XrCtx* ctx, FrameLayers* layers, const void* layer) {
     layers->order[layers->count++] = (const XrCompositionLayerBaseHeader*)layer;
 }
 
-// A quad in the given space showing the whole of one swapchain image
-static void quadLayer(XrCompositionLayerQuad* quad, const void* next,
-                      XrCompositionLayerFlags flags, XrSwapchain chain, int texW, int texH,
-                      XrSpace space, XrPosef pose, float width, float height) {
+// A quad in the given space showing a texW x texH rect of one swapchain
+// image, from texX, texY
+static void quadLayerRect(XrCompositionLayerQuad* quad, const void* next,
+                          XrCompositionLayerFlags flags, XrSwapchain chain, int texX, int texY,
+                          int texW, int texH, XrSpace space, XrPosef pose, float width,
+                          float height) {
     memset(quad, 0, sizeof(*quad));
     quad->type = XR_TYPE_COMPOSITION_LAYER_QUAD;
     quad->next = next;
     quad->layerFlags = flags;
     quad->eyeVisibility = XR_EYE_VISIBILITY_BOTH;
     quad->subImage.swapchain = chain;
-    quad->subImage.imageRect.offset.x = 0;
-    quad->subImage.imageRect.offset.y = 0;
+    quad->subImage.imageRect.offset.x = texX;
+    quad->subImage.imageRect.offset.y = texY;
     quad->subImage.imageRect.extent.width = texW;
     quad->subImage.imageRect.extent.height = texH;
     quad->subImage.imageArrayIndex = 0;
@@ -222,6 +224,13 @@ static void quadLayer(XrCompositionLayerQuad* quad, const void* next,
     quad->pose = pose;
     quad->size.width = width;
     quad->size.height = height;
+}
+
+// A quad in the given space showing the whole of one swapchain image
+static void quadLayer(XrCompositionLayerQuad* quad, const void* next,
+                      XrCompositionLayerFlags flags, XrSwapchain chain, int texW, int texH,
+                      XrSpace space, XrPosef pose, float width, float height) {
+    quadLayerRect(quad, next, flags, chain, 0, 0, texW, texH, space, pose, width, height);
 }
 
 // The pose a local offset from a base pose lands at, facing the same way
@@ -602,11 +611,12 @@ static void logBarPlacement(XrCtx* ctx, const BarFrame* frame) {
 }
 
 // One of the buttons beside the move bar, in its place in the bar's row under
-// the picture. On a curved picture the row follows the surface, the way the
-// move bar does, so the outer buttons sit on it rather than behind it and land
-// where the ray's hit on the cylinder says they are.
+// the picture, showing its face's cell of the buttons' texture. On a curved
+// picture the row follows the surface, the way the move bar does, so the
+// outer buttons sit on it rather than behind it and land where the ray's hit
+// on the cylinder says they are.
 static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
-                         XrCompositionLayerQuad* quad, XrSwapchain chain, int slot, int hot,
+                         XrCompositionLayerQuad* quad, int cell, int slot, int hot,
                          const void* next) {
     const BarFrame* frame = &view->bar;
     Vec3 local;
@@ -617,9 +627,11 @@ static void addBarButton(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
     // Grows a little when the ray is on it, which is the only feedback
     // a quad layer can give without a second texture
     float scale = hot ? 1.18f : 1.0f;
-    quadLayer(quad, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, chain,
-              BUTTON_TEX, BUTTON_TEX, view->space, poseOffset(frame->pose, local),
-              side * scale, side * scale);
+    int cellX, cellY;
+    buttonCellOrigin(cell, &cellX, &cellY);
+    quadLayerRect(quad, next, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
+                  ctx->buttonSwapchain, cellX, cellY, BUTTON_TEX, BUTTON_TEX, view->space,
+                  poseOffset(frame->pose, local), side * scale, side * scale);
     if (yaw != 0.0f) {
         Vec3 up = { 0.0f, 1.0f, 0.0f };
         quad->pose.orientation = quatNorm(quatMul(frame->pose.orientation,
@@ -653,7 +665,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // opened it.
     if (ctx->envButtonReady
             && panelButton(ctx, view, layers, FADE_PICKER, ctx->pickerOpen, &next)) {
-        addBarButton(ctx, view, layers, &layers->envButton, ctx->envButtonSwapchain,
+        addBarButton(ctx, view, layers, &layers->envButton, BTN_CELL_ENV,
                      BAR_SLOT_ENV, ctx->envButtonHot, next);
     }
 
@@ -664,7 +676,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     if (ctx->cogButtonReady
             && panelButton(ctx, view, layers, kofi ? FADE_KOFI : FADE_COG,
                            ctx->cogOpen || ctx->kofiOpen, &next)) {
-        addBarButton(ctx, view, layers, &layers->cogButton, ctx->cogButtonSwapchain,
+        addBarButton(ctx, view, layers, &layers->cogButton, BTN_CELL_COG,
                      BAR_SLOT_COG, ctx->cogButtonHot || ctx->cogOpen || ctx->kofiOpen, next);
     }
 
@@ -672,7 +684,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // away while its panel is up, since the panel covers the bar anyway and
     // the hide key is what puts it away.
     if (ctx->kbButtonReady && view->barArea) {
-        addBarButton(ctx, view, layers, &layers->kbButton, ctx->kbButtonSwapchain,
+        addBarButton(ctx, view, layers, &layers->kbButton, BTN_CELL_KB,
                      BAR_SLOT_KB, ctx->kbButtonHot, NULL);
     }
 
@@ -681,7 +693,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // reads as the thing that asked the question.
     if (ctx->exitButtonReady
             && panelButton(ctx, view, layers, FADE_EXIT, ctx->exitConfirmOpen, &next)) {
-        addBarButton(ctx, view, layers, &layers->exitButton, ctx->exitButtonSwapchain,
+        addBarButton(ctx, view, layers, &layers->exitButton, BTN_CELL_EXIT,
                      BAR_SLOT_EXIT, ctx->exitButtonHot || ctx->exitConfirmOpen, next);
     }
 
@@ -689,7 +701,7 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // are the pad
     if (ctx->padButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->padButton,
-                     ctx->padButtonSwapchains[ctx->padMode ? 1 : 0],
+                     BTN_CELL_PAD + (ctx->padMode ? 1 : 0),
                      BAR_SLOT_PAD, ctx->padButtonHot, NULL);
     }
 
@@ -697,23 +709,23 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     // head aim can act, so it is never a button that does nothing.
     if (ctx->aimButtonReady && view->barArea && headAimCanAct(ctx)) {
         addBarButton(ctx, view, layers, &layers->aimButton,
-                     ctx->aimButtonSwapchains[headAimSwitchOn(ctx->headAimSetting,
-                                                              ctx->headAimFlipped)],
+                     BTN_CELL_AIM + (headAimSwitchOn(ctx->headAimSetting,
+                                                     ctx->headAimFlipped) ? 1 : 0),
                      BAR_SLOT_AIM, ctx->aimButtonHot, NULL);
     }
 
     // The ray's switch, past the keyboard, showing which way it is set
     if (ctx->rayButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->rayButton,
-                     ctx->rayButtonSwapchains[raySwitchOn(ctx->raySetting, ctx->rayFlipped)],
+                     BTN_CELL_RAY + (raySwitchOn(ctx->raySetting, ctx->rayFlipped) ? 1 : 0),
                      BAR_SLOT_RAY, ctx->rayButtonHot, NULL);
     }
 
     // The 3D switch, furthest out on the right, showing which way it is set.
-    // Never made in a session without stereo, so never ready in one.
+    // Never ready in a session without stereo.
     if (ctx->stereoButtonReady && view->barArea) {
         addBarButton(ctx, view, layers, &layers->stereoButton,
-                     ctx->stereoButtonSwapchains[ctx->stereoLive ? 1 : 0],
+                     BTN_CELL_STEREO + (ctx->stereoLive ? 1 : 0),
                      BAR_SLOT_STEREO, ctx->stereoButtonHot, NULL);
     }
 }
@@ -721,14 +733,14 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
 // The prompt the exit button opens
 static void addExitPromptLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The prompt itself, on the pose frozen when it opened. Which sheet is
-    // up is which of its buttons the ray is on, so lighting one costs a
-    // handle rather than an upload. Sharpened like the grid, since what it
-    // carries is text.
+    // up is which of its buttons the ray is on, put up out of memory the
+    // frame that changes. Sharpened like the grid, since what it carries is
+    // text.
     float level = ctx->panelFades[FADE_EXIT].level;
-    if (level > 0.0f && ctx->exitPromptReady[ctx->exitHoverZone]) {
+    if (level > 0.0f && showExitSheet(ctx, ctx->exitHoverZone)) {
         quadLayer(&layers->exitPrompt, fadeNext(ctx, layers, FADE_EXIT, 1, level),
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
-                  ctx->exitPromptSwapchains[ctx->exitHoverZone], EXIT_TEX_W, EXIT_TEX_H,
+                  ctx->exitPromptSwapchain, EXIT_TEX_W, EXIT_TEX_H,
                   view->space, ctx->exitPose, ctx->exitW, ctx->exitH);
         pushLayer(ctx, layers, &layers->exitPrompt);
     }
@@ -878,15 +890,16 @@ static void addCogRing(XrCtx* ctx, const FrameView* view, FrameLayers* layers,
 // sliders, and on the Room, Picture and Screen tabs the values beside them
 static void addCogLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
     // The settings panel, at the pose it was opened with. The tab is a
-    // choice of swapchain, all were filled at startup, and a room has its
-    // own sheets. Sharpened: it carries text.
+    // choice of sheet, all kept since startup and put up out of memory the
+    // frame the tab changes, and a room has its own. Sharpened: it carries
+    // text.
     int art = cogArt(ctx);
     int face = cogFace(ctx);
     float level = ctx->panelFades[FADE_COG].level;
-    if (level > 0.0f && ctx->cogPanelReady[art]) {
+    if (level > 0.0f && showCogArt(ctx, art)) {
         quadLayer(&layers->cogPanel, fadeNext(ctx, layers, FADE_COG, 1, level),
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
-                  ctx->cogPanelSwapchains[art], COG_TEX_W, COG_TEX_H, view->space,
+                  ctx->cogPanelSwapchain, COG_TEX_W, COG_TEX_H, view->space,
                   ctx->cogPose, ctx->cogW, ctx->cogH);
         pushLayer(ctx, layers, &layers->cogPanel);
 
@@ -1057,10 +1070,10 @@ static void addKeyboardLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
     // crowd the runtime's layer ceiling, and the modal has the ray anyway.
     // The report sheet is the exception, being what it types into.
     float level = ctx->panelFades[FADE_KB].level;
-    if (level > 0.0f && ctx->kbPanelReady[ctx->kbState]) {
+    if (level > 0.0f && showKbSheet(ctx, ctx->kbState)) {
         quadLayer(&layers->kbPanel, fadeNext(ctx, layers, FADE_KB, 1, level),
                   XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
-                  ctx->kbPanelSwapchains[ctx->kbState], KB_TEX_W, KB_TEX_H, view->space,
+                  ctx->kbPanelSwapchain, KB_TEX_W, KB_TEX_H, view->space,
                   ctx->kbPose, ctx->kbW, ctx->kbH);
         pushLayer(ctx, layers, &layers->kbPanel);
 

@@ -477,6 +477,9 @@ typedef struct {
     uint32_t swapchainImageCount;
     XrSwapchainImageOpenGLESKHR* swapchainImages;
     int64_t swapchainFormat;
+    // How many swapchains the session holds, which a runtime may cap: the
+    // Pico 4 Ultra refused every one past 32 with a runtime failure
+    int swapchainsAlive;
 
     // Stats overlay. The activity window is not on screen in an immersive
     // session, so the 2d TextView upstream uses is invisible here and the
@@ -1392,13 +1395,10 @@ typedef struct {
     int handleArtReady;
 
     XrSwapchain pickerSwapchain;
-    XrSwapchain envButtonSwapchain;
     XrSwapchain outlineSwapchain;
     uint32_t pickerImageCount;
-    uint32_t envButtonImageCount;
     uint32_t outlineImageCount;
     XrSwapchainImageOpenGLESKHR* pickerImages;
-    XrSwapchainImageOpenGLESKHR* envButtonImages;
     XrSwapchainImageOpenGLESKHR* outlineImages;
     int pickerReady;
     int envButtonReady;
@@ -1415,18 +1415,20 @@ typedef struct {
     // same one does not repeat it
     int loggedChoice;
 
-    // One swapchain per sheet, all filled at startup, so changing tab is a
-    // different handle in the layer rather than an upload
-    XrSwapchain cogPanelSwapchains[COG_ART_COUNT];
-    XrSwapchain cogButtonSwapchain;
+    // One swapchain for every sheet, showing the one the panel is on. The
+    // sheets are kept here as they arrived, flipped ready to go up, so
+    // changing tab is one upload out of memory. A chain a sheet was more
+    // than the Pico 4 Ultra allows, which stops making them at 32.
+    XrSwapchain cogPanelSwapchain;
     XrSwapchain cogThumbSwapchain;
-    uint32_t cogPanelImageCounts[COG_ART_COUNT];
-    uint32_t cogButtonImageCount;
+    uint32_t cogPanelImageCount;
     uint32_t cogThumbImageCount;
-    XrSwapchainImageOpenGLESKHR* cogPanelImages[COG_ART_COUNT];
-    XrSwapchainImageOpenGLESKHR* cogButtonImages;
+    XrSwapchainImageOpenGLESKHR* cogPanelImages;
     XrSwapchainImageOpenGLESKHR* cogThumbImages;
+    unsigned char* cogPanelPixels[COG_ART_COUNT];
     int cogPanelReady[COG_ART_COUNT];
+    // The sheet in the chain now, -1 for none
+    int cogArtShown;
     int cogButtonReady;
     int cogThumbReady;
     int cogOpen;
@@ -1481,16 +1483,17 @@ typedef struct {
     // would drag the thumb out from under the ray mid drag.
     XrPosef cogPose;
     float cogW, cogH;
-    // The keyboard. One swapchain per state, all filled at startup, so shift
-    // is a different handle in the layer rather than an upload. A sheet is
-    // drawn again only when the modifiers lit on it change.
-    XrSwapchain kbPanelSwapchains[KB_STATE_COUNT];
-    XrSwapchain kbButtonSwapchain;
-    uint32_t kbPanelImageCounts[KB_STATE_COUNT];
-    uint32_t kbButtonImageCount;
-    XrSwapchainImageOpenGLESKHR* kbPanelImages[KB_STATE_COUNT];
-    XrSwapchainImageOpenGLESKHR* kbButtonImages;
+    // The keyboard. One swapchain for every state, showing the one up, with
+    // the sheets kept here the way the settings panel keeps its own, so
+    // shift is one upload out of memory. A sheet is drawn again only when
+    // the modifiers lit on it change.
+    XrSwapchain kbPanelSwapchain;
+    uint32_t kbPanelImageCount;
+    XrSwapchainImageOpenGLESKHR* kbPanelImages;
+    unsigned char* kbPanelPixels[KB_STATE_COUNT];
     int kbPanelReady[KB_STATE_COUNT];
+    // The state whose sheet is in the chain now, -1 for none
+    int kbStateShown;
     int kbButtonReady;
     int kbOpen;
     int kbButtonHot;
@@ -1511,46 +1514,43 @@ typedef struct {
     XrPosef kbPose;
     float kbW, kbH;
 
-    // The 3D switch on the bar, its art off and on, one swapchain each. Only
-    // made in a session with stereo to switch.
-    XrSwapchain stereoButtonSwapchains[2];
-    uint32_t stereoButtonImageCounts[2];
-    XrSwapchainImageOpenGLESKHR* stereoButtonImages[2];
+    // Every face of every button along the bar, a cell each in one texture
+    // (BTN_CELL_ in xr_layout.h), and a copy of the whole of it here, so a
+    // face that arrives goes up with all the others
+    XrSwapchain buttonSwapchain;
+    uint32_t buttonImageCount;
+    XrSwapchainImageOpenGLESKHR* buttonImages;
+    unsigned char* buttonAtlas;
+
+    // The 3D switch on the bar, off and on. Only ever ready in a session with
+    // stereo to switch.
     int stereoButtonReady;
     int stereoButtonHot;
 
-    // The ray's switch on the bar, its art off and on, the same arrangement
-    XrSwapchain rayButtonSwapchains[2];
-    uint32_t rayButtonImageCounts[2];
-    XrSwapchainImageOpenGLESKHR* rayButtonImages[2];
+    // The ray's switch on the bar, off and on
     int rayButtonReady;
     int rayButtonHot;
 
     // Head aim's switch on the bar, the same again, only shown while head
     // aim can act
-    XrSwapchain aimButtonSwapchains[2];
-    uint32_t aimButtonImageCounts[2];
-    XrSwapchainImageOpenGLESKHR* aimButtonImages[2];
     int aimButtonReady;
     int aimButtonHot;
 
     // Gamepad mode's switch on the bar, pointer and gamepad, the same again
-    XrSwapchain padButtonSwapchains[2];
-    uint32_t padButtonImageCounts[2];
-    XrSwapchainImageOpenGLESKHR* padButtonImages[2];
     int padButtonReady;
     int padButtonHot;
 
-    // The exit button and its prompt. One sheet per lit button, all filled at
-    // startup, so hovering one costs a handle rather than an upload.
-    XrSwapchain exitButtonSwapchain;
-    XrSwapchain exitPromptSwapchains[EXIT_ART_COUNT];
-    uint32_t exitButtonImageCount;
-    uint32_t exitPromptImageCounts[EXIT_ART_COUNT];
-    XrSwapchainImageOpenGLESKHR* exitButtonImages;
-    XrSwapchainImageOpenGLESKHR* exitPromptImages[EXIT_ART_COUNT];
-    int exitButtonReady;
+    // The exit button and its prompt. One sheet per lit button, kept here
+    // the way the settings panel keeps its own, and one swapchain showing
+    // whichever is lit, so hovering one is a small upload out of memory.
+    XrSwapchain exitPromptSwapchain;
+    uint32_t exitPromptImageCount;
+    XrSwapchainImageOpenGLESKHR* exitPromptImages;
+    unsigned char* exitPromptPixels[EXIT_ART_COUNT];
     int exitPromptReady[EXIT_ART_COUNT];
+    // The sheet in the chain now, -1 for none
+    int exitArtShown;
+    int exitButtonReady;
     int exitConfirmOpen;
     int exitButtonHot;
     // Which of the prompt's buttons the ray is on, which is also the sheet
@@ -1774,8 +1774,12 @@ void pictureReset(XrCtx* ctx);
 int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
                        XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images,
                        uint32_t* count);
-void destroyArtSwapchain(XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images);
+void destroyArtSwapchain(XrCtx* ctx, XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images);
 int createPointerSwapchain(XrCtx* ctx);
+void freeArtSheets(XrCtx* ctx);
+int showCogArt(XrCtx* ctx, int art);
+int showKbSheet(XrCtx* ctx, int state);
+int showExitSheet(XrCtx* ctx, int zone);
 int uploadPointerArt(XrCtx* ctx);
 int roomStyleForCell(int cell);
 int roomCellForStyle(int style);

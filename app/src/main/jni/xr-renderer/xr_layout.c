@@ -129,6 +129,32 @@ int barSlotHit(int slot, float u, float v, float width, float height) {
     return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
 }
 
+_Static_assert(BTN_CELLS <= BTN_ATLAS_COLS * BTN_ATLAS_ROWS, "a cell for every button face");
+
+int buttonCellOrigin(int cell, int* outX, int* outY) {
+    if (cell < 0 || cell >= BTN_CELLS) {
+        *outX = 0;
+        *outY = 0;
+        return 0;
+    }
+    *outX = (cell % BTN_ATLAS_COLS) * BUTTON_TEX;
+    *outY = (cell / BTN_ATLAS_COLS) * BUTTON_TEX;
+    return 1;
+}
+
+int buttonCellPut(unsigned char* atlas, int cell, const unsigned char* face) {
+    int x, y;
+    if (atlas == NULL || face == NULL || !buttonCellOrigin(cell, &x, &y)) {
+        return 0;
+    }
+    const size_t row = (size_t)BUTTON_TEX * 4;
+    for (int r = 0; r < BUTTON_TEX; r++) {
+        unsigned char* dst = atlas + ((size_t)(y + BUTTON_TEX - 1 - r) * BTN_ATLAS_W + x) * 4;
+        memcpy(dst, face + row * r, row);
+    }
+    return 1;
+}
+
 // Snapped to whole units, so the thumb shows exactly what gets written when
 // the drag ends, and never off either end
 int laneUnits(float t, int min, int max) {

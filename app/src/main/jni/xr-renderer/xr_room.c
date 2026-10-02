@@ -650,6 +650,7 @@ static int initRoom(XrCtx* ctx) {
                             &ctx->roomSwapchain, &ctx->roomImages, &ctx->roomImageCount)) {
         return 0;
     }
+    LOGEV("swapchains alive %d with the room's", ctx->swapchainsAlive);
 
     // The one pass in here that needs a depth buffer, since it is the only one
     // drawing geometry that can be in front of other geometry

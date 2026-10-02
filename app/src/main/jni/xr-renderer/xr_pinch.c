@@ -14,10 +14,19 @@ int pinchSource(int valueBound, int aimOffered, int jointsOffered) {
     return jointsOffered ? PINCH_SRC_JOINTS : PINCH_SRC_NONE;
 }
 
-int pinchStep(int source, int wasDown, float value, int aimPinching, int tipsValid, float gap) {
+void pinchValuePair(int ext, float* outOn, float* outOff) {
+    *outOn = ext ? PINCH_EXT_VALUE_ON : PINCH_VALUE_ON;
+    *outOff = ext ? PINCH_EXT_VALUE_OFF : PINCH_VALUE_OFF;
+}
+
+int pinchStep(int source, int ext, int wasDown, float value, int aimPinching, int tipsValid,
+              float gap) {
     switch (source) {
-        case PINCH_SRC_VALUE:
-            return pressHysteresis(value, wasDown, PINCH_VALUE_ON, PINCH_VALUE_OFF);
+        case PINCH_SRC_VALUE: {
+            float on, off;
+            pinchValuePair(ext, &on, &off);
+            return pressHysteresis(value, wasDown, on, off);
+        }
         case PINCH_SRC_AIM:
             // The runtime has already judged it
             return aimPinching != 0;

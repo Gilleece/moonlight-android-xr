@@ -15,18 +15,19 @@ static void testPinchSource(void) {
     CHECK(pinchSource(0, 1, 1) == PINCH_SRC_AIM);
     CHECK(pinchSource(0, 0, 1) == PINCH_SRC_JOINTS);
     CHECK(pinchSource(0, 0, 0) == PINCH_SRC_NONE);
-    CHECK(!pinchStep(PINCH_SRC_NONE, 0, 1.0f, 1, 1, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_NONE, 0, 0, 1.0f, 1, 1, 0.0f));
 }
 
 // Steps a source a frame at a time while its input moves from one value to
 // another over a time, and says on which frame the pinch first went down, or
-// -1. Value and gap move together, so one helper serves both.
-static int firstDown(int source, float from, float to, int64_t overNs) {
+// -1. Value and gap move together, so one helper serves both. ext picks the
+// EXT profile's pair for the value.
+static int firstDown(int source, int ext, float from, float to, int64_t overNs) {
     int frames = (int)(overNs / FRAME_NS);
     int down = 0;
     for (int i = 0; i <= frames; i++) {
         float x = from + (to - from) * i / frames;
-        down = pinchStep(source, down, x, 0, 1, x);
+        down = pinchStep(source, ext, down, x, 0, 1, x);
         if (down) {
             return i;
         }
@@ -36,46 +37,87 @@ static int firstDown(int source, float from, float to, int64_t overNs) {
 
 static void testPinchValue(void) {
     // The value presses at 0.65 and lets go at 0.35, the frame it crosses
-    CHECK(!pinchStep(PINCH_SRC_VALUE, 0, 0.64f, 0, 0, 0.0f));
-    CHECK(pinchStep(PINCH_SRC_VALUE, 0, 0.66f, 0, 0, 0.0f));
-    CHECK(pinchStep(PINCH_SRC_VALUE, 1, 0.36f, 0, 0, 0.0f));
-    CHECK(!pinchStep(PINCH_SRC_VALUE, 1, 0.34f, 0, 0, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 0, 0, 0.64f, 0, 0, 0.0f));
+    CHECK(pinchStep(PINCH_SRC_VALUE, 0, 0, 0.66f, 0, 0, 0.0f));
+    CHECK(pinchStep(PINCH_SRC_VALUE, 0, 1, 0.36f, 0, 0, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 0, 1, 0.34f, 0, 0, 0.0f));
     CHECK(PINCH_VALUE_ON == 0.65f && PINCH_VALUE_OFF == 0.35f);
 
     // A quick pinch, 0 to 1 in 100 ms (9 frames): down on the first frame
     // past 0.65, the sixth, with nothing held back
-    CHECK(firstDown(PINCH_SRC_VALUE, 0.0f, 1.0f, 100 * MS) == 6);
+    CHECK(firstDown(PINCH_SRC_VALUE, 0, 0.0f, 1.0f, 100 * MS) == 6);
     // A slow one, 0 to 1 over 1.5 s, still presses, on the first frame past
     // 0.65 of its 135
-    int slow = firstDown(PINCH_SRC_VALUE, 0.0f, 1.0f, 1500 * MS);
+    int slow = firstDown(PINCH_SRC_VALUE, 0, 0.0f, 1.0f, 1500 * MS);
     CHECK(slow == 88);
     // And one that only reaches 0.6 never does
-    CHECK(firstDown(PINCH_SRC_VALUE, 0.0f, 0.6f, 500 * MS) == -1);
+    CHECK(firstDown(PINCH_SRC_VALUE, 0, 0.0f, 0.6f, 500 * MS) == -1);
 
     // The value is all a hand with it reads: the tips and the flag are ignored
-    CHECK(!pinchStep(PINCH_SRC_VALUE, 0, 0.1f, 1, 1, 0.001f));
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 0, 0, 0.1f, 1, 1, 0.001f));
 }
 
 static void testPinchAim(void) {
     // The flag is the runtime's judgement, taken as it is
-    CHECK(pinchStep(PINCH_SRC_AIM, 0, 0.0f, 1, 0, 0.0f));
-    CHECK(!pinchStep(PINCH_SRC_AIM, 1, 1.0f, 0, 1, 0.001f));
+    CHECK(pinchStep(PINCH_SRC_AIM, 0, 0, 0.0f, 1, 0, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_AIM, 0, 1, 1.0f, 0, 1, 0.001f));
+}
+
+static void testPinchExtValue(void) {
+    // A hand on the EXT profile presses at 0.9 and lets go at 0.7, the
+    // Microsoft profile's hand at 0.65 and 0.35 as before
+    CHECK(PINCH_EXT_VALUE_ON == 0.9f && PINCH_EXT_VALUE_OFF == 0.7f);
+    float on = 0.0f, off = 0.0f;
+    pinchValuePair(1, &on, &off);
+    CHECK(on == PINCH_EXT_VALUE_ON && off == PINCH_EXT_VALUE_OFF);
+    pinchValuePair(0, &on, &off);
+    CHECK(on == PINCH_VALUE_ON && off == PINCH_VALUE_OFF);
+
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 1, 0, 0.89f, 0, 0, 0.0f));
+    CHECK(pinchStep(PINCH_SRC_VALUE, 1, 0, 0.91f, 0, 0, 0.0f));
+    CHECK(pinchStep(PINCH_SRC_VALUE, 1, 1, 0.71f, 0, 0, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_VALUE, 1, 1, 0.70f, 0, 0, 0.0f));
+
+    // A pinch the way the Pico 4 Ultra reports one: 1.0 closed, and anywhere
+    // from 0.47 to 0.7 open again. Each lets go on the EXT pair, where the
+    // Microsoft pair would have held every one of them down.
+    const float opened[] = { 0.47f, 0.55f, 0.62f, 0.7f };
+    for (int i = 0; i < 4; i++) {
+        int down = pinchStep(PINCH_SRC_VALUE, 1, 0, opened[i], 0, 0, 0.0f);
+        CHECK(!down);
+        down = pinchStep(PINCH_SRC_VALUE, 1, down, 1.0f, 0, 0, 0.0f);
+        CHECK(down);
+        down = pinchStep(PINCH_SRC_VALUE, 1, down, opened[i], 0, 0, 0.0f);
+        CHECK(!down);
+        CHECK(pinchStep(PINCH_SRC_VALUE, 0, 1, opened[i], 0, 0, 0.0f));
+    }
+
+    // A quick pinch, 0 to 1 in 100 ms, presses on its last frame, the first
+    // past 0.9
+    CHECK(firstDown(PINCH_SRC_VALUE, 1, 0.0f, 1.0f, 100 * MS) == 9);
+
+    // The pair is the value's alone: the aim flag and the joints ignore it
+    CHECK(pinchStep(PINCH_SRC_AIM, 1, 0, 0.0f, 1, 0, 0.0f));
+    CHECK(!pinchStep(PINCH_SRC_AIM, 1, 1, 1.0f, 0, 1, 0.001f));
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 1, 0, 0.0f, 0, 1, 0.019f));
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 1, 1, 0.0f, 0, 1, 0.031f));
+    CHECK(!pinchStep(PINCH_SRC_JOINTS, 1, 1, 0.0f, 0, 1, 0.033f));
 }
 
 static void testPinchJoints(void) {
     // The tips press inside 20 mm and let go past 32
-    CHECK(!pinchStep(PINCH_SRC_JOINTS, 0, 0.0f, 0, 1, 0.021f));
-    CHECK(pinchStep(PINCH_SRC_JOINTS, 0, 0.0f, 0, 1, 0.019f));
-    CHECK(pinchStep(PINCH_SRC_JOINTS, 1, 0.0f, 0, 1, 0.031f));
-    CHECK(!pinchStep(PINCH_SRC_JOINTS, 1, 0.0f, 0, 1, 0.033f));
+    CHECK(!pinchStep(PINCH_SRC_JOINTS, 0, 0, 0.0f, 0, 1, 0.021f));
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 0, 0, 0.0f, 0, 1, 0.019f));
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 0, 1, 0.0f, 0, 1, 0.031f));
+    CHECK(!pinchStep(PINCH_SRC_JOINTS, 0, 1, 0.0f, 0, 1, 0.033f));
     CHECK(PINCH_ON_M == 0.020f && PINCH_OFF_M == 0.032f);
     // Tips not located are no pinch, held or not
-    CHECK(!pinchStep(PINCH_SRC_JOINTS, 1, 0.0f, 0, 0, 0.005f));
+    CHECK(!pinchStep(PINCH_SRC_JOINTS, 0, 1, 0.0f, 0, 0, 0.005f));
 
     // Fingers closing slowly, 60 to 5 mm over a second, press on the first
     // frame inside 20 mm; a hand that turns up already closed presses at once
-    CHECK(firstDown(PINCH_SRC_JOINTS, 0.060f, 0.005f, 1000 * MS) == 66);
-    CHECK(pinchStep(PINCH_SRC_JOINTS, 0, 0.0f, 0, 1, 0.006f));
+    CHECK(firstDown(PINCH_SRC_JOINTS, 0, 0.060f, 0.005f, 1000 * MS) == 66);
+    CHECK(pinchStep(PINCH_SRC_JOINTS, 0, 0, 0.0f, 0, 1, 0.006f));
 }
 
 // What a run of pinches does as the input pass applies it: each pinch is its
@@ -280,6 +322,7 @@ int main(void) {
     testPinchSource();
     testPinchValue();
     testPinchAim();
+    testPinchExtValue();
     testPinchJoints();
     testTriplePinch();
     testDragRamp();

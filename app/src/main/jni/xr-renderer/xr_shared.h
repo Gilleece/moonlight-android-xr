@@ -402,8 +402,8 @@
 // Half height of an option cell, so the ring drawn over one matches the art
 #define COG_CELL_HALF 0.045f
 
-// One texture per tab, all uploaded once, so switching costs a swapchain
-// handle rather than an upload
+// One sheet per tab, all kept in memory from the start, so switching is one
+// upload into the panel's swapchain
 #define COG_TAB_SCREEN  0
 #define COG_TAB_DISPLAY 1
 #define COG_TAB_3D      2
