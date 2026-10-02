@@ -1,10 +1,12 @@
 // The display refresh rate the session asks the runtime for. Matched to the
 // stream at the start, stepped down while the 3D warp runs if the frame loop's
 // own frame time does not fit the period, and asked for once more if the
-// runtime moves the display off it. Which rate is xr_rate.c's business; this
-// is the OpenXR side of it and the bookkeeping on the frame loop. And the
-// CPU and GPU levels the session asks for, the other half of what the
-// runtime is asked to do for the stream.
+// runtime moves the display off it. Before any step down the depth model's
+// rate is cut, since the model is most of a 3D frame's cost and a slower
+// depth map is far less visible than judder. Which rate is xr_rate.c's
+// business; this is the OpenXR side of it and the bookkeeping on the frame
+// loop. And the CPU and GPU levels the session asks for, the other half of
+// what the runtime is asked to do for the stream.
 #include "xr_renderer.h"
 
 // A rate as the log shows it: whole when it is whole, else to two places
@@ -141,17 +143,21 @@ static void applyRate(XrCtx* ctx, const char* why) {
     if (ctx->refreshKnob > 0) {
         want = rateOffered((float)ctx->refreshKnob, ctx->displayRates, ctx->displayRateCount);
         if (want <= 0.0f) {
-            // Not a rate this display has, so the stream's rule picks one for it
+            // Not a rate this display has, so the nearest above it
             want = rateForStream((float)ctx->refreshKnob, ctx->displayRates,
-                                 ctx->displayRateCount);
+                                 ctx->displayRateCount, 0);
             snprintf(extra, sizeof(extra), ", %d Hz is not offered", ctx->refreshKnob);
         }
     }
     else {
         want = rateChoose((float)ctx->streamFps, ctx->displayRates, ctx->displayRateCount,
                           ctx->rateWarpOn, ctx->warpRateHeld, 0.0f);
+        float times = ctx->streamFps > 0 ? roundf(want / (float)ctx->streamFps) : 0.0f;
         if (ctx->rateWarpOn && ctx->warpRateHeld > 0.0f && sameRate(want, ctx->warpRateHeld)) {
             snprintf(extra, sizeof(extra), ", held there while the 3D is on");
+        }
+        else if (times >= 2.0f && sameRate(want, times * (float)ctx->streamFps)) {
+            snprintf(extra, sizeof(extra), ", each frame shown %.0f times", times);
         }
     }
     if (want <= 0.0f) {
@@ -286,6 +292,70 @@ static void logBudget(XrCtx* ctx) {
     ctx->rateLogMissed = 0;
 }
 
+// The depth model is making maps for the warp, so its rate is there to spend
+static int depthLive(XrCtx* ctx) {
+    return ctx->stereoMode == DEPTH_MODE_MODEL && ctx->stereoLive
+            && !atomic_load_explicit(&ctx->depthGaveUp, memory_order_relaxed);
+}
+
+// Where the depth rate stands, for the display's own step down line
+static void depthWords(XrCtx* ctx, char* buf, size_t size) {
+    if (depthLive(ctx)) {
+        snprintf(buf, size, "depth already down to %d maps/s", ctx->depthGov.target);
+    }
+    else {
+        snprintf(buf, size, "no depth model running");
+    }
+}
+
+// Each move of the depth target in the log, with what the budget measured
+// and what the governor decided about climbing back
+static void sayDepthMove(XrCtx* ctx, int move, int was, int64_t recoverWas, int64_t now) {
+    const RateBudget* b = &ctx->rateBudget;
+    const DepthGovernor* g = &ctx->depthGov;
+    char hz[16];
+    hzText(ctx->displayRate, hz, sizeof(hz));
+    long overS = (long)RATE_OVER_WINDOWS * (RATE_WINDOW_NS / 1000000000L);
+    if (move == DEPTH_MOVE_CUT) {
+        LOGEV("depth rate: %s Hz frame time %.2f ms (GPU %.2f, CPU %.2f, pace %.2f with %ld "
+              "of %ld refreshes missed) over its %.2f ms period for %ld s, depth target %d to "
+              "%d maps/s, the display stays on %s Hz for at least %lld s",
+              hz, b->frameMs, b->gpuMs, b->cpuMs, b->paceMs, b->lastMissed,
+              b->lastFrames + b->lastMissed, 1000.0f / ctx->displayRate, overS, was, g->target,
+              hz, DEPTH_HOLD_NS / 1000000000LL);
+        LOGEV("depth rate: %d failed, so it climbs back no higher than %d maps/s this session "
+              "unless the setting changes", g->failedTarget, depthGovernorCeiling(g));
+        if (g->recoverNs != recoverWas) {
+            LOGEV("depth rate: the step up before this failed, the next one waits for %lld s "
+                  "of held budget (was %lld s)", g->recoverNs / 1000000000LL,
+                  recoverWas / 1000000000LL);
+        }
+    }
+    else if (move == DEPTH_MOVE_CAPPED) {
+        LOGEV("depth rate: %s Hz held for %lld s at %d maps/s, staying there: %d failed this "
+              "session, so %d is as high as it climbs back until the setting (%d) changes",
+              hz, g->recoverNs / 1000000000LL, g->target, g->failedTarget,
+              depthGovernorCeiling(g), g->cap);
+    }
+    else if (move == DEPTH_MOVE_RAISE_HELD) {
+        LOGEV("depth rate: the step up to %d maps/s held for %lld s, the wait before the next "
+              "goes back to %lld s (was %lld s)", g->target, DEPTH_RAISE_HELD_NS / 1000000000LL,
+              g->recoverNs / 1000000000LL, recoverWas / 1000000000LL);
+    }
+    else if (move == DEPTH_MOVE_HOLDING) {
+        LOGEV("depth rate: %s Hz frame time %.2f ms still over its %.2f ms period %.1f s after "
+              "the cut to %d maps/s, held until %lld s have passed",
+              hz, b->frameMs, 1000.0f / ctx->displayRate, (now - g->cutNs) / 1e9, g->target,
+              DEPTH_HOLD_NS / 1000000000LL);
+    }
+    else if (move == DEPTH_MOVE_RAISED) {
+        LOGEV("depth rate: %s Hz held for %lld s, frame time %.2f ms, depth target %d to %d "
+              "maps/s (preference %d, ceiling %d), judged over the next %lld s",
+              hz, recoverWas / 1000000000LL, b->frameMs, was, g->target, g->cap,
+              depthGovernorCeiling(g), DEPTH_RAISE_HELD_NS / 1000000000LL);
+    }
+}
+
 void displayFrameEnded(XrCtx* ctx) {
     int64_t now = nowNs();
     if (ctx->frameBeganNs > 0) {
@@ -362,11 +432,18 @@ void displayFrameEnded(XrCtx* ctx) {
         return;
     }
     int verdict = rateBudgetTick(&ctx->rateBudget, now, ctx->displayRate);
-    if (verdict == RATE_WINDOW_FILLING || verdict == RATE_WINDOW_SETTLING) {
+    if (verdict == RATE_WINDOW_FILLING) {
+        return;
+    }
+    int depthWas = ctx->depthGov.target;
+    int64_t recoverWas = ctx->depthGov.recoverNs;
+    int move = depthGovernorWindow(&ctx->depthGov, now, verdict, depthLive(ctx));
+    if (verdict == RATE_WINDOW_SETTLING) {
         return;
     }
     logBudget(ctx);
-    if (verdict != RATE_WINDOW_OVER || !ctx->rateWarpOn || ctx->refreshKnob > 0) {
+    sayDepthMove(ctx, move, depthWas, recoverWas, now);
+    if (move != DEPTH_MOVE_DISPLAY || !ctx->rateWarpOn || ctx->refreshKnob > 0) {
         return;
     }
 
@@ -375,13 +452,14 @@ void displayFrameEnded(XrCtx* ctx) {
                             ctx->rateAsked, b->frameMs);
     long overS = (long)RATE_OVER_WINDOWS * (RATE_WINDOW_NS / 1000000000L);
     if (next > 0.0f && next < ctx->rateAsked - RATE_TOLERANCE) {
-        char to[16];
+        char to[16], depth[48];
+        depthWords(ctx, depth, sizeof(depth));
         LOGEV("display rate: %s Hz frame time %.2f ms (GPU %.2f, CPU %.2f, pace %.2f with %ld "
-              "of %ld refreshes missed) over its %.2f ms period for %ld s with the 3D on, "
+              "of %ld refreshes missed) over its %.2f ms period for %ld s with the 3D on, %s, "
               "stepping down to %s Hz",
               hzText(ctx->rateAsked, asked, sizeof(asked)), b->frameMs, b->gpuMs, b->cpuMs,
               b->paceMs, b->lastMissed, b->lastFrames + b->lastMissed,
-              1000.0f / ctx->rateAsked, overS, hzText(next, to, sizeof(to)));
+              1000.0f / ctx->rateAsked, overS, depth, hzText(next, to, sizeof(to)));
         ctx->warpRateHeld = next;
         askRate(ctx, next);
     }
@@ -475,12 +553,99 @@ static const char* perfNoticeName(XrPerfSettingsNotificationLevelEXT level) {
 }
 
 // The runtime throttling or letting go again, which is the only warning a
-// thermal drop ever gives
+// thermal drop ever gives. A move to a warning or worse cuts the depth rate
+// the way a missed budget does, and while any domain stays off normal the
+// rate does not climb back.
 void perfNotice(XrCtx* ctx, const XrEventDataPerfSettingsEXT* notice) {
-    (void)ctx;
     LOGEV("performance notice: %s %s, %s to %s", perfDomainName(notice->domain),
           perfSubDomainName(notice->subDomain), perfNoticeName(notice->fromLevel),
           perfNoticeName(notice->toLevel));
+    int domain = notice->domain == XR_PERF_SETTINGS_DOMAIN_GPU_EXT ? 1 : 0;
+    int sub = notice->subDomain == XR_PERF_SETTINGS_SUB_DOMAIN_RENDERING_EXT ? 1
+            : notice->subDomain == XR_PERF_SETTINGS_SUB_DOMAIN_THERMAL_EXT ? 2 : 0;
+    ctx->perfNoticeLevels[domain][sub] = (int)notice->toLevel;
+    int throttled = 0;
+    for (int d = 0; d < 2; d++) {
+        for (int s = 0; s < 3; s++) {
+            throttled |= ctx->perfNoticeLevels[d][s] > XR_PERF_SETTINGS_NOTIF_LEVEL_NORMAL_EXT;
+        }
+    }
+    int worse = notice->toLevel > notice->fromLevel
+            && notice->toLevel >= XR_PERF_SETTINGS_NOTIF_LEVEL_WARNING_EXT;
+    int64_t now = nowNs();
+    int was = ctx->depthGov.target;
+    int wasThrottled = ctx->depthGov.throttled;
+    int move = depthGovernorThrottle(&ctx->depthGov, now, worse, throttled, depthLive(ctx));
+    if (move == DEPTH_MOVE_CUT) {
+        LOGEV("depth rate: throttle notice, depth target %d to %d maps/s", was,
+              ctx->depthGov.target);
+    }
+    else if (move == DEPTH_MOVE_HOLDING) {
+        LOGEV("depth rate: throttle notice %.1f s after the cut to %d maps/s, held",
+              (now - ctx->depthGov.cutNs) / 1e9, ctx->depthGov.target);
+    }
+    else if (worse) {
+        LOGEV("depth rate: throttle notice, depth target left at %d maps/s (%s)",
+              ctx->depthGov.target, depthLive(ctx) ? "its floor" : "no depth model running");
+    }
+    else if (wasThrottled && !throttled) {
+        LOGEV("depth rate: every domain back to normal, the depth target may climb again");
+    }
+}
+
+// A new setting of the depth rate mid session, which starts the governor
+// again there, forgetting the failed target and the recovery wait. Frame loop.
+void setDepthRate(XrCtx* ctx, int perSecond, const char* why) {
+    int was = ctx->depthGov.cap;
+    if (depthGovernorSetCap(&ctx->depthGov, perSecond)) {
+        LOGEV("depth rate: setting %d to %d maps/s (%s), the failed target and the recovery "
+              "wait forgotten, running at %d", was, ctx->depthGov.cap, why,
+              ctx->depthGov.target);
+    }
+    else {
+        LOGEV("depth rate: setting %d maps/s (%s) unchanged, running at %d", ctx->depthGov.cap,
+              why, ctx->depthGov.target);
+    }
+}
+
+// The preference, in maps a second, which the governor starts at and never
+// goes over. Once, before the frame loop starts.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetDepthRate(JNIEnv* env, jobject thiz,
+                                                               jlong handle, jint perSecond) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->depthRateSetting = perSecond;
+    depthGovernorStart(&ctx->depthGov, perSecond);
+    LOGEV("depth rate: %d maps a second at most (asked for %d), cut before the display rate",
+          ctx->depthGov.cap, perSecond);
+}
+
+// Frame loop, with a new frame in hand: whether to capture it for the depth
+// model. force takes it whatever the gate says, as when the 3D comes back.
+JNIEXPORT jboolean JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeDepthDue(JNIEnv* env, jobject thiz,
+                                                           jlong handle, jboolean force) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return JNI_FALSE;
+    }
+    int64_t now = nowNs();
+    if (force) {
+        depthGateTaken(&ctx->depthGate, now, ctx->depthGov.target);
+        return JNI_TRUE;
+    }
+    return depthGateDue(&ctx->depthGate, now, ctx->depthGov.target) ? JNI_TRUE : JNI_FALSE;
+}
+
+// What the governor has the depth model running at, maps a second
+JNIEXPORT jint JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetDepthTarget(JNIEnv* env, jobject thiz,
+                                                                 jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    return ctx != NULL ? ctx->depthGov.target : 0;
 }
 
 // The rate the display is on for the stats: the runtime's word where it has

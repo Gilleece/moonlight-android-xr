@@ -77,6 +77,7 @@
     <string name="perf_overlay_renderingfps">渲染帧数： %1$.2f FPS</string>
     <string name="perf_overlay_netdrops">网络丢失帧： %1$.2f%%</string>
     <string name="perf_overlay_dectime">平均解码时间： %1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">音频欠载：%1$d</string>
     <!-- AppList activity -->
     <string name="applist_connect_msg"> 正在连接电脑…… </string>
     <string name="applist_menu_resume"> 恢复串流 </string>
@@ -422,9 +423,9 @@
     <!-- VR Debug strings -->
     <string name="title_vr_file_log">保存日志文件</string>
     <string name="summary_vr_file_log">在头显的 Download/MoonlightXR 目录下保留纯文本日志，方便文件管理器查找并附入错误报告。单文件达到 5 MB 时会自动轮转为 moonlight.previous.log，两者总占用不会超过 10 MB。更改此设置后需重启应用方可生效。</string>
-    <string name="title_seekbar_vr_inference_cadence">深度模型推理频率</string>
-    <string name="summary_seekbar_vr_inference_cadence">每隔 N 帧视频运行一次 3D 深度模型。数值越高越省电和提升性能，但深度变化的延迟会更明显。</string>
-    <string name="suffix_seekbar_vr_inference_cadence">帧</string>
+    <string name="title_seekbar_vr_inference_cadence">每秒深度更新次数</string>
+    <string name="summary_seekbar_vr_inference_cadence">3D 每秒生成的深度图数量。数值越低头显负载越小，但深度变化的延迟会更明显。头显跟不上时，会先将此值临时减半，然后才降低显示刷新率。</string>
+    <string name="suffix_seekbar_vr_inference_cadence">次/秒</string>
     <string name="title_seekbar_vr_separation">双目立体视差</string>
     <string name="summary_seekbar_vr_separation">左右眼视角的视差间距（占画面宽度的百分比）。超过约 0.5% 后 3D 深度不会进一步增强，反而更容易引起视觉疲劳。</string>
     <string name="suffix_seekbar_vr_percent">％</string>

@@ -78,6 +78,7 @@
     <string name="perf_overlay_renderingfps">轉譯影格速率：%1$.2f FPS</string>
     <string name="perf_overlay_netdrops">網路丟失影格：%1$.2f%%</string>
     <string name="perf_overlay_dectime">平均解碼時間：%1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">音訊欠載：%1$d</string>
     <!-- AppList activity -->
     <string name="applist_connect_msg">正在連線電腦…</string>
     <string name="applist_menu_resume">繼續工作階段</string>
@@ -414,9 +415,9 @@
     <!-- VR Debug strings -->
     <string name="title_vr_file_log">儲存記錄檔</string>
     <string name="summary_vr_file_log">在 Download/MoonlightXR 保留純文字記錄檔，頭戴裝置上的檔案管理器可以找到它，並可將其附加到錯誤回報中。檔案達 5 MB 時會輪替至 moonlight.previous.log，兩者合計絕不超過 10 MB。變更此設定後請重新啟動應用程式以生效。</string>
-    <string name="title_seekbar_vr_inference_cadence">深度模型推論週期</string>
-    <string name="summary_seekbar_vr_inference_cadence">每隔 N 影格視訊執行一次深度模型。數值越高負載越低，但深度延遲會更明顯。</string>
-    <string name="suffix_seekbar_vr_inference_cadence">影格</string>
+    <string name="title_seekbar_vr_inference_cadence">每秒深度更新次數</string>
+    <string name="summary_seekbar_vr_inference_cadence">3D 每秒產生的深度圖數量。數值越低頭戴裝置負載越小，但深度延遲會更明顯。頭戴裝置跟不上時，會先將此值暫時減半，然後才降低顯示更新率。</string>
+    <string name="suffix_seekbar_vr_inference_cadence">次/秒</string>
     <string name="title_seekbar_vr_separation">雙眼立體視差</string>
     <string name="summary_seekbar_vr_separation">兩眼視野相隔多遠 (以影格寬度的百分比表示)。超過約 0.5% 後畫面看起來不會更深，反而更容易造成眼睛疲勞。</string>
     <string name="suffix_seekbar_vr_percent">％</string>

@@ -112,9 +112,14 @@ public class PreferenceConfiguration {
     public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
     // Nor this: a marker that a stored MiDaS has had its one move to ZipDepth
     public static final String ZIPDEPTH_MOVE_PREF_STRING = "depth_source_zipdepth";
+    // Nor this: a marker that a stored cadence has had its one move to maps a
+    // second
+    public static final String DEPTH_RATE_MOVE_PREF_STRING = "depth_rate_per_second";
     public static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
-    private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
+    // Depth maps a second. The key is the old cadence's, every Nth frame,
+    // whose stored value is moved to a rate once (moveCadenceToDepthRate).
+    static final String VR_DEPTH_RATE_PREF_STRING = "seekbar_vr_inference_cadence";
     public static final String VR_CONVERGENCE_PREF_STRING = "seekbar_vr_convergence";
     private static final String VR_DEPTH_SCALE_PREF_STRING = "seekbar_vr_depth_scale";
     public static final String VR_AMBILIGHT_PREF_STRING = "checkbox_vr_ambilight";
@@ -165,11 +170,11 @@ public class PreferenceConfiguration {
     static final String DEFAULT_FPS = "90";
 
     // What a Gen 1 headset starts on. The depth model is most of the cost of a
-    // 3D frame, so the cadence is the big lever here, and 72 is what these
+    // 3D frame, so its rate is the big lever here, and 72 is what these
     // panels run at natively anyway.
     private static final String GEN1_RESOLUTION = "2560x1440";
     private static final String GEN1_FPS = "72";
-    private static final int GEN1_INFERENCE_CADENCE = 6;
+    static final int GEN1_DEPTH_RATE = XrShared.DEPTH_RATE_GEN1;
     // These headsets have neither the memory nor the fill rate for a full size
     // room, so they start on the smallest tier
     private static final String GEN1_ENV_RES = "low";
@@ -237,7 +242,9 @@ public class PreferenceConfiguration {
     // (MidasDepthSource.Spec), and nothing stored means the running model's.
     public static final int DEFAULT_VR_SEPARATION = 5;
     private static final boolean DEFAULT_VR_DEPTH_DEBUG = false;
-    private static final int DEFAULT_VR_INFERENCE_CADENCE = 3;
+    // Maps a second, what a cadence of 3 gave a 60 fps stream. Gen 1 headsets
+    // are seeded GEN1_DEPTH_RATE instead.
+    static final int DEFAULT_VR_DEPTH_RATE = XrShared.DEPTH_RATE_DEFAULT;
     // Neither of these is in the 2d settings. Measured on device, neither is
     // perceptible at a comfortable separation, so they would be sliders that
     // do nothing. Convergence is on the in headset panel instead, where it sits
@@ -358,8 +365,9 @@ public class PreferenceConfiguration {
     // Which shortcut on the controllers switches them between the pointer and
     // one gamepad on the host, a PAD_SHORTCUT_ value
     public int vrGamepadToggle;
-    // Run the depth model on every Nth video frame
-    public int vrInferenceCadence;
+    // The most depth maps a second the model runs at. The renderer cuts it
+    // for a while when the headset cannot keep up, before the display rate.
+    public int vrDepthRate;
     public int vrConvergence;
     public int vrDepthScale;
     // Colours from the frame bleeding into the space around the screen, and
@@ -902,6 +910,55 @@ public class PreferenceConfiguration {
         }
     }
 
+    // The depth maps a second a stored cadence comes to. Cadence c on a stream
+    // at f fps was f/c maps a second, and f is not known here, so 60 stands
+    // in for it: 1 is 45, the most there is, 2 is 30, 3 is 20, 4 is 15, 5 is
+    // 12 and 6 is 10.
+    static int depthRateForCadence(int cadence) {
+        if (cadence <= 1) {
+            return XrShared.DEPTH_RATE_MAX;
+        }
+        return clampDepthRate(Math.round(60.0f / cadence));
+    }
+
+    static int clampDepthRate(int perSecond) {
+        return Math.max(XrShared.DEPTH_RATE_MIN, Math.min(XrShared.DEPTH_RATE_MAX, perSecond));
+    }
+
+    // The stored rate in range, or where this headset starts with nothing
+    // stored
+    static int storedDepthRate(SharedPreferences prefs, boolean gen1) {
+        return clampDepthRate(prefs.getInt(VR_DEPTH_RATE_PREF_STRING,
+                gen1 ? GEN1_DEPTH_RATE : DEFAULT_VR_DEPTH_RATE));
+    }
+
+    // Moves a stored cadence to the rate it stood for, once, under the same
+    // key. Has to run before the Gen 1 seed and the xml defaults, which write
+    // rates there. Returns the cadence moved, or 0 for none.
+    static int moveCadenceToDepthRate(SharedPreferences prefs) {
+        if (prefs.contains(DEPTH_RATE_MOVE_PREF_STRING)) {
+            return 0;
+        }
+        int cadence = prefs.contains(VR_DEPTH_RATE_PREF_STRING)
+                ? prefs.getInt(VR_DEPTH_RATE_PREF_STRING, 0) : 0;
+        SharedPreferences.Editor editor = prefs.edit();
+        if (cadence > 0) {
+            editor.putInt(VR_DEPTH_RATE_PREF_STRING, depthRateForCadence(cadence));
+        }
+        editor.putBoolean(DEPTH_RATE_MOVE_PREF_STRING, cadence > 0);
+        editor.apply();
+        return cadence;
+    }
+
+    public static void migrateDepthRate(Context context) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        int cadence = moveCadenceToDepthRate(prefs);
+        if (cadence > 0) {
+            FileLog.event("depth rate: stored cadence " + cadence + " moved to "
+                    + depthRateForCadence(cadence) + " maps a second");
+        }
+    }
+
     // A Gen 1 headset gets a gentler starting point, written before the xml
     // defaults are applied so it only lands on a fresh install. Whether the
     // key exists says the decision was made, its value says the profile was
@@ -932,8 +989,8 @@ public class PreferenceConfiguration {
         boolean seedResFps = !prefs.contains(LEGACY_RES_FPS_PREF_STRING);
         boolean seedResolution = seedResFps && !prefs.contains(RESOLUTION_PREF_STRING);
         boolean seedFps = seedResFps && !prefs.contains(FPS_PREF_STRING);
-        boolean seedCadence = !prefs.contains(VR_INFERENCE_CADENCE_PREF_STRING);
-        boolean appliedAny = seedResolution || seedFps || seedCadence;
+        boolean seedDepthRate = !prefs.contains(VR_DEPTH_RATE_PREF_STRING);
+        boolean appliedAny = seedResolution || seedFps || seedDepthRate;
 
         SharedPreferences.Editor editor = prefs.edit();
         StringBuilder applied = new StringBuilder();
@@ -945,9 +1002,10 @@ public class PreferenceConfiguration {
             editor.putString(FPS_PREF_STRING, GEN1_FPS);
             applied.append(applied.length() > 0 ? " " : "").append(GEN1_FPS).append(" fps");
         }
-        if (seedCadence) {
-            editor.putInt(VR_INFERENCE_CADENCE_PREF_STRING, GEN1_INFERENCE_CADENCE);
-            applied.append(applied.length() > 0 ? " " : "").append("cadence ").append(GEN1_INFERENCE_CADENCE);
+        if (seedDepthRate) {
+            editor.putInt(VR_DEPTH_RATE_PREF_STRING, GEN1_DEPTH_RATE);
+            applied.append(applied.length() > 0 ? " " : "").append("depth ")
+                    .append(GEN1_DEPTH_RATE).append(" maps/s");
         }
         editor.putBoolean(GEN1_PROFILE_PREF_STRING, appliedAny);
         editor.apply();
@@ -1360,7 +1418,7 @@ public class PreferenceConfiguration {
         config.vrGamepadToggle = gamepadToggle(prefs);
         config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
-        config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);
+        config.vrDepthRate = storedDepthRate(prefs, isXr2Gen1Headset());
         config.vrConvergence = storedConvergence(prefs, config.vrDepthModel);
         config.vrDepthScale = prefs.getInt(VR_DEPTH_SCALE_PREF_STRING, DEFAULT_VR_DEPTH_SCALE);
         config.vrAmbilight = prefs.getBoolean(VR_AMBILIGHT_PREF_STRING, DEFAULT_VR_AMBILIGHT);

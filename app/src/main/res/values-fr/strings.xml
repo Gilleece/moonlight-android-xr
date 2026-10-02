@@ -92,6 +92,7 @@
     <string name="perf_overlay_renderingfps">Fréquence d\'images de rendu : %1$.2f FPS</string>
     <string name="perf_overlay_netdrops">Images perdues par votre connexion réseau : %1$.2f%%</string>
     <string name="perf_overlay_dectime">Temps moyen de décodage : %1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">Sous-alimentations audio : %1$d</string>
     <!-- AppList activity -->
     <string name="applist_connect_msg">Connexion au PC…</string>
     <string name="applist_menu_resume">Reprendre la session</string>
@@ -402,9 +403,9 @@
     <string name="vr_battery">Batterie %1$d %%</string>
     <string name="title_vr_file_log">Enregistrer un fichier journal</string>
     <string name="summary_vr_file_log">Conserve un journal en texte brut dans Download/MoonlightXR, où le gestionnaire de fichiers du casque peut le trouver et où vous pouvez le joindre à un rapport de bug. À 5 Mo, il bascule dans moonlight.previous.log, donc les deux fichiers ensemble ne dépassent jamais 10 Mo. Redémarrez l\'application pour qu\'un changement prenne effet.</string>
-    <string name="title_seekbar_vr_inference_cadence">Cadence du modèle de profondeur</string>
-    <string name="summary_seekbar_vr_inference_cadence">Exécute le modèle de profondeur toutes les N images vidéo. Plus la valeur est élevée, moins ça coûte, mais la profondeur prend plus de retard.</string>
-    <string name="suffix_seekbar_vr_inference_cadence">images</string>
+    <string name="title_seekbar_vr_inference_cadence">Mises à jour de la profondeur par seconde</string>
+    <string name="summary_seekbar_vr_inference_cadence">Nombre de cartes de profondeur que la 3D calcule chaque seconde. Moins, c\'est plus léger pour le casque, mais la profondeur prend plus de retard. Quand le casque ne suit pas, cette valeur est divisée par deux un moment avant que la fréquence d\'affichage ne soit baissée.</string>
+    <string name="suffix_seekbar_vr_inference_cadence">par seconde</string>
     <string name="title_seekbar_vr_separation">Séparation stéréo</string>
     <string name="summary_seekbar_vr_separation">L\'écart entre les deux vues des yeux, en pourcentage de la largeur de l\'image. Au-delà d\'environ 0,5, l\'image ne paraît pas plus profonde mais devient plus fatigante pour les yeux.</string>
     <string name="suffix_seekbar_vr_percent">%</string>

@@ -1,5 +1,6 @@
-// The display refresh rate choice and the frame budget behind it. No OpenXR
-// calls and no context, so the host tests reach all of it.
+// The display refresh rate choice, the frame budget behind it, and the depth
+// rate spent before it. No OpenXR calls and no context, so the host tests
+// reach all of it.
 #include <math.h>
 #include <stddef.h>
 
@@ -17,7 +18,14 @@ float rateOffered(float hz, const float* rates, int count) {
     return 0.0f;
 }
 
-float rateForStream(float fps, const float* rates, int count) {
+// Whether hz shows a stream at fps for the same whole number of refreshes,
+// two or more, every frame
+static int wholeMultiple(float hz, float fps) {
+    float n = roundf(hz / fps);
+    return n >= 2.0f && fabsf(hz - n * fps) <= RATE_TOLERANCE;
+}
+
+float rateForStream(float fps, const float* rates, int count, int multiples) {
     if (rates == NULL || fps <= 0.0f) {
         return 0.0f;
     }
@@ -25,9 +33,11 @@ float rateForStream(float fps, const float* rates, int count) {
     if (exact > 0.0f) {
         return exact;
     }
-    // Nothing matches, so the nearest rate that still shows every frame, and
-    // failing that the fastest there is, which drops the fewest
-    float above = 0.0f, highest = 0.0f;
+    // Nothing matches, so the lowest whole multiple where it may, which
+    // judders no more than the stream's own rate would; then the nearest rate
+    // that still shows every frame, and failing that the fastest there is,
+    // which drops the fewest
+    float multiple = 0.0f, above = 0.0f, highest = 0.0f;
     for (int i = 0; i < count; i++) {
         float hz = rates[i];
         if (hz <= 0.0f) {
@@ -39,6 +49,12 @@ float rateForStream(float fps, const float* rates, int count) {
         if (hz > fps && (above == 0.0f || hz < above)) {
             above = hz;
         }
+        if (multiples && wholeMultiple(hz, fps) && (multiple == 0.0f || hz < multiple)) {
+            multiple = hz;
+        }
+    }
+    if (multiple > 0.0f) {
+        return multiple;
     }
     return above > 0.0f ? above : highest;
 }
@@ -59,9 +75,14 @@ float rateStepDown(float hz, const float* rates, int count, float floorHz) {
 
 float rateChoose(float fps, const float* rates, int count, int warpOn, float heldHz,
                  float frameMs) {
-    float want = rateForStream(fps, rates, count);
+    float want = rateForStream(fps, rates, count, 1);
     if (want <= 0.0f || !warpOn) {
         return want;
+    }
+    // The multiple costs more refreshes than the rate above the stream, so
+    // once the warp has been stepped down below it the stream goes there
+    if (heldHz > 0.0f && heldHz < want - RATE_TOLERANCE) {
+        want = rateForStream(fps, rates, count, 0);
     }
     // A rate the warp was measured not to hold is not tried again while it
     // runs, so a step down is never undone a few seconds later
@@ -171,4 +192,168 @@ int rateSettled(int settled, int focusedFrame, float asked, int confirmed) {
         return 1;
     }
     return focusedFrame && (!(asked > 0.0f) || confirmed);
+}
+
+int depthRateClamp(int perSecond) {
+    return perSecond < DEPTH_RATE_MIN ? DEPTH_RATE_MIN
+            : perSecond > DEPTH_RATE_MAX ? DEPTH_RATE_MAX : perSecond;
+}
+
+int depthGateDue(DepthGate* g, int64_t nowNs, int perSecond) {
+    int64_t gap = g->lastNs != 0 ? nowNs - g->lastNs : 0;
+    g->lastNs = nowNs;
+    if (perSecond <= 0) {
+        return 0;
+    }
+    int64_t period = 1000000000LL / perSecond;
+    // Taken a little early when this frame is nearer the due time than the
+    // next one is likely to be, so a frame landing just short of it is not
+    // passed over for one a whole frame late
+    int64_t slack = (gap < period ? gap : period) / 2;
+    if (g->dueNs != 0 && nowNs + slack < g->dueNs) {
+        return 0;
+    }
+    g->dueNs = g->dueNs == 0 || nowNs - g->dueNs >= period ? nowNs + period
+            : g->dueNs + period;
+    return 1;
+}
+
+void depthGateTaken(DepthGate* g, int64_t nowNs, int perSecond) {
+    g->lastNs = nowNs;
+    g->dueNs = perSecond > 0 ? nowNs + 1000000000LL / perSecond : 0;
+}
+
+void depthGovernorStart(DepthGovernor* g, int cap) {
+    g->cap = depthRateClamp(cap);
+    g->target = g->cap;
+    g->cutNs = 0;
+    g->heldSinceNs = 0;
+    g->throttled = 0;
+    g->failedTarget = 0;
+    g->recoverNs = DEPTH_RECOVER_NS;
+    g->raisedNs = 0;
+    g->cappedSaid = 0;
+}
+
+int depthGovernorSetCap(DepthGovernor* g, int cap) {
+    if (depthRateClamp(cap) == g->cap) {
+        return 0;
+    }
+    // The runtime's throttle is not the setting's to forget
+    int throttled = g->throttled;
+    depthGovernorStart(g, cap);
+    g->throttled = throttled;
+    return 1;
+}
+
+int depthGovernorCeiling(const DepthGovernor* g) {
+    if (g->failedTarget <= 0) {
+        return g->cap;
+    }
+    int half = g->failedTarget / 2 < DEPTH_RATE_MIN ? DEPTH_RATE_MIN : g->failedTarget / 2;
+    return half < g->cap ? half : g->cap;
+}
+
+int64_t depthRecoverBackoff(int64_t waitNs) {
+    return waitNs * 2 > DEPTH_RECOVER_MAX_NS ? DEPTH_RECOVER_MAX_NS : waitNs * 2;
+}
+
+// Halves the target unless a cut is still being held or it is at the floor
+static int depthCut(DepthGovernor* g, int64_t nowNs) {
+    if (g->cutNs != 0 && nowNs - g->cutNs < DEPTH_HOLD_NS) {
+        return DEPTH_MOVE_HOLDING;
+    }
+    if (g->target <= DEPTH_RATE_MIN) {
+        return DEPTH_MOVE_DISPLAY;
+    }
+    g->target = g->target / 2 < DEPTH_RATE_MIN ? DEPTH_RATE_MIN : g->target / 2;
+    g->cutNs = nowNs;
+    g->cappedSaid = 0;
+    return DEPTH_MOVE_CUT;
+}
+
+static int depthHeld(DepthGovernor* g, int64_t nowNs, int live) {
+    if (!live || g->throttled) {
+        g->heldSinceNs = 0;
+        return DEPTH_MOVE_NONE;
+    }
+    // The window that just held began a window ago
+    if (g->heldSinceNs == 0) {
+        g->heldSinceNs = nowNs - RATE_WINDOW_NS;
+    }
+    // A step up that has gone this long without a cut held, and the wait it
+    // may have built up goes
+    if (g->raisedNs != 0 && nowNs - g->raisedNs >= DEPTH_RAISE_HELD_NS) {
+        g->raisedNs = 0;
+        if (g->recoverNs != DEPTH_RECOVER_NS) {
+            g->recoverNs = DEPTH_RECOVER_NS;
+            return DEPTH_MOVE_RAISE_HELD;
+        }
+    }
+    if (nowNs - g->heldSinceNs < g->recoverNs) {
+        return DEPTH_MOVE_NONE;
+    }
+    int ceiling = depthGovernorCeiling(g);
+    if (g->target < ceiling) {
+        g->target = g->target * 2 > ceiling ? ceiling : g->target * 2;
+        g->heldSinceNs = nowNs;
+        g->raisedNs = nowNs;
+        return DEPTH_MOVE_RAISED;
+    }
+    if (g->target < g->cap && !g->cappedSaid) {
+        g->cappedSaid = 1;
+        return DEPTH_MOVE_CAPPED;
+    }
+    return DEPTH_MOVE_NONE;
+}
+
+int depthGovernorWindow(DepthGovernor* g, int64_t nowNs, int verdict, int live) {
+    switch (verdict) {
+        case RATE_WINDOW_HELD:
+            return depthHeld(g, nowNs, live);
+        case RATE_WINDOW_OVER: {
+            g->heldSinceNs = 0;
+            if (!live) {
+                return DEPTH_MOVE_DISPLAY;
+            }
+            int was = g->target;
+            int move = depthCut(g, nowNs);
+            if (move == DEPTH_MOVE_CUT) {
+                // Remembered for the session, so the climb back stops short of it
+                g->failedTarget = was;
+                // and a step up that led here makes the next one wait longer
+                if (g->raisedNs != 0) {
+                    g->recoverNs = depthRecoverBackoff(g->recoverNs);
+                    g->raisedNs = 0;
+                }
+            }
+            return move;
+        }
+        case RATE_WINDOW_SLIPPING:
+        case RATE_WINDOW_SETTLING:
+            // Over, or the budget started again after a change: either way
+            // the run of held windows is broken
+            g->heldSinceNs = 0;
+            return DEPTH_MOVE_NONE;
+        default:
+            return DEPTH_MOVE_NONE;
+    }
+}
+
+int depthGovernorThrottle(DepthGovernor* g, int64_t nowNs, int worse, int throttled, int live) {
+    g->throttled = throttled;
+    if (!worse) {
+        return DEPTH_MOVE_NONE;
+    }
+    g->heldSinceNs = 0;
+    if (!live) {
+        return DEPTH_MOVE_NONE;
+    }
+    int move = depthCut(g, nowNs);
+    if (move == DEPTH_MOVE_CUT) {
+        // Not the step up's fault, so it is neither judged nor backed off
+        g->raisedNs = 0;
+    }
+    // A throttle is the runtime's business, so it never moves the display
+    return move == DEPTH_MOVE_DISPLAY ? DEPTH_MOVE_NONE : move;
 }

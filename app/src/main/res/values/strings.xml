@@ -113,6 +113,7 @@
     <string name="perf_overlay_netdrops">Frames dropped by your network connection: %1$.2f%%</string>
     <string name="perf_overlay_netlatency">Average network latency: %1$d ms (variance: %2$d ms)</string>
     <string name="perf_overlay_dectime">Average decoding time: %1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">Audio underruns: %1$d</string>
 
     <!-- AppList activity -->
     <string name="applist_connect_msg">Connecting to PC…</string>
@@ -390,9 +391,9 @@
     <string name="bug_report_failed">Could not write the report: %1$s</string>
     <string name="title_vr_file_log">Save a log file</string>
     <string name="summary_vr_file_log">Keep a plain text log in Download/MoonlightXR, where the file manager on the headset can find it and you can attach it to a bug report. At 5 MB it rolls over into moonlight.previous.log, so the two together never take more than 10 MB. Restart the app for a change to take effect.</string>
-    <string name="title_seekbar_vr_inference_cadence">Depth model cadence</string>
-    <string name="summary_seekbar_vr_inference_cadence">Run the depth model on every Nth video frame. Higher is cheaper but depth lags further behind.</string>
-    <string name="suffix_seekbar_vr_inference_cadence">frames</string>
+    <string name="title_seekbar_vr_inference_cadence">Depth updates per second</string>
+    <string name="summary_seekbar_vr_inference_cadence">How many depth maps the 3D makes each second. Fewer is lighter on the headset but depth lags further behind. When the headset cannot keep up, this is halved for a while before the display rate is lowered.</string>
+    <string name="suffix_seekbar_vr_inference_cadence">per second</string>
     <string name="title_seekbar_vr_separation">Stereo separation</string>
     <string name="summary_seekbar_vr_separation">How far apart the two eye views are, as a percent of frame width. Above about 0.5 the picture does not look any deeper but is harder on the eyes.</string>
     <string name="suffix_seekbar_vr_percent">%</string>

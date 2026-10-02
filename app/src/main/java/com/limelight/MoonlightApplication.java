@@ -23,7 +23,9 @@ public class MoonlightApplication extends Application {
                            PreferenceConfiguration.DEFAULT_FILE_LOG);
         FileLog.init(this, FileLog.levelFromName(setting));
 
-        // Has to happen before any activity applies the xml defaults
+        // Has to happen before any activity applies the xml defaults, and the
+        // cadence move before the Gen 1 seed, which writes a rate to its key
+        PreferenceConfiguration.migrateDepthRate(this);
         PreferenceConfiguration.seedGen1PerfProfile(this);
         PreferenceConfiguration.migrateDepthSource(this);
 

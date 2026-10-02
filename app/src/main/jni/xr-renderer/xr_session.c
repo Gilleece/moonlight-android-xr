@@ -891,6 +891,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeInit(JNIEnv* env, jobject thiz
     // The display is asked for a rate to match
     ctx->streamFps = fps;
     ctx->perfLevel = PERF_LEVEL_SUSTAINED_HIGH;
+    // Until Java hands over the preference
+    ctx->depthRateSetting = DEPTH_RATE_DEFAULT;
+    depthGovernorStart(&ctx->depthGov, DEPTH_RATE_DEFAULT);
     ctx->stereoMode = stereoMode;
     // Every session with stereo starts with it on, and the switch only lasts
     // the session

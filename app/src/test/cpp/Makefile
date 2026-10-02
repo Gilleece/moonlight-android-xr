@@ -45,8 +45,9 @@ $(OUT)/test_layout: test_layout.c check.h $(SRC)/xr_layout.c $(SRC)/xr_layout.h 
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_layout.c $(SRC)/xr_layout.c $(SRC)/xr_math.c -lm
 
-# The display refresh rate choice and the frame budget that steps it down
-$(OUT)/test_rate: test_rate.c check.h $(SRC)/xr_rate.c $(SRC)/xr_rate.h
+# The display refresh rate choice, the frame budget that steps it down, and
+# the depth rate governor and capture gate spent before it
+$(OUT)/test_rate: test_rate.c check.h $(SRC)/xr_rate.c $(SRC)/xr_rate.h $(SRC)/xr_shared.h
 	@mkdir -p $(OUT)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ test_rate.c $(SRC)/xr_rate.c -lm
 
