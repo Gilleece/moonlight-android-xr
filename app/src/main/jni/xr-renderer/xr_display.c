@@ -141,17 +141,21 @@ static void applyRate(XrCtx* ctx, const char* why) {
     if (ctx->refreshKnob > 0) {
         want = rateOffered((float)ctx->refreshKnob, ctx->displayRates, ctx->displayRateCount);
         if (want <= 0.0f) {
-            // Not a rate this display has, so the stream's rule picks one for it
+            // Not a rate this display has, so the nearest above it
             want = rateForStream((float)ctx->refreshKnob, ctx->displayRates,
-                                 ctx->displayRateCount);
+                                 ctx->displayRateCount, 0);
             snprintf(extra, sizeof(extra), ", %d Hz is not offered", ctx->refreshKnob);
         }
     }
     else {
         want = rateChoose((float)ctx->streamFps, ctx->displayRates, ctx->displayRateCount,
                           ctx->rateWarpOn, ctx->warpRateHeld, 0.0f);
+        float times = ctx->streamFps > 0 ? roundf(want / (float)ctx->streamFps) : 0.0f;
         if (ctx->rateWarpOn && ctx->warpRateHeld > 0.0f && sameRate(want, ctx->warpRateHeld)) {
             snprintf(extra, sizeof(extra), ", held there while the 3D is on");
+        }
+        else if (times >= 2.0f && sameRate(want, times * (float)ctx->streamFps)) {
+            snprintf(extra, sizeof(extra), ", each frame shown %.0f times", times);
         }
     }
     if (want <= 0.0f) {

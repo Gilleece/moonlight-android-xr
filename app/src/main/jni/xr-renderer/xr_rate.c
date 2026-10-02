@@ -17,7 +17,14 @@ float rateOffered(float hz, const float* rates, int count) {
     return 0.0f;
 }
 
-float rateForStream(float fps, const float* rates, int count) {
+// Whether hz shows a stream at fps for the same whole number of refreshes,
+// two or more, every frame
+static int wholeMultiple(float hz, float fps) {
+    float n = roundf(hz / fps);
+    return n >= 2.0f && fabsf(hz - n * fps) <= RATE_TOLERANCE;
+}
+
+float rateForStream(float fps, const float* rates, int count, int multiples) {
     if (rates == NULL || fps <= 0.0f) {
         return 0.0f;
     }
@@ -25,9 +32,11 @@ float rateForStream(float fps, const float* rates, int count) {
     if (exact > 0.0f) {
         return exact;
     }
-    // Nothing matches, so the nearest rate that still shows every frame, and
-    // failing that the fastest there is, which drops the fewest
-    float above = 0.0f, highest = 0.0f;
+    // Nothing matches, so the lowest whole multiple where it may, which
+    // judders no more than the stream's own rate would; then the nearest rate
+    // that still shows every frame, and failing that the fastest there is,
+    // which drops the fewest
+    float multiple = 0.0f, above = 0.0f, highest = 0.0f;
     for (int i = 0; i < count; i++) {
         float hz = rates[i];
         if (hz <= 0.0f) {
@@ -39,6 +48,12 @@ float rateForStream(float fps, const float* rates, int count) {
         if (hz > fps && (above == 0.0f || hz < above)) {
             above = hz;
         }
+        if (multiples && wholeMultiple(hz, fps) && (multiple == 0.0f || hz < multiple)) {
+            multiple = hz;
+        }
+    }
+    if (multiple > 0.0f) {
+        return multiple;
     }
     return above > 0.0f ? above : highest;
 }
@@ -59,9 +74,14 @@ float rateStepDown(float hz, const float* rates, int count, float floorHz) {
 
 float rateChoose(float fps, const float* rates, int count, int warpOn, float heldHz,
                  float frameMs) {
-    float want = rateForStream(fps, rates, count);
+    float want = rateForStream(fps, rates, count, 1);
     if (want <= 0.0f || !warpOn) {
         return want;
+    }
+    // The multiple costs more refreshes than the rate above the stream, so
+    // once the warp has been stepped down below it the stream goes there
+    if (heldHz > 0.0f && heldHz < want - RATE_TOLERANCE) {
+        want = rateForStream(fps, rates, count, 0);
     }
     // A rate the warp was measured not to hold is not tried again while it
     // runs, so a step down is never undone a few seconds later

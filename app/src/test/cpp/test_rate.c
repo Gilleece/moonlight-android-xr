@@ -12,41 +12,69 @@ static const float NTSC[] = { 71.93f, 89.91f, 119.88f };
 #define N(list) ((int)(sizeof(list) / sizeof(list[0])))
 
 static void testStreamGetsItsOwnRate(void) {
-    CHECK_NEAR(rateForStream(120, QUEST3, N(QUEST3)), 120, 0);
-    CHECK_NEAR(rateForStream(90, QUEST3, N(QUEST3)), 90, 0);
-    CHECK_NEAR(rateForStream(72, QUEST3, N(QUEST3)), 72, 0);
-    CHECK_NEAR(rateForStream(60, QUEST2, N(QUEST2)), 60, 0);
-    CHECK_NEAR(rateForStream(120, QUEST2, N(QUEST2)), 120, 0);
-    CHECK_NEAR(rateForStream(90, PICO, N(PICO)), 90, 0);
-    // Close enough counts, and the runtime's own value is what is asked for
-    CHECK_NEAR(rateForStream(120, NTSC, N(NTSC)), 119.88f, 1e-4);
-    CHECK_NEAR(rateForStream(90, NTSC, N(NTSC)), 89.91f, 1e-4);
+    // Whether or not a multiple may be taken, the stream's own rate comes first
+    for (int m = 0; m <= 1; m++) {
+        CHECK_NEAR(rateForStream(120, QUEST3, N(QUEST3), m), 120, 0);
+        CHECK_NEAR(rateForStream(90, QUEST3, N(QUEST3), m), 90, 0);
+        CHECK_NEAR(rateForStream(72, QUEST3, N(QUEST3), m), 72, 0);
+        CHECK_NEAR(rateForStream(60, QUEST2, N(QUEST2), m), 60, 0);
+        CHECK_NEAR(rateForStream(120, QUEST2, N(QUEST2), m), 120, 0);
+        CHECK_NEAR(rateForStream(90, PICO, N(PICO), m), 90, 0);
+        // Close enough counts, and the runtime's own value is what is asked for
+        CHECK_NEAR(rateForStream(120, NTSC, N(NTSC), m), 119.88f, 1e-4);
+        CHECK_NEAR(rateForStream(90, NTSC, N(NTSC), m), 89.91f, 1e-4);
+    }
 }
 
 static void testNoMatchTakesTheNearestAbove(void) {
-    // A 60 fps stream on a headset without 60 goes to the nearest rate that
-    // still shows every frame
-    CHECK_NEAR(rateForStream(60, QUEST3, N(QUEST3)), 72, 0);
-    CHECK_NEAR(rateForStream(60, PICO, N(PICO)), 72, 0);
-    CHECK_NEAR(rateForStream(30, QUEST2, N(QUEST2)), 60, 0);
-    CHECK_NEAR(rateForStream(30, QUEST3, N(QUEST3)), 72, 0);
-    CHECK_NEAR(rateForStream(100, QUEST3, N(QUEST3)), 120, 0);
-    CHECK_NEAR(rateForStream(75, QUEST2, N(QUEST2)), 80, 0);
+    // Without a multiple, a 60 fps stream on a headset without 60 goes to
+    // the nearest rate that still shows every frame
+    CHECK_NEAR(rateForStream(60, QUEST3, N(QUEST3), 0), 72, 0);
+    CHECK_NEAR(rateForStream(60, PICO, N(PICO), 0), 72, 0);
+    CHECK_NEAR(rateForStream(30, QUEST2, N(QUEST2), 0), 60, 0);
+    CHECK_NEAR(rateForStream(30, QUEST3, N(QUEST3), 0), 72, 0);
+    CHECK_NEAR(rateForStream(45, QUEST3, N(QUEST3), 0), 72, 0);
+    CHECK_NEAR(rateForStream(100, QUEST3, N(QUEST3), 0), 120, 0);
+    CHECK_NEAR(rateForStream(75, QUEST2, N(QUEST2), 0), 80, 0);
+}
+
+static void testAWholeMultipleBeforeTheNearestAbove(void) {
+    // 60 on 120 shows every frame for two refreshes; on 72 one in five is
+    // held twice
+    CHECK_NEAR(rateForStream(60, QUEST3, N(QUEST3), 1), 120, 0);
+    CHECK_NEAR(rateForStream(45, QUEST3, N(QUEST3), 1), 90, 0);
+    CHECK_NEAR(rateForStream(40, QUEST3, N(QUEST3), 1), 80, 0);
+    CHECK_NEAR(rateForStream(30, QUEST3, N(QUEST3), 1), 90, 0);
+    // The lowest multiple, not the highest
+    CHECK_NEAR(rateForStream(24, QUEST3, N(QUEST3), 1), 72, 0);
+    CHECK_NEAR(rateForStream(30, QUEST2, N(QUEST2), 1), 60, 0);
+    // The runtime's own near multiples count
+    CHECK_NEAR(rateForStream(60, NTSC, N(NTSC), 1), 119.88f, 1e-4);
+    CHECK_NEAR(rateForStream(24, NTSC, N(NTSC), 1), 71.93f, 1e-4);
+    // With no multiple offered, the nearest above as before
+    CHECK_NEAR(rateForStream(60, PICO, N(PICO), 1), 72, 0);
+    CHECK_NEAR(rateForStream(50, QUEST3, N(QUEST3), 1), 72, 0);
+    CHECK_NEAR(rateForStream(100, QUEST3, N(QUEST3), 1), 120, 0);
+    CHECK_NEAR(rateForStream(75, QUEST2, N(QUEST2), 1), 80, 0);
 }
 
 static void testFasterThanAnythingTakesTheHighest(void) {
-    CHECK_NEAR(rateForStream(120, PICO, N(PICO)), 90, 0);
-    CHECK_NEAR(rateForStream(144, QUEST3, N(QUEST3)), 120, 0);
-    CHECK_NEAR(rateForStream(240, NTSC, N(NTSC)), 119.88f, 1e-4);
+    for (int m = 0; m <= 1; m++) {
+        CHECK_NEAR(rateForStream(120, PICO, N(PICO), m), 90, 0);
+        CHECK_NEAR(rateForStream(144, QUEST3, N(QUEST3), m), 120, 0);
+        CHECK_NEAR(rateForStream(240, NTSC, N(NTSC), m), 119.88f, 1e-4);
+    }
 }
 
 static void testNothingToAskFor(void) {
-    CHECK(rateForStream(90, QUEST3, 0) == 0.0f);
-    CHECK(rateForStream(90, NULL, 4) == 0.0f);
-    CHECK(rateForStream(0, QUEST3, N(QUEST3)) == 0.0f);
-    CHECK(rateForStream(-60, QUEST3, N(QUEST3)) == 0.0f);
-    float junk[] = { 0.0f, -1.0f };
-    CHECK(rateForStream(90, junk, 2) == 0.0f);
+    for (int m = 0; m <= 1; m++) {
+        CHECK(rateForStream(90, QUEST3, 0, m) == 0.0f);
+        CHECK(rateForStream(90, NULL, 4, m) == 0.0f);
+        CHECK(rateForStream(0, QUEST3, N(QUEST3), m) == 0.0f);
+        CHECK(rateForStream(-60, QUEST3, N(QUEST3), m) == 0.0f);
+        float junk[] = { 0.0f, -1.0f };
+        CHECK(rateForStream(90, junk, 2, m) == 0.0f);
+    }
     CHECK(rateChoose(90, QUEST3, 0, 1, 0, 20) == 0.0f);
 }
 
@@ -104,6 +132,29 @@ static void testWarpNeverClimbsBackPastTheHeldRate(void) {
     CHECK_NEAR(rateChoose(72, QUEST3, N(QUEST3), 1, 90, 0), 72, 0);
     // A held rate the runtime does not offer is ignored rather than asked for
     CHECK_NEAR(rateChoose(120, QUEST3, N(QUEST3), 1, 85, 0), 120, 0);
+}
+
+static void testTheMultipleUnlessASteppedDownRateIsHeld(void) {
+    // A 60 fps stream lands on 120 with the 3D off, or on with nothing held
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 0, 0, 0), 120, 0);
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 1, 0, 0), 120, 0);
+    CHECK_NEAR(rateChoose(45, QUEST3, N(QUEST3), 1, 0, 0), 90, 0);
+    CHECK_NEAR(rateChoose(90, QUEST3, N(QUEST3), 1, 0, 0), 90, 0);
+    CHECK_NEAR(rateChoose(24, QUEST3, N(QUEST3), 1, 0, 0), 72, 0);
+    // A step down held below the multiple rules it out while the 3D is on
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 1, 90, 0), 72, 0);
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 1, 72, 0), 72, 0);
+    CHECK_NEAR(rateChoose(45, QUEST3, N(QUEST3), 1, 80, 0), 72, 0);
+    // and with it off the multiple is back
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 0, 90, 30), 120, 0);
+    // A held rate at the multiple is not a step down
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 1, 120, 0), 120, 0);
+    // The step down still applies from the multiple, one offered rate at a
+    // time, the way the budget asks with the rate in force as the held one
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 1, 120, 9.0f), 90, 0);
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 1, 0, 9.0f), 90, 0);
+    // and from there the nearest above, which already fits
+    CHECK_NEAR(rateChoose(60, QUEST3, N(QUEST3), 1, 90, 12.0f), 72, 0);
 }
 
 static void testFloorHolds(void) {
@@ -321,6 +372,7 @@ static void testTheFirstRateIsNoNews(void) {
 int main(void) {
     testStreamGetsItsOwnRate();
     testNoMatchTakesTheNearestAbove();
+    testAWholeMultipleBeforeTheNearestAbove();
     testFasterThanAnythingTakesTheHighest();
     testNothingToAskFor();
     testOffered();
@@ -329,6 +381,7 @@ int main(void) {
     testWarpOnStartsAtTheStreamRate();
     testWarpOverBudgetStepsDownOne();
     testWarpNeverClimbsBackPastTheHeldRate();
+    testTheMultipleUnlessASteppedDownRateIsHeld();
     testFloorHolds();
     testBudgetSettlesThenHolds();
     testBudgetNeedsWindowsInARow();

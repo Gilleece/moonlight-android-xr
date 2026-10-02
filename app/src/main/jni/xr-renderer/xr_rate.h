@@ -46,19 +46,23 @@
 // The offered rate matching hz, or 0 when the runtime has no such rate
 float rateOffered(float hz, const float* rates, int count);
 
-// The rate for a stream at fps: its own if offered, else the nearest offered
-// rate above it, else the highest offered. 0 with nothing offered or no fps.
-float rateForStream(float fps, const float* rates, int count);
+// The rate for a stream at fps: its own if offered; else, with multiples set,
+// the lowest offered rate that is a whole multiple of it, which shows every
+// frame for the same number of refreshes; else the nearest offered rate above
+// it, else the highest offered. 0 with nothing offered or no fps.
+float rateForStream(float fps, const float* rates, int count, int multiples);
 
 // The next offered rate below hz that is still at least floorHz, or 0 when
 // there is none
 float rateStepDown(float hz, const float* rates, int count, float floorHz);
 
-// The rate to ask for. The stream's rate with the 3D warp off. With it on,
-// never above heldHz, the rate the warp has been stepped down to (0 for none),
-// and one offered step lower when frameMs, the frame time measured at that
-// rate (0 for nothing measured), does not fit its period, though never below
-// RATE_FLOOR_HZ.
+// The rate to ask for. The stream's rate with the 3D warp off, a whole
+// multiple of it where the stream's own is not offered. With it on, never
+// above heldHz, the rate the warp has been stepped down to (0 for none), and
+// one offered step lower when frameMs, the frame time measured at that rate
+// (0 for nothing measured), does not fit its period, though never below
+// RATE_FLOOR_HZ. A held rate below the multiple rules the multiple out, so
+// the stream goes to the nearest rate above it instead.
 float rateChoose(float fps, const float* rates, int count, int warpOn, float heldHz,
                  float frameMs);
 
