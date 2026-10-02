@@ -353,6 +353,12 @@ int reportZone(float u, float v) {
     return REPORT_ZONE_NONE;
 }
 
+// The one button, bottom right. The code and the words are nothing.
+int kofiSheetZone(float u, float v) {
+    return u >= KOFI_CLOSE_L && u <= KOFI_CLOSE_R && v >= KOFI_BTN_T && v <= KOFI_BTN_B
+            ? KOFI_ZONE_CLOSE : KOFI_ZONE_NONE;
+}
+
 // The two buttons side by side along the bottom. The words over them are
 // nothing.
 int handHintZone(float u, float v) {

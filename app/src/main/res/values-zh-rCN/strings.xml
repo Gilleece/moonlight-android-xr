@@ -332,6 +332,10 @@
     <string name="vr_hand_hint_title">手势追踪已开启。</string>
     <string name="vr_hand_hint_body">用拇指和食指快速捏合三次即可锁定手势，避免误捏造成点击；再快速捏合三次即可解锁。</string>
     <string name="vr_hand_hint_never">不再显示</string>
+    <string name="vr_kofi_title">在 Ko-fi 上支持 Moonlight XR</string>
+    <string name="vr_kofi_scan">用手机扫描此二维码。</string>
+    <string name="vr_kofi_free">完全自愿：Moonlight XR 免费，并将一直免费。</string>
+    <string name="vr_kofi_close">关闭</string>
     <string name="title_vr_reset_pose">重置屏幕位置</string>
     <string name="summary_vr_reset_pose">将屏幕恢复至上方设定的距离和宽度，撤销手柄拖拽或缩放操作</string>
     <string name="toast_vr_reset_pose">屏幕位置已重置</string>

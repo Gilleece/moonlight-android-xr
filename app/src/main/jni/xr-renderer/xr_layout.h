@@ -34,6 +34,7 @@
 #define HOVER_RAYBUTTON 16
 #define HOVER_AIMBUTTON 17
 #define HOVER_PADBUTTON 18
+#define HOVER_KOFI      19
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 
@@ -186,6 +187,10 @@ int reportZone(float u, float v);
 // Which of the hand lock hint's two buttons a point on it is over, one of the
 // HINT_ZONE_ values, u and v across the sheet from its top left
 int handHintZone(float u, float v);
+
+// Whether a point on the Ko-fi sheet is on its Close button, one of the
+// KOFI_ZONE_ values, u and v across the sheet from its top left
+int kofiSheetZone(float u, float v);
 
 // The 3D tab's depth track. A separation, as a fraction of frame width, in the
 // tenths of a percent the preference stores, which is also the step the track

@@ -193,10 +193,7 @@
 // Set to 1 the frame the hand lock hint is put away with "Don't show this
 // again", which Java stores so later sessions skip it. 0 otherwise.
 #define IN_HINT     (IN_PAD_RY + 1)
-// Set to 1 the frame the About tab's Ko-fi button is pressed, which Java opens
-// in the browser. 0 otherwise.
-#define IN_KOFI     (IN_HINT + 1)
-#define IN_SLOTS    (IN_KOFI + 1)
+#define IN_SLOTS    (IN_HINT + 1)
 
 // Gamepad mode's buttons, in the bits Moonlight's controller packet carries
 // them in, which are ControllerPacket's flags: the four face buttons, the
@@ -651,5 +648,24 @@
 #define HINT_ZONE_NONE  0
 #define HINT_ZONE_OK    1
 #define HINT_ZONE_NEVER 2
+
+// The Ko-fi sheet the About tab's button opens, in the exit prompt's style:
+// the title, the page's QR code on the left, its address and a line on the
+// right, and one Close button. Drawn once in Java at the start of a session,
+// with the ring over the button a quad of its own. The code goes on a pixel
+// for a pixel, its quiet zone included, with its top left corner where these
+// say; the button sits where these say, all as fractions of the sheet.
+#define KOFI_TEX_W 1024
+#define KOFI_TEX_H 512
+#define KOFI_QR_PX 296
+#define KOFI_QR_L 0.05f
+#define KOFI_QR_T 0.22f
+#define KOFI_BTN_T 0.76f
+#define KOFI_BTN_B 0.92f
+#define KOFI_CLOSE_L 0.64f
+#define KOFI_CLOSE_R 0.95f
+// Whether a point is on its button
+#define KOFI_ZONE_NONE  0
+#define KOFI_ZONE_CLOSE 1
 
 #endif

@@ -278,6 +278,10 @@
     <string name="vr_hand_hint_title">Hand tracking is on.</string>
     <string name="vr_hand_hint_body">Pinch your thumb and index finger three times quickly to lock your hands out, so a stray pinch does not click; the same triple pinch unlocks them.</string>
     <string name="vr_hand_hint_never">Don\'t show this again</string>
+    <string name="vr_kofi_title">Support Moonlight XR on Ko-fi</string>
+    <string name="vr_kofi_scan">Scan it with your phone.</string>
+    <string name="vr_kofi_free">Optional: Moonlight XR is free and stays free.</string>
+    <string name="vr_kofi_close">Close</string>
     <string name="summary_vr_pointer">Point at the screen with a controller to move the host mouse. Trigger clicks, A or X right clicks, thumbstick scrolls. Click the thumbstick to switch pointing off in a game that needs the mouse itself.</string>
     <string name="title_vr_pointer_sleep">Pause the pointer when the controller is still</string>
     <string name="summary_vr_pointer_sleep">A controller\'s pointer goes away after a few seconds held still and comes back when it moves or its thumbstick is pushed. Switch this off to keep it on, so the thumbstick scrolls even with the pointer off the screen.</string>

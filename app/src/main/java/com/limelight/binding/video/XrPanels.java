@@ -10,6 +10,7 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
@@ -33,10 +34,11 @@ import static com.limelight.binding.video.XrShared.*;
  * The flat panels reachable from inside the session: the environment picker,
  * the settings sheets, the keyboard and the exit prompt, and the buttons along
  * the bar that open them or switch the 3D, with the splash the session opens
- * on and the hand lock hint. Java is the only place Android will lay out text, so their art
- * is drawn to bitmaps here and handed back as pixels for the frame loop to
- * upload, since that thread owns the GL context. Nothing in here touches the
- * session, so it can run on whichever thread has the time.
+ * on, the hand lock hint and the Ko-fi sheet. Java is the only place Android
+ * will lay out text, so their art is drawn to bitmaps here and handed back as
+ * pixels for the frame loop to upload, since that thread owns the GL context.
+ * Nothing in here touches the session, so it can run on whichever thread has
+ * the time.
  */
 final class XrPanels {
 
@@ -47,6 +49,8 @@ final class XrPanels {
     // ENV_CELL_ values in XrShared, which is what the native side hit tests
     // against.
     private static final String IMAGE_DIR = "images";
+    // The Ko-fi sheet's QR code, as tools/make_qr.py writes it
+    private static final String KOFI_QR = "kofi_qr.png";
     // A baked room shows a picture of itself on its tile, at the cell's own size
     private static final String THEATER_THUMB = "rooms/thumbs/home_theater.jpg";
     private static final String GRAND_CINEMA_THUMB = "rooms/thumbs/grand_cinema.jpg";
@@ -1298,10 +1302,10 @@ final class XrPanels {
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
     }
 
-    // About tab: the app's name and version, where its log is, then Ko-fi
-    // over the button that opens the report sheet, both drawn the way the
-    // reset buttons are, each with a quiet line under it. The ring under the
-    // ray is the native side's.
+    // About tab: the app's name and version, where its log is, then the button
+    // that opens the Ko-fi sheet over the one that opens the report sheet,
+    // both drawn the way the reset buttons are, each with a quiet line under
+    // it. The ring under the ray is the native side's.
     private void drawCogAbout(Canvas canvas) {
         final float mid = COG_TEX_W * 0.5f;
         final float room = COG_TEX_W - 80.0f;
@@ -1329,8 +1333,8 @@ final class XrPanels {
         hint.setColor(0x80FFFFFF);
 
         drawAboutButton(canvas, COG_KOFI_L, COG_KOFI_T, COG_KOFI_R, COG_KOFI_B,
-                context.getString(R.string.title_about_kofi));
-        canvas.drawText(Toast.fit(context.getString(R.string.summary_about_kofi), hint, room),
+                context.getString(R.string.vr_kofi_title));
+        canvas.drawText(Toast.fit(context.getString(R.string.vr_kofi_free), hint, room),
                 mid, (COG_KOFI_B + 0.05f) * COG_TEX_H, hint);
 
         drawAboutButton(canvas, COG_REPORT_L, COG_REPORT_T, COG_REPORT_R, COG_REPORT_B,
@@ -2244,6 +2248,93 @@ final class XrPanels {
         label.setTextSize(30.0f);
         canvas.drawText(Toast.fit(text, label, box.width() - 24.0f), box.centerX(),
                 box.centerY() - (label.ascent() + label.descent()) * 0.5f, label);
+    }
+
+    /**
+     * The Ko-fi sheet the About tab opens: the title, the page's QR code with
+     * its address and a line beside it, and one Close button, on the exit
+     * prompt's dark sheet with its white strokes. Drawn once, since the ring
+     * over the button under the ray is a quad of the native side's. The code
+     * goes on a pixel for a pixel, unfiltered, on white even if it failed to
+     * load, so every module stays sharp for a phone to read.
+     */
+    ByteBuffer buildKofiSheet(String url) {
+        Bitmap bitmap = Bitmap.createBitmap(KOFI_TEX_W, KOFI_TEX_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setColor(0xF0141416);
+        canvas.drawRoundRect(new RectF(1.0f, 1.0f, KOFI_TEX_W - 1.0f, KOFI_TEX_H - 1.0f),
+                32.0f, 32.0f, paint);
+
+        final int qrLeft = Math.round(KOFI_QR_L * KOFI_TEX_W);
+        final int qrTop = Math.round(KOFI_QR_T * KOFI_TEX_H);
+        final float right = KOFI_CLOSE_R * KOFI_TEX_W;
+        Paint title = new Paint(Paint.ANTI_ALIAS_FLAG);
+        title.setColor(Color.WHITE);
+        title.setTextSize(40.0f);
+        canvas.drawText(Toast.fit(context.getString(R.string.vr_kofi_title), title,
+                right - qrLeft), qrLeft, 0.14f * KOFI_TEX_H, title);
+
+        Rect code = new Rect(qrLeft, qrTop, qrLeft + KOFI_QR_PX, qrTop + KOFI_QR_PX);
+        Paint white = new Paint();
+        white.setColor(Color.WHITE);
+        canvas.drawRect(code, white);
+        Bitmap qr = loadIcon(KOFI_QR, KOFI_QR_PX);
+        if (qr != null) {
+            canvas.drawBitmap(qr, null, code, new Paint());
+            qr.recycle();
+        }
+
+        // Beside the code: the address, then what to do with it and the
+        // quiet line, smaller if a language needs more lines than fit
+        final float column = code.right + 48.0f;
+        final float width = right - column;
+        Paint address = new Paint(Paint.ANTI_ALIAS_FLAG);
+        address.setColor(Color.WHITE);
+        address.setTextSize(30.0f);
+        // No ligatures in something to be typed: the font joins the f and i
+        address.setFontFeatureSettings("'liga' 0");
+        canvas.drawText(Toast.fit(url, address, width), column, qrTop + 36.0f, address);
+
+        Paint body = new Paint(Paint.ANTI_ALIAS_FLAG);
+        String said = context.getString(R.string.vr_kofi_scan) + "\n"
+                + context.getString(R.string.vr_kofi_free);
+        final float top = qrTop + 72.0f;
+        final float room = (KOFI_BTN_T - 0.04f) * KOFI_TEX_H - top;
+        float size = 28.0f;
+        List<String> lines;
+        while (true) {
+            body.setTextSize(size);
+            lines = wrap(said, body, width);
+            if (lines.size() * size * 1.3f <= room || size <= 20.0f) {
+                break;
+            }
+            size -= 2.0f;
+        }
+        int scanLines = wrap(context.getString(R.string.vr_kofi_scan), body, width).size();
+        for (int i = 0; i < lines.size(); i++) {
+            body.setColor(i < scanLines ? 0xDDFFFFFF : 0x99FFFFFF);
+            canvas.drawText(lines.get(i), column, top + size + i * size * 1.3f, body);
+        }
+
+        RectF box = new RectF(KOFI_CLOSE_L * KOFI_TEX_W, KOFI_BTN_T * KOFI_TEX_H,
+                KOFI_CLOSE_R * KOFI_TEX_W, KOFI_BTN_B * KOFI_TEX_H);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(3.0f);
+        paint.setColor(0xEEFFFFFF);
+        canvas.drawRoundRect(box, 16.0f, 16.0f, paint);
+        Paint label = new Paint(Paint.ANTI_ALIAS_FLAG);
+        label.setTextAlign(Paint.Align.CENTER);
+        label.setColor(0xEEFFFFFF);
+        label.setTextSize(30.0f);
+        canvas.drawText(Toast.fit(context.getString(R.string.vr_kofi_close), label,
+                box.width() - 24.0f), box.centerX(),
+                box.centerY() - (label.ascent() + label.descent()) * 0.5f, label);
+
+        ByteBuffer pixels = toBuffer(bitmap);
+        bitmap.recycle();
+        return pixels;
     }
 
     /**

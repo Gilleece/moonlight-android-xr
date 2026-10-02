@@ -332,11 +332,11 @@ void setRayOn(XrCtx* ctx, int on, const char* from) {
 }
 
 // Whether one of the panels is up: the settings panel, the picker, the
-// keyboard, the exit prompt, the report sheet or the hand lock hint. The ray
-// comes back for them while it is switched off.
+// keyboard, the exit prompt, the report sheet, the hand lock hint or the Ko-fi
+// sheet. The ray comes back for them while it is switched off.
 int panelUp(XrCtx* ctx) {
     return ctx->cogOpen || ctx->pickerOpen || ctx->kbOpen || ctx->exitConfirmOpen
-            || ctx->reportOpen || ctx->hintOpen;
+            || ctx->reportOpen || ctx->hintOpen || ctx->kofiOpen;
 }
 
 // The 3D on or off for the rest of the session, from the bar or the 3D tab.
@@ -416,6 +416,23 @@ XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     float width = furnitureWidth(ctx) * HINT_WIDTH_FRAC;
     float height = width * (float)HINT_TEX_H / (float)HINT_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    Vec3 local = { 0.0f, 0.0f, 0.06f };
+    XrPosef pose = furniturePose(ctx);
+    Vec3 offset = quatRotate(pose.orientation, local);
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// The Ko-fi sheet stands where the hint does, over the middle of the picture
+// and a little in front of it. Frozen while it is up, like the prompt.
+XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = furnitureWidth(ctx) * KOFI_WIDTH_FRAC;
+    float height = width * (float)KOFI_TEX_H / (float)KOFI_TEX_W;
     *outWidth = width;
     *outHeight = height;
 

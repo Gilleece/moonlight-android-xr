@@ -788,10 +788,30 @@ static void testTheHintButtons(void) {
     CHECK(HINT_NEVER_R - HINT_NEVER_L > HINT_OK_R - HINT_OK_L);
 }
 
+// The Ko-fi sheet's one button is where a press on it lands, and the rest of
+// the sheet is nothing
+static void testTheKofiButton(void) {
+    float btn = (KOFI_BTN_T + KOFI_BTN_B) * 0.5f;
+    CHECK(kofiSheetZone((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f, btn) == KOFI_ZONE_CLOSE);
+    CHECK(kofiSheetZone(KOFI_CLOSE_L - 0.01f, btn) == KOFI_ZONE_NONE);
+    CHECK(kofiSheetZone(KOFI_CLOSE_R + 0.01f, btn) == KOFI_ZONE_NONE);
+    CHECK(kofiSheetZone((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f, KOFI_BTN_T - 0.01f)
+          == KOFI_ZONE_NONE);
+    CHECK(kofiSheetZone((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f, KOFI_BTN_B + 0.01f)
+          == KOFI_ZONE_NONE);
+    // On the code and the title is nothing
+    CHECK(kofiSheetZone(KOFI_QR_L + 0.05f, KOFI_QR_T + 0.1f) == KOFI_ZONE_NONE);
+    CHECK(kofiSheetZone(0.5f, 0.1f) == KOFI_ZONE_NONE);
+    // The code is clear of the button, on the left
+    CHECK(KOFI_QR_L + (float)KOFI_QR_PX / KOFI_TEX_W < KOFI_CLOSE_L);
+    CHECK(KOFI_QR_T + (float)KOFI_QR_PX / KOFI_TEX_H < 1.0f);
+}
+
 int main(void) {
     testTheRowsFit();
     testTheReportParts();
     testTheHintButtons();
+    testTheKofiButton();
     testCornersFollowTheirArt();
     testNoCornersWhereThereAreNone();
     testTheRestOfThePicture();

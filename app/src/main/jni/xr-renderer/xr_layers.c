@@ -58,13 +58,14 @@
 // modal the same way: it sheds the furniture and adds its sheet and the ring
 // on the button under the ray, which takes the hover ring's slot and so goes
 // with it, so the room, the glow, both eyes, the stats, the sheet, the ring,
-// ray and cursor: 9, with the models and the toast 11. A panel fading out
-// keeps the bar furniture down until it has gone, and one opening cuts any
-// other's fade short, so a fade never stacks two of these. The launch splash
-// is two layers and all the frame carries while it is fully up; as it fades
-// the room, the glow, the eyes and the stats come up under it, five more,
-// with no furniture and no toast, since neither input nor notices move until
-// it has gone.
+// ray and cursor: 9, with the models and the toast 11. The Ko-fi sheet is the
+// same again with the cog button kept up beside it: 10, 12 with both. A panel
+// fading out keeps the bar furniture down until it has gone, and one opening
+// cuts any other's fade short, so a fade never stacks two of these. The launch
+// splash is two layers and all the frame carries while it is fully up; as it
+// fades the room, the glow, the eyes and the stats come up under it, five
+// more, with no furniture and no toast, since neither input nor notices move
+// until it has gone.
 // Sized well past all that anyway: an overflow here is a smashed stack, and
 // the margin costs a few pointers.
 #define FRAME_MAX_LAYERS 24
@@ -95,6 +96,7 @@ typedef struct {
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
     XrCompositionLayerQuad hint;
+    XrCompositionLayerQuad kofi;
     XrCompositionLayerQuad picker;
     XrCompositionLayerQuad outline[2];
     XrCompositionLayerQuad cogPanel;
@@ -656,10 +658,14 @@ static void addBarButtonLayers(XrCtx* ctx, const FrameView* view, FrameLayers* l
     }
 
     // The cog that opens the settings panel, right of the move bar. Same
-    // rules as the environment button on the other side.
-    if (ctx->cogButtonReady && panelButton(ctx, view, layers, FADE_COG, ctx->cogOpen, &next)) {
+    // rules as the environment button on the other side, and it stays up with
+    // the Ko-fi sheet the panel opens, which a press on it puts away.
+    int kofi = ctx->kofiOpen || ctx->panelFades[FADE_KOFI].level > 0.0f;
+    if (ctx->cogButtonReady
+            && panelButton(ctx, view, layers, kofi ? FADE_KOFI : FADE_COG,
+                           ctx->cogOpen || ctx->kofiOpen, &next)) {
         addBarButton(ctx, view, layers, &layers->cogButton, ctx->cogButtonSwapchain,
-                     BAR_SLOT_COG, ctx->cogButtonHot || ctx->cogOpen, next);
+                     BAR_SLOT_COG, ctx->cogButtonHot || ctx->cogOpen || ctx->kofiOpen, next);
     }
 
     // The keyboard button, one place further out. Unlike the cog it goes
@@ -768,6 +774,35 @@ static void addHandHintLayers(XrCtx* ctx, const FrameView* view, FrameLayers* la
               XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->outlineSwapchain,
               OUTLINE_TEX, OUTLINE_TEX, view->space, poseOffset(ctx->hintPose, local),
               (r - l) * ctx->hintW * 1.04f, (HINT_BTN_B - HINT_BTN_T) * ctx->hintH * 1.12f);
+    pushLayer(ctx, layers, mark);
+}
+
+// The Ko-fi sheet, on the pose frozen when it opened, and the ring on its
+// Close button under the ray in the hover ring's slot. Sharpened, since it is
+// text and a code to be read.
+static void addKofiLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_KOFI].level;
+    if (level <= 0.0f || !ctx->kofiReady) {
+        return;
+    }
+    quadLayer(&layers->kofi, fadeNext(ctx, layers, FADE_KOFI, 1, level),
+              XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->kofiSwapchain,
+              KOFI_TEX_W, KOFI_TEX_H, view->space, ctx->kofiPose, ctx->kofiW, ctx->kofiH);
+    pushLayer(ctx, layers, &layers->kofi);
+
+    if (!ctx->kofiOpen || ctx->kofiHoverZone != KOFI_ZONE_CLOSE || !ctx->outlineReady) {
+        return;
+    }
+    Vec3 local;
+    local.x = ((KOFI_CLOSE_L + KOFI_CLOSE_R) * 0.5f - 0.5f) * ctx->kofiW;
+    local.y = (0.5f - (KOFI_BTN_T + KOFI_BTN_B) * 0.5f) * ctx->kofiH;
+    local.z = 0.004f;
+    XrCompositionLayerQuad* mark = &layers->cogMark[COG_OPTION_COUNT];
+    quadLayer(mark, fadeNext(ctx, layers, FADE_KOFI, 0, level),
+              XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->outlineSwapchain,
+              OUTLINE_TEX, OUTLINE_TEX, view->space, poseOffset(ctx->kofiPose, local),
+              (KOFI_CLOSE_R - KOFI_CLOSE_L) * ctx->kofiW * 1.04f,
+              (KOFI_BTN_B - KOFI_BTN_T) * ctx->kofiH * 1.12f);
     pushLayer(ctx, layers, mark);
 }
 
@@ -1200,10 +1235,11 @@ static void addToastLayer(XrCtx* ctx, FrameLayers* layers, int64_t now) {
 // and the keyboard stands down at once for a modal the way it always has.
 static void stepPanelFades(XrCtx* ctx, int64_t now) {
     static const char* const NAMES[FADE_PANELS] = {
-        "settings panel", "picker", "keyboard", "exit prompt", "report sheet", "hand lock hint"
+        "settings panel", "picker", "keyboard", "exit prompt", "report sheet", "hand lock hint",
+        "Ko-fi sheet"
     };
     int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen || ctx->reportOpen
-            || ctx->hintOpen;
+            || ctx->hintOpen || ctx->kofiOpen;
     int shown[FADE_PANELS];
     shown[FADE_COG] = ctx->cogOpen;
     shown[FADE_PICKER] = ctx->pickerOpen;
@@ -1212,6 +1248,7 @@ static void stepPanelFades(XrCtx* ctx, int64_t now) {
     shown[FADE_EXIT] = ctx->exitConfirmOpen;
     shown[FADE_REPORT] = ctx->reportOpen;
     shown[FADE_HINT] = ctx->hintOpen;
+    shown[FADE_KOFI] = ctx->kofiOpen;
     ctx->panelFadingOut = 0;
     for (int p = 0; p < FADE_PANELS; p++) {
         Fade* fade = &ctx->panelFades[p];
@@ -1461,7 +1498,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     stepSplash(ctx, frameNs);
     int splashUp = ctx->splash.phase == SPLASH_UP;
     view.barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
-            && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->hintOpen
+            && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen
             && !ctx->panelFadingOut
             && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                 || ctx->hoverKind == HOVER_COGBUTTON
@@ -1514,6 +1551,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addCogLayers(ctx, &view, &layers);
         addReportLayer(ctx, &view, &layers);
         addHandHintLayers(ctx, &view, &layers);
+        addKofiLayers(ctx, &view, &layers);
         addKeyboardLayers(ctx, &view, &layers);
         addModelLayer(ctx, &layers);
         addPointerLayers(ctx, &view, &layers);

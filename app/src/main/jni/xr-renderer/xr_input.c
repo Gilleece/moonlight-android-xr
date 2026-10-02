@@ -1102,6 +1102,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     if (hover == HOVER_HINT) {
         return screenPoint(u, v, ctx->hintPose, ctx->hintW, ctx->hintH, 0.0f, 0);
     }
+    if (hover == HOVER_KOFI) {
+        return screenPoint(u, v, ctx->kofiPose, ctx->kofiW, ctx->kofiH, 0.0f, 0);
+    }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
 
@@ -1856,9 +1859,10 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
         ctx->stillFor = 0.0f;
     }
 
-    // The hand lock hint waits on a press, so the pointer stays up under it.
-    // Retiring there would cost the press that puts it away as a waking pinch.
-    if (ctx->hintOpen) {
+    // The hand lock hint and the Ko-fi sheet wait on a press, so the pointer
+    // stays up under them. Retiring there would cost the press that puts one
+    // away as a waking pinch.
+    if (ctx->hintOpen || ctx->kofiOpen) {
         ctx->pointerAwake = 1;
         ctx->stillFor = 0.0f;
     }
@@ -2076,6 +2080,21 @@ static void pressReport(XrCtx* ctx, InputFrame* f, int zone) {
     LOGEV("report sheet %s", zone == REPORT_ZONE_SEND ? "sent" : "cancelled");
 }
 
+// Puts the settings panel away for the Ko-fi sheet. Its art is drawn at the
+// start of the session; until it has arrived the button does nothing, since a
+// modal nobody can see would eat every press.
+static void openKofi(XrCtx* ctx) {
+    if (!ctx->kofiReady) {
+        LOGI("Ko-fi pressed on the About tab before its sheet's art arrived");
+        return;
+    }
+    ctx->cogOpen = 0;
+    ctx->kofiOpen = 1;
+    ctx->kofiHoverZone = KOFI_ZONE_NONE;
+    ctx->kofiPose = kofiSheetPose(ctx, &ctx->kofiW, &ctx->kofiH);
+    LOGEV("Ko-fi sheet open from the About tab");
+}
+
 // A press on a slider. The eyes only choose the row, so a gaze press hands the
 // drag to the hand that pinched and remembers where the thumb was put.
 static void cogStartDrag(XrCtx* ctx, InputFrame* f, int h, int face, int row, float pu,
@@ -2237,9 +2256,8 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             break;
         }
 
-        // The About tab has no rows, only the button that opens the report
-        // sheet in the panel's place and the one Java opens Ko-fi from in the
-        // browser, which leaves the panel as it is
+        // The About tab has no rows, only the two buttons that open the
+        // report sheet and the Ko-fi sheet in the panel's place
         if (face == COG_TAB_ABOUT) {
             ctx->cogReportHot = cogReportButtonAt(pu, pv);
             ctx->cogKofiHot = cogKofiButtonAt(pu, pv);
@@ -2250,9 +2268,8 @@ static void updateCogPanel(XrCtx* ctx, InputFrame* f) {
             }
             else if (ctx->cogKofiHot && ctx->triggerEdge[h]) {
                 ctx->clickPending = 1;
-                f->out[IN_KOFI] = 1.0f;
+                openKofi(ctx);
                 swallowTrigger(ctx, h);
-                LOGEV("Ko-fi pressed on the About tab");
             }
             break;
         }
@@ -2511,6 +2528,59 @@ static void updateHandHint(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// Modal like the hint, against the pose frozen when it opened. It is there to
+// be read and scanned, so any press or pinch puts it away, on its Close
+// button, anywhere else on or off it, or on the cog button that stays up
+// beside it, and reaches nothing behind.
+static void updateKofiSheet(XrCtx* ctx, InputFrame* f) {
+    f->hover = HOVER_KOFI;
+    f->hand = -1;
+    int zone = KOFI_ZONE_NONE;
+    for (int h = 0; h < SRC_COUNT; h++) {
+        float pu, pv;
+        if (!canPoint(ctx, f, h)) {
+            continue;
+        }
+        if (!screenProject(f->aimPoses[h], ctx->kofiPose, ctx->kofiW, ctx->kofiH,
+                           0.0f, 0, &pu, &pv)) {
+            continue;
+        }
+        if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+            continue;
+        }
+        f->hand = h;
+        f->hitU[h] = pu;
+        f->hitV[h] = pv;
+        zone = kofiSheetZone(pu, pv);
+        break;
+    }
+    ctx->kofiHoverZone = zone;
+
+    int pressed = -1;
+    for (int h = 0; h < SRC_COUNT && pressed < 0; h++) {
+        if (ctx->triggerEdge[h]) {
+            pressed = h;
+        }
+    }
+    if (pressed < 0) {
+        return;
+    }
+    int onClose = pressed == f->hand && zone == KOFI_ZONE_CLOSE;
+    if (onClose) {
+        ctx->clickPending = 1;
+    }
+    ctx->kofiOpen = 0;
+    ctx->kofiHoverZone = KOFI_ZONE_NONE;
+    int byHand = pressed == SRC_GAZE
+            || (pressed < HAND_COUNT && ctx->profileKind[pressed] != PROFILE_CONTROLLER);
+    LOGEV("Ko-fi sheet put away by %s", onClose ? "Close" : byHand ? "a pinch" : "a press");
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (ctx->triggerEdge[h]) {
+            swallowTrigger(ctx, h);
+        }
+    }
+}
+
 // Lights whichever piece of furniture the ray is on, and acts on a press there.
 // A press on any of them, a key included, ticks.
 static void updateFurniture(XrCtx* ctx, InputFrame* f) {
@@ -2618,7 +2688,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
 // dismiss it while the first is still on the screen.
 static void dismissKeyboard(XrCtx* ctx, InputFrame* f) {
     if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
-            && !ctx->reportOpen && !ctx->hintOpen) {
+            && !ctx->reportOpen && !ctx->hintOpen && !ctx->kofiOpen) {
         for (int h = 0; h < SRC_COUNT; h++) {
             if (!canPoint(ctx, f, h) || !ctx->triggerEdge[h]) {
                 continue;
@@ -3154,6 +3224,7 @@ static void padPutPanelsAway(XrCtx* ctx, float* out) {
     ctx->exitConfirmOpen = 0;
     ctx->reportOpen = 0;
     ctx->hintOpen = 0;
+    ctx->kofiOpen = 0;
     ctx->buttonsDown = 0;
 }
 
@@ -3404,6 +3475,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     else if (ctx->hintOpen) {
         updateHandHint(ctx, &f);
     }
+    else if (ctx->kofiOpen) {
+        updateKofiSheet(ctx, &f);
+    }
     else {
         updateFurniture(ctx, &f);
     }
@@ -3473,7 +3547,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_EXITBUTTON
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
             || f.hover == HOVER_RAYBUTTON || f.hover == HOVER_AIMBUTTON
-            || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT)
+            || f.hover == HOVER_PADBUTTON || f.hover == HOVER_REPORT || f.hover == HOVER_KOFI)
             && f.headValid && f.hand >= 0) {
         beamToFurniture(ctx, &f);
     }
