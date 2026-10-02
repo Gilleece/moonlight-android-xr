@@ -1113,7 +1113,7 @@ static void swallowTrigger(XrCtx* ctx, int src) {
 // rather than the picture itself
 static int onFurniture(int hover) {
     return hover == HOVER_BAR || hover == HOVER_ENVBUTTON || hover == HOVER_COGBUTTON
-            || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON || hover == HOVER_LOCK
+            || hover == HOVER_KBBUTTON || hover == HOVER_EXITBUTTON
             || hover == HOVER_STEREOBUTTON || hover == HOVER_RAYBUTTON
             || hover == HOVER_AIMBUTTON || hover == HOVER_PADBUTTON;
 }
@@ -1143,6 +1143,9 @@ static Vec3 furniturePoint(XrCtx* ctx, int hover, float u, float v, XrPosef scre
     }
     if (hover == HOVER_REPORT) {
         return screenPoint(u, v, ctx->reportPose, ctx->reportW, ctx->reportH, 0.0f, 0);
+    }
+    if (hover == HOVER_HINT) {
+        return screenPoint(u, v, ctx->hintPose, ctx->hintW, ctx->hintH, 0.0f, 0);
     }
     return screenPoint(u, v, screenPose, ctx->screenWidth, height, radius, curved);
 }
@@ -1200,9 +1203,6 @@ typedef struct {
     float hitV[SRC_COUNT];
     int hovers[SRC_COUNT];
     int corners[SRC_COUNT];
-    // Tracked separately from the hover, because the lock filter wipes the
-    // hovers and this is what says which source to spare
-    int atLock[SRC_COUNT];
     int moved;
     // The same per hand, for each controller's own clock
     int handMoved[HAND_COUNT];
@@ -1362,10 +1362,10 @@ static void releaseInput(XrCtx* ctx, float* out) {
     }
 }
 
-// The buttons along the bar and the padlock, claimed off what the hover test
-// said about the same point. u and v are on the furniture's frame, which is
-// the picture outside a room and the stand in inside one.
-static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, float v) {
+// The buttons along the bar, claimed off what the hover test said about the
+// same point. u and v are on the furniture's frame, which is the picture
+// outside a room and the stand in inside one.
+static int furnitureHover(XrCtx* ctx, int hover, float u, float v) {
     float height = furnitureHeight(ctx);
     // The button reaches past the left end of the bar's zone, so it is tested
     // here rather than after a hand has been picked. Otherwise the part of it
@@ -1380,8 +1380,7 @@ static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, 
     }
     // And the keyboard is one further out again, far enough out that it sits
     // past the right end of the bar's zone entirely. That is halo ground, so
-    // like the padlock on the left it has to claim the halo back or the ray
-    // never reaches it.
+    // it has to claim the halo back or the ray never reaches it.
     if ((hover == HOVER_NONE || hover == HOVER_BAR || hover == HOVER_HALO)
             && kbButtonHit(ctx, u, v, height)) {
         hover = HOVER_KBBUTTON;
@@ -1412,14 +1411,6 @@ static int furnitureHover(XrCtx* ctx, InputFrame* f, int h, int hover, float u, 
             && stereoButtonHit(ctx, u, v, height)) {
         hover = HOVER_STEREOBUTTON;
     }
-    // Off the left edge, so the halo owns that ground until the padlock claims
-    // it back
-    if (ctx->handsEnabled && ctx->lockIconShown && hover != HOVER_ENVBUTTON
-            && (hover == HOVER_NONE || hover == HOVER_HALO)
-            && lockButtonHit(ctx, u, v, height)) {
-        hover = HOVER_LOCK;
-        f->atLock[h] = 1;
-    }
     return hover;
 }
 
@@ -1449,7 +1440,7 @@ static void roomHover(XrCtx* ctx, InputFrame* f, int h) {
     if (screenProject(f->aimPoses[h], standInPose(), standW, standH, 0.0f, 0, &su, &sv)) {
         int unused;
         int stand = hoverTest(su, sv, standW, standH, 0.0f, &unused);
-        stand = furnitureHover(ctx, f, h, stand, su, sv);
+        stand = furnitureHover(ctx, stand, su, sv);
         if (onFurniture(stand)) {
             f->hovers[h] = stand;
             f->hitU[h] = su;
@@ -1485,7 +1476,7 @@ static void hoverSource(XrCtx* ctx, InputFrame* f, int h) {
                           f->radius, f->curved, &f->hitU[h], &f->hitV[h])) {
             int hover = hoverTest(f->hitU[h], f->hitV[h], ctx->screenWidth, f->height,
                                   f->cornerSide, &f->corners[h]);
-            f->hovers[h] = furnitureHover(ctx, f, h, hover, f->hitU[h], f->hitV[h]);
+            f->hovers[h] = furnitureHover(ctx, hover, f->hitU[h], f->hitV[h]);
         }
     }
     else {
@@ -1692,7 +1683,19 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
     }
 }
 
-// Locks the hands out or lets them back in, from the padlock or the gesture
+// Puts the hand lock hint away, for good when asked, which Java stores so later
+// sessions skip it
+static void closeHandHint(XrCtx* ctx, InputFrame* f, int forGood, const char* by) {
+    ctx->hintOpen = 0;
+    ctx->hintHoverZone = HINT_ZONE_NONE;
+    if (forGood) {
+        f->out[IN_HINT] = 1.0f;
+    }
+    LOGEV("hand lock hint put away by %s, %s", by,
+          forGood ? "not shown again" : "back next session");
+}
+
+// Locks the hands out or lets them back in, from the ring pinch
 static void setHandsLocked(XrCtx* ctx, int locked, const char* from) {
     ctx->handsLocked = locked;
     LOGEV("hands %s by %s", locked ? "locked" : "unlocked", from);
@@ -1744,11 +1747,10 @@ static void logRingCheck(XrCtx* ctx, const InputFrame* f, int h, int why) {
          ctx->handsLocked ? "locked" : "unlocked");
 }
 
-// The thumb to ring finger gesture, which turns the lock the way the padlock
-// does and works whether the padlock is shown or not. Read before the lock is
-// applied, since a locked hand has to be able to use it to get back. Judged on
-// the joints alone: the runtime's pinch and grip read a press and a grab while
-// the fingers curl for it, so they are only logged.
+// The thumb to ring finger gesture, which is what turns the lock. Read before
+// the lock is applied, since a locked hand has to be able to use it to get
+// back. Judged on the joints alone: the runtime's pinch and grip read a press
+// and a grab while the fingers curl for it, so they are only logged.
 static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
     for (int h = 0; h < HAND_COUNT; h++) {
         if (!ctx->handsEnabled || ctx->profileKind[h] == PROFILE_CONTROLLER) {
@@ -1770,6 +1772,10 @@ static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
         }
         logRingCheck(ctx, f, h, why);
         if (fired) {
+            // Trying what the hint says puts the hint away too
+            if (ctx->hintOpen) {
+                closeHandHint(ctx, f, 0, "the ring pinch");
+            }
             setHandsLocked(ctx, !ctx->handsLocked, "the ring pinch");
             // Nothing in view moves when a gesture locks the hands, so the
             // toast says so
@@ -1779,34 +1785,20 @@ static void updateLockGesture(XrCtx* ctx, InputFrame* f) {
     }
 }
 
-// Keeps locked hands off everything but the padlock, and gives gaze the pinch
-// it clicks with
+// Keeps locked hands off everything, and gives gaze the pinch it clicks with
 static void applyHandLock(XrCtx* ctx, InputFrame* f) {
-    // Locked hands reach the padlock and nothing else. Everything is dropped
-    // at once, the aim as well as the pinch, so there is no ray to chase, no
-    // click to land and no grab to start. Controllers are untouched: they
-    // never had the problem, and one has to stay able to unlock.
+    // Locked hands reach nothing. Everything is dropped at once, the aim as
+    // well as the pinch, so there is no ray to chase, no click to land and no
+    // grab to start. The ring pinch is read before this, so it still gets
+    // them back. Controllers are untouched: they never had the problem.
     for (int h = 0; h < HAND_COUNT; h++) {
-        if (!ctx->handsLocked || !ctx->usingHands[h] || f->atLock[h]) {
+        if (!ctx->handsLocked || !ctx->usingHands[h]) {
             continue;
         }
         f->hovers[h] = HOVER_NONE;
         f->aimValid[h] = 0;
-        // The eyes on the padlock still get the pinch that presses it, since
-        // a hand that only pinches has no ray of its own to reach it with
-        if (!f->atLock[SRC_GAZE]) {
-            ctx->triggerDown[h] = 0;
-            ctx->triggerEdge[h] = 0;
-        }
-    }
-
-    for (int h = 0; h < SRC_COUNT; h++) {
-        if (!f->atLock[h]) {
-            ctx->lockArmed[h] = 0;
-        }
-        else if (!ctx->triggerDown[h]) {
-            ctx->lockArmed[h] = 1;
-        }
+        ctx->triggerDown[h] = 0;
+        ctx->triggerEdge[h] = 0;
     }
 
     gazeTrigger(ctx, f);
@@ -1883,13 +1875,6 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
             ctx->pinchSwallowed[h] = 0;
             continue;
         }
-        // A pinch on the padlock is always meant as a press. The swallow is
-        // there to keep a waking pinch off the host, and the padlock is not
-        // the host, so charging the user a pinch for it buys nothing.
-        if (f->atLock[h]) {
-            ctx->pinchSwallowed[h] = 0;
-            continue;
-        }
         if (ctx->triggerDown[h]) {
             f->pinching = 1;
             if (!ctx->pointerAwake) {
@@ -1953,6 +1938,13 @@ static void updatePointerWake(XrCtx* ctx, InputFrame* f) {
         ctx->stillFor = 0.0f;
     }
 
+    // The hand lock hint waits on a press, so the pointer stays up under it.
+    // Retiring there would cost the press that puts it away as a waking pinch.
+    if (ctx->hintOpen) {
+        ctx->pointerAwake = 1;
+        ctx->stillFor = 0.0f;
+    }
+
     updateControllerClocks(ctx, f);
 }
 
@@ -1993,10 +1985,7 @@ static void pickPointingSource(XrCtx* ctx, InputFrame* f) {
         }
     }
 
-    // The padlock is reachable with the pointer asleep, because locking is
-    // what put it to sleep and there would otherwise be no way back
-    int reachingLock = f->hand >= 0 && f->atLock[f->hand];
-    if (!ctx->pointerAwake && !reachingLock && ctx->grabMode == GRAB_NONE) {
+    if (!ctx->pointerAwake && ctx->grabMode == GRAB_NONE) {
         f->hand = -1;
         for (int h = 0; h < SRC_COUNT; h++) {
             f->hovers[h] = HOVER_NONE;
@@ -2018,7 +2007,6 @@ static void clearHotState(XrCtx* ctx) {
     ctx->cogHoverSlider = -1;
     ctx->cogHoverCell = -1;
     ctx->cogHoverStep = 0;
-    ctx->lockHot = 0;
     ctx->pickerPick = -1;
     ctx->kbButtonHot = 0;
     ctx->kbHoverKey = -1;
@@ -2507,6 +2495,95 @@ static void updateReport(XrCtx* ctx, InputFrame* f) {
     }
 }
 
+// The hand lock hint comes up the first time in a session a hand is doing the
+// pointing, once it has for a moment, with nothing else up, nothing held and
+// the hands not locked, and only once its art has arrived: a modal nobody can
+// see would eat every press
+static void updateHintOpening(XrCtx* ctx, InputFrame* f) {
+    if (!ctx->hintWanted || ctx->hintShown || !ctx->hintReady) {
+        return;
+    }
+    int hand = -1;
+    for (int h = 0; h < HAND_COUNT && hand < 0; h++) {
+        if (ctx->usingHands[h] && f->aimValid[h] && !f->pinchOnly[h]) {
+            hand = h;
+        }
+    }
+    int clear = !panelUp(ctx) && !ctx->panelFadingOut && !ctx->handsLocked
+            && !ctx->controllerAwake && !pressHeld(ctx);
+    if (hand < 0 || !clear) {
+        ctx->hintPointingNs = 0;
+        return;
+    }
+    if (ctx->hintPointingNs == 0) {
+        ctx->hintPointingNs = f->now;
+    }
+    if (f->now - ctx->hintPointingNs < HINT_POINTING_NS) {
+        return;
+    }
+    ctx->hintOpen = 1;
+    ctx->hintShown = 1;
+    ctx->hintHoverZone = HINT_ZONE_NONE;
+    ctx->hintPose = handHintPose(ctx, &ctx->hintW, &ctx->hintH);
+    // The press that puts it away wants a ray to aim with
+    ctx->pointerAwake = 1;
+    ctx->stillFor = 0.0f;
+    LOGEV("hand lock hint up: hand %d is pointing", hand);
+}
+
+// Modal like the exit prompt, against the pose frozen when it opened. All it
+// asks is to be read, so any press puts it away: on "Don't show this again"
+// for good, anywhere else for this session.
+static void updateHandHint(XrCtx* ctx, InputFrame* f) {
+    f->hover = HOVER_HINT;
+    f->hand = -1;
+    int zone = HINT_ZONE_NONE;
+    for (int h = 0; h < SRC_COUNT; h++) {
+        float pu, pv;
+        if (!canPoint(ctx, f, h)) {
+            continue;
+        }
+        if (!screenProject(f->aimPoses[h], ctx->hintPose, ctx->hintW, ctx->hintH,
+                           0.0f, 0, &pu, &pv)) {
+            continue;
+        }
+        if (pu < 0.0f || pu > 1.0f || pv < 0.0f || pv > 1.0f) {
+            continue;
+        }
+        f->hand = h;
+        f->hitU[h] = pu;
+        f->hitV[h] = pv;
+        zone = handHintZone(pu, pv);
+        break;
+    }
+    ctx->hintHoverZone = zone;
+
+    // The source on the sheet first, so a pinch the eyes aimed at a button
+    // lands on it rather than reading as a press off it from the hand
+    int pressed = f->hand >= 0 && ctx->triggerEdge[f->hand] ? f->hand : -1;
+    for (int h = 0; h < SRC_COUNT && pressed < 0; h++) {
+        if (ctx->triggerEdge[h]) {
+            pressed = h;
+        }
+    }
+    if (pressed < 0) {
+        return;
+    }
+    int on = pressed == f->hand ? zone : HINT_ZONE_NONE;
+    if (on != HINT_ZONE_NONE) {
+        ctx->clickPending = 1;
+    }
+    closeHandHint(ctx, f, on == HINT_ZONE_NEVER,
+                  on == HINT_ZONE_NEVER ? "\"Don't show this again\""
+                  : on == HINT_ZONE_OK ? "OK" : "a press off its buttons");
+    // The press was the sheet's, not the host's behind it
+    for (int h = 0; h < SRC_COUNT; h++) {
+        if (ctx->triggerEdge[h]) {
+            swallowTrigger(ctx, h);
+        }
+    }
+}
+
 // Lights whichever piece of furniture the ray is on, and acts on a press there.
 // A press on any of them, a key included, ticks.
 static void updateFurniture(XrCtx* ctx, InputFrame* f) {
@@ -2515,7 +2592,6 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             || f->hover == HOVER_KBBUTTON || f->hover == HOVER_EXITBUTTON
             || f->hover == HOVER_STEREOBUTTON || f->hover == HOVER_RAYBUTTON
             || f->hover == HOVER_AIMBUTTON || f->hover == HOVER_PADBUTTON
-            || (f->hover == HOVER_LOCK && ctx->lockArmed[f->hand])
             || (f->hover == HOVER_KBPANEL
                 && kbKeyAt(ctx, f->hitU[f->hand], f->hitV[f->hand]) >= 0))) {
         ctx->clickPending = 1;
@@ -2605,13 +2681,6 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
             pressKey(ctx, f, key, 0);
         }
     }
-    else if (f->hover == HOVER_LOCK) {
-        ctx->lockHot = 1;
-        if (ctx->triggerEdge[f->hand] && ctx->lockArmed[f->hand]) {
-            ctx->lockArmed[f->hand] = 0;
-            setHandsLocked(ctx, !ctx->handsLocked, "the padlock");
-        }
-    }
 }
 
 // A press that lands on nothing at all puts the keyboard away, the same way
@@ -2622,7 +2691,7 @@ static void updateFurniture(XrCtx* ctx, InputFrame* f) {
 // dismiss it while the first is still on the screen.
 static void dismissKeyboard(XrCtx* ctx, InputFrame* f) {
     if (ctx->kbOpen && !ctx->pickerOpen && !ctx->cogOpen && !ctx->exitConfirmOpen
-            && !ctx->reportOpen) {
+            && !ctx->reportOpen && !ctx->hintOpen) {
         for (int h = 0; h < SRC_COUNT; h++) {
             if (!canPoint(ctx, f, h) || !ctx->triggerEdge[h]) {
                 continue;
@@ -3157,6 +3226,7 @@ static void padPutPanelsAway(XrCtx* ctx, float* out) {
     ctx->kbOpen = 0;
     ctx->exitConfirmOpen = 0;
     ctx->reportOpen = 0;
+    ctx->hintOpen = 0;
     ctx->buttonsDown = 0;
 }
 
@@ -3252,7 +3322,6 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
                                                               jboolean headLocked,
                                                               jboolean pointerEnabled,
                                                               jboolean gazeEnabled,
-                                                              jboolean lockIcon,
                                                               jboolean pointerSleep,
                                                               jfloatArray outArr) {
     XrCtx* ctx = (XrCtx*)(intptr_t)handle;
@@ -3260,7 +3329,6 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     memset(out, 0, sizeof(out));
     if (ctx != NULL) {
         ctx->gazeEnabled = gazeEnabled;
-        ctx->lockIconShown = lockIcon;
         ctx->pointerSleepOn = pointerSleep;
         ctx->headLockedPref = headLocked;
         // Before anything asks who is pointing, off the last frame's clocks and
@@ -3392,6 +3460,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     updatePointerWake(ctx, &f);
     pickPointingSource(ctx, &f);
     clearHotState(ctx);
+    updateHintOpening(ctx, &f);
     if (ctx->pickerOpen) {
         updatePicker(ctx, &f);
     }
@@ -3403,6 +3472,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     }
     else if (ctx->reportOpen) {
         updateReport(ctx, &f);
+    }
+    else if (ctx->hintOpen) {
+        updateHandHint(ctx, &f);
     }
     else {
         updateFurniture(ctx, &f);
@@ -3467,7 +3539,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
     // at them must not drag the host cursor to the edge
     int hit = (f.hover == HOVER_SCREEN || f.hover == HOVER_CORNER) && f.hand != SRC_GAZE;
     if ((f.hover == HOVER_BAR || f.hover == HOVER_ENVBUTTON || f.hover == HOVER_PICKER
-            || f.hover == HOVER_LOCK || f.hover == HOVER_HALO || f.hover == HOVER_COGBUTTON
+            || f.hover == HOVER_HINT || f.hover == HOVER_HALO || f.hover == HOVER_COGBUTTON
             || f.hover == HOVER_COGPANEL || f.hover == HOVER_KBBUTTON
             || f.hover == HOVER_KBPANEL || f.hover == HOVER_EXITBUTTON
             || f.hover == HOVER_EXITPROMPT || f.hover == HOVER_STEREOBUTTON
@@ -3523,4 +3595,19 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetScreenPose(JNIEnv* env, job
     ctx->sliderSeen = 0;
     LOGI("restored screen placement %.2f %.2f %.2f, %.2f m wide",
          p[0], p[1], p[2], p[7]);
+}
+
+// Whether this session may show the hand lock hint: hands on, and the hint not
+// put away for good in an earlier one. Handed down before the first frame.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeSetHandHint(JNIEnv* env, jobject thiz,
+                                                              jlong handle, jboolean wanted) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->hintWanted = wanted && ctx->handsEnabled;
+    LOGI("hand lock hint %s", ctx->hintWanted ? "shows the first time a hand points"
+                              : ctx->handsEnabled ? "put away for good in an earlier session"
+                                                  : "not wanted, hands are off");
 }

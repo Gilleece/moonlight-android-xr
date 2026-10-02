@@ -247,8 +247,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private final ConcurrentLinkedQueue<NoticeWords> pendingNotices = new ConcurrentLinkedQueue<>();
     private final NoticeWords[] noticeTexts = new NoticeWords[TOAST_TEXT_SLOTS];
     private int noticeSlot;
-    private final AtomicReference<ByteBuffer> pendingLockShut = new AtomicReference<>();
-    private final AtomicReference<ByteBuffer> pendingLockOpen = new AtomicReference<>();
+    // The hand lock hint's sheet, only drawn in a session that may show it
+    private final AtomicReference<ByteBuffer> pendingHandHint = new AtomicReference<>();
     // The 3D switch's two faces, only drawn in a session with stereo to switch
     private final AtomicReference<ByteBuffer> pendingStereoOff = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingStereoOn = new AtomicReference<>();
@@ -439,8 +439,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeUpdateInput(long ctx, float distance, float quadWidth,
                                           float curvature, boolean headLocked,
                                           boolean pointerEnabled, boolean gazeEnabled,
-                                          boolean lockIcon, boolean pointerSleep,
-                                          float[] out);
+                                          boolean pointerSleep, float[] out);
     private native void nativeSetScreenPose(long ctx, float[] pose);
     // The room's assets name the picker cell they belong to, which the native
     // side turns into its own room style
@@ -476,7 +475,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native boolean nativeGetCylinderSupported(long ctx);
     private native boolean nativeHasBeenFocused(long ctx);
     private native String nativeGetRuntime(long ctx);
-    private native void nativeUploadLock(long ctx, ByteBuffer shut, ByteBuffer open);
+    private native void nativeUploadHandHint(long ctx, ByteBuffer sheet);
+    // Whether this session may show the hand lock hint, before the first frame
+    private native void nativeSetHandHint(long ctx, boolean wanted);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadRayButton(long ctx, ByteBuffer off, ByteBuffer on);
     private native void nativeUploadAimButton(long ctx, ByteBuffer off, ByteBuffer on);
@@ -1035,8 +1036,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             // The pointer sleep row on the panel writes back to this same
             // object, so it is read fresh each frame like head lock
             nativeUpdateInput(nativeCtx, distance, quadWidth, curvature, headLocked,
-                    pointer, gaze && gazeAllowed, prefs.vrShowHandLock, prefs.vrPointerSleep,
-                    inputState);
+                    pointer, gaze && gazeAllowed, prefs.vrPointerSleep, inputState);
             headYaw = inputState[IN_HEAD_YAW];
             dispatchInput();
             updateReport();
@@ -1133,10 +1133,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadExit(nativeCtx, exitButton, exitPlain, exitHot, cancelHot);
             }
 
-            ByteBuffer shut = pendingLockShut.getAndSet(null);
-            ByteBuffer open = pendingLockOpen.getAndSet(null);
-            if (shut != null && open != null) {
-                nativeUploadLock(nativeCtx, shut, open);
+            ByteBuffer hint = pendingHandHint.getAndSet(null);
+            if (hint != null) {
+                nativeUploadHandHint(nativeCtx, hint);
             }
 
             ByteBuffer stereoOff = pendingStereoOff.getAndSet(null);
@@ -1248,6 +1247,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // one way the controllers switch themselves
         nativeSetGamepad(nativeCtx, prefs.vrGamepadToggle, prefs.deadzonePercentage);
         nativeSetControllerModel(nativeCtx, prefs.vrControllerModel);
+        final boolean handHint = prefs.vrHandTracking && !prefs.vrHandLockHintSeen;
+        nativeSetHandHint(nativeCtx, handHint);
 
         final int startRoom = cell;
         final int roomTicketAtStart;
@@ -1266,7 +1267,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 if (click) {
                     startClickSound();
                 }
-                buildPanelArt();
+                buildPanelArt(handHint);
                 pendingControllerModel.set(readAsset(CONTROLLER_MODEL));
                 loadRoomAssets(startRoom, roomTicketAtStart);
             }
@@ -1275,14 +1276,13 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         loader.start();
     }
 
-    // Every panel, drawn once and parked for the frame loop
-    private void buildPanelArt() {
+    // Every panel, drawn once and parked for the frame loop. The hand lock
+    // hint only where the session may show it.
+    private void buildPanelArt(boolean handHint) {
         pendingPickerArt.set(panels.buildPickerGrid());
         pendingEnvButton.set(panels.buildEnvButton());
-        ByteBuffer[] locks = panels.buildLockIcons();
-        if (locks != null) {
-            pendingLockShut.set(locks[0]);
-            pendingLockOpen.set(locks[1]);
+        if (handHint) {
+            pendingHandHint.set(panels.buildHandHint());
         }
 
         // Curvature needs a layer type the runtime may not offer, and a slider
@@ -1550,6 +1550,14 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         int pick = (int)inputState[IN_PICKER_PICK];
         if (pick >= 0) {
             chooseEnvironment(pick);
+        }
+
+        // "Don't show this again" on the hand lock hint, kept for every
+        // session after this one
+        if (inputState[IN_HINT] != 0.0f && prefsContext != null) {
+            PreferenceConfiguration.markHandLockHintSeen(
+                    PreferenceManager.getDefaultSharedPreferences(prefsContext));
+            FileLog.event("hand lock hint put away for good");
         }
 
         int setting = (int)inputState[IN_SETTING];

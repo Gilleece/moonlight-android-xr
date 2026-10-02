@@ -29,16 +29,16 @@
 //   About tab in a room: no rows, so the room, the glow, both eyes, the
 //     stats, the cog button, the panel, the clock, the ring on its button,
 //     ray and cursor: 11.
-//   The bar: the pill, all seven buttons (exit, gamepad, environment, cog,
-//     keyboard, ray, 3D) and the padlock over the glow, both eyes, the stats,
-//     ray and cursor: 15, and 15 in a room, where the pill gives way to the
-//     room's own layer. 16 with the toast. With the ray switched off it is
-//     one fewer, since the bar is not a panel and brings no beam back. With
-//     the screen locked to the head, outside a room, head aim's button is an
-//     eighth: 16, 17 with the toast, one past.
+//   The bar: the pill and all seven buttons (exit, gamepad, environment, cog,
+//     keyboard, ray, 3D) over the glow, both eyes, the stats, ray and cursor:
+//     14, and 14 in a room, where the pill gives way to the room's own layer.
+//     15 with the toast. With the ray switched off it is one fewer, since the
+//     bar is not a panel and brings no beam back. With the screen locked to
+//     the head, outside a room, head aim's button is an eighth: 15, 16 with
+//     the toast.
 //   The controller models are a projection layer of their own, over the
 //     picture and the panels and under the beam, one more on any of these
-//     while a model shows: the bar to 16, 17 with the toast (17 and 18 with
+//     while a model shows: the bar to 15, 16 with the toast (16 and 17 with
 //     head aim's button), the Display tab to 15 and the About tab to 12, and
 //     the screen, 3D and Picture tabs to 17 and the Room tab to 18, which go
 //     over, and the head locked screen tab to 20.
@@ -47,14 +47,18 @@
 // nativeEndFrame), which brings every case above to 16 or under with the
 // toast up. The head locked screen tab at its fullest, models and toast
 // included, is 21 and comes down to exactly 16; the head locked bar at its
-// fullest is 18 and comes down to 16.
+// fullest is 17 and comes down to 16.
 // Switching the 3D off only ever takes a layer away: both eyes are then one.
 // The keyboard sheds the bar furniture and adds only its panel and one ring,
 // so it comes to 9. The report sheet puts the settings panel away and brings
 // the keyboard up under it, so it is the keyboard's 9 and its own sheet: 10.
 // Each is one more with the controller models up.
 // The exit prompt sheds the furniture too and adds its own sheet and the
-// button that opened it, so it comes to less again. A panel fading out
+// button that opened it, so it comes to less again. The hand lock hint is a
+// modal the same way: it sheds the furniture and adds its sheet and the ring
+// on the button under the ray, which takes the hover ring's slot and so goes
+// with it, so the room, the glow, both eyes, the stats, the sheet, the ring,
+// ray and cursor: 9, with the models and the toast 11. A panel fading out
 // keeps the bar furniture down until it has gone, and one opening cuts any
 // other's fade short, so a fade never stacks two of these. The launch splash
 // is two layers and all the frame carries while it is fully up; as it fades
@@ -90,7 +94,7 @@ typedef struct {
     XrCompositionLayerQuad padButton;
     XrCompositionLayerQuad exitPrompt;
     XrCompositionLayerQuad report;
-    XrCompositionLayerQuad lock;
+    XrCompositionLayerQuad hint;
     XrCompositionLayerQuad picker;
     XrCompositionLayerQuad outline[2];
     XrCompositionLayerQuad cogPanel;
@@ -685,36 +689,34 @@ static void addReportLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layer
     }
 }
 
-// The padlock on the left edge
-static void addLockLayer(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
-    // The padlock. Comes and goes like the rest of the furniture rather
-    // than sitting there permanently, so it costs nothing to look at while
-    // playing. Reaching for the bar shows it too, since that is where
-    // people go looking when they want to change something. A setting can
-    // hide it altogether, which leaves the gesture as the way to the lock,
-    // and the toast says when that turns it.
-    if (ctx->handsEnabled && ctx->lockIconShown && ctx->lockArtReady
-            && (ctx->hoverKind == HOVER_LOCK || view->barArea)) {
-        Vec3 local;
-        float side;
-        float lockYaw = 0.0f;
-        lockButtonPlacement(ctx, &local, &side);
-        // Hangs off the left edge, which on a curved screen is well in
-        // front of the flat plane the placement is measured in. A room's
-        // picture is never curved, and its furniture is on the stand in.
-        curveLocal(&local, ctx->screenRadius, view->screenCurved, &lockYaw);
-        Vec3 yawAxis = { 0.0f, 1.0f, 0.0f };
-        float lockScale = ctx->lockHot ? 1.18f : 1.0f;
-        XrPosef frame = furniturePose(ctx);
-
-        quadLayer(&layers->lock, NULL, XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT,
-                  ctx->handsLocked ? ctx->lockSwapchain : ctx->unlockSwapchain,
-                  LOCK_TEX, LOCK_TEX, view->space, poseOffset(frame, local),
-                  side * lockScale, side * lockScale);
-        layers->lock.pose.orientation = quatNorm(quatMul(frame.orientation,
-                                                         axisAngleQuat(yawAxis, lockYaw)));
-        pushLayer(ctx, layers, &layers->lock);
+// The hand lock hint, on the pose frozen when it opened, and the ring on the
+// button under the ray in the hover ring's slot. Sharpened, since it is text.
+static void addHandHintLayers(XrCtx* ctx, const FrameView* view, FrameLayers* layers) {
+    float level = ctx->panelFades[FADE_HINT].level;
+    if (level <= 0.0f || !ctx->hintReady) {
+        return;
     }
+    quadLayer(&layers->hint, fadeNext(ctx, layers, FADE_HINT, 1, level),
+              XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->hintSwapchain,
+              HINT_TEX_W, HINT_TEX_H, view->space, ctx->hintPose, ctx->hintW, ctx->hintH);
+    pushLayer(ctx, layers, &layers->hint);
+
+    int zone = ctx->hintHoverZone;
+    if (!ctx->hintOpen || zone == HINT_ZONE_NONE || !ctx->outlineReady) {
+        return;
+    }
+    float l = zone == HINT_ZONE_OK ? HINT_OK_L : HINT_NEVER_L;
+    float r = zone == HINT_ZONE_OK ? HINT_OK_R : HINT_NEVER_R;
+    Vec3 local;
+    local.x = ((l + r) * 0.5f - 0.5f) * ctx->hintW;
+    local.y = (0.5f - (HINT_BTN_T + HINT_BTN_B) * 0.5f) * ctx->hintH;
+    local.z = 0.004f;
+    XrCompositionLayerQuad* mark = &layers->cogMark[COG_OPTION_COUNT];
+    quadLayer(mark, fadeNext(ctx, layers, FADE_HINT, 0, level),
+              XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT, ctx->outlineSwapchain,
+              OUTLINE_TEX, OUTLINE_TEX, view->space, poseOffset(ctx->hintPose, local),
+              (r - l) * ctx->hintW * 1.04f, (HINT_BTN_B - HINT_BTN_T) * ctx->hintH * 1.12f);
+    pushLayer(ctx, layers, mark);
 }
 
 // The environment grid and the rings on its hovered and chosen cells
@@ -1134,9 +1136,10 @@ static void addToastLayer(XrCtx* ctx, FrameLayers* layers, long now) {
 // and the keyboard stands down at once for a modal the way it always has.
 static void stepPanelFades(XrCtx* ctx, long now) {
     static const char* const NAMES[FADE_PANELS] = {
-        "settings panel", "picker", "keyboard", "exit prompt", "report sheet"
+        "settings panel", "picker", "keyboard", "exit prompt", "report sheet", "hand lock hint"
     };
-    int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen || ctx->reportOpen;
+    int modal = ctx->pickerOpen || ctx->cogOpen || ctx->exitConfirmOpen || ctx->reportOpen
+            || ctx->hintOpen;
     int shown[FADE_PANELS];
     shown[FADE_COG] = ctx->cogOpen;
     shown[FADE_PICKER] = ctx->pickerOpen;
@@ -1144,6 +1147,7 @@ static void stepPanelFades(XrCtx* ctx, long now) {
     shown[FADE_KB] = ctx->kbOpen && (!modal || ctx->reportOpen);
     shown[FADE_EXIT] = ctx->exitConfirmOpen;
     shown[FADE_REPORT] = ctx->reportOpen;
+    shown[FADE_HINT] = ctx->hintOpen;
     ctx->panelFadingOut = 0;
     for (int p = 0; p < FADE_PANELS; p++) {
         Fade* fade = &ctx->panelFades[p];
@@ -1384,7 +1388,8 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     stepSplash(ctx, frameNs);
     int splashUp = ctx->splash.phase == SPLASH_UP;
     view.barArea = !ctx->pickerOpen && !ctx->cogOpen && !ctx->kbOpen
-            && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->panelFadingOut
+            && !ctx->exitConfirmOpen && !ctx->reportOpen && !ctx->hintOpen
+            && !ctx->panelFadingOut
             && (ctx->hoverKind == HOVER_BAR || ctx->hoverKind == HOVER_ENVBUTTON
                 || ctx->hoverKind == HOVER_COGBUTTON
                 || ctx->hoverKind == HOVER_KBBUTTON
@@ -1432,10 +1437,10 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         addHandleLayer(ctx, &view, &layers);
         addBarButtonLayers(ctx, &view, &layers);
         addExitPromptLayer(ctx, &view, &layers);
-        addLockLayer(ctx, &view, &layers);
         addPickerLayers(ctx, &view, &layers);
         addCogLayers(ctx, &view, &layers);
         addReportLayer(ctx, &view, &layers);
+        addHandHintLayers(ctx, &view, &layers);
         addKeyboardLayers(ctx, &view, &layers);
         addModelLayer(ctx, &layers);
         addPointerLayers(ctx, &view, &layers);

@@ -563,9 +563,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                         : prefConfig.vrRoomLevels.describe("="))
                 + " hands=" + prefConfig.vrHandTracking
                 + " gaze=" + prefConfig.vrGaze
-                + " " + PreferenceConfiguration.inputLabel(prefConfig.vrShowHandLock,
-                        prefConfig.vrPointerSleep, prefConfig.vrShowRay,
-                        prefConfig.vrControllerModel, "=")
+                + " " + PreferenceConfiguration.inputLabel(prefConfig.vrPointerSleep,
+                        prefConfig.vrShowRay, prefConfig.vrControllerModel, "=")
                 + " " + PreferenceConfiguration.headAimLabel(prefConfig.vrHeadAim,
                         prefConfig.vrHeadAimSensitivity, prefConfig.vrHeadAimDeadZone, "=")
                 + " " + PreferenceConfiguration.gamepadToggleLabel(prefConfig.vrGamepadToggle, "=")

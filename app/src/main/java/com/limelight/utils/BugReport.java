@@ -446,9 +446,8 @@ public final class BugReport {
                 + " " + (prefs.vrRoomLevels == null ? "room none"
                         : prefs.vrRoomLevels.describe(" "))
                 + " hands " + prefs.vrHandTracking + " gaze " + prefs.vrGaze
-                + " " + PreferenceConfiguration.inputLabel(prefs.vrShowHandLock,
-                        prefs.vrPointerSleep, prefs.vrShowRay,
-                        prefs.vrControllerModel, " ")
+                + " " + PreferenceConfiguration.inputLabel(prefs.vrPointerSleep,
+                        prefs.vrShowRay, prefs.vrControllerModel, " ")
                 + " " + PreferenceConfiguration.headAimLabel(prefs.vrHeadAim,
                         prefs.vrHeadAimSensitivity, prefs.vrHeadAimDeadZone, " ")
                 + " " + PreferenceConfiguration.gamepadToggleLabel(prefs.vrGamepadToggle, " ")

@@ -275,3 +275,18 @@ int reportZone(float u, float v) {
     }
     return REPORT_ZONE_NONE;
 }
+
+// The two buttons side by side along the bottom. The words over them are
+// nothing.
+int handHintZone(float u, float v) {
+    if (v < HINT_BTN_T || v > HINT_BTN_B) {
+        return HINT_ZONE_NONE;
+    }
+    if (u >= HINT_OK_L && u <= HINT_OK_R) {
+        return HINT_ZONE_OK;
+    }
+    if (u >= HINT_NEVER_L && u <= HINT_NEVER_R) {
+        return HINT_ZONE_NEVER;
+    }
+    return HINT_ZONE_NONE;
+}

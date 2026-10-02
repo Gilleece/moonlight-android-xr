@@ -62,7 +62,6 @@ public class ControllerPrefsTest {
         assertFalse(PreferenceConfiguration.rayShown(prefs));
         // The pointer's other switches are left where they were
         assertTrue(PreferenceConfiguration.pointerSleepOn(prefs));
-        assertTrue(PreferenceConfiguration.handLockIconShown(prefs));
         prefs.putBoolean(PreferenceConfiguration.VR_SHOW_RAY_PREF_STRING, true);
         assertTrue(PreferenceConfiguration.rayShown(prefs));
     }
@@ -107,9 +106,9 @@ public class ControllerPrefsTest {
 
     @Test
     public void theLogLinesSayHowTheControllersAreDrawn() {
-        assertTrue(PreferenceConfiguration.inputLabel(true, true, false, true, "=")
+        assertTrue(PreferenceConfiguration.inputLabel(true, false, true, "=")
                 .endsWith(" showRay=false controllerModel=true"));
-        assertTrue(PreferenceConfiguration.inputLabel(true, true, true, false, " ")
+        assertTrue(PreferenceConfiguration.inputLabel(true, true, false, " ")
                 .endsWith(" showRay true controllerModel false"));
     }
 

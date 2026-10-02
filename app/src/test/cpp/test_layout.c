@@ -507,9 +507,29 @@ static void testTheReportParts(void) {
     CHECK(REPORT_OPENED > REPORT_ZONE_SEND);
 }
 
+// The hand lock hint's two buttons are where a press on each lands, side by
+// side under its words and inside the sheet
+static void testTheHintButtons(void) {
+    float btn = (HINT_BTN_T + HINT_BTN_B) * 0.5f;
+    CHECK(handHintZone((HINT_OK_L + HINT_OK_R) * 0.5f, btn) == HINT_ZONE_OK);
+    CHECK(handHintZone((HINT_NEVER_L + HINT_NEVER_R) * 0.5f, btn) == HINT_ZONE_NEVER);
+    // The gap between them, the margins and the words are nothing
+    CHECK(handHintZone((HINT_OK_R + HINT_NEVER_L) * 0.5f, btn) == HINT_ZONE_NONE);
+    CHECK(handHintZone(HINT_OK_L - 0.01f, btn) == HINT_ZONE_NONE);
+    CHECK(handHintZone(HINT_NEVER_R + 0.01f, btn) == HINT_ZONE_NONE);
+    CHECK(handHintZone(0.5f, 0.3f) == HINT_ZONE_NONE);
+    CHECK(handHintZone((HINT_OK_L + HINT_OK_R) * 0.5f, HINT_BTN_T - 0.01f) == HINT_ZONE_NONE);
+    CHECK(handHintZone((HINT_OK_L + HINT_OK_R) * 0.5f, HINT_BTN_B + 0.01f) == HINT_ZONE_NONE);
+    CHECK(HINT_OK_L > 0.0f && HINT_OK_R < HINT_NEVER_L && HINT_NEVER_R < 1.0f);
+    CHECK(HINT_BTN_T > 0.5f && HINT_BTN_T < HINT_BTN_B && HINT_BTN_B < 1.0f);
+    // The longer label gets the wider button
+    CHECK(HINT_NEVER_R - HINT_NEVER_L > HINT_OK_R - HINT_OK_L);
+}
+
 int main(void) {
     testTheRowsFit();
     testTheReportParts();
+    testTheHintButtons();
     testCornersFollowTheirArt();
     testNoCornersWhereThereAreNone();
     testTheRestOfThePicture();

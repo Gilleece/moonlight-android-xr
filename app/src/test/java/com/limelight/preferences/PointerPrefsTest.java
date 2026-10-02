@@ -16,15 +16,19 @@ import static org.junit.Assert.assertTrue;
 public class PointerPrefsTest {
 
     @Test
-    public void thePadlockShowsUnlessSwitchedOff() {
-        assertEquals("checkbox_vr_show_hand_lock",
-                PreferenceConfiguration.VR_SHOW_HAND_LOCK_PREF_STRING);
-        assertTrue(PreferenceConfiguration.DEFAULT_VR_SHOW_HAND_LOCK);
+    public void theHandLockHintShowsUntilPutAwayForGood() {
+        assertEquals("checkbox_vr_hand_lock_hint_seen",
+                PreferenceConfiguration.VR_HAND_LOCK_HINT_SEEN_PREF_STRING);
 
         FakePrefs prefs = new FakePrefs();
-        assertTrue(PreferenceConfiguration.handLockIconShown(prefs));
-        prefs.putBoolean(PreferenceConfiguration.VR_SHOW_HAND_LOCK_PREF_STRING, false);
-        assertFalse(PreferenceConfiguration.handLockIconShown(prefs));
+        assertFalse(PreferenceConfiguration.handLockHintSeen(prefs));
+        PreferenceConfiguration.markHandLockHintSeen(prefs);
+        assertTrue(PreferenceConfiguration.handLockHintSeen(prefs));
+        assertEquals(Boolean.TRUE,
+                prefs.values.get(PreferenceConfiguration.VR_HAND_LOCK_HINT_SEEN_PREF_STRING));
+        // The pointer's switches are left where they were
+        assertTrue(PreferenceConfiguration.pointerSleepOn(prefs));
+        assertTrue(PreferenceConfiguration.rayShown(prefs));
     }
 
     @Test
@@ -37,18 +41,19 @@ public class PointerPrefsTest {
         assertTrue(PreferenceConfiguration.pointerSleepOn(prefs));
         prefs.putBoolean(PreferenceConfiguration.VR_POINTER_SLEEP_PREF_STRING, false);
         assertFalse(PreferenceConfiguration.pointerSleepOn(prefs));
-        // The other switch is left alone
-        assertTrue(PreferenceConfiguration.handLockIconShown(prefs));
+        // The other switches are left alone
+        assertTrue(PreferenceConfiguration.rayShown(prefs));
+        assertFalse(PreferenceConfiguration.handLockHintSeen(prefs));
     }
 
     @Test
     public void theLogLinesNameThemTheWayTheyJoinTheRest() {
-        assertEquals("handLockIcon=true pointerSleep=true showRay=true controllerModel=false",
-                PreferenceConfiguration.inputLabel(true, true, true, false, "="));
-        assertEquals("handLockIcon false pointerSleep false showRay false controllerModel false",
-                PreferenceConfiguration.inputLabel(false, false, false, false, " "));
-        assertEquals("handLockIcon=false pointerSleep=true showRay=false controllerModel=true",
-                PreferenceConfiguration.inputLabel(false, true, false, true, "="));
+        assertEquals("pointerSleep=true showRay=true controllerModel=false",
+                PreferenceConfiguration.inputLabel(true, true, false, "="));
+        assertEquals("pointerSleep false showRay false controllerModel false",
+                PreferenceConfiguration.inputLabel(false, false, false, " "));
+        assertEquals("pointerSleep=true showRay=false controllerModel=true",
+                PreferenceConfiguration.inputLabel(true, false, true, "="));
     }
 
     private static final class FakePrefs implements SharedPreferences, SharedPreferences.Editor {

@@ -21,7 +21,7 @@
 #define HOVER_PICKER    5
 // Nothing under the ray, but close enough to the screen to keep drawing it
 #define HOVER_HALO      6
-#define HOVER_LOCK      7
+#define HOVER_HINT      7
 #define HOVER_COGBUTTON 8
 #define HOVER_COGPANEL  9
 #define HOVER_KBBUTTON  10
@@ -126,6 +126,10 @@ int cogReportButtonAt(float pu, float pv);
 // Which part of the report sheet a point on it is over, one of the
 // REPORT_ZONE_ values, u and v across the sheet from its top left
 int reportZone(float u, float v);
+
+// Which of the hand lock hint's two buttons a point on it is over, one of the
+// HINT_ZONE_ values, u and v across the sheet from its top left
+int handHintZone(float u, float v);
 
 // The 3D tab's depth track. A separation, as a fraction of frame width, in the
 // tenths of a percent the preference stores, which is also the step the track
