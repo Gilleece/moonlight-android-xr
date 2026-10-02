@@ -289,10 +289,11 @@
     <string name="summary_seekbar_vr_head_aim_sensitivity">How far the mouse moves for each degree your head turns. Tune it together with the game\'s own mouse sensitivity until the view turns as far as your head does. The Screen tab on the settings panel in the headset changes the same value.</string>
     <string name="title_seekbar_vr_head_aim_deadzone">Head aim dead zone</string>
     <string name="summary_seekbar_vr_head_aim_deadzone">A head turning slower than this sends nothing, which keeps tracking jitter from moving the mouse while you hold still. 0 sends every movement.</string>
-    <string name="title_vr_controller_mode">Controller mode</string>
-    <string name="summary_vr_controller_mode">What the controllers are when a session starts. As a gamepad the two together are one Xbox controller on the PC: the sticks, A, B, X and Y, the triggers, the grips as bumpers, the stick clicks and the left menu button as Start. In the headset, hold the left grip and the left menu button together for half a second to switch, or use the gamepad button under the screen.</string>
-    <string name="vr_controller_mode_pointer">Pointer</string>
-    <string name="vr_controller_mode_gamepad">Gamepad</string>
+    <string name="title_vr_gamepad_toggle">Gamepad mode shortcut</string>
+    <string name="summary_vr_gamepad_toggle">Now: %s. Gamepad mode turns the two controllers into one Xbox controller on the PC: the sticks, A, B, X and Y, the triggers, the grips as bumpers, the stick clicks and the left menu button as Start. It is only switched on inside a session, from the Display tab of the settings panel or the gamepad button under the screen, and every session starts with the controllers as the pointer. This shortcut then switches between the two from the controllers. With the thumbsticks, or the triggers and grips, those controls reach the game a moment late while the shortcut waits to see whether they are meant for it.</string>
+    <string name="vr_gamepad_toggle_menu_grip">Hold the left menu button and left grip</string>
+    <string name="vr_gamepad_toggle_sticks">Press both thumbsticks (L3 + R3)</string>
+    <string name="vr_gamepad_toggle_triggers_grips">Squeeze both triggers and both grips</string>
     <string name="title_vr_click_sound">Click when a panel is pressed</string>
     <string name="summary_vr_click_sound">A short tick when a press in the headset lands on a panel, a button or a key. It plays on the system sounds, apart from the stream\'s audio.</string>
     <string name="title_vr_reset_pose">Reset screen position</string>
@@ -347,7 +348,9 @@
     <string name="vr_toast_head_aim_on_more">Turning your head moves the mouse</string>
     <string name="vr_toast_head_aim_off">Head aim off</string>
     <string name="vr_toast_gamepad_mode">Gamepad mode</string>
-    <string name="vr_toast_gamepad_mode_more">Hold the left grip and menu button to go back</string>
+    <string name="vr_toast_gamepad_back_menu_grip">Hold the left menu button and left grip to go back to the pointer</string>
+    <string name="vr_toast_gamepad_back_sticks">Press both thumbsticks to go back to the pointer</string>
+    <string name="vr_toast_gamepad_back_triggers_grips">Squeeze both triggers and both grips to go back to the pointer</string>
     <string name="vr_toast_pointer_mode">Pointer mode</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">What were you doing when it went wrong?</string>

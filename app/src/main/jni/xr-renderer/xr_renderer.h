@@ -1198,14 +1198,17 @@ typedef struct {
     long inputFrames;
     // Gamepad mode: whether the controllers are one pad on the host rather
     // than the pointer, for the rest of the session; the sticks' dead zone;
-    // the switch, and each grip as a bumper; each controller as last read
-    // and the pad as it last went to Java; whether it is plugged in, whether
-    // it is resting under a panel or for want of focus, and what is held back
-    // until let go; panels to be put away now the controllers have gone to
-    // the pad; and what the log last said about it
+    // which shortcut switches it, the menu and grip one and the chords, and
+    // each grip as a bumper; each controller as last read and the pad as it
+    // last went to Java; whether it is plugged in, whether it is resting under
+    // a panel or for want of focus, and what is held back until let go;
+    // panels to be put away now the controllers have gone to the pad; and
+    // what the log last said about it
     int padMode;
     float padDeadzone;
+    int padShortcut;
     PadToggle padToggle;
+    PadChord padChord;
     int padGrip[HAND_COUNT];
     PadHand padRead[HAND_COUNT];
     PadState pad;
@@ -1672,6 +1675,7 @@ void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide
 int aimButtonHit(XrCtx* ctx, float u, float v, float height);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);
 void setPadMode(XrCtx* ctx, int on, const char* from);
+const char* padShortcutName(int shortcut);
 void padButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
 int padButtonHit(XrCtx* ctx, float u, float v, float height);
 void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);

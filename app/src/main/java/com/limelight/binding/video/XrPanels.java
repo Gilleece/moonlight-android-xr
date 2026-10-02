@@ -240,9 +240,38 @@ final class XrPanels {
     private static final String SPLASH_LOADING = "Loading";
 
     private final Context context;
+    // The gamepad mode shortcut chosen, a PAD_SHORTCUT_ value, which the
+    // Display tab names under its controllers row
+    private final int gamepadShortcut;
 
-    XrPanels(Context context) {
+    XrPanels(Context context, int gamepadShortcut) {
         this.context = context;
+        this.gamepadShortcut = gamepadShortcut;
+    }
+
+    // The toast's way out of gamepad mode, by the shortcut chosen
+    static int gamepadBackText(int shortcut) {
+        switch (shortcut) {
+            case PAD_SHORTCUT_STICKS:
+                return R.string.vr_toast_gamepad_back_sticks;
+            case PAD_SHORTCUT_TRIGGERS_GRIPS:
+                return R.string.vr_toast_gamepad_back_triggers_grips;
+            default:
+                return R.string.vr_toast_gamepad_back_menu_grip;
+        }
+    }
+
+    // Under the controllers row on the Display tab: the shortcut that switches
+    // the same thing from the controllers
+    static String controllersHint(int shortcut) {
+        switch (shortcut) {
+            case PAD_SHORTCUT_STICKS:
+                return "Shortcut: both thumbsticks";
+            case PAD_SHORTCUT_TRIGGERS_GRIPS:
+                return "Shortcut: triggers + grips";
+            default:
+                return "Shortcut: left menu + grip";
+        }
     }
 
     // Everything the keyboard hands over: the sheets and their codes in state
@@ -1195,12 +1224,23 @@ final class XrPanels {
         final float trackR = COG_RUN_R * COG_TEX_W;
         final float cellHalf = COG_DISPLAY_CELL_HALF * COG_TEX_H;
 
+        Paint hint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        hint.setTextSize(15.0f);
+        hint.setTextAlign(Paint.Align.LEFT);
+        hint.setColor(0x99FFFFFF);
         for (int row = 0; row < COG_OPTION_ROWS.length; row++) {
             boolean live = row != COG_OPTION_HEAD_AIM || headAimLive;
             float y = cogRowV(COG_TAB_DISPLAY, row) * COG_TEX_H;
             label.setColor(live ? Color.WHITE : 0x30FFFFFF);
-            canvas.drawText(COG_OPTION_ROWS[row], 0.06f * COG_TEX_W,
-                    y - (label.ascent() + label.descent()) * 0.5f, label);
+            float baseline = y - (label.ascent() + label.descent()) * 0.5f;
+            if (row == COG_OPTION_GAMEPAD) {
+                // The controllers' own shortcut under the label, the two
+                // together where the label alone would be
+                baseline = y - 2.0f;
+                canvas.drawText(controllersHint(gamepadShortcut), 0.06f * COG_TEX_W,
+                        y - 2.0f + hint.getTextSize(), hint);
+            }
+            canvas.drawText(COG_OPTION_ROWS[row], 0.06f * COG_TEX_W, baseline, label);
             if (live) {
                 drawCogCells(canvas, COG_OPTION_CELLS[row], y, true, cellHalf);
             }

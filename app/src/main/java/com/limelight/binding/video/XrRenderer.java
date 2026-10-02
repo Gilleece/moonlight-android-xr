@@ -498,7 +498,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native void nativeSetHeadAim(long ctx, boolean on, int sensitivity, int deadZone);
     // Whether a session starts in gamepad mode, and the sticks' dead zone in
     // the whole percent the settings keep for a real pad
-    private native void nativeSetGamepad(long ctx, boolean on, int deadzonePercent);
+    private native void nativeSetGamepad(long ctx, int shortcut, int deadzonePercent);
     // The depth model will make no map this session, so the splash stops
     // waiting for one. Any thread.
     private native void nativeDepthGaveUp(long ctx);
@@ -1188,7 +1188,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
      * screen.
      */
     private void startEnvironment(PreferenceConfiguration prefs) {
-        panels = new XrPanels(prefsContext);
+        panels = new XrPanels(prefsContext, prefs.vrGamepadToggle);
 
         SharedPreferences saved = PreferenceManager.getDefaultSharedPreferences(prefsContext);
         int id = saved.getInt(PreferenceConfiguration.VR_ENVIRONMENT_ID_PREF_STRING, -1);
@@ -1244,7 +1244,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         nativeSetShowRay(nativeCtx, prefs.vrShowRay);
         nativeSetHeadAim(nativeCtx, prefs.vrHeadAim, prefs.vrHeadAimSensitivity,
                 prefs.vrHeadAimDeadZone);
-        nativeSetGamepad(nativeCtx, prefs.vrGamepadMode, prefs.deadzonePercentage);
+        // Every session starts as the pointer, and the shortcut chosen is the
+        // one way the controllers switch themselves
+        nativeSetGamepad(nativeCtx, prefs.vrGamepadToggle, prefs.deadzonePercentage);
         nativeSetControllerModel(nativeCtx, prefs.vrControllerModel);
 
         final int startRoom = cell;
@@ -1959,8 +1961,10 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 more = prefsContext.getString(R.string.vr_toast_head_aim_on_more);
                 break;
             case TOAST_GAMEPAD_MODE:
+                // With the way back, which is the shortcut chosen
                 text = prefsContext.getString(R.string.vr_toast_gamepad_mode);
-                more = prefsContext.getString(R.string.vr_toast_gamepad_mode_more);
+                more = prefsContext.getString(XrPanels.gamepadBackText(
+                        prefConfig != null ? prefConfig.vrGamepadToggle : PAD_SHORTCUT_MENU_GRIP));
                 break;
             case TOAST_POINTER_MODE:
                 text = prefsContext.getString(R.string.vr_toast_pointer_mode);

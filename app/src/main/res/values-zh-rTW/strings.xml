@@ -309,10 +309,11 @@
     <string name="summary_seekbar_vr_head_aim_sensitivity">頭部每轉動一度時滑鼠移動的距離。配合遊戲本身的滑鼠靈敏度調整，直到視角轉動的幅度與頭部一致。頭戴裝置內設定面板的 Screen 分頁調整的是同一個數值。</string>
     <string name="title_seekbar_vr_head_aim_deadzone">頭部控制死區</string>
     <string name="summary_seekbar_vr_head_aim_deadzone">頭部轉動慢於此速度時不傳送任何移動，可避免頭部靜止時追蹤抖動移動滑鼠。設為 0 則傳送所有移動。</string>
-    <string name="title_vr_controller_mode">控制器模式</string>
-    <string name="summary_vr_controller_mode">階段開始時控制器的用途。選擇遊戲控制器時，兩個控制器合起來在電腦上作為一個 Xbox 控制器：搖桿、A、B、X、Y 鍵、扳機、握把作為肩鍵、搖桿按下，以及左手選單鍵作為 Start。在頭戴裝置中同時按住左手握把和左手選單鍵半秒即可切換，也可以使用螢幕下方的遊戲控制器按鈕。</string>
-    <string name="vr_controller_mode_pointer">游標</string>
-    <string name="vr_controller_mode_gamepad">遊戲控制器</string>
+    <string name="title_vr_gamepad_toggle">遊戲控制器模式快速鍵</string>
+    <string name="summary_vr_gamepad_toggle">目前：%s。遊戲控制器模式會把兩個控制器合起來在電腦上作為一個 Xbox 控制器：搖桿、A、B、X、Y 鍵、扳機、握把作為肩鍵、搖桿按下，以及左手選單鍵作為 Start。它只能在階段中透過設定面板的 Display 分頁或螢幕下方的遊戲控制器按鈕開啟，每次階段開始時控制器都是游標。之後可以用此快速鍵在兩者之間切換。選擇搖桿或扳機與握把時，這些按鍵傳給遊戲會稍晚一點，因為快速鍵要先判斷它們是不是在按快速鍵。</string>
+    <string name="vr_gamepad_toggle_menu_grip">按住左手選單鍵和左手握把</string>
+    <string name="vr_gamepad_toggle_sticks">同時按下兩個搖桿 (L3 + R3)</string>
+    <string name="vr_gamepad_toggle_triggers_grips">同時握緊兩個扳機和兩個握把</string>
     <string name="title_vr_click_sound">按下面板時發出點擊聲</string>
     <string name="summary_vr_click_sound">在頭戴裝置中按下面板、按鈕或按鍵時發出短促的點擊聲。它透過系統音效播放，與串流音訊分開。</string>
     <string name="title_vr_gaze">注視瞄準 (Look to point)</string>
@@ -369,7 +370,9 @@
     <string name="vr_toast_head_aim_on_more">轉動頭部即可移動滑鼠</string>
     <string name="vr_toast_head_aim_off">頭部控制已關閉</string>
     <string name="vr_toast_gamepad_mode">遊戲控制器模式</string>
-    <string name="vr_toast_gamepad_mode_more">按住左手握把和選單鍵即可切換回來</string>
+    <string name="vr_toast_gamepad_back_menu_grip">按住左手選單鍵和左手握把即可回到游標</string>
+    <string name="vr_toast_gamepad_back_sticks">同時按下兩個搖桿即可回到游標</string>
+    <string name="vr_toast_gamepad_back_triggers_grips">同時握緊兩個扳機和兩個握把即可回到游標</string>
     <string name="vr_toast_pointer_mode">游標模式</string>
     <string name="vr_report_note_hint">發生問題時您正在做什麼？</string>
     <string name="vr_report_optional">選填</string>

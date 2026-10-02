@@ -31,24 +31,6 @@ public class XrPadTest {
     }
 
     @Test
-    public void aSessionStartingAsAPadLaunchesWithItsPlace() {
-        // No pad: player 1
-        assertEquals(0x1, XrPad.launchMask(0, true));
-        // A real pad counted already: the next one, as it will take
-        assertEquals(0x3, XrPad.launchMask(0x1, true));
-        assertEquals(0x7, XrPad.launchMask(0x5, true));
-        // Sixteen already: nothing to add
-        assertEquals(0xffff, XrPad.launchMask(0xffff, true));
-        // Multi-controller off: every pad is player 1, and the launch has it
-        assertEquals(0x1, XrPad.launchMask(0x1, false));
-        assertEquals(0x1, XrPad.launchMask(0, false));
-        // The launch place is the number the pad then takes
-        for (int mask = 0; mask < 0x40; mask++) {
-            assertEquals(XrPad.launchMask(mask, true), mask | (1 << XrPad.numberFor(mask)));
-        }
-    }
-
-    @Test
     public void itArrivesAsAnXboxPadWithAnalogueTriggers() {
         assertEquals(MoonBridge.LI_CTYPE_XBOX, XrPad.TYPE);
         assertEquals(MoonBridge.LI_CCAP_ANALOG_TRIGGERS, XrPad.CAPABILITIES);

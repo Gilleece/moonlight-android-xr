@@ -474,6 +474,40 @@ static int stickPushed(XrVector2f stick) {
     return fabsf(stick.x) > SCROLL_DEADZONE || fabsf(stick.y) > SCROLL_DEADZONE;
 }
 
+// A controller's trigger, grip, stick click and stick as the pointer reads
+// them: as they are, unless the gamepad shortcut chosen is a chord and is
+// holding one back or replaying it as a tap. A stick reads centred while its
+// click is held back, so pressing it in for the chord cannot scroll.
+static float seenTrigger(XrCtx* ctx, int h) {
+    return padChordSeen(&ctx->padChord, h == HAND_LEFT ? PAD_PART_LT : PAD_PART_RT,
+                        actionFloat(ctx, ctx->triggerAction, h));
+}
+
+static float seenGrip(XrCtx* ctx, int h) {
+    return padChordSeen(&ctx->padChord, h == HAND_LEFT ? PAD_PART_LG : PAD_PART_RG,
+                        actionFloat(ctx, ctx->grabAction, h));
+}
+
+static int seenStickClick(XrCtx* ctx, int h) {
+    int raw = actionBool(ctx, ctx->toggleAction, h);
+    return padChordSeen(&ctx->padChord, h == HAND_LEFT ? PAD_PART_LS : PAD_PART_RS,
+                        raw ? 1.0f : 0.0f) > 0.5f;
+}
+
+static XrVector2f seenStick(XrCtx* ctx, int h) {
+    XrVector2f stick = actionVec2(ctx, ctx->scrollAction, h);
+    if (ctx->padChord.held & (h == HAND_LEFT ? PAD_PART_LS : PAD_PART_RS)) {
+        stick.x = 0.0f;
+        stick.y = 0.0f;
+    }
+    return stick;
+}
+
+// Whether the chord has a stick click of either hand, held back or replayed
+static int chordHasStickClick(XrCtx* ctx) {
+    return ((ctx->padChord.held | ctx->padChord.replay) & (PAD_PART_LS | PAD_PART_RS)) != 0;
+}
+
 // A pointer ray from the joints, for runtimes that track hands but never offer
 // a pointer pose. Cast from a shoulder rather than from the hand itself: a ray
 // along the finger swings wildly with small movements of the wrist, while one
@@ -1481,10 +1515,10 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             continue;
         }
         if (h < HAND_COUNT) {
-            f->grab[h] = actionFloat(ctx, ctx->grabAction, h);
-            f->stick[h] = actionVec2(ctx, ctx->scrollAction, h);
+            f->grab[h] = seenGrip(ctx, h);
+            f->stick[h] = seenStick(ctx, h);
             int wasDown = ctx->triggerDown[h];
-            float value = actionFloat(ctx, ctx->triggerAction, h);
+            float value = seenTrigger(ctx, h);
             // The joints are read whatever is on the hand, since the ray and
             // the point a drag follows come out of them too
             int joints = jointPinching(ctx, h, &f->xform, &f->headPose, f->headValid, f->now);
@@ -1741,7 +1775,7 @@ static int controllerPressed(XrCtx* ctx, const InputFrame* f, int h) {
     return ctx->triggerDown[h] || f->grab[h] > PRESS_ON || stickPushed(f->stick[h])
             || actionBool(ctx, ctx->rightClickAction, h)
             || actionBool(ctx, ctx->middleClickAction, h)
-            || actionBool(ctx, ctx->toggleAction, h);
+            || seenStickClick(ctx, h);
 }
 
 // The pointer's clock again, one per controller. The shared one is held on by
@@ -2726,9 +2760,10 @@ static void updateButtons(XrCtx* ctx, InputFrame* f, int hit) {
 // the host's cursor was left, the way a wheel does, as long as the ray is not
 // on something of ours.
 static void updateScroll(XrCtx* ctx, InputFrame* f, int hit) {
-    // The sticks are the pad's in gamepad mode
+    // The sticks are the pad's in gamepad mode, and pressed in for the
+    // gamepad shortcut they scroll nothing
     XrVector2f stick = { 0.0f, 0.0f };
-    if (!ctx->padMode) {
+    if (!ctx->padMode && !chordHasStickClick(ctx)) {
         stick = actionVec2(ctx, ctx->scrollAction, -1);
     }
     int offPicture = !ctx->pointerSleepOn
@@ -2891,18 +2926,15 @@ static void updateHeadAim(XrCtx* ctx, int headLocked, float* out) {
     }
 }
 
-// One controller as the pad reads it, all zero for a hand without one. In
-// pointer mode only the switch is wanted, the left menu button and grip.
-static void readPadHand(XrCtx* ctx, int h, int all, PadHand* p) {
+// One controller as the pad reads it, all zero for a hand without one. Read
+// whole in pointer mode too, since the shortcuts are made of its controls.
+static void readPadHand(XrCtx* ctx, int h, PadHand* p) {
     memset(p, 0, sizeof(*p));
     if (ctx->profileKind[h] != PROFILE_CONTROLLER) {
         return;
     }
     p->grip = actionFloat(ctx, ctx->grabAction, h);
     p->menu = h == HAND_LEFT && actionBool(ctx, ctx->menuAction, h);
-    if (!all) {
-        return;
-    }
     p->trigger = actionFloat(ctx, ctx->triggerAction, h);
     XrVector2f stick = actionVec2(ctx, ctx->scrollAction, h);
     p->stickX = stick.x;
@@ -2966,33 +2998,95 @@ static void restPad(XrCtx* ctx, const char* why) {
     PadState s;
     padRest(&s);
     padToggleReset(&ctx->padToggle);
+    padChordReset(&ctx->padChord, ctx->padChord.parts);
     settlePad(ctx, padPlugged(ctx), 0, &s, why);
 }
 
-// Gamepad mode's pass, after the actions are synced and before anything
-// points. The left menu button held with the left grip switches modes in
-// either one. In gamepad mode both controllers become the pad, which rests
-// while a panel is up: the controllers cannot reach one, and whatever reaches
-// it must not land in the game.
-static void updatePad(XrCtx* ctx) {
-    PadHand* hands = ctx->padRead;
-    for (int h = 0; h < HAND_COUNT; h++) {
-        readPadHand(ctx, h, ctx->padMode, &hands[h]);
-        ctx->padGrip[h] = padGripDown(hands[h].grip, ctx->padGrip[h]);
-    }
-    int startOk = 1;
-    if (padToggleStep(&ctx->padToggle, hands[HAND_LEFT].menu, ctx->padGrip[HAND_LEFT], nowNs(),
-                      &startOk)) {
-        setPadMode(ctx, !ctx->padMode, "the menu button and grip");
-        // Read whole now it is the pad, so a trigger or stick already held
-        // for the pointer is held back with the rest
-        for (int h = 0; h < HAND_COUNT; h++) {
-            readPadHand(ctx, h, ctx->padMode, &hands[h]);
+// The parts of a chord as the log names them
+static const char* chordPartNames(int parts, char* buf, size_t size) {
+    static const char* names[PAD_PART_COUNT] = { "L3", "R3", "LT", "RT", "left grip",
+                                                 "right grip" };
+    size_t used = 0;
+    buf[0] = '\0';
+    for (int i = 0; i < PAD_PART_COUNT && used < size; i++) {
+        if (parts & (1 << i)) {
+            used += snprintf(buf + used, size - used, "%s%s", used > 0 ? ", " : "", names[i]);
         }
+    }
+    return parts != 0 ? buf : "nothing";
+}
+
+// The chord shortcuts in the log, so a held back press can be told from one
+// that never came
+static void logChord(XrCtx* ctx, int event, const PadState* rawPad) {
+    char held[64], tapped[64];
+    const PadChord* c = &ctx->padChord;
+    if (event == PAD_CHORD_FORMING) {
+        LOGI("gamepad shortcut: holding back %s while it may be %s (%s mode)",
+             chordPartNames(c->held, held, sizeof(held)), padShortcutName(ctx->padShortcut),
+             ctx->padMode ? "gamepad" : "pointer");
+    }
+    else if (event == PAD_CHORD_ABANDONED) {
+        LOGI("gamepad shortcut given up after %ld ms: %s goes through now, %s as a tap; "
+             "the pad as read 0x%04x, triggers %d %d",
+             (long)((nowNs() - c->startNs) / 1000000L),
+             chordPartNames(c->stirred, held, sizeof(held)),
+             chordPartNames(c->replay, tapped, sizeof(tapped)), rawPad->buttons,
+             rawPad->leftTrigger, rawPad->rightTrigger);
+    }
+    else if (event == PAD_CHORD_FIRED) {
+        LOGI("gamepad shortcut held %ld ms, %s kept back until let go",
+             (long)(PAD_CHORD_HOLD_NS / 1000000L), chordPartNames(c->taken, held, sizeof(held)));
+    }
+}
+
+// Gamepad mode's pass, after the actions are synced and before anything
+// points. The shortcut chosen switches modes in either one, and only that one:
+// the left menu button held with the left grip, or a chord, whose parts are
+// held back from the pad and the pointer while it forms. In gamepad mode both
+// controllers become the pad, which rests while a panel is up: the
+// controllers cannot reach one, and whatever reaches it must not land in the
+// game.
+static void updatePad(XrCtx* ctx) {
+    PadHand* raw = ctx->padRead;
+    for (int h = 0; h < HAND_COUNT; h++) {
+        readPadHand(ctx, h, &raw[h]);
+    }
+    // A chord needs a controller in each hand, and holds nothing back without
+    int parts = ctx->profileKind[HAND_LEFT] == PROFILE_CONTROLLER
+            && ctx->profileKind[HAND_RIGHT] == PROFILE_CONTROLLER
+            ? padChordParts(ctx->padShortcut) : 0;
+    if (parts != ctx->padChord.parts) {
+        padChordReset(&ctx->padChord, parts);
+    }
+    long now = nowNs();
+    int chord = padChordStep(&ctx->padChord, &raw[HAND_LEFT], &raw[HAND_RIGHT], now);
+    PadHand seen[HAND_COUNT];
+    padChordApply(&ctx->padChord, &raw[HAND_LEFT], &raw[HAND_RIGHT], &seen[HAND_LEFT],
+                  &seen[HAND_RIGHT]);
+    for (int h = 0; h < HAND_COUNT; h++) {
+        ctx->padGrip[h] = padGripDown(seen[h].grip, ctx->padGrip[h]);
+    }
+    if (chord != PAD_CHORD_NOTHING) {
+        PadState rawPad;
+        int rawGrips[HAND_COUNT] = { raw[HAND_LEFT].grip >= PAD_GRIP_ON,
+                                     raw[HAND_RIGHT].grip >= PAD_GRIP_ON };
+        padMap(&raw[HAND_LEFT], &raw[HAND_RIGHT], rawGrips, 1, ctx->padDeadzone, &rawPad);
+        logChord(ctx, chord, &rawPad);
+    }
+
+    // The menu button is Start unless its own shortcut is the one chosen and
+    // has it
+    int startOk = 1;
+    int menuGrip = ctx->padShortcut == PAD_SHORTCUT_MENU_GRIP
+            && padToggleStep(&ctx->padToggle, raw[HAND_LEFT].menu, ctx->padGrip[HAND_LEFT], now,
+                             &startOk);
+    if (menuGrip || chord == PAD_CHORD_FIRED) {
+        setPadMode(ctx, !ctx->padMode, padShortcutName(ctx->padShortcut));
     }
 
     PadState s;
-    padMap(&hands[HAND_LEFT], &hands[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone, &s);
+    padMap(&seen[HAND_LEFT], &seen[HAND_RIGHT], ctx->padGrip, startOk, ctx->padDeadzone, &s);
     int plugged = padPlugged(ctx);
     settlePad(ctx, plugged, plugged && !panelUp(ctx), &s, "a panel is up");
 }
@@ -3191,8 +3285,11 @@ Java_com_limelight_binding_video_XrRenderer_nativeUpdateInput(JNIEnv* env, jobje
         return;
     }
 
-    // In gamepad mode the stick clicks are the pad's
-    int toggle = actionBool(ctx, ctx->toggleAction, -1);
+    // In gamepad mode the stick clicks are the pad's, and while the gamepad
+    // shortcut has one each hand is read as the shortcut leaves it
+    int toggle = chordHasStickClick(ctx)
+            ? seenStickClick(ctx, HAND_LEFT) || seenStickClick(ctx, HAND_RIGHT)
+            : actionBool(ctx, ctx->toggleAction, -1);
     if (toggle && !ctx->togglePrev && !ctx->padMode) {
         ctx->pointerOn = !ctx->pointerOn;
         LOGI("pointer %s", ctx->pointerOn ? "on" : "off");

@@ -53,12 +53,12 @@
             android:text="@string/suffix_seekbar_vr_head_aim_deadzone"
             android:title="@string/title_seekbar_vr_head_aim_deadzone"/>
         <ListPreference
-            android:key="list_vr_controller_mode"
-            android:title="@string/title_vr_controller_mode"
-            android:entries="@array/vr_controller_mode_names"
-            android:entryValues="@array/vr_controller_mode_values"
-            android:summary="@string/summary_vr_controller_mode"
-            android:defaultValue="pointer" />
+            android:key="list_vr_gamepad_toggle"
+            android:title="@string/title_vr_gamepad_toggle"
+            android:entries="@array/vr_gamepad_toggle_names"
+            android:entryValues="@array/vr_gamepad_toggle_values"
+            android:summary="@string/summary_vr_gamepad_toggle"
+            android:defaultValue="menu_grip" />
         <CheckBoxPreference
             android:key="checkbox_vr_click_sound"
             android:title="@string/title_vr_click_sound"

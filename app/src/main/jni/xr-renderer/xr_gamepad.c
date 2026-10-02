@@ -170,3 +170,158 @@ int padToggleStep(PadToggle* t, int menu, int grip, int64_t nowNs, int* startOk)
     *startOk = !t->menuTaken;
     return fire;
 }
+
+int padChordParts(int shortcut) {
+    if (shortcut == PAD_SHORTCUT_STICKS) {
+        return PAD_PART_LS | PAD_PART_RS;
+    }
+    if (shortcut == PAD_SHORTCUT_TRIGGERS_GRIPS) {
+        return PAD_PART_LT | PAD_PART_RT | PAD_PART_LG | PAD_PART_RG;
+    }
+    return 0;
+}
+
+void padChordReset(PadChord* c, int parts) {
+    c->parts = parts;
+    c->stirred = 0;
+    c->pressed = 0;
+    c->forming = 0;
+    c->startNs = 0;
+    c->allDown = 0;
+    c->allNs = 0;
+    c->pending = 0;
+    for (int i = 0; i < PAD_PART_COUNT; i++) {
+        c->peak[i] = 0.0f;
+    }
+    c->taken = 0;
+    c->spent = 1;
+    c->held = 0;
+    c->replay = 0;
+}
+
+// Part i's reading off the two controllers, a click as 0 or 1
+static float partValue(const PadHand* left, const PadHand* right, int i) {
+    switch (i) {
+        case 0: return left->stickClick ? 1.0f : 0.0f;
+        case 1: return right->stickClick ? 1.0f : 0.0f;
+        case 2: return left->trigger;
+        case 3: return right->trigger;
+        case 4: return left->grip;
+        default: return right->grip;
+    }
+}
+
+int padChordStep(PadChord* c, const PadHand* left, const PadHand* right, int64_t nowNs) {
+    float value[PAD_PART_COUNT];
+    int stirred = 0;
+    int pressed = 0;
+    for (int i = 0; i < PAD_PART_COUNT; i++) {
+        int bit = 1 << i;
+        value[i] = partValue(left, right, i);
+        int was = (c->pressed & bit) != 0;
+        int down = i < 2 ? value[i] > 0.5f : padGripDown(value[i], was);
+        if (down) {
+            pressed |= bit;
+        }
+        // A trigger reaches the host well before it counts as pressed
+        if (down || (i >= 2 && i < 4 && value[i] > PAD_TRIGGER_DEADZONE)) {
+            stirred |= bit;
+        }
+    }
+    stirred &= c->parts;
+    pressed &= c->parts;
+    int restBefore = c->stirred == 0;
+    c->stirred = stirred;
+    c->pressed = pressed;
+    c->replay = 0;
+    c->taken &= stirred;
+    if (c->parts == 0) {
+        c->held = 0;
+        return PAD_CHORD_NOTHING;
+    }
+
+    int event = PAD_CHORD_NOTHING;
+    if (!c->forming && !c->spent && restBefore && stirred != 0) {
+        c->forming = 1;
+        c->startNs = nowNs;
+        c->allDown = 0;
+        c->pending = 0;
+        for (int i = 0; i < PAD_PART_COUNT; i++) {
+            c->peak[i] = 0.0f;
+        }
+        event = PAD_CHORD_FORMING;
+    }
+    if (c->forming) {
+        c->pending |= stirred;
+        for (int i = 0; i < PAD_PART_COUNT; i++) {
+            if ((stirred & (1 << i)) && value[i] > c->peak[i]) {
+                c->peak[i] = value[i];
+            }
+        }
+        int all = pressed == c->parts;
+        if (all && !c->allDown && nowNs - c->startNs <= PAD_CHORD_WINDOW_NS) {
+            c->allDown = 1;
+            c->allNs = nowNs;
+        }
+        if ((c->pending & ~stirred) != 0 || (c->allDown && !all)
+                || (!c->allDown && nowNs - c->startNs > PAD_CHORD_WINDOW_NS)) {
+            // Given up: what was let go meanwhile is a tap, the rest goes on
+            c->replay = c->pending & ~stirred;
+            c->pending = 0;
+            c->forming = 0;
+            event = PAD_CHORD_ABANDONED;
+        }
+        else if (c->allDown && nowNs - c->allNs >= PAD_CHORD_HOLD_NS) {
+            c->taken = stirred;
+            c->pending = 0;
+            c->forming = 0;
+            c->spent = 1;
+            event = PAD_CHORD_FIRED;
+        }
+    }
+    else if (c->spent && stirred == 0) {
+        c->spent = 0;
+    }
+    c->held = c->pending | c->taken;
+    return event;
+}
+
+static int partIndex(int part) {
+    for (int i = 0; i < PAD_PART_COUNT; i++) {
+        if (part == (1 << i)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+float padChordSeen(const PadChord* c, int part, float raw) {
+    if (c->replay & part) {
+        int i = partIndex(part);
+        return i >= 0 ? c->peak[i] : raw;
+    }
+    if (c->held & part) {
+        return 0.0f;
+    }
+    return raw;
+}
+
+void padChordApply(const PadChord* c, const PadHand* left, const PadHand* right,
+                   PadHand* outLeft, PadHand* outRight) {
+    *outLeft = *left;
+    *outRight = *right;
+    outLeft->stickClick = padChordSeen(c, PAD_PART_LS, left->stickClick ? 1.0f : 0.0f) > 0.5f;
+    outRight->stickClick = padChordSeen(c, PAD_PART_RS, right->stickClick ? 1.0f : 0.0f) > 0.5f;
+    outLeft->trigger = padChordSeen(c, PAD_PART_LT, left->trigger);
+    outRight->trigger = padChordSeen(c, PAD_PART_RT, right->trigger);
+    outLeft->grip = padChordSeen(c, PAD_PART_LG, left->grip);
+    outRight->grip = padChordSeen(c, PAD_PART_RG, right->grip);
+    if (c->held & PAD_PART_LS) {
+        outLeft->stickX = 0.0f;
+        outLeft->stickY = 0.0f;
+    }
+    if (c->held & PAD_PART_RS) {
+        outRight->stickX = 0.0f;
+        outRight->stickY = 0.0f;
+    }
+}

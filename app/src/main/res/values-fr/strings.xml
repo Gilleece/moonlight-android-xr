@@ -324,10 +324,11 @@
     <string name="summary_seekbar_vr_head_aim_sensitivity">De combien la souris se déplace pour chaque degré dont la tête tourne. Ajustez-la avec la sensibilité de la souris du jeu jusqu\'à ce que la vue tourne autant que votre tête. L\'onglet Screen du panneau de réglages dans le casque modifie la même valeur.</string>
     <string name="title_seekbar_vr_head_aim_deadzone">Zone morte de la visée par la tête</string>
     <string name="summary_seekbar_vr_head_aim_deadzone">Quand la tête tourne plus lentement que cette vitesse, rien n\'est envoyé, ce qui empêche les petits tremblements du suivi de déplacer la souris quand vous restez immobile. 0 envoie chaque mouvement.</string>
-    <string name="title_vr_controller_mode">Mode des manettes</string>
-    <string name="summary_vr_controller_mode">Ce que sont les manettes au début d\'une session. En manette de jeu, les deux ensemble forment une seule manette Xbox sur le PC : les sticks, A, B, X et Y, les gâchettes, les grips comme boutons LB et RB, les clics des sticks et le bouton menu gauche comme Start. Dans le casque, maintenez ensemble le grip gauche et le bouton menu gauche une demi-seconde pour basculer, ou utilisez le bouton manette sous l\'écran.</string>
-    <string name="vr_controller_mode_pointer">Pointeur</string>
-    <string name="vr_controller_mode_gamepad">Manette de jeu</string>
+    <string name="title_vr_gamepad_toggle">Raccourci du mode manette de jeu</string>
+    <string name="summary_vr_gamepad_toggle">Actuellement : %s. Le mode manette de jeu fait des deux manettes une seule manette Xbox sur le PC : les sticks, A, B, X et Y, les gâchettes, les grips comme boutons LB et RB, les clics des sticks et le bouton menu gauche comme Start. Il ne s\'active que pendant une session, depuis l\'onglet Display du panneau de réglages ou le bouton manette sous l\'écran, et chaque session commence avec les manettes en pointeur. Ce raccourci bascule ensuite de l\'un à l\'autre depuis les manettes. Avec les sticks, ou les gâchettes et les grips, ces commandes arrivent au jeu un instant plus tard, le temps que le raccourci vérifie si elles lui sont destinées.</string>
+    <string name="vr_gamepad_toggle_menu_grip">Maintenir le bouton menu gauche et le grip gauche</string>
+    <string name="vr_gamepad_toggle_sticks">Appuyer sur les deux sticks (L3 + R3)</string>
+    <string name="vr_gamepad_toggle_triggers_grips">Serrer les deux gâchettes et les deux grips</string>
     <string name="title_vr_click_sound">Clic à l\'appui sur un panneau</string>
     <string name="summary_vr_click_sound">Un bref tic quand un appui dans le casque touche un panneau, un bouton ou une touche. Il est joué sur les sons système, à part de l\'audio du stream.</string>
     <string name="title_vr_gaze">Regarder pour pointer</string>
@@ -384,7 +385,9 @@
     <string name="vr_toast_head_aim_on_more">Tourner la tête déplace la souris</string>
     <string name="vr_toast_head_aim_off">Visée par la tête désactivée</string>
     <string name="vr_toast_gamepad_mode">Mode manette de jeu</string>
-    <string name="vr_toast_gamepad_mode_more">Maintenez le grip gauche et le bouton menu pour revenir</string>
+    <string name="vr_toast_gamepad_back_menu_grip">Maintenez le bouton menu gauche et le grip gauche pour revenir au pointeur</string>
+    <string name="vr_toast_gamepad_back_sticks">Appuyez sur les deux sticks pour revenir au pointeur</string>
+    <string name="vr_toast_gamepad_back_triggers_grips">Serrez les deux gâchettes et les deux grips pour revenir au pointeur</string>
     <string name="vr_toast_pointer_mode">Mode pointeur</string>
     <string name="vr_report_note_hint">Que faisiez-vous quand le problème est survenu ?</string>
     <string name="vr_report_optional">Facultatif</string>

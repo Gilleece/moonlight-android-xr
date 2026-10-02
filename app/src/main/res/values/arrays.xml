@@ -172,13 +172,15 @@
         <item>high</item>
         <item>ultra</item>
     </string-array>
-    <string-array name="vr_controller_mode_names">
-        <item>@string/vr_controller_mode_pointer</item>
-        <item>@string/vr_controller_mode_gamepad</item>
+    <string-array name="vr_gamepad_toggle_names">
+        <item>@string/vr_gamepad_toggle_menu_grip</item>
+        <item>@string/vr_gamepad_toggle_sticks</item>
+        <item>@string/vr_gamepad_toggle_triggers_grips</item>
     </string-array>
-    <string-array name="vr_controller_mode_values" translatable="false">
-        <item>pointer</item>
-        <item>gamepad</item>
+    <string-array name="vr_gamepad_toggle_values" translatable="false">
+        <item>menu_grip</item>
+        <item>sticks</item>
+        <item>triggers_grips</item>
     </string-array>
     <string-array name="vr_sharpening_names">
         <item>@string/vr_sharpening_off</item>

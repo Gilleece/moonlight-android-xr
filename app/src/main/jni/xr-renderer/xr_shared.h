@@ -199,6 +199,13 @@
 #define PAD_Y       0x8000
 #define PAD_BUTTONS (PAD_START + PAD_LS_CLICK + PAD_RS_CLICK + PAD_LB + PAD_RB + PAD_A + PAD_B + PAD_X + PAD_Y)
 
+// The shortcut on the controllers that switches between the pointer and the
+// pad, in the order the 2D setting lists them: the left menu button held with
+// the left grip, both stick clicks, or both triggers with both grips
+#define PAD_SHORTCUT_MENU_GRIP 0
+#define PAD_SHORTCUT_STICKS 1
+#define PAD_SHORTCUT_TRIGGERS_GRIPS 2
+
 // Settings the panel can hand back to Java to be applied and stored
 #define SETTING_SHARPEN 0
 #define SETTING_STATS   1
