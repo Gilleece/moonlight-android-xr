@@ -24,8 +24,9 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * What a report says and how it goes: the text before the logs, the check on
- * the note and the address, the token kept out of the body, and the result
- * for each way a post can go, with a stand in for the network.
+ * the note and the address, the token kept out of the body, the result for
+ * each way a post can go, with a stand in for the network, and the newest
+ * five kept.
  */
 public class BugReportTest {
 
@@ -191,7 +192,7 @@ public class BugReportTest {
         Map<String, String> headers = BugReport.headers(TOKEN, "Oculus Quest 2", "12.1-xr0.3",
                 "a@b.co", "it froze\nafter a minute");
         BugReport.Outcome outcome = BugReport.fileReport(dir, header, new File[] { null, current },
-                null, "https://collector.example/report", headers, net);
+                "https://collector.example/report", headers, net);
 
         assertEquals(BugReport.Result.SENT, outcome.result);
         assertEquals(1, net.urls.size());
@@ -218,18 +219,20 @@ public class BugReportTest {
 
     @Test
     public void anEmptyUrlSavesInsteadOfPosting() throws IOException {
-        File dir = folder.newFolder("reports");
-        File visible = folder.newFolder("visible");
+        File dir = folder.newFolder("logs");
         Recorder net = new Recorder();
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0], visible, "",
+        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0], "",
                 BugReport.headers(TOKEN, "d", "v", "", "m"), net);
 
         assertEquals(BugReport.Result.SAVED, outcome.result);
         assertTrue(net.urls.isEmpty());
         assertNull(outcome.detail);
-        // Where it is said to be is the copy the file manager can see
-        assertTrue(outcome.path.startsWith(visible.getAbsolutePath()));
+        // Saved once, where it is said to be and nowhere else
+        assertTrue(outcome.path.startsWith(dir.getAbsolutePath()));
         assertTrue(new File(outcome.path).isFile());
+        File[] saved = dir.listFiles();
+        assertNotNull(saved);
+        assertEquals(1, saved.length);
     }
 
     @Test
@@ -237,7 +240,7 @@ public class BugReportTest {
         File dir = folder.newFolder("reports");
         Recorder net = new Recorder();
         net.answer = 403;
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0], null,
+        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
                 "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"), net);
 
         assertEquals(BugReport.Result.NOT_SENT, outcome.result);
@@ -251,7 +254,7 @@ public class BugReportTest {
         File dir = folder.newFolder("reports");
         Recorder net = new Recorder();
         net.failure = new IOException("connect timed out");
-        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0], null,
+        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0],
                 "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"), net);
 
         assertEquals(BugReport.Result.NOT_SENT, outcome.result);
@@ -266,7 +269,7 @@ public class BugReportTest {
         // A file where the folder should be
         File blocked = folder.newFile("reports");
         Recorder net = new Recorder();
-        BugReport.Outcome outcome = BugReport.fileReport(blocked, "header\n", new File[0], null,
+        BugReport.Outcome outcome = BugReport.fileReport(blocked, "header\n", new File[0],
                 "https://collector.example/report", BugReport.headers("", "d", "v", "", "m"), net);
 
         assertEquals(BugReport.Result.NOT_WRITTEN, outcome.result);
@@ -286,6 +289,77 @@ public class BugReportTest {
         assertEquals("header\n\n----- moonlight.previous.log -----\nolder\n"
                 + "\n----- moonlight.log -----\nnewer\n", text);
         assertTrue(report.getName().startsWith("moonlight-xr-report-"));
+    }
+
+    // A report by the name it would have been given at that time
+    private static File report(File dir, String stamp) throws IOException {
+        File file = new File(dir, "moonlight-xr-report-" + stamp + ".txt");
+        assertTrue(file.createNewFile());
+        return file;
+    }
+
+    @Test
+    public void onlyTheNewestFiveReportsAreKept() throws IOException {
+        File dir = folder.newFolder("logs");
+        // Seven reports, made out of order, among the logs and a packed copy
+        // a post left behind
+        String[] stamps = { "20261001-120000", "20260930-235959", "20261002-090000",
+                "20260101-000000", "20261001-120001", "20261002-235959", "20261002-000000" };
+        for (String stamp : stamps) {
+            report(dir, stamp);
+        }
+        File current = new File(dir, "moonlight.log");
+        File previous = new File(dir, "moonlight.previous.log");
+        File packed = new File(dir, "moonlight-xr-report-20250101-000000.txt.gz");
+        File other = new File(dir, "notes.txt");
+        assertTrue(current.createNewFile() && previous.createNewFile() && packed.createNewFile()
+                && other.createNewFile());
+
+        assertEquals(2, BugReport.prune(dir, BugReport.KEEP_REPORTS));
+        // The two oldest went, by the time in their names
+        assertFalse(new File(dir, "moonlight-xr-report-20260101-000000.txt").exists());
+        assertFalse(new File(dir, "moonlight-xr-report-20260930-235959.txt").exists());
+        for (String stamp : new String[] { "20261001-120000", "20261001-120001",
+                "20261002-000000", "20261002-090000", "20261002-235959" }) {
+            assertTrue(stamp, new File(dir, "moonlight-xr-report-" + stamp + ".txt").isFile());
+        }
+        // Nothing else in the folder is touched
+        assertTrue(current.isFile() && previous.isFile() && packed.isFile() && other.isFile());
+
+        // Five or fewer is left alone, and an empty or missing folder is fine
+        assertEquals(0, BugReport.prune(dir, BugReport.KEEP_REPORTS));
+        assertEquals(0, BugReport.prune(folder.newFolder("empty"), BugReport.KEEP_REPORTS));
+        assertEquals(0, BugReport.prune(new File(folder.getRoot(), "missing"),
+                BugReport.KEEP_REPORTS));
+    }
+
+    @Test
+    public void savingPrunesWhatWasThere() throws IOException {
+        File dir = folder.newFolder("logs");
+        for (int i = 0; i < 6; i++) {
+            report(dir, "2020010" + (i + 1) + "-000000");
+        }
+        BugReport.Outcome outcome = BugReport.fileReport(dir, "header\n", new File[0], "",
+                BugReport.headers("", "d", "v", "", "m"), new Recorder());
+
+        assertEquals(BugReport.Result.SAVED, outcome.result);
+        // The new one and the four newest before it
+        File[] left = dir.listFiles();
+        assertNotNull(left);
+        assertEquals(5, left.length);
+        assertTrue(new File(outcome.path).isFile());
+        assertFalse(new File(dir, "moonlight-xr-report-20200101-000000.txt").exists());
+        assertFalse(new File(dir, "moonlight-xr-report-20200102-000000.txt").exists());
+        assertTrue(new File(dir, "moonlight-xr-report-20200103-000000.txt").isFile());
+    }
+
+    @Test
+    public void onlyReportsCountAsReports() {
+        assertTrue(BugReport.isReportName("moonlight-xr-report-20261002-090000.txt"));
+        assertFalse(BugReport.isReportName("moonlight.log"));
+        assertFalse(BugReport.isReportName("moonlight.previous.log"));
+        assertFalse(BugReport.isReportName("moonlight-xr-report-20261002-090000.txt.gz"));
+        assertFalse(BugReport.isReportName(null));
     }
 
     @Test
