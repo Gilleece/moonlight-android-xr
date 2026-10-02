@@ -448,6 +448,7 @@
     <string name="vr_report_sends">メッセージ、ヘッドセットとビルドの情報、設定、アプリのログを送信します。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。「送信」を押すまで何も送信されません。</string>
     <string name="vr_report_saves">メッセージ、ヘッドセットとビルドの情報、設定、アプリのログを、このヘッドセット上のファイルに保存します。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。</string>
     <string name="vr_report_not_sent">レポートを送信できませんでした</string>
+    <string name="vr_report_busy">レポートの受付サーバーが混み合っています</string>
     <string name="vr_report_saved">レポートを保存しました</string>
     <string name="vr_report_saved_at">保存先: %1$s</string>
     <string name="vr_report_not_written">レポートを保存できませんでした</string>
@@ -459,7 +460,7 @@
     <string name="about_version">Moonlight XR %1$s、コミット %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">ライセンス: GPLv3</string>
-    <string name="bug_report_intro">何が起きたか、どうなるはずだったかを書いてください。レポートはメッセージにアプリのバージョン、ヘッドセット、ストリーミング設定、ログファイルをまとめ、%1$sに送られます。\n\nログ: %2$s</string>
+    <string name="bug_report_intro">何が起きたか、どうなるはずだったかを書いてください。レポートはメッセージにアプリのバージョン、ヘッドセット、ストリーミング設定、ログファイルをまとめ、%1$sに送られます。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。\n\nログ: %2$s</string>
     <string name="bug_report_log_off">オフ。「ログファイルを保存」をオンにして先に問題を再現してください。そうしないとレポートにログが含まれません。</string>
     <string name="bug_report_email_hint">返信用のメールアドレス</string>
     <string name="bug_report_message_hint">何が起きましたか？</string>
@@ -468,6 +469,7 @@
     <string name="bug_report_sending">レポートを送信中…</string>
     <string name="bug_report_sent">レポートを送信しました。ありがとうございます</string>
     <string name="bug_report_upload_failed">レポートを送信できませんでした (%1$s)。次の場所に保存しました:\n\n%2$s\n\n接続できるときにもう一度試すか、ヘッドセットからコピーして%3$sにメールで送ってください。</string>
+    <string name="bug_report_busy">レポートの受付サーバーが混み合っています。レポートは次の場所に保存しました:\n\n%1$s\n\nしばらくしてからもう一度試すか、ヘッドセットからコピーして%2$sにメールで送ってください。</string>
     <string name="bug_report_save">レポートを保存</string>
     <string name="bug_report_subject">Moonlight XRのレポート: %1$s、%2$s</string>
     <string name="bug_report_from">返信先: %1$s</string>
@@ -475,7 +477,7 @@
     <string name="bug_report_no_mail">このデバイスにはメールアプリがないため、レポートを次の場所に保存しました:\n\n%1$s\n\nヘッドセットからコピーし、%2$s宛てのメールに添付してください。</string>
     <string name="bug_report_failed">レポートを書き込めませんでした: %1$s</string>
     <string name="title_vr_file_log">ログファイルを保存</string>
-    <string name="summary_vr_file_log">Download/MoonlightXRにテキストのログを記録します。ヘッドセットのファイルマネージャーで見つけられ、バグレポートに添付できます。5 MBに達するとmoonlight.previous.logに切り替わるため、2つ合わせても10 MBを超えません。変更を反映するにはアプリを再起動してください。</string>
+    <string name="summary_vr_file_log">Download/MoonlightXRにテキストのログを記録します。ヘッドセットのファイルマネージャーで見つけられ、バグレポートに添付できます。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。5 MBに達するとmoonlight.previous.logに切り替わるため、2つ合わせても10 MBを超えません。変更を反映するにはアプリを再起動してください。</string>
     <string name="title_seekbar_vr_inference_cadence">1秒あたりの深度更新</string>
     <string name="summary_seekbar_vr_inference_cadence">3Dが1秒間に作る深度マップの数です。少ないほどヘッドセットの負荷は軽くなりますが、深度の遅れが大きくなります。ヘッドセットが追いつかないときは、ディスプレイのリフレッシュレートを下げる前に、この値をしばらく半分にします。</string>
     <string name="suffix_seekbar_vr_inference_cadence">回/秒</string>

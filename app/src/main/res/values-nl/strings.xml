@@ -474,6 +474,7 @@
     <string name="vr_report_sends">Verstuurt uw bericht, gegevens over de headset en de build, uw instellingen en het log van de app, dat de naam en het netwerkadres van uw pc kan bevatten. Er wordt niets verstuurd tot u op ‘Versturen’ drukt.</string>
     <string name="vr_report_saves">Slaat uw bericht, gegevens over de headset en de build, uw instellingen en het log van de app, dat de naam en het netwerkadres van uw pc kan bevatten, op in een bestand op deze headset.</string>
     <string name="vr_report_not_sent">Het rapport kon niet worden verstuurd</string>
+    <string name="vr_report_busy">De rapportserver is bezet</string>
     <string name="vr_report_saved">Rapport opgeslagen</string>
     <string name="vr_report_saved_at">Opgeslagen in %1$s</string>
     <string name="vr_report_not_written">Het rapport kon niet worden opgeslagen</string>
@@ -485,7 +486,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licentie: GPLv3</string>
-    <string name="bug_report_intro">Beschrijf wat er misging en wat u verwachtte. Het rapport bundelt uw bericht met de app-versie, de headset, de streaminginstellingen en het logbestand, en gaat naar %1$s.\n\nLog: %2$s</string>
+    <string name="bug_report_intro">Beschrijf wat er misging en wat u verwachtte. Het rapport bundelt uw bericht met de app-versie, de headset, de streaminginstellingen en het logbestand, dat de naam en het netwerkadres van uw pc kan bevatten, en gaat naar %1$s.\n\nLog: %2$s</string>
     <string name="bug_report_log_off">uit. Zet ‘Logbestand opslaan’ aan en reproduceer eerst het probleem, anders bevat het rapport geen log.</string>
     <string name="bug_report_email_hint">Uw e-mailadres, voor een antwoord</string>
     <string name="bug_report_message_hint">Wat is er gebeurd?</string>
@@ -494,6 +495,7 @@
     <string name="bug_report_sending">Rapport wordt verstuurd…</string>
     <string name="bug_report_sent">Rapport verstuurd, bedankt</string>
     <string name="bug_report_upload_failed">Het rapport kon niet worden verstuurd (%1$s). Het is opgeslagen in\n\n%2$s\n\nProbeer het opnieuw met een verbinding, of kopieer het van de headset en e-mail het naar %3$s.</string>
+    <string name="bug_report_busy">De rapportserver is bezet, het rapport is opgeslagen in\n\n%1$s\n\nProbeer het later opnieuw, of kopieer het van de headset en e-mail het naar %2$s.</string>
     <string name="bug_report_save">Rapport opslaan</string>
     <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
     <string name="bug_report_from">Antwoord naar: %1$s</string>
@@ -501,7 +503,7 @@
     <string name="bug_report_no_mail">Er is geen e-mailapp op dit apparaat, dus het rapport is opgeslagen in\n\n%1$s\n\nKopieer het van de headset en voeg het toe aan een e-mail aan %2$s.</string>
     <string name="bug_report_failed">Kon het rapport niet schrijven: %1$s</string>
     <string name="title_vr_file_log">Logbestand opslaan</string>
-    <string name="summary_vr_file_log">Houdt een tekstlog bij in Download/MoonlightXR, waar de bestandsbeheerder op de headset het kan vinden en u het aan een foutmelding kunt toevoegen. Bij 5 MB schuift het door naar moonlight.previous.log, zodat de twee samen nooit meer dan 10 MB innemen. Start de app opnieuw om een wijziging toe te passen.</string>
+    <string name="summary_vr_file_log">Houdt een tekstlog bij in Download/MoonlightXR, waar de bestandsbeheerder op de headset het kan vinden en u het aan een foutmelding kunt toevoegen. Het kan de naam en het netwerkadres van uw pc bevatten. Bij 5 MB schuift het door naar moonlight.previous.log, zodat de twee samen nooit meer dan 10 MB innemen. Start de app opnieuw om een wijziging toe te passen.</string>
     <string name="title_seekbar_vr_inference_cadence">Diepte-updates per seconde</string>
     <string name="summary_seekbar_vr_inference_cadence">Hoeveel dieptekaarten het 3D elke seconde maakt. Minder is lichter voor de headset, maar de diepte loopt verder achter. Als de headset het niet bijhoudt, wordt dit een tijdje gehalveerd voordat de verversingssnelheid van het scherm omlaag gaat.</string>
     <string name="suffix_seekbar_vr_inference_cadence">per seconde</string>

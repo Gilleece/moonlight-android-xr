@@ -441,6 +441,7 @@
     <string name="vr_report_sends">Sender meldingen din, opplysninger om headset og versjon, innstillingene dine og appens logg, som kan inneholde navnet og adressen til PC-en din på nettverket. Ingenting sendes før du trykker «Send».</string>
     <string name="vr_report_saves">Lagrer meldingen din, opplysninger om headset og versjon, innstillingene dine og appens logg, som kan inneholde navnet og adressen til PC-en din på nettverket, i en fil på dette headsetet.</string>
     <string name="vr_report_not_sent">Rapporten kunne ikke sendes</string>
+    <string name="vr_report_busy">Rapportserveren er opptatt</string>
     <string name="vr_report_saved">Rapporten er lagret</string>
     <string name="vr_report_saved_at">Lagret i %1$s</string>
     <string name="vr_report_not_written">Rapporten kunne ikke lagres</string>
@@ -452,7 +453,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Lisens: GPLv3</string>
-    <string name="bug_report_intro">Beskriv hva som gikk galt og hva du forventet. Rapporten samler meldingen din med appversjonen, headsetet, strømmeinnstillingene og loggfilen, og sendes til %1$s.\n\nLogg: %2$s</string>
+    <string name="bug_report_intro">Beskriv hva som gikk galt og hva du forventet. Rapporten samler meldingen din med appversjonen, headsetet, strømmeinnstillingene og loggfilen, som kan inneholde navnet og adressen til PC-en din på nettverket, og sendes til %1$s.\n\nLogg: %2$s</string>
     <string name="bug_report_log_off">av. Slå på «Lagre en loggfil» og gjenskap problemet først, ellers får rapporten ingen logg.</string>
     <string name="bug_report_email_hint">E-postadressen din, for svar</string>
     <string name="bug_report_message_hint">Hva skjedde?</string>
@@ -461,6 +462,7 @@
     <string name="bug_report_sending">Sender rapporten…</string>
     <string name="bug_report_sent">Rapporten er sendt, takk</string>
     <string name="bug_report_upload_failed">Rapporten kunne ikke sendes (%1$s). Den er lagret i\n\n%2$s\n\nPrøv igjen med en tilkobling, eller kopier den fra headsetet og send den med e-post til %3$s.</string>
+    <string name="bug_report_busy">Rapportserveren er opptatt, rapporten er lagret i\n\n%1$s\n\nPrøv igjen senere, eller kopier den fra headsetet og send den med e-post til %2$s.</string>
     <string name="bug_report_save">Lagre rapporten</string>
     <string name="bug_report_subject">Moonlight XR-rapport: %1$s, %2$s</string>
     <string name="bug_report_from">Svar til: %1$s</string>
@@ -468,7 +470,7 @@
     <string name="bug_report_no_mail">Det finnes ingen e-postapp på denne enheten, så rapporten er lagret i\n\n%1$s\n\nKopier den fra headsetet og legg den ved en e-post til %2$s.</string>
     <string name="bug_report_failed">Kunne ikke skrive rapporten: %1$s</string>
     <string name="title_vr_file_log">Lagre en loggfil</string>
-    <string name="summary_vr_file_log">Fører en logg i ren tekst i Download/MoonlightXR, der filbehandleren på headsetet finner den og du kan legge den ved en feilrapport. Ved 5 MB går den over til moonlight.previous.log, så de to tar aldri mer enn 10 MB til sammen. Start appen på nytt for at en endring skal gjelde.</string>
+    <string name="summary_vr_file_log">Fører en logg i ren tekst i Download/MoonlightXR, der filbehandleren på headsetet finner den og du kan legge den ved en feilrapport. Den kan inneholde navnet og adressen til PC-en din på nettverket. Ved 5 MB går den over til moonlight.previous.log, så de to tar aldri mer enn 10 MB til sammen. Start appen på nytt for at en endring skal gjelde.</string>
     <string name="title_seekbar_vr_inference_cadence">Dybdeoppdateringer per sekund</string>
     <string name="summary_seekbar_vr_inference_cadence">Hvor mange dybdekart 3D-effekten lager hvert sekund. Færre er lettere for headsetet, men dybden henger mer etter. Når headsetet ikke henger med, halveres verdien en stund før skjermens oppdateringsfrekvens senkes.</string>
     <string name="suffix_seekbar_vr_inference_cadence">per sekund</string>

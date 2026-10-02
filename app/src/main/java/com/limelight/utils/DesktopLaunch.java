@@ -1,10 +1,12 @@
 package com.limelight.utils;
 
+import com.limelight.nvstream.http.HostHttpResponseException;
 import com.limelight.nvstream.http.NvApp;
 import com.limelight.nvstream.http.NvHTTP;
 
 import org.xmlpull.v1.XmlPullParserException;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
@@ -55,5 +57,22 @@ public final class DesktopLaunch {
             return null;
         }
         return desktop;
+    }
+
+    /**
+     * A failed app list request as the log gets it: the kind of failure and
+     * the HTTP status where there is one. Never the exception's own text,
+     * which for a 404 is the whole request URL, host and client id included.
+     */
+    public static String describeFailure(Exception e) {
+        String kind = e.getClass().getSimpleName();
+        if (e instanceof HostHttpResponseException) {
+            return kind + ", HTTP " + ((HostHttpResponseException) e).getErrorCode();
+        }
+        if (e instanceof FileNotFoundException) {
+            // How NvHTTP reports a 404
+            return kind + ", HTTP 404";
+        }
+        return kind;
     }
 }

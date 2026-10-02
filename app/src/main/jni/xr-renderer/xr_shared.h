@@ -490,9 +490,9 @@
 // every session and every room, since the grade only changes colours.
 
 // About tab: the app and its version, and no rows, only two buttons: the one
-// that opens Ko-fi in the browser, with a line under it saying it is optional,
-// over the one that puts the panel away for the report sheet. Where the
-// buttons sit on the panel.
+// that opens the Ko-fi sheet with the page's QR code, with a line under it
+// saying it is optional, over the one that puts the panel away for the report
+// sheet. Where the buttons sit on the panel.
 #define COG_KOFI_L 0.25f
 #define COG_KOFI_R 0.75f
 #define COG_KOFI_T 0.45f

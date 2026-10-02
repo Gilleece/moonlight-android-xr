@@ -466,6 +466,66 @@ static void testFftRefusesFiltersItCannotHold(void) {
     audioFftDestroy(ctx);
 }
 
+// History filled up to what audioHistoryFloats asks for and poisoned after it
+static float* poisonedHistory(long need) {
+    float* padded = malloc((size_t) (need + 64) * sizeof(float));
+    for (long i = 0; i < need + 64; i++) {
+        padded[i] = i < need ? 1000.0f * nextValue() : NAN;
+    }
+    return padded;
+}
+
+static int allFinite(const float* values, int count) {
+    for (int i = 0; i < count; i++) {
+        if (!isfinite(values[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+// The size the JNI layer holds a history buffer to is what the kernels read:
+// the renderer's own layout fits it exactly, and nothing past it reaches the
+// output of either path
+static void testHistoryFloatsIsWhatIsRead(void) {
+    CHECK(audioHistoryFloats(CHANNELS, STRIDE, TAPS, FRAMES) == CHANNELS * STRIDE);
+    CHECK(audioHistoryFloats(8, KEMAR_TAPS - 1 + 480, KEMAR_TAPS, 480)
+          == 8L * (KEMAR_TAPS - 1 + 480));
+    CHECK(audioHistoryFloats(0, STRIDE, TAPS, FRAMES) == -1);
+    CHECK(audioHistoryFloats(CHANNELS, -1, TAPS, FRAMES) == -1);
+    CHECK(audioHistoryFloats(CHANNELS, STRIDE, 0, FRAMES) == -1);
+    CHECK(audioHistoryFloats(CHANNELS, STRIDE, TAPS, -1) == -1);
+
+    srand(43);
+    fillEverything();
+    const int wide = STRIDE + 9;
+    long need = audioHistoryFloats(CHANNELS, wide, TAPS, FRAMES);
+    CHECK(need == (long) (CHANNELS - 1) * wide + TAPS - 1 + FRAMES);
+    float* padded = poisonedHistory(need);
+    audioConvolve(padded, wide, filtersLeft, filtersRight, TAPS, gains, CHANNELS, LFE, FRAMES,
+                  outLeft, outRight);
+    CHECK(allFinite(outLeft, FRAMES) && allFinite(outRight, FRAMES));
+    free(padded);
+
+    // The FFT path, over more than one transform so every piece's window counts
+    const int frames = 480;
+    const int stride = KEMAR_TAPS - 1 + frames + 5;
+    need = audioHistoryFloats(MOST_CHANNELS, stride, KEMAR_TAPS, frames);
+    fillRing(8, KEMAR_TAPS);
+    fillGains(MOST_CHANNELS);
+    fillKeys(MOST_CHANNELS, 8);
+    padded = poisonedHistory(need);
+    AudioFft* ctx = audioFftCreate(KEMAR_TAPS, MOST_CHANNELS, LFE, 8, ringLeft, ringRight);
+    CHECK(ctx != NULL);
+    if (ctx != NULL) {
+        audioFftConvolve(ctx, padded, stride, keyLow, keyHigh, keyFar, ringGains, frames, 0,
+                         gotLeft, gotRight, gotOldLeft, gotOldRight);
+        CHECK(allFinite(gotLeft, frames) && allFinite(gotRight, frames));
+        audioFftDestroy(ctx);
+    }
+    free(padded);
+}
+
 static double microseconds(struct timespec from, struct timespec to) {
     return (to.tv_sec - from.tv_sec) * 1e6 + (to.tv_nsec - from.tv_nsec) / 1e3;
 }
@@ -533,6 +593,7 @@ int main(void) {
     testFftKeepsTheOldFilters();
     testFftCachesTheFilters();
     testFftRefusesFiltersItCannotHold();
+    testHistoryFloatsIsWhatIsRead();
     timing(240);
     timing(480);
     return checksDone("xr_audio");

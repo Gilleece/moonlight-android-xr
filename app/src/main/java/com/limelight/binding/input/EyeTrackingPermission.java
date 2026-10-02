@@ -18,8 +18,10 @@ import java.util.List;
  * Android XR's, but declaring is not enough where the platform makes it a
  * runtime permission: without the grant the gaze pose never arrives, and Look
  * to point is dead. So a VR session with the setting on asks for it, once per
- * run of the app, and never waits for the answer. Only the names this
- * platform knows as runtime permissions are asked for or counted, so a
+ * run of the app, and never waits for the answer, but only on a headset that
+ * declares eye tracking: Look to point is on by default, and a headset
+ * without it should never prompt for something it cannot do. Only the names
+ * this platform knows as runtime permissions are asked for or counted, so a
  * headset that has none has nothing to ask and another store's name is never
  * taken for a refusal. An activity can only have one request up at a time, so
  * the hand tracking permission goes up in the same one.
@@ -31,6 +33,18 @@ public final class EyeTrackingPermission {
     // Android XR's name for gaze as an input, the one XR_EXT_eye_gaze_interaction wants
     public static final String ANDROID_XR = "android.permission.EYE_TRACKING_FINE";
     static final String[] NAMES = { META, PICO, ANDROID_XR };
+
+    // The system feature each platform declares for eye tracking, the same
+    // three the manifest lists
+    static final String[] FEATURES = {
+            "oculus.software.eye_tracking", "pvr.software.eyetracking",
+            "android.hardware.xr.input.eye_tracking"
+    };
+
+    /** Whether the system declares a feature: the PackageManager, or a test's own set. */
+    interface Features {
+        boolean has(String name);
+    }
 
     /** The request code the answer comes back under. */
     public static final int REQUEST_CODE = 0x4559;
@@ -54,6 +68,27 @@ public final class EyeTrackingPermission {
     public static boolean shouldAsk(boolean vr, boolean gazeOn, boolean runtime, boolean granted,
                                     boolean asked) {
         return vr && gazeOn && runtime && !granted && !asked;
+    }
+
+    /** The same for the eyes, which only a headset that declares eye tracking is asked for. */
+    static boolean shouldAskForEyes(Features features, boolean vr, boolean gazeOn,
+                                    boolean runtime, boolean granted, boolean asked) {
+        return tracksEyes(features) && shouldAsk(vr, gazeOn, runtime, granted, asked);
+    }
+
+    /** Whether the headset declares eye tracking under any platform's name for it. */
+    static boolean tracksEyes(Features features) {
+        for (String name : FEATURES) {
+            if (features.has(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Features systemFeatures(Context context) {
+        PackageManager pm = context.getPackageManager();
+        return pm::hasSystemFeature;
     }
 
     /** Whether the eyes may point: nothing to grant here, or it is granted. */
@@ -187,11 +222,16 @@ public final class EyeTrackingPermission {
         }
         List<String> ask = new ArrayList<>();
         if (gazeOn) {
+            Features features = systemFeatures(activity);
             List<String> names = runtimeNames(activity);
             boolean granted = anyGranted(activity, names);
-            if (shouldAsk(true, true, !names.isEmpty(), granted, askedThisRun)) {
+            if (shouldAskForEyes(features, true, true, !names.isEmpty(), granted, askedThisRun)) {
                 askedThisRun = true;
                 ask.addAll(names);
+            }
+            else if (!tracksEyes(features)) {
+                FileLog.event("eye tracking permission not asked: this headset declares no"
+                        + " eye tracking");
             }
             else if (names.isEmpty()) {
                 FileLog.event("eye tracking permission not asked: not a runtime permission"

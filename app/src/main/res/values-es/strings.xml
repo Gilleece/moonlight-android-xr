@@ -487,6 +487,7 @@
     <string name="vr_report_sends">Envía tu mensaje, los datos del visor y de la versión, tu configuración y el registro de la aplicación, que puede incluir el nombre y la dirección de tu PC en la red. No se envía nada hasta que pulses «Enviar».</string>
     <string name="vr_report_saves">Guarda tu mensaje, los datos del visor y de la versión, tu configuración y el registro de la aplicación, que puede incluir el nombre y la dirección de tu PC en la red, en un archivo de este visor.</string>
     <string name="vr_report_not_sent">No se pudo enviar el informe</string>
+    <string name="vr_report_busy">El servidor de informes está ocupado</string>
     <string name="vr_report_saved">Informe guardado</string>
     <string name="vr_report_saved_at">Guardado en %1$s</string>
     <string name="vr_report_not_written">No se pudo guardar el informe</string>
@@ -498,7 +499,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licencia: GPLv3</string>
-    <string name="bug_report_intro">Describe qué salió mal y qué esperabas. El informe reúne tu mensaje con la versión de la aplicación, el visor, la configuración de transmisión y el archivo de registro, y se envía a %1$s.\n\nRegistro: %2$s</string>
+    <string name="bug_report_intro">Describe qué salió mal y qué esperabas. El informe reúne tu mensaje con la versión de la aplicación, el visor, la configuración de transmisión y el archivo de registro, que puede incluir el nombre y la dirección de tu PC en la red, y se envía a %1$s.\n\nRegistro: %2$s</string>
     <string name="bug_report_log_off">desactivado. Activa «Guardar un archivo de registro» y reproduce el problema primero, o el informe no llevará registro.</string>
     <string name="bug_report_email_hint">Tu correo electrónico, para responderte</string>
     <string name="bug_report_message_hint">¿Qué ha pasado?</string>
@@ -507,6 +508,7 @@
     <string name="bug_report_sending">Enviando el informe…</string>
     <string name="bug_report_sent">Informe enviado, gracias</string>
     <string name="bug_report_upload_failed">No se pudo enviar el informe (%1$s). Se ha guardado en\n\n%2$s\n\nVuelve a intentarlo con conexión, o cópialo del visor y envíalo por correo a %3$s.</string>
+    <string name="bug_report_busy">El servidor de informes está ocupado, el informe se ha guardado en\n\n%1$s\n\nVuelve a intentarlo más tarde, o cópialo del visor y envíalo por correo a %2$s.</string>
     <string name="bug_report_save">Guardar el informe</string>
     <string name="bug_report_subject">Informe de Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Responder a: %1$s</string>
@@ -514,7 +516,7 @@
     <string name="bug_report_no_mail">No hay ninguna aplicación de correo en este dispositivo, así que el informe se ha guardado en\n\n%1$s\n\nCópialo del visor y adjúntalo a un correo para %2$s.</string>
     <string name="bug_report_failed">No se pudo escribir el informe: %1$s</string>
     <string name="title_vr_file_log">Guardar un archivo de registro</string>
-    <string name="summary_vr_file_log">Guarda un registro en texto plano en Download/MoonlightXR, donde el gestor de archivos del visor puede encontrarlo y puedes adjuntarlo a un informe de errores. Al llegar a 5 MB pasa a moonlight.previous.log, así que entre los dos nunca ocupan más de 10 MB. Reinicia la aplicación para que el cambio surta efecto.</string>
+    <string name="summary_vr_file_log">Guarda un registro en texto plano en Download/MoonlightXR, donde el gestor de archivos del visor puede encontrarlo y puedes adjuntarlo a un informe de errores. Puede incluir el nombre y la dirección de tu PC en la red. Al llegar a 5 MB pasa a moonlight.previous.log, así que entre los dos nunca ocupan más de 10 MB. Reinicia la aplicación para que el cambio surta efecto.</string>
     <string name="title_seekbar_vr_inference_cadence">Actualizaciones de profundidad por segundo</string>
     <string name="summary_seekbar_vr_inference_cadence">Cuántos mapas de profundidad genera el 3D cada segundo. Menos es más ligero para el visor, pero la profundidad se retrasa más. Cuando el visor no puede seguir el ritmo, este valor se reduce a la mitad durante un rato antes de bajar la frecuencia de la pantalla.</string>
     <string name="suffix_seekbar_vr_inference_cadence">por segundo</string>

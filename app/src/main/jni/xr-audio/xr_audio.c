@@ -64,6 +64,13 @@ void audioConvolve(const float* history, int historyStride, const float* filters
     }
 }
 
+long audioHistoryFloats(int channelCount, int historyStride, int taps, int frames) {
+    if (channelCount < 1 || historyStride < 0 || taps < 1 || frames < 0) {
+        return -1;
+    }
+    return (long) (channelCount - 1) * historyStride + taps - 1 + frames;
+}
+
 // The FFT version of the same sum.
 //
 // The twiddles, the bit reversal and the spectrum of every filter in the ring
@@ -525,8 +532,28 @@ void audioFftConvolve(AudioFft* ctx, const float* history, int historyStride, co
 
 #ifdef __ANDROID__
 
+#include <android/log.h>
 #include <jni.h>
 #include <stdint.h>
+
+static int audioWarned;
+
+// Whether a direct buffer from Java holds the values a call is about to read
+// or write. One that is not direct or comes up short is refused rather than
+// run past, with a warning the first time, since this runs every block.
+static int audioFits(JNIEnv* env, jobject buffer, long need, const char* what) {
+    jlong have = buffer == NULL ? -1 : (*env)->GetDirectBufferCapacity(env, buffer);
+    if (need >= 0 && have >= need) {
+        return 1;
+    }
+    if (!audioWarned) {
+        audioWarned = 1;
+        __android_log_print(ANDROID_LOG_WARN, "XrAudio",
+                            "%s refused: its buffer holds %lld of the %ld values the call needs",
+                            what, (long long) have, need);
+    }
+    return 0;
+}
 
 JNIEXPORT void JNICALL
 Java_com_limelight_binding_audio_NativeConvolver_convolve(
@@ -544,6 +571,16 @@ Java_com_limelight_binding_audio_NativeConvolver_convolve(
             || outLeftAt == NULL || outRightAt == NULL) {
         return;
     }
+    const long filterFloats = channelCount < 0 ? -1 : (long) channelCount * taps;
+    if (!audioFits(env, history, audioHistoryFloats(channelCount, historyStride, taps, frames),
+                   "history")
+            || !audioFits(env, filtersLeft, filterFloats, "left filters")
+            || !audioFits(env, filtersRight, filterFloats, "right filters")
+            || !audioFits(env, gains, channelCount, "gains")
+            || !audioFits(env, outLeft, frames, "left output")
+            || !audioFits(env, outRight, frames, "right output")) {
+        return;
+    }
     audioConvolve(historyAt, historyStride, leftAt, rightAt, taps, gainsAt, channelCount,
                   lfeChannel, frames, outLeftAt, outRightAt);
 }
@@ -556,6 +593,11 @@ Java_com_limelight_binding_audio_NativeConvolver_createFft(
     const float* leftAt = (*env)->GetDirectBufferAddress(env, ringLeft);
     const float* rightAt = (*env)->GetDirectBufferAddress(env, ringRight);
     if (leftAt == NULL || rightAt == NULL) {
+        return 0;
+    }
+    const long ringFloats = taps < 1 || ringSize < 1 ? -1 : (long) ringSize * taps;
+    if (!audioFits(env, ringLeft, ringFloats, "left ring")
+            || !audioFits(env, ringRight, ringFloats, "right ring")) {
         return 0;
     }
     AudioFft* ctx = audioFftCreate(taps, channelCount, lfeChannel, ringSize, leftAt, rightAt);
@@ -597,6 +639,19 @@ Java_com_limelight_binding_audio_NativeConvolver_convolveFft(
     if (ctx == NULL || historyAt == NULL || lowAt == NULL || highAt == NULL || farAt == NULL
             || gainsAt == NULL || outLeftAt == NULL || outRightAt == NULL || oldLeftAt == NULL
             || oldRightAt == NULL) {
+        return;
+    }
+    const int channels = ctx->channelCount;
+    if (!audioFits(env, history,
+                   audioHistoryFloats(channels, historyStride, ctx->taps, frames), "history")
+            || !audioFits(env, low, channels, "low entries")
+            || !audioFits(env, high, channels, "high entries")
+            || !audioFits(env, far, channels, "weights")
+            || !audioFits(env, gains, channels, "gains")
+            || !audioFits(env, outLeft, frames, "left output")
+            || !audioFits(env, outRight, frames, "right output")
+            || (withOld && (!audioFits(env, oldLeft, frames, "old left output")
+                            || !audioFits(env, oldRight, frames, "old right output")))) {
         return;
     }
     audioFftConvolve(ctx, historyAt, historyStride, lowAt, highAt, farAt, gainsAt, frames,

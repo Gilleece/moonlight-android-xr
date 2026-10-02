@@ -2,9 +2,15 @@ package com.limelight.binding.input;
 
 import org.junit.Test;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -26,6 +32,51 @@ public class EyeTrackingPermissionTest {
         assertFalse(EyeTrackingPermission.shouldAsk(true, true, false, false, false));
         assertFalse(EyeTrackingPermission.shouldAsk(true, true, true, true, false));
         assertFalse(EyeTrackingPermission.shouldAsk(true, true, true, false, true));
+    }
+
+    // A headset's system features, as hasSystemFeature would answer for them
+    private static EyeTrackingPermission.Features features(String... names) {
+        Set<String> declared = new HashSet<>(Arrays.asList(names));
+        return declared::contains;
+    }
+
+    // Everything else in favour of asking: a VR session, gaze on, a runtime
+    // permission, not granted and not asked yet
+    private static boolean asks(EyeTrackingPermission.Features features) {
+        return EyeTrackingPermission.shouldAskForEyes(features, true, true, true, false, false);
+    }
+
+    @Test
+    public void aHeadsetWithoutEyeTrackingIsNeverAsked() {
+        // Quest 3 and Quest 2: head and hand tracking and passthrough, no eyes
+        assertFalse(asks(features("android.hardware.vr.headtracking",
+                "oculus.software.handtracking", "com.oculus.feature.PASSTHROUGH")));
+        assertFalse(asks(features("pvr.software.handtracking")));
+        assertFalse(asks(features("android.software.xr.api.openxr",
+                "android.hardware.xr.input.controller",
+                "android.hardware.xr.input.hand_tracking")));
+        assertFalse(asks(features()));
+    }
+
+    @Test
+    public void aHeadsetThatTracksEyesIsAskedUnderAnyPlatformsName() {
+        assertTrue(asks(features("oculus.software.handtracking", "oculus.software.eye_tracking")));
+        assertTrue(asks(features("pvr.software.handtracking", "pvr.software.eyetracking")));
+        assertTrue(asks(features("android.software.xr.api.openxr",
+                "android.hardware.xr.input.eye_tracking")));
+        // Eye tracking does not override the rest: gaze off, or already granted
+        EyeTrackingPermission.Features eyes = features("oculus.software.eye_tracking");
+        assertFalse(EyeTrackingPermission.shouldAskForEyes(eyes, true, false, true, false, false));
+        assertFalse(EyeTrackingPermission.shouldAskForEyes(eyes, true, true, true, true, false));
+    }
+
+    @Test
+    public void theFeaturesCheckedAreTheOnesTheManifestLists() throws IOException {
+        String manifest = new String(Files.readAllBytes(Paths.get("src/main/AndroidManifest.xml")),
+                StandardCharsets.UTF_8);
+        for (String feature : EyeTrackingPermission.FEATURES) {
+            assertTrue(feature, manifest.contains("android:name=\"" + feature + "\""));
+        }
     }
 
     @Test

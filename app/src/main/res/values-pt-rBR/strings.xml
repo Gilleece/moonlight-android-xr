@@ -467,6 +467,7 @@
     <string name="vr_report_sends">Envia sua mensagem, os dados do headset e da versão, suas configurações e o log do app, que pode incluir o nome e o endereço do seu PC na rede. Nada é enviado até você tocar em “Enviar”.</string>
     <string name="vr_report_saves">Salva sua mensagem, os dados do headset e da versão, suas configurações e o log do app, que pode incluir o nome e o endereço do seu PC na rede, em um arquivo neste headset.</string>
     <string name="vr_report_not_sent">Não foi possível enviar o relatório</string>
+    <string name="vr_report_busy">O servidor de relatórios está ocupado</string>
     <string name="vr_report_saved">Relatório salvo</string>
     <string name="vr_report_saved_at">Salvo em %1$s</string>
     <string name="vr_report_not_written">Não foi possível salvar o relatório</string>
@@ -478,7 +479,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licença: GPLv3</string>
-    <string name="bug_report_intro">Descreva o que deu errado e o que você esperava. O relatório junta sua mensagem com a versão do app, o headset, as configurações de transmissão e o arquivo de log, e vai para %1$s.\n\nLog: %2$s</string>
+    <string name="bug_report_intro">Descreva o que deu errado e o que você esperava. O relatório junta sua mensagem com a versão do app, o headset, as configurações de transmissão e o arquivo de log, que pode incluir o nome e o endereço do seu PC na rede, e vai para %1$s.\n\nLog: %2$s</string>
     <string name="bug_report_log_off">desligado. Ative “Salvar um arquivo de log” e reproduza o problema primeiro, ou o relatório não terá log.</string>
     <string name="bug_report_email_hint">Seu e-mail, para uma resposta</string>
     <string name="bug_report_message_hint">O que aconteceu?</string>
@@ -487,6 +488,7 @@
     <string name="bug_report_sending">Enviando o relatório…</string>
     <string name="bug_report_sent">Relatório enviado, obrigado</string>
     <string name="bug_report_upload_failed">Não foi possível enviar o relatório (%1$s). Ele foi salvo em\n\n%2$s\n\nTente de novo com conexão, ou copie-o do headset e envie por e-mail para %3$s.</string>
+    <string name="bug_report_busy">O servidor de relatórios está ocupado, o relatório foi salvo em\n\n%1$s\n\nTente de novo mais tarde, ou copie-o do headset e envie por e-mail para %2$s.</string>
     <string name="bug_report_save">Salvar o relatório</string>
     <string name="bug_report_subject">Relatório do Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Responder para: %1$s</string>
@@ -494,7 +496,7 @@
     <string name="bug_report_no_mail">Não há app de e-mail neste dispositivo, então o relatório foi salvo em\n\n%1$s\n\nCopie-o do headset e anexe a um e-mail para %2$s.</string>
     <string name="bug_report_failed">Não foi possível gravar o relatório: %1$s</string>
     <string name="title_vr_file_log">Salvar um arquivo de log</string>
-    <string name="summary_vr_file_log">Mantém um log em texto simples em Download/MoonlightXR, onde o gerenciador de arquivos do headset consegue encontrá-lo e você pode anexá-lo a um relatório de erro. Ao chegar a 5 MB ele passa para moonlight.previous.log, então os dois juntos nunca ocupam mais de 10 MB. Reinicie o app para a mudança ter efeito.</string>
+    <string name="summary_vr_file_log">Mantém um log em texto simples em Download/MoonlightXR, onde o gerenciador de arquivos do headset consegue encontrá-lo e você pode anexá-lo a um relatório de erro. Ele pode incluir o nome e o endereço do seu PC na rede. Ao chegar a 5 MB ele passa para moonlight.previous.log, então os dois juntos nunca ocupam mais de 10 MB. Reinicie o app para a mudança ter efeito.</string>
     <string name="title_seekbar_vr_inference_cadence">Atualizações de profundidade por segundo</string>
     <string name="summary_seekbar_vr_inference_cadence">Quantos mapas de profundidade o 3D gera por segundo. Menos é mais leve para o headset, mas a profundidade fica mais atrasada. Quando o headset não acompanha, este valor cai pela metade por um tempo antes de a taxa de atualização da tela ser reduzida.</string>
     <string name="suffix_seekbar_vr_inference_cadence">por segundo</string>

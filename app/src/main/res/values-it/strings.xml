@@ -490,6 +490,7 @@
     <string name="vr_report_sends">Invia il tuo messaggio, i dati del visore e della build, le tue impostazioni e il log dell\'app, che può includere il nome e l\'indirizzo del tuo PC sulla rete. Non viene inviato nulla finché non premi «Invia».</string>
     <string name="vr_report_saves">Salva il tuo messaggio, i dati del visore e della build, le tue impostazioni e il log dell\'app, che può includere il nome e l\'indirizzo del tuo PC sulla rete, in un file su questo visore.</string>
     <string name="vr_report_not_sent">Non è stato possibile inviare la segnalazione</string>
+    <string name="vr_report_busy">Il server delle segnalazioni è occupato</string>
     <string name="vr_report_saved">Segnalazione salvata</string>
     <string name="vr_report_saved_at">Salvata in %1$s</string>
     <string name="vr_report_not_written">Non è stato possibile salvare la segnalazione</string>
@@ -501,7 +502,7 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licenza: GPLv3</string>
-    <string name="bug_report_intro">Descrivi cosa è andato storto e cosa ti aspettavi. La segnalazione unisce il tuo messaggio alla versione dell\'app, al visore, alle impostazioni di trasmissione e al file di log, e viene inviata a %1$s.\n\nLog: %2$s</string>
+    <string name="bug_report_intro">Descrivi cosa è andato storto e cosa ti aspettavi. La segnalazione unisce il tuo messaggio alla versione dell\'app, al visore, alle impostazioni di trasmissione e al file di log, che può includere il nome e l\'indirizzo del tuo PC sulla rete, e viene inviata a %1$s.\n\nLog: %2$s</string>
     <string name="bug_report_log_off">disattivato. Attiva «Salva un file di log» e riproduci prima il problema, altrimenti la segnalazione non conterrà alcun log.</string>
     <string name="bug_report_email_hint">Il tuo indirizzo email, per una risposta</string>
     <string name="bug_report_message_hint">Cosa è successo?</string>
@@ -510,6 +511,7 @@
     <string name="bug_report_sending">Invio della segnalazione…</string>
     <string name="bug_report_sent">Segnalazione inviata, grazie</string>
     <string name="bug_report_upload_failed">Non è stato possibile inviare la segnalazione (%1$s). È stata salvata in\n\n%2$s\n\nRiprova con una connessione, oppure copiala dal visore e inviala per email a %3$s.</string>
+    <string name="bug_report_busy">Il server delle segnalazioni è occupato, la segnalazione è stata salvata in\n\n%1$s\n\nRiprova più tardi, oppure copiala dal visore e inviala per email a %2$s.</string>
     <string name="bug_report_save">Salva la segnalazione</string>
     <string name="bug_report_subject">Segnalazione Moonlight XR: %1$s, %2$s</string>
     <string name="bug_report_from">Rispondi a: %1$s</string>
@@ -517,7 +519,7 @@
     <string name="bug_report_no_mail">Su questo dispositivo non c\'è nessuna app email, quindi la segnalazione è stata salvata in\n\n%1$s\n\nCopiala dal visore e allegala a un\'email per %2$s.</string>
     <string name="bug_report_failed">Impossibile scrivere la segnalazione: %1$s</string>
     <string name="title_vr_file_log">Salva un file di log</string>
-    <string name="summary_vr_file_log">Tiene un log in testo semplice in Download/MoonlightXR, dove il file manager del visore può trovarlo e puoi allegarlo a una segnalazione. A 5 MB passa a moonlight.previous.log, così i due insieme non superano mai 10 MB. Riavvia l\'app perché una modifica abbia effetto.</string>
+    <string name="summary_vr_file_log">Tiene un log in testo semplice in Download/MoonlightXR, dove il file manager del visore può trovarlo e puoi allegarlo a una segnalazione. Può includere il nome e l\'indirizzo del tuo PC sulla rete. A 5 MB passa a moonlight.previous.log, così i due insieme non superano mai 10 MB. Riavvia l\'app perché una modifica abbia effetto.</string>
     <string name="title_seekbar_vr_inference_cadence">Aggiornamenti di profondità al secondo</string>
     <string name="summary_seekbar_vr_inference_cadence">Quante mappe di profondità crea il 3D ogni secondo. Meno è più leggero per il visore, ma la profondità resta più indietro. Quando il visore non riesce a stare al passo, questo valore viene dimezzato per un po\' prima di abbassare la frequenza dello schermo.</string>
     <string name="suffix_seekbar_vr_inference_cadence">al secondo</string>
