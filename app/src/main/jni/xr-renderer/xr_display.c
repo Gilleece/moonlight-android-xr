@@ -309,7 +309,8 @@ static void depthWords(XrCtx* ctx, char* buf, size_t size) {
 }
 
 // Each move of the depth target in the log, with what the budget measured
-static void sayDepthMove(XrCtx* ctx, int move, int was, int64_t now) {
+// and what the governor decided about climbing back
+static void sayDepthMove(XrCtx* ctx, int move, int was, int64_t recoverWas, int64_t now) {
     const RateBudget* b = &ctx->rateBudget;
     const DepthGovernor* g = &ctx->depthGov;
     char hz[16];
@@ -322,6 +323,24 @@ static void sayDepthMove(XrCtx* ctx, int move, int was, int64_t now) {
               hz, b->frameMs, b->gpuMs, b->cpuMs, b->paceMs, b->lastMissed,
               b->lastFrames + b->lastMissed, 1000.0f / ctx->displayRate, overS, was, g->target,
               hz, DEPTH_HOLD_NS / 1000000000LL);
+        LOGEV("depth rate: %d failed, so it climbs back no higher than %d maps/s this session "
+              "unless the setting changes", g->failedTarget, depthGovernorCeiling(g));
+        if (g->recoverNs != recoverWas) {
+            LOGEV("depth rate: the step up before this failed, the next one waits for %lld s "
+                  "of held budget (was %lld s)", g->recoverNs / 1000000000LL,
+                  recoverWas / 1000000000LL);
+        }
+    }
+    else if (move == DEPTH_MOVE_CAPPED) {
+        LOGEV("depth rate: %s Hz held for %lld s at %d maps/s, staying there: %d failed this "
+              "session, so %d is as high as it climbs back until the setting (%d) changes",
+              hz, g->recoverNs / 1000000000LL, g->target, g->failedTarget,
+              depthGovernorCeiling(g), g->cap);
+    }
+    else if (move == DEPTH_MOVE_RAISE_HELD) {
+        LOGEV("depth rate: the step up to %d maps/s held for %lld s, the wait before the next "
+              "goes back to %lld s (was %lld s)", g->target, DEPTH_RAISE_HELD_NS / 1000000000LL,
+              g->recoverNs / 1000000000LL, recoverWas / 1000000000LL);
     }
     else if (move == DEPTH_MOVE_HOLDING) {
         LOGEV("depth rate: %s Hz frame time %.2f ms still over its %.2f ms period %.1f s after "
@@ -331,8 +350,9 @@ static void sayDepthMove(XrCtx* ctx, int move, int was, int64_t now) {
     }
     else if (move == DEPTH_MOVE_RAISED) {
         LOGEV("depth rate: %s Hz held for %lld s, frame time %.2f ms, depth target %d to %d "
-              "maps/s (preference %d)", hz, DEPTH_RECOVER_NS / 1000000000LL, b->frameMs, was,
-              g->target, g->cap);
+              "maps/s (preference %d, ceiling %d), judged over the next %lld s",
+              hz, recoverWas / 1000000000LL, b->frameMs, was, g->target, g->cap,
+              depthGovernorCeiling(g), DEPTH_RAISE_HELD_NS / 1000000000LL);
     }
 }
 
@@ -416,12 +436,13 @@ void displayFrameEnded(XrCtx* ctx) {
         return;
     }
     int depthWas = ctx->depthGov.target;
+    int64_t recoverWas = ctx->depthGov.recoverNs;
     int move = depthGovernorWindow(&ctx->depthGov, now, verdict, depthLive(ctx));
     if (verdict == RATE_WINDOW_SETTLING) {
         return;
     }
     logBudget(ctx);
-    sayDepthMove(ctx, move, depthWas, now);
+    sayDepthMove(ctx, move, depthWas, recoverWas, now);
     if (move != DEPTH_MOVE_DISPLAY || !ctx->rateWarpOn || ctx->refreshKnob > 0) {
         return;
     }
@@ -572,6 +593,21 @@ void perfNotice(XrCtx* ctx, const XrEventDataPerfSettingsEXT* notice) {
     }
 }
 
+// A new setting of the depth rate mid session, which starts the governor
+// again there, forgetting the failed target and the recovery wait. Frame loop.
+void setDepthRate(XrCtx* ctx, int perSecond, const char* why) {
+    int was = ctx->depthGov.cap;
+    if (depthGovernorSetCap(&ctx->depthGov, perSecond)) {
+        LOGEV("depth rate: setting %d to %d maps/s (%s), the failed target and the recovery "
+              "wait forgotten, running at %d", was, ctx->depthGov.cap, why,
+              ctx->depthGov.target);
+    }
+    else {
+        LOGEV("depth rate: setting %d maps/s (%s) unchanged, running at %d", ctx->depthGov.cap,
+              why, ctx->depthGov.target);
+    }
+}
+
 // The preference, in maps a second, which the governor starts at and never
 // goes over. Once, before the frame loop starts.
 JNIEXPORT void JNICALL
@@ -581,6 +617,7 @@ Java_com_limelight_binding_video_XrRenderer_nativeSetDepthRate(JNIEnv* env, jobj
     if (ctx == NULL) {
         return;
     }
+    ctx->depthRateSetting = perSecond;
     depthGovernorStart(&ctx->depthGov, perSecond);
     LOGEV("depth rate: %d maps a second at most (asked for %d), cut before the display rate",
           ctx->depthGov.cap, perSecond);

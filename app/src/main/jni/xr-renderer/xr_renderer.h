@@ -415,6 +415,9 @@ typedef struct XrCompositionLayerSettingsFB {
 // Hz to force the display to, 0 to hand it back to the stream's rate and the
 // frame budget. Read at session start and live.
 #define PROP_REFRESH "debug.moonlight.refresh"
+// Depth maps a second, standing in for a change of the setting mid session,
+// which forgets what the governor learnt; 0 goes back to the setting. Live.
+#define PROP_DEPTH_RATE "debug.moonlight.depthrate"
 // The CPU and GPU levels asked of the runtime: 0 none, 1 sustained high as
 // shipped, 2 boost. Read at session start and live, though a level once asked
 // for cannot be taken back, so 0 only means nothing at the next session.
@@ -975,6 +978,10 @@ typedef struct {
     // only, bar the target the stats read.
     DepthGovernor depthGov;
     DepthGate depthGate;
+    // The preference as Java handed it over, and debug.moonlight.depthrate,
+    // 0 for the preference
+    int depthRateSetting;
+    int depthRateKnob;
     // The runtime's last notice level for each CPU and GPU sub domain
     int perfNoticeLevels[2][3];
 
@@ -1770,6 +1777,7 @@ void displayRateChanged(XrCtx* ctx, float from, float to);
 void displayFrameBegun(XrCtx* ctx, const XrFrameState* state);
 void displayFrameEnded(XrCtx* ctx);
 void setRefreshKnob(XrCtx* ctx, int hz);
+void setDepthRate(XrCtx* ctx, int perSecond, const char* why);
 
 // xr_debug.c: setprop knobs and frame capture
 void readStartKnobs(XrCtx* ctx);

@@ -229,6 +229,33 @@ void depthGovernorStart(DepthGovernor* g, int cap) {
     g->cutNs = 0;
     g->heldSinceNs = 0;
     g->throttled = 0;
+    g->failedTarget = 0;
+    g->recoverNs = DEPTH_RECOVER_NS;
+    g->raisedNs = 0;
+    g->cappedSaid = 0;
+}
+
+int depthGovernorSetCap(DepthGovernor* g, int cap) {
+    if (depthRateClamp(cap) == g->cap) {
+        return 0;
+    }
+    // The runtime's throttle is not the setting's to forget
+    int throttled = g->throttled;
+    depthGovernorStart(g, cap);
+    g->throttled = throttled;
+    return 1;
+}
+
+int depthGovernorCeiling(const DepthGovernor* g) {
+    if (g->failedTarget <= 0) {
+        return g->cap;
+    }
+    int half = g->failedTarget / 2 < DEPTH_RATE_MIN ? DEPTH_RATE_MIN : g->failedTarget / 2;
+    return half < g->cap ? half : g->cap;
+}
+
+int64_t depthRecoverBackoff(int64_t waitNs) {
+    return waitNs * 2 > DEPTH_RECOVER_MAX_NS ? DEPTH_RECOVER_MAX_NS : waitNs * 2;
 }
 
 // Halves the target unless a cut is still being held or it is at the floor
@@ -241,29 +268,67 @@ static int depthCut(DepthGovernor* g, int64_t nowNs) {
     }
     g->target = g->target / 2 < DEPTH_RATE_MIN ? DEPTH_RATE_MIN : g->target / 2;
     g->cutNs = nowNs;
+    g->cappedSaid = 0;
     return DEPTH_MOVE_CUT;
+}
+
+static int depthHeld(DepthGovernor* g, int64_t nowNs, int live) {
+    if (!live || g->throttled) {
+        g->heldSinceNs = 0;
+        return DEPTH_MOVE_NONE;
+    }
+    // The window that just held began a window ago
+    if (g->heldSinceNs == 0) {
+        g->heldSinceNs = nowNs - RATE_WINDOW_NS;
+    }
+    // A step up that has gone this long without a cut held, and the wait it
+    // may have built up goes
+    if (g->raisedNs != 0 && nowNs - g->raisedNs >= DEPTH_RAISE_HELD_NS) {
+        g->raisedNs = 0;
+        if (g->recoverNs != DEPTH_RECOVER_NS) {
+            g->recoverNs = DEPTH_RECOVER_NS;
+            return DEPTH_MOVE_RAISE_HELD;
+        }
+    }
+    if (nowNs - g->heldSinceNs < g->recoverNs) {
+        return DEPTH_MOVE_NONE;
+    }
+    int ceiling = depthGovernorCeiling(g);
+    if (g->target < ceiling) {
+        g->target = g->target * 2 > ceiling ? ceiling : g->target * 2;
+        g->heldSinceNs = nowNs;
+        g->raisedNs = nowNs;
+        return DEPTH_MOVE_RAISED;
+    }
+    if (g->target < g->cap && !g->cappedSaid) {
+        g->cappedSaid = 1;
+        return DEPTH_MOVE_CAPPED;
+    }
+    return DEPTH_MOVE_NONE;
 }
 
 int depthGovernorWindow(DepthGovernor* g, int64_t nowNs, int verdict, int live) {
     switch (verdict) {
         case RATE_WINDOW_HELD:
-            if (!live || g->throttled) {
-                g->heldSinceNs = 0;
-                return DEPTH_MOVE_NONE;
-            }
-            // The window that just held began a window ago
-            if (g->heldSinceNs == 0) {
-                g->heldSinceNs = nowNs - RATE_WINDOW_NS;
-            }
-            if (g->target < g->cap && nowNs - g->heldSinceNs >= DEPTH_RECOVER_NS) {
-                g->target = g->target * 2 > g->cap ? g->cap : g->target * 2;
-                g->heldSinceNs = nowNs;
-                return DEPTH_MOVE_RAISED;
-            }
-            return DEPTH_MOVE_NONE;
-        case RATE_WINDOW_OVER:
+            return depthHeld(g, nowNs, live);
+        case RATE_WINDOW_OVER: {
             g->heldSinceNs = 0;
-            return live ? depthCut(g, nowNs) : DEPTH_MOVE_DISPLAY;
+            if (!live) {
+                return DEPTH_MOVE_DISPLAY;
+            }
+            int was = g->target;
+            int move = depthCut(g, nowNs);
+            if (move == DEPTH_MOVE_CUT) {
+                // Remembered for the session, so the climb back stops short of it
+                g->failedTarget = was;
+                // and a step up that led here makes the next one wait longer
+                if (g->raisedNs != 0) {
+                    g->recoverNs = depthRecoverBackoff(g->recoverNs);
+                    g->raisedNs = 0;
+                }
+            }
+            return move;
+        }
         case RATE_WINDOW_SLIPPING:
         case RATE_WINDOW_SETTLING:
             // Over, or the budget started again after a change: either way
@@ -285,6 +350,10 @@ int depthGovernorThrottle(DepthGovernor* g, int64_t nowNs, int worse, int thrott
         return DEPTH_MOVE_NONE;
     }
     int move = depthCut(g, nowNs);
+    if (move == DEPTH_MOVE_CUT) {
+        // Not the step up's fault, so it is neither judged nor backed off
+        g->raisedNs = 0;
+    }
     // A throttle is the runtime's business, so it never moves the display
     return move == DEPTH_MOVE_DISPLAY ? DEPTH_MOVE_NONE : move;
 }

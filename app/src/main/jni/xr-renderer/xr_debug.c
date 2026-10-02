@@ -118,6 +118,14 @@ void pollCaptureRequest(XrCtx* ctx) {
     if (refresh != ctx->refreshKnob) {
         setRefreshKnob(ctx, refresh);
     }
+    // Maps a second, 0 for the setting
+    int depthRate = ctx->depthRateKnob;
+    propInt(PROP_DEPTH_RATE, &depthRate, DEPTH_RATE_MAX);
+    if (depthRate != ctx->depthRateKnob) {
+        ctx->depthRateKnob = depthRate;
+        setDepthRate(ctx, depthRate > 0 ? depthRate : ctx->depthRateSetting,
+                     depthRate > 0 ? "depth rate knob" : "knob cleared, back to the setting");
+    }
     // 0 none, 1 sustained high, 2 boost
     int perf = ctx->perfLevel;
     propInt(PROP_PERF_LEVEL, &perf, PERF_LEVEL_BOOST);

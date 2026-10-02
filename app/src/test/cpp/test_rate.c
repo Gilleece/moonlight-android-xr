@@ -564,26 +564,43 @@ static void testGovernorLadderTiming(void) {
     CHECK(moves[4] == DEPTH_MOVE_DISPLAY && when[4] == 30 * SEC);
     CHECK(g.target == 5);
 
-    // Then the budget holds. 30 s of it, counted from the start of the first
-    // held window, before the first step back up
+    // Then the budget holds. 10 failed last, so 5 is as high as it goes back:
+    // said once, 30 s into the held run, and nothing climbs
     n = ladder(&g, &now, 40, 0, 1, moves, when, 16);
     int64_t heldFrom = 60 * SEC;
-    CHECK(n == 2);
-    CHECK(moves[0] == DEPTH_MOVE_RAISED && when[0] == heldFrom + 30 * SEC);
-    CHECK(moves[1] == DEPTH_MOVE_RAISED && when[1] == heldFrom + 60 * SEC);
-    // One step at a time, and never past the preference
-    CHECK(g.target == 20);
+    CHECK(n == 1);
+    CHECK(moves[0] == DEPTH_MOVE_CAPPED && when[0] == heldFrom + 30 * SEC);
+    CHECK(g.target == 5 && g.failedTarget == 10);
     n = ladder(&g, &now, 40, 0, 1, moves, when, 16);
     CHECK(n == 0);
-    CHECK(g.target == 20);
+    CHECK(g.target == 5);
+}
+
+// A cut the runtime asked for, with the throttle let go at once, which leaves
+// nothing failed to cap the climb back
+static void throttleCut(DepthGovernor* g, int64_t now) {
+    CHECK(depthGovernorThrottle(g, now, 1, 1, 1) == DEPTH_MOVE_CUT);
+    CHECK(depthGovernorThrottle(g, now, 0, 0, 1) == DEPTH_MOVE_NONE);
+}
+
+// Held windows from now until the governor moves, at most limit of them
+static int heldUntilMove(DepthGovernor* g, int64_t* now, int limit) {
+    for (int i = 0; i < limit; i++) {
+        *now += RATE_WINDOW_NS;
+        int move = depthGovernorWindow(g, *now, RATE_WINDOW_HELD, 1);
+        if (move != DEPTH_MOVE_NONE) {
+            return move;
+        }
+    }
+    return DEPTH_MOVE_NONE;
 }
 
 static void testGovernorRecoveryNeedsAnUnbrokenRun(void) {
     DepthGovernor g;
     depthGovernorStart(&g, 45);
     int64_t now = 100 * SEC;
-    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
-    CHECK(g.target == 22);
+    throttleCut(&g, now);
+    CHECK(g.target == 22 && g.failedTarget == 0);
     // 28 s held, then one window over: the count starts again
     for (int i = 0; i < 14; i++) {
         now += RATE_WINDOW_NS;
@@ -606,7 +623,7 @@ static void testGovernorRecoveryNeedsAnUnbrokenRun(void) {
     CHECK(g.target == 45);
     // A budget restarted after a rate change or a focus loss breaks the run too
     depthGovernorStart(&g, 20);
-    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    throttleCut(&g, now);
     for (int i = 0; i < 10; i++) {
         now += RATE_WINDOW_NS;
         depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1);
@@ -618,6 +635,168 @@ static void testGovernorRecoveryNeedsAnUnbrokenRun(void) {
         CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1) == DEPTH_MOVE_NONE);
     }
     CHECK(g.target == 10);
+}
+
+// The loop the Quest 3 showed: 45 a second fails at 120 Hz, 22 holds, and
+// climbing back to 44 failed again every 36 s. The failure is remembered, so
+// the climb stops at half of it.
+static void testGovernorRemembersTheFailedTarget(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 45);
+    int64_t now = 10 * SEC;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.target == 22 && g.failedTarget == 45);
+    CHECK(depthGovernorCeiling(&g) == 22);
+    // Five minutes of held budget: said once at 30 s, never climbs, so never
+    // fails again
+    int capped = 0, other = 0;
+    int64_t cappedAt = 0;
+    for (int i = 0; i < 150; i++) {
+        now += RATE_WINDOW_NS;
+        int move = depthGovernorWindow(&g, now, RATE_WINDOW_HELD, 1);
+        if (move == DEPTH_MOVE_CAPPED) {
+            capped++;
+            cappedAt = now;
+        }
+        else if (move != DEPTH_MOVE_NONE) {
+            other++;
+        }
+    }
+    CHECK(capped == 1 && other == 0);
+    CHECK(cappedAt == 10 * SEC + DEPTH_RECOVER_NS);
+    CHECK(g.target == 22);
+
+    // A step up that fails is remembered the same way: from a throttle's
+    // cut to 22 it climbs to 44, fails there, and stops at 22
+    depthGovernorStart(&g, 45);
+    now = 10 * SEC;
+    throttleCut(&g, now);
+    CHECK(heldUntilMove(&g, &now, 20) == DEPTH_MOVE_RAISED);
+    CHECK(g.target == 44);
+    now += RATE_WINDOW_NS;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.target == 22 && g.failedTarget == 44 && depthGovernorCeiling(&g) == 22);
+    CHECK(heldUntilMove(&g, &now, 150) == DEPTH_MOVE_CAPPED);
+    CHECK(heldUntilMove(&g, &now, 150) == DEPTH_MOVE_NONE);
+    CHECK(g.target == 22);
+    // The last failure is the one that counts: a lower one lowers the ceiling
+    now += 20 * SEC;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.failedTarget == 22 && depthGovernorCeiling(&g) == 11);
+    // A throttle is not a failure
+    depthGovernorStart(&g, 20);
+    throttleCut(&g, now);
+    CHECK(g.failedTarget == 0 && depthGovernorCeiling(&g) == 20);
+}
+
+static void testGovernorCeiling(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 20);
+    CHECK(depthGovernorCeiling(&g) == 20);
+    g.failedTarget = 30;
+    CHECK(depthGovernorCeiling(&g) == 15);
+    // Never over the preference
+    g.failedTarget = 50;
+    CHECK(depthGovernorCeiling(&g) == 20);
+    // and never under the floor
+    g.failedTarget = 6;
+    CHECK(depthGovernorCeiling(&g) == 5);
+    g.failedTarget = 5;
+    CHECK(depthGovernorCeiling(&g) == 5);
+}
+
+static void testGovernorSettingChangeForgets(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 45);
+    int64_t now = 10 * SEC;
+    throttleCut(&g, now);
+    heldUntilMove(&g, &now, 20);
+    now += RATE_WINDOW_NS;
+    depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1);
+    CHECK(g.failedTarget == 44 && g.recoverNs == 2 * DEPTH_RECOVER_NS);
+    // The same setting again changes nothing
+    CHECK(depthGovernorSetCap(&g, 45) == 0);
+    CHECK(depthGovernorSetCap(&g, 60) == 0);
+    CHECK(g.target == 22 && g.failedTarget == 44);
+    // A new one starts there, everything learnt forgotten
+    CHECK(depthGovernorSetCap(&g, 20) == 1);
+    CHECK(g.cap == 20 && g.target == 20 && g.failedTarget == 0);
+    CHECK(g.recoverNs == DEPTH_RECOVER_NS && g.raisedNs == 0 && g.cutNs == 0);
+    CHECK(heldUntilMove(&g, &now, 150) == DEPTH_MOVE_NONE);
+    CHECK(g.target == 20);
+    // but a throttle still in force stays in force
+    depthGovernorThrottle(&g, now, 0, 1, 1);
+    CHECK(depthGovernorSetCap(&g, 30) == 1);
+    CHECK(g.throttled == 1 && g.target == 30);
+}
+
+static void testRecoverBackoff(void) {
+    CHECK(depthRecoverBackoff(30 * SEC) == 60 * SEC);
+    CHECK(depthRecoverBackoff(60 * SEC) == 120 * SEC);
+    CHECK(depthRecoverBackoff(120 * SEC) == 240 * SEC);
+    CHECK(depthRecoverBackoff(240 * SEC) == 300 * SEC);
+    CHECK(depthRecoverBackoff(300 * SEC) == 300 * SEC);
+}
+
+// Each step up that fails doubles the wait before the next: 30 s, 60 s, 120 s
+static void testGovernorBacksOffAfterFailedSteps(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 45);
+    int64_t now = 10 * SEC;
+    int64_t expect[] = { 30 * SEC, 60 * SEC, 120 * SEC };
+    int targets[] = { 44, 22, 10 };
+    for (int i = 0; i < 3; i++) {
+        // Room to climb comes from a throttle's cut, held clear of the last
+        now += DEPTH_HOLD_NS;
+        throttleCut(&g, now);
+        CHECK(g.recoverNs == expect[i]);
+        int64_t from = now;
+        CHECK(heldUntilMove(&g, &now, 200) == DEPTH_MOVE_RAISED);
+        CHECK(now - from == expect[i]);
+        CHECK(g.target == targets[i]);
+        // and the budget fails it
+        now += RATE_WINDOW_NS;
+        CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    }
+    CHECK(g.recoverNs == 240 * SEC);
+    CHECK(g.target == 5 && depthGovernorCeiling(&g) == 5);
+}
+
+// A step up that holds two minutes puts the wait back to 30 s
+static void testGovernorBackoffResetsWhenAStepHolds(void) {
+    DepthGovernor g;
+    depthGovernorStart(&g, 45);
+    int64_t now = 10 * SEC;
+    throttleCut(&g, now);
+    heldUntilMove(&g, &now, 20);
+    now += RATE_WINDOW_NS;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.recoverNs == 60 * SEC && g.target == 22);
+    // Down again by a throttle, up after the longer wait, to the ceiling
+    now += DEPTH_HOLD_NS;
+    throttleCut(&g, now);
+    CHECK(heldUntilMove(&g, &now, 100) == DEPTH_MOVE_RAISED);
+    int64_t raised = now;
+    CHECK(g.target == 22);
+    // Held at the ceiling: said when the wait is up, then the step counts as
+    // held at two minutes
+    CHECK(heldUntilMove(&g, &now, 100) == DEPTH_MOVE_CAPPED);
+    CHECK(now - raised == 60 * SEC);
+    CHECK(heldUntilMove(&g, &now, 100) == DEPTH_MOVE_RAISE_HELD);
+    CHECK(now - raised == DEPTH_RAISE_HELD_NS);
+    CHECK(g.recoverNs == DEPTH_RECOVER_NS && g.raisedNs == 0);
+    // A cut after that is a fresh failure, not the step's
+    now += RATE_WINDOW_NS;
+    CHECK(depthGovernorWindow(&g, now, RATE_WINDOW_OVER, 1) == DEPTH_MOVE_CUT);
+    CHECK(g.recoverNs == DEPTH_RECOVER_NS);
+    // Nor does a throttle's cut count against a step up
+    depthGovernorStart(&g, 45);
+    now += DEPTH_HOLD_NS;
+    throttleCut(&g, now);
+    heldUntilMove(&g, &now, 20);
+    now += DEPTH_HOLD_NS;
+    throttleCut(&g, now);
+    CHECK(g.recoverNs == DEPTH_RECOVER_NS && g.raisedNs == 0);
 }
 
 static void testGovernorWithNoModelRunning(void) {
@@ -728,6 +907,12 @@ int main(void) {
     testGovernorCutsBeforeTheDisplay();
     testGovernorLadderTiming();
     testGovernorRecoveryNeedsAnUnbrokenRun();
+    testGovernorRemembersTheFailedTarget();
+    testGovernorCeiling();
+    testGovernorSettingChangeForgets();
+    testRecoverBackoff();
+    testGovernorBacksOffAfterFailedSteps();
+    testGovernorBackoffResetsWhenAStepHolds();
     testGovernorWithNoModelRunning();
     testGovernorFloorAndCap();
     testGovernorOnAThrottle();

@@ -119,10 +119,16 @@ int rateBudgetTick(RateBudget* b, int64_t nowNs, float hz);
 // The preference sets the most it may run at, and the frame loop captures by
 // time rather than by frame count, so a 120 fps stream costs the model what a
 // 60 fps one does.
+
 // After a cut the budget is given this long to show it before the next move
 #define DEPTH_HOLD_NS 10000000000LL
-// And it has to hold this long without a break before the rate climbs a step
+// The budget has to hold this long without a break before the rate climbs a
+// step. Each step up that the budget then fails doubles it, up to
+// DEPTH_RECOVER_MAX_NS, and a step up that holds DEPTH_RAISE_HELD_NS puts it
+// back.
 #define DEPTH_RECOVER_NS 30000000000LL
+#define DEPTH_RECOVER_MAX_NS 300000000000LL
+#define DEPTH_RAISE_HELD_NS 120000000000LL
 
 // The preference's value in range
 int depthRateClamp(int perSecond);
@@ -155,11 +161,19 @@ void depthGateTaken(DepthGate* g, int64_t nowNs, int perSecond);
 // Over budget with the depth target already at DEPTH_RATE_MIN, or no model
 // running to cut: the display rate's turn to step down
 #define DEPTH_MOVE_DISPLAY 4
+// The last step up held DEPTH_RAISE_HELD_NS, so the wait went back to
+// DEPTH_RECOVER_NS
+#define DEPTH_MOVE_RAISE_HELD 5
+// The budget held long enough to climb, but the session's failed target
+// keeps it where it is. Said once per failure.
+#define DEPTH_MOVE_CAPPED 6
 
 // The depth rate spent before the display rate. Over budget, the target is
 // halved first, down to DEPTH_RATE_MIN, each cut held DEPTH_HOLD_NS before
-// another; only past that does the display step down. After DEPTH_RECOVER_NS
-// of held budget it doubles again, a step at a time, up to the preference.
+// another; only past that does the display step down. After the recovery wait
+// of held budget it doubles again, a step at a time, up to the preference,
+// but never past half of the last target the budget failed at this session,
+// so a rate the headset cannot hold is not tried again and again.
 typedef struct {
     // The preference and what the gate runs at now, maps a second
     int cap;
@@ -171,9 +185,30 @@ typedef struct {
     // The runtime says a CPU or GPU domain is throttled, which keeps the
     // target from climbing
     int throttled;
+    // The last target the budget failed at, 0 for none. A throttle is the
+    // runtime's doing and does not count.
+    int failedTarget;
+    // The held budget the next step up waits for, and when the last step up
+    // was, 0 once it has been judged
+    int64_t recoverNs;
+    int64_t raisedNs;
+    // The failed target's ceiling has been said since the last cut
+    int cappedSaid;
 } DepthGovernor;
 
 void depthGovernorStart(DepthGovernor* g, int cap);
+
+// A new preference, mid session or at its start. A different one starts the
+// governor again at it, the failed target and the recovery wait forgotten,
+// and returns 1; the same one changes nothing and returns 0.
+int depthGovernorSetCap(DepthGovernor* g, int cap);
+
+// The most the target climbs back to: the preference, or half the failed
+// target if there is one, though never under DEPTH_RATE_MIN
+int depthGovernorCeiling(const DepthGovernor* g);
+
+// The recovery wait after a step up fails: doubled, up to DEPTH_RECOVER_MAX_NS
+int64_t depthRecoverBackoff(int64_t waitNs);
 
 // A judged window from rateBudgetTick at nowNs. live says the depth model is
 // running, with the 3D on: without it there is nothing to cut or raise.
