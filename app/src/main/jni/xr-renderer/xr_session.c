@@ -818,6 +818,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
         destroyArtSwapchain(&ctx->padButtonSwapchains[state], &ctx->padButtonImages[state]);
     }
     destroyArtSwapchain(&ctx->hintSwapchain, &ctx->hintImages);
+    destroyArtSwapchain(&ctx->kofiSwapchain, &ctx->kofiImages);
     destroyArtSwapchain(&ctx->outlineSwapchain, &ctx->outlineImages);
     destroyArtSwapchain(&ctx->glowSwapchain, &ctx->glowImages);
     destroyArtSwapchain(&ctx->roomSwapchain, &ctx->roomImages);

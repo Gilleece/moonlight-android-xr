@@ -10,11 +10,11 @@ import java.util.List;
 /**
  * The hand tracking permission, which Android XR makes a runtime one for the
  * hand joints. Without it the runtime's own pinch still points and clicks,
- * but the deliberate pinch and the ring finger lock, which read the joints,
- * have nothing to read. Meta's hand permission is granted at install and
- * Pico has none, so only Android XR's name is ever asked for. The request
- * goes up with the eye tracking one. The joints are only looked for as a
- * session starts, so a grant that lands after that counts from the next one.
+ * but the deliberate pinch, which reads the joints, has nothing to read.
+ * Meta's hand permission is granted at install and Pico has none, so only
+ * Android XR's name is ever asked for. The request goes up with the eye
+ * tracking one. The joints are only looked for as a session starts, so a
+ * grant that lands after that counts from the next one.
  */
 final class HandTrackingPermission {
 

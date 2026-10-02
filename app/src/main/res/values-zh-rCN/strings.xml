@@ -328,10 +328,14 @@
     <string name="title_vr_gaze">注视点瞄准 (Look to point)</string>
     <string name="summary_vr_gaze">在支持眼动追踪的头显上，通过注视屏幕进行瞄准，用任意一只手捏合手指点击。按下手柄上的按键后由手柄接管指针，直到将其放下；如果眼动追踪丢失 10 秒，将改由双手指向，直到恢复。</string>
     <string name="title_vr_hand_tracking">手势追踪</string>
-    <string name="summary_vr_hand_tracking">放下手柄时可通过手势指向和捏合操作。关闭此项可仅使用手柄。在串流会话中，用拇指触碰无名指片刻，可锁定手势交互而无需退出游戏；再做一次同样的手势即可解锁。</string>
+    <string name="summary_vr_hand_tracking">放下手柄时可通过手势指向和捏合操作。关闭此项可仅使用手柄。在串流会话中，用拇指和食指快速捏合三次，可锁定手势交互而无需退出游戏；再快速捏合三次即可解锁。</string>
     <string name="vr_hand_hint_title">手势追踪已开启。</string>
-    <string name="vr_hand_hint_body">用拇指触碰无名指片刻即可锁定手势，避免误捏造成点击；再做一次同样的手势即可解锁。</string>
+    <string name="vr_hand_hint_body">用拇指和食指快速捏合三次即可锁定手势，避免误捏造成点击；再快速捏合三次即可解锁。</string>
     <string name="vr_hand_hint_never">不再显示</string>
+    <string name="vr_kofi_title">在 Ko-fi 上支持 Moonlight XR</string>
+    <string name="vr_kofi_scan">用手机扫描此二维码。</string>
+    <string name="vr_kofi_free">完全自愿：Moonlight XR 免费，并将一直免费。</string>
+    <string name="vr_kofi_close">关闭</string>
     <string name="title_vr_reset_pose">重置屏幕位置</string>
     <string name="summary_vr_reset_pose">将屏幕恢复至上方设定的距离和宽度，撤销手柄拖拽或缩放操作</string>
     <string name="toast_vr_reset_pose">屏幕位置已重置</string>
@@ -402,8 +406,6 @@
     <string name="about_version">Moonlight XR %1$s，提交 %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">许可证：GPLv3</string>
-    <string name="title_about_kofi">在 Ko-fi 上支持本项目</string>
-    <string name="summary_about_kofi">完全自愿。Moonlight XR 免费，并将一直免费。</string>
     <string name="bug_report_intro">请描述遇到的问题以及预期表现。报告将打包您的说明、应用版本、头显型号、串流设置与日志文件，并发送至 %1$s。\n\n日志路径：%2$s</string>
     <string name="bug_report_log_off">已关闭。请先开启“保存日志文件”并复现问题，否则报告中将不包含日志。</string>
     <string name="bug_report_email_hint">您的电子邮箱（用于接收回复）</string>

@@ -151,14 +151,10 @@ static inline int64_t nowNs(void) {
 // columns: five of them now
 #define PICKER_WIDTH_FRAC 0.91f
 #define OUTLINE_TEX 128
-// The button that opens it, sitting to the left of the move bar
-#define ENV_BUTTON_FRAC 0.048f
-#define ENV_GAP_FRAC 0.02f
+// The buttons along the bar, the picker's to the left of the move bar and the
+// cog's to the right, are sized in xr_layout.h with their placement
 
 #define COG_WIDTH_FRAC 0.36f
-// The button that opens it, sitting to the right of the move bar, the same
-// size as the environment button on the left
-#define COG_BUTTON_FRAC 0.048f
 #define COG_THUMB_TEX 64
 // Which rows the panel is showing: one of the tabs, or the Room tab, which is
 // what the first tab is while a room is up. Numbered past the tabs, since it
@@ -200,6 +196,9 @@ static inline int64_t nowNs(void) {
 #define HINT_WIDTH_FRAC 0.40f
 #define HINT_POINTING_NS 500000000L
 
+// The Ko-fi sheet, over the middle of the picture like the hint and as wide
+#define KOFI_WIDTH_FRAC 0.40f
+
 // The panels that fade in and out, each with a fade of its own
 #define FADE_COG 0
 #define FADE_PICKER 1
@@ -207,8 +206,9 @@ static inline int64_t nowNs(void) {
 #define FADE_EXIT 3
 #define FADE_REPORT 4
 #define FADE_HINT 5
-#define FADE_PANELS 6
-// And the layers a colour scale is chained onto: those six, then the splash
+#define FADE_KOFI 6
+#define FADE_PANELS 7
+// And the layers a colour scale is chained onto: those seven, then the splash
 // and the toast
 #define FADE_SLOT_SPLASH FADE_PANELS
 #define FADE_SLOT_TOAST (FADE_PANELS + 1)
@@ -883,6 +883,10 @@ typedef struct {
     float dotSizeSaid;
     // The screen's cylinder is held under a full turn, as last said in the log
     int cylinderClampSaid;
+    // Where the bar's row hung as last said in the log: its frame's width and
+    // the picture's bottom edge it hangs from
+    float barSaidWidth;
+    Vec3 barSaidEdge;
     int layerSettingsSupported;
     // Layer colour scale (XR_KHR_composition_layer_color_scale_bias), which is
     // what fades a layer without drawing anything. Without it the panels and
@@ -1074,21 +1078,13 @@ typedef struct {
     // until the hand opens again
     int pinchSwallowed[SRC_COUNT];
     // Hands locked out for the session, so a gamepad can be used without a
-    // stray pinch clicking the desktop or dragging the screen around. The ring
-    // pinch is the way back. Controllers are never affected, and it starts
-    // off every session.
+    // stray pinch clicking the desktop or dragging the screen around. The
+    // triple pinch is the way back. Controllers are never affected, and it
+    // starts off every session.
     int handsLocked;
-    // The thumb to ring finger gesture that turns the lock, per hand, read off
-    // the joints whether the hands are locked or not, since it is the way
-    // back. The four fingertips' gaps to the thumb tip it is judged on, in
-    // TIP_ order and under zero for a tip not placed, the refusal last said,
-    // so each is said once per closing, and when the hand's diagnostic line
-    // last went in the log.
-    RingGate ringGate[HAND_COUNT];
-    int ringTipsTracked[HAND_COUNT];
-    float tipGaps[HAND_COUNT][TIP_COUNT];
-    int ringRefusalSaid[HAND_COUNT];
-    int64_t ringDiagNs[HAND_COUNT];
+    // The triple pinch that turns the lock, per hand, read off the press
+    // whether the hands are locked or not, since it is the way back
+    TriplePinch triplePinch[HAND_COUNT];
     // The sheet that says how the gesture works, once a session the first
     // time a hand points. Wanted unless it was put away for good or the hands
     // are off, as Java says at the start; shown once a session at most. Its
@@ -1562,6 +1558,16 @@ typedef struct {
     float reportW, reportH;
     // The About tab's Ko-fi button being under the ray
     int cogKofiHot;
+    // The sheet that button opens: its art, whether it is up, whether its
+    // Close button is under the ray, and the pose frozen when it opened
+    int kofiOpen;
+    XrSwapchain kofiSwapchain;
+    uint32_t kofiImageCount;
+    XrSwapchainImageOpenGLESKHR* kofiImages;
+    int kofiReady;
+    int kofiHoverZone;
+    XrPosef kofiPose;
+    float kofiW, kofiH;
 
     // Curvature the panel asked for, or -1 while the preference still owns it,
     // alongside the preference itself so both are readable away from the JNI
@@ -1697,6 +1703,8 @@ int furnitureOnStandIn(XrCtx* ctx);
 XrPosef furniturePose(XrCtx* ctx);
 float furnitureWidth(XrCtx* ctx);
 float furnitureHeight(XrCtx* ctx);
+BarFrame barFrame(XrCtx* ctx);
+int barButtonHit(XrCtx* ctx, int slot, float u, float v, const BarFrame* frame);
 float cornerSide(XrCtx* ctx);
 float effectiveCurvature(XrCtx* ctx);
 int cogFace(XrCtx* ctx);
@@ -1705,36 +1713,21 @@ float screenPitch(XrCtx* ctx);
 XrQuaternionf screenOrient(float yaw, float pitch, float roll);
 float screenRoll(XrCtx* ctx);
 XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight);
-void envButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int envButtonHit(XrCtx* ctx, float u, float v, float height);
-void cogButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int cogButtonHit(XrCtx* ctx, float u, float v, float height);
 XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
-void kbButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int kbButtonHit(XrCtx* ctx, float u, float v, float height);
 XrPosef kbPanelPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int kbKeyAt(XrCtx* ctx, float u, float v);
-void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int exitButtonHit(XrCtx* ctx, float u, float v, float height);
 int headAimCanAct(XrCtx* ctx);
-void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int aimButtonHit(XrCtx* ctx, float u, float v, float height);
 void setHeadAimOn(XrCtx* ctx, int on, const char* from);
 void setPadMode(XrCtx* ctx, int on, const char* from);
 const char* padShortcutName(int shortcut);
-void padButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int padButtonHit(XrCtx* ctx, float u, float v, float height);
-void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int stereoButtonHit(XrCtx* ctx, float u, float v, float height);
 void setStereoLive(XrCtx* ctx, int on, const char* from);
-void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide);
-int rayButtonHit(XrCtx* ctx, float u, float v, float height);
 void setRayOn(XrCtx* ctx, int on, const char* from);
 int panelUp(XrCtx* ctx);
 XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int exitPromptZone(float u, float v);
 XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight);
+XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight);
 int cogTabRowCount(int face);
 int cogRowIsTrack(int face, int row);
 int cogRowLive(XrCtx* ctx, int face, int row);

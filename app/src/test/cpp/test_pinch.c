@@ -1,5 +1,5 @@
-// The pinch and its hold, the ring finger lock gesture, and the drag the eyes
-// start, checked a frame at a time
+// The pinch and its hold, the triple pinch that locks the hands, and the drag
+// the eyes start, checked a frame at a time
 #include "check.h"
 #include "xr_pinch.h"
 
@@ -96,143 +96,119 @@ static void testPinchHold(void) {
     CHECK(!pressHysteresis(0.69f, 1, PINCH_VALUE_ON, PINCH_VALUE_OFF));
 }
 
-// Holds the four fingertips where they are told, in mm from the thumb tip, for
-// a time, and says how many times the gesture fired and why it was not held on
-// the last frame
-static int holdRing(RingGate* g, int64_t* t, int64_t forNs, float index, float middle,
-                    float ring, float little, int* why) {
-    const float gaps[TIP_COUNT] = { index * 0.001f, middle * 0.001f, ring * 0.001f,
-                                    little * 0.001f };
-    int fired = 0;
-    for (int64_t done = 0; done < forNs; done += FRAME_NS) {
-        *t += FRAME_NS;
-        fired += ringGateStep(g, 1, gaps, *t, why);
+// What a run of pinches does as the input pass applies it: each pinch is its
+// press landing at a time and held for a time, stepped a frame at a time on
+// from *now. Counts how often the lock turned and how many presses reached
+// the host as clicks, the lock holding every press back while it is on and
+// the gesture holding back its own third.
+typedef struct {
+    int turned;
+    int clicks;
+} PinchRun;
+
+static PinchRun pinches(TriplePinch* tp, int64_t* now, int* locked, const int* atMs, int count,
+                        int holdMs) {
+    PinchRun run = { 0, 0 };
+    int64_t from = *now;
+    int64_t end = from + (int64_t)(atMs[count - 1] + holdMs + 300) * MS;
+    int reached = 0;
+    for (int64_t t = from; t <= end; t += FRAME_NS) {
+        int down = 0;
+        for (int i = 0; i < count; i++) {
+            int64_t on = from + (int64_t)atMs[i] * MS;
+            down |= t >= on && t < on + (int64_t)holdMs * MS;
+        }
+        if (triplePinchStep(tp, down, t)) {
+            *locked = !*locked;
+            run.turned++;
+        }
+        int reaches = down && !*locked && !triplePinchHeld(tp);
+        run.clicks += reaches && !reached;
+        reached = reaches;
+        *now = t;
     }
-    return fired;
+    *now += 2000 * MS;
+    return run;
 }
 
-static void testRingGesture(void) {
-    RingGate g;
-    int64_t t = 0;
-    int why;
+static void testTriplePinch(void) {
+    TriplePinch tp;
+    triplePinchReset(&tp);
+    int64_t now = 1000 * MS;
+    int locked = 0;
 
-    // Held cleanly for 350 ms it fires once, and only once however long it
-    // is held. 340 ms of frames reach 333 ms of hold, two more pass 350.
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 340 * MS, 70, 50, 10, 40, &why) == 0);
-    CHECK(why == RING_OK);
-    CHECK(ringHoldNs(&g, t) > 300 * MS && ringHoldNs(&g, t) < RING_HOLD_NS);
-    CHECK(holdRing(&g, &t, 20 * MS, 70, 50, 10, 40, &why) == 1);
-    CHECK(holdRing(&g, &t, 2000 * MS, 70, 50, 10, 40, &why) == 0);
-    CHECK(why == RING_SPENT);
-    CHECK(ringHoldNs(&g, t) == 0);
-    // Parting the fingers lets it fire again
-    holdRing(&g, &t, 50 * MS, 70, 50, 40, 40, &why);
-    CHECK(why == RING_FAR);
-    CHECK(holdRing(&g, &t, 370 * MS, 70, 50, 10, 40, &why) == 1);
+    // Three pinches inside 0.8 s lock the hands. The first two reach the
+    // host as clicks, on time; the third is the lock's.
+    const int quick[3] = { 0, 300, 600 };
+    PinchRun run = pinches(&tp, &now, &locked, quick, 3, 120);
+    CHECK(run.turned == 1 && locked);
+    CHECK(run.clicks == 2);
 
-    // A real hand pinching thumb to ring: the middle tip curls in 20 mm from
-    // the thumb, beside the ring tip, and it still passes
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 400 * MS, 45, 20, 13, 30, &why) == 1);
-    // As close as the ring tip without being nearer, the same
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 400 * MS, 45, 13, 13, 30, &why) == 1);
+    // While locked the same three unlock them, and nothing reaches the host:
+    // the lock holds the first two, the gesture the third
+    run = pinches(&tp, &now, &locked, quick, 3, 120);
+    CHECK(run.turned == 1 && !locked);
+    CHECK(run.clicks == 0);
 
-    // An index pinch is never one: the ring tip too far off
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 8, 35, 30, 45, &why) == 0);
-    CHECK(why == RING_FAR);
-    // Or curled in close, but the index tip is nearer
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 8, 25, 18, 30, &why) == 0);
-    CHECK(why == RING_NOT_NEAREST);
-    // Or the ring tip nearest, but the index tip all but as close
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 20, 30, 12, 35, &why) == 0);
-    CHECK(why == RING_INDEX);
-    // A millimetre inside the margin refuses, half a millimetre past it passes
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 26, 30, 15, 35, &why) == 0);
-    CHECK(why == RING_INDEX);
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 400 * MS, 27.5f, 30, 15, 35, &why) == 1);
+    // Three spread over 1.5 s are three clicks and nothing more
+    const int slow[3] = { 0, 650, 1300 };
+    run = pinches(&tp, &now, &locked, slow, 3, 120);
+    CHECK(run.turned == 0 && !locked);
+    CHECK(run.clicks == 3);
 
-    // A middle or little tip nearer than the ring tip is not the gesture
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 50, 9, 12, 30, &why) == 0);
-    CHECK(why == RING_NOT_NEAREST);
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 50, 30, 12, 8, &why) == 0);
-    CHECK(why == RING_NOT_NEAREST);
+    // A double pinch is a double click
+    const int twice[2] = { 0, 250 };
+    run = pinches(&tp, &now, &locked, twice, 2, 100);
+    CHECK(run.turned == 0 && !locked);
+    CHECK(run.clicks == 2);
 
-    // A refusal partway through starts the hold again
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 300 * MS, 60, 30, 12, 30, &why) == 0);
-    CHECK(holdRing(&g, &t, 30 * MS, 60, 10, 12, 30, &why) == 0);
-    CHECK(why == RING_NOT_NEAREST);
-    CHECK(holdRing(&g, &t, 300 * MS, 60, 30, 12, 30, &why) == 0);
-    CHECK(holdRing(&g, &t, 100 * MS, 60, 30, 12, 30, &why) == 1);
+    // A slow pinch then three quick ones still locks, counted from the press
+    // two before the last rather than from the first of the run
+    const int late[4] = { 0, 1000, 1300, 1600 };
+    run = pinches(&tp, &now, &locked, late, 4, 120);
+    CHECK(run.turned == 1 && locked);
+    CHECK(run.clicks == 3);
 
-    // Its own hysteresis: closes under 22 mm, stays closed up to 32
-    ringGateReset(&g);
-    CHECK(holdRing(&g, &t, 1000 * MS, 60, 40, 23, 40, &why) == 0);
-    CHECK(why == RING_FAR);
-    holdRing(&g, &t, 20 * MS, 60, 40, 20, 40, &why);
-    CHECK(holdRing(&g, &t, 400 * MS, 60, 40, 31, 40, &why) == 1);
-    holdRing(&g, &t, 20 * MS, 60, 40, 33, 40, &why);
-    CHECK(why == RING_FAR && !g.closed);
+    // Six quick ones turn it twice, the fourth starting a run of its own
+    const int six[6] = { 0, 250, 500, 750, 1000, 1250 };
+    run = pinches(&tp, &now, &locked, six, 6, 100);
+    CHECK(run.turned == 2 && locked);
+    // Locked to begin with: the first three unlock, the next two click, the
+    // sixth locks again
+    CHECK(run.clicks == 2);
+    locked = 0;
+    triplePinchReset(&tp);
 
-    // Tips lost resets it
-    ringGateReset(&g);
-    holdRing(&g, &t, 300 * MS, 70, 50, 10, 40, &why);
-    t += FRAME_NS;
-    const float none[TIP_COUNT] = { -1.0f, -1.0f, -1.0f, -1.0f };
-    CHECK(!ringGateStep(&g, 0, none, t, &why));
-    CHECK(why == RING_UNTRACKED);
-    CHECK(holdRing(&g, &t, 300 * MS, 70, 50, 10, 40, &why) == 0);
+    // A press held down counts once however long it is held
+    const int held[3] = { 0, 100, 200 };
+    run = pinches(&tp, &now, &locked, held, 3, 400);
+    CHECK(run.turned == 0 && run.clicks == 1);
 
-    // Every reason has words for the log
-    for (int r = 0; r < RING_REASONS; r++) {
-        CHECK(ringReasonName(r)[0] != '\0');
-    }
-}
+    // The window, press to press: the third within 0.9 s of the first turns
+    // it, a millisecond later does not
+    triplePinchReset(&tp);
+    int64_t t0 = now;
+    CHECK(!triplePinchStep(&tp, 1, t0));
+    CHECK(!triplePinchStep(&tp, 0, t0 + 50 * MS));
+    CHECK(!triplePinchStep(&tp, 1, t0 + 400 * MS));
+    CHECK(!triplePinchStep(&tp, 0, t0 + 450 * MS));
+    CHECK(triplePinchStep(&tp, 1, t0 + TRIPLE_PINCH_WINDOW_NS));
+    // Held back for as long as it is down, and not a moment after
+    CHECK(triplePinchHeld(&tp));
+    CHECK(!triplePinchStep(&tp, 1, t0 + 1000 * MS));
+    CHECK(triplePinchHeld(&tp));
+    CHECK(!triplePinchStep(&tp, 0, t0 + 1100 * MS));
+    CHECK(!triplePinchHeld(&tp));
 
-static void testRingNearest(void) {
-    const float clear[TIP_COUNT] = { 0.05f, 0.04f, 0.01f, 0.03f };
-    CHECK(ringNearestTip(clear) == TIP_RING);
-    const float middle[TIP_COUNT] = { 0.05f, 0.009f, 0.01f, 0.03f };
-    CHECK(ringNearestTip(middle) == TIP_MIDDLE);
-    // A tie goes to the ring tip
-    const float tie[TIP_COUNT] = { 0.05f, 0.01f, 0.01f, 0.01f };
-    CHECK(ringNearestTip(tie) == TIP_RING);
-    // A tip the runtime could not place is passed over
-    const float unplaced[TIP_COUNT] = { -1.0f, 0.03f, 0.02f, -1.0f };
-    CHECK(ringNearestTip(unplaced) == TIP_RING);
-    const float noRing[TIP_COUNT] = { 0.04f, 0.03f, -1.0f, -1.0f };
-    CHECK(ringNearestTip(noRing) == TIP_MIDDLE);
-    const float nothing[TIP_COUNT] = { -1.0f, -1.0f, -1.0f, -1.0f };
-    CHECK(ringNearestTip(nothing) < 0);
-}
-
-static void testRingDiagnostic(void) {
-    int64_t last = 0;
-    int64_t t = 1000 * MS;
-    // Nothing near the thumb, or only tips it cannot place, says nothing
-    const float farTips[TIP_COUNT] = { 0.08f, 0.07f, 0.06f, 0.05f };
-    CHECK(!ringDiagDue(&last, farTips, t));
-    const float unplaced[TIP_COUNT] = { -1.0f, -1.0f, -1.0f, -1.0f };
-    CHECK(!ringDiagDue(&last, unplaced, t));
-    CHECK(last == 0);
-    // A tip inside 40 mm says so at once, then every 250 ms
-    const float nearTips[TIP_COUNT] = { 0.08f, 0.039f, 0.06f, 0.05f };
-    CHECK(ringDiagDue(&last, nearTips, t));
-    CHECK(last == t);
-    CHECK(!ringDiagDue(&last, nearTips, t + 249 * MS));
-    CHECK(ringDiagDue(&last, nearTips, t + 250 * MS));
-    // 40 mm itself is not near
-    const float edge[TIP_COUNT] = { 0.08f, 0.04f, 0.06f, 0.05f };
-    CHECK(!ringDiagDue(&last, edge, t + 900 * MS));
+    triplePinchReset(&tp);
+    t0 += 5000 * MS;
+    CHECK(!triplePinchStep(&tp, 1, t0));
+    CHECK(!triplePinchStep(&tp, 0, t0 + 50 * MS));
+    CHECK(!triplePinchStep(&tp, 1, t0 + 400 * MS));
+    CHECK(!triplePinchStep(&tp, 0, t0 + 450 * MS));
+    CHECK(!triplePinchStep(&tp, 1, t0 + TRIPLE_PINCH_WINDOW_NS + MS));
+    CHECK(!triplePinchHeld(&tp));
+    CHECK(TRIPLE_PINCH_WINDOW_NS == 900 * MS);
 }
 
 static void testDragRamp(void) {
@@ -321,9 +297,7 @@ static void testDragRamp(void) {
 int main(void) {
     testPinchGate();
     testPinchHold();
-    testRingGesture();
-    testRingNearest();
-    testRingDiagnostic();
+    testTriplePinch();
     testDragRamp();
     return checksDone("xr_pinch");
 }

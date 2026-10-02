@@ -1,6 +1,7 @@
 // The plain geometry of what hangs around the picture: which handle a point
-// is over, and the stand in screen a room measures its furniture against,
-// with the arithmetic behind the settings panel's tracks and presets.
+// is over, where the bar's row hangs, and the stand in screen a room measures
+// its panels against, with the arithmetic behind the settings panel's tracks
+// and presets.
 // Nothing in here touches GL, OpenXR beyond its plain value types, or the
 // context, so it can be built and checked on a desktop as well as on the
 // headset.
@@ -33,6 +34,7 @@
 #define HOVER_RAYBUTTON 16
 #define HOVER_AIMBUTTON 17
 #define HOVER_PADBUTTON 18
+#define HOVER_KOFI      19
 // How far past each edge that reaches, as a fraction of the screen
 #define HALO_FRAC 0.5f
 
@@ -57,13 +59,66 @@
 // The bar is small on purpose, so its hover zone is proportionally wider
 #define BAR_HOVER 2.0f
 
-// The screen the furniture hangs against inside a room: the size and distance
-// the picture starts at outside one, straight ahead of the seat at eye level.
-// A room hangs its own picture on a wall metres off and as wide as the wall, so
-// measuring the buttons and the panels against that gave them a different size
-// and distance in every room, and shrank them along with the picture.
+// The screen the panels hang against inside a room: the size and distance the
+// picture starts at outside one, straight ahead of the seat at eye level. A
+// room hangs its own picture on a wall metres off and as wide as the wall, so
+// measuring the panels against that gave them a different size and distance in
+// every room, and shrank them along with the picture. The bar keeps the size
+// it has on this screen but hangs under the room's picture (see BarFrame).
 #define STAND_IN_WIDTH_M 3.0f
 #define STAND_IN_DISTANCE_M 3.0f
+
+// The buttons along the bar, square, the bar's own pill between the
+// environment and cog buttons, and the gap between neighbours, all as
+// fractions of the width of the frame the bar is laid out in
+#define ENV_BUTTON_FRAC 0.048f
+#define ENV_GAP_FRAC 0.02f
+#define COG_BUTTON_FRAC 0.048f
+// How far under the frame's bottom edge the middle of the bar's row is
+#define BAR_DROP_FRAC (BAR_GAP_FRAC + BAR_HEIGHT_FRAC * 0.5f)
+
+// The buttons in the bar's row, numbered for the placement below
+#define BAR_SLOT_ENV    0
+#define BAR_SLOT_COG    1
+#define BAR_SLOT_KB     2
+#define BAR_SLOT_EXIT   3
+#define BAR_SLOT_PAD    4
+#define BAR_SLOT_AIM    5
+#define BAR_SLOT_RAY    6
+#define BAR_SLOT_STEREO 7
+#define BAR_SLOTS       8
+
+// The rectangle the bar and its buttons are laid out in: the picture's shape,
+// its bottom edge on the bottom edge of the picture as drawn and centred on
+// it, in the picture's own plane. Outside a room that is the picture itself,
+// curved with it when it is. In a room it is as wide as makes the bar look
+// the size it does on the stand in, wherever the room hangs the picture and
+// however small it is, and flat, since a room's picture is.
+typedef struct {
+    XrPosef pose;
+    float width;
+    float height;
+    float radius;
+    int curved;
+} BarFrame;
+
+// That frame under a room's picture, whose centre is at picture and whose
+// height is pictureHeight, for a picture of that shape, height over width.
+// Distances are from the seat, which is the origin of the space it is in.
+BarFrame roomBarFrame(XrPosef picture, float pictureHeight, float aspect);
+
+// How wide that frame is for a bar row hanging from bottomMid, the middle of
+// the picture's bottom edge, with down the picture's own down: whatever makes
+// the bar's width over its distance from the seat what it is on the stand in
+float barFrameWidth(Vec3 bottomMid, Vec3 down, float aspect);
+
+// Where a button's middle sits in a frame that wide and high, in the frame's
+// own flat coordinates from its centre, and how big it is
+void barSlotPlacement(int slot, float width, float height, Vec3* outLocal, float* outSide);
+
+// Whether a point on that frame, u and v across it from the top left, is on
+// a button, which reaches a little further than it draws
+int barSlotHit(int slot, float u, float v, float width, float height);
 
 // Which affordance a point on a screen of that size is over, u and v across
 // it from the top left. cornerSide is how big the corner brackets are drawn,
@@ -132,6 +187,10 @@ int reportZone(float u, float v);
 // Which of the hand lock hint's two buttons a point on it is over, one of the
 // HINT_ZONE_ values, u and v across the sheet from its top left
 int handHintZone(float u, float v);
+
+// Whether a point on the Ko-fi sheet is on its Close button, one of the
+// KOFI_ZONE_ values, u and v across the sheet from its top left
+int kofiSheetZone(float u, float v);
 
 // The 3D tab's depth track. A separation, as a fraction of frame width, in the
 // tenths of a percent the preference stores, which is also the step the track

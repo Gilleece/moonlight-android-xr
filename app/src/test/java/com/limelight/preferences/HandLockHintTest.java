@@ -30,6 +30,8 @@ public class HandLockHintTest {
     // What the padlock was called in each, which the hand tracking row no
     // longer mentions
     private static final String[] PADLOCK_WORDS = { "padlock", "cadenas", "图标", "圖示" };
+    // And the ring finger, which the gesture no longer uses
+    private static final String[] RING_WORDS = { "ring finger", "annulaire", "无名指", "無名指" };
 
     private static File file(String path) {
         File f = new File(path);
@@ -71,10 +73,13 @@ public class HandLockHintTest {
             String summary = string(LANGUAGES[i], "summary_vr_hand_tracking");
             assertNotNull(LANGUAGES[i], summary);
             assertFalse(LANGUAGES[i], summary.contains(PADLOCK_WORDS[i]));
+            assertFalse(LANGUAGES[i], summary.contains(RING_WORDS[i]));
+            assertFalse(LANGUAGES[i], string(LANGUAGES[i], "vr_hand_hint_body")
+                    .contains(RING_WORDS[i]));
         }
         String english = string("values", "summary_vr_hand_tracking");
-        assertTrue(english.contains("ring finger"));
-        assertTrue(english.contains("the same gesture unlocks them"));
+        assertTrue(english.contains("pinch your thumb and index finger three times quickly"));
+        assertTrue(english.contains("the same triple pinch unlocks them"));
     }
 
     @Test
@@ -86,8 +91,8 @@ public class HandLockHintTest {
             }
         }
         assertEquals("Hand tracking is on.", string("values", "vr_hand_hint_title"));
-        assertEquals("Touch your thumb to your ring finger for a moment to lock your hands out,"
-                + " so a stray pinch does not click; the same gesture unlocks them.",
+        assertEquals("Pinch your thumb and index finger three times quickly to lock your hands"
+                + " out, so a stray pinch does not click; the same triple pinch unlocks them.",
                 string("values", "vr_hand_hint_body"));
         assertEquals("Don\\'t show this again", string("values", "vr_hand_hint_never"));
     }

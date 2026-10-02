@@ -1,6 +1,7 @@
-// Which handle a point is over, the stand in screen the furniture hangs
-// against in a room, and the settings panel's tracks and presets. No GL and no
-// context, so the host tests reach all of it.
+// Which handle a point is over, the stand in screen the panels hang against
+// in a room, where the bar's row hangs under the picture, and the settings
+// panel's tracks and presets. No GL and no context, so the host tests reach
+// all of it.
 #include <string.h>
 
 #include "xr_layout.h"
@@ -54,6 +55,78 @@ XrPosef standInPose(void) {
     pose.orientation.w = 1.0f;
     pose.position.z = -STAND_IN_DISTANCE_M;
     return pose;
+}
+
+// How far the middle of the bar is from the seat on the stand in, for a
+// picture of that shape
+static float standInBarDistance(float aspect) {
+    float drop = STAND_IN_WIDTH_M * (aspect * 0.5f + BAR_DROP_FRAC);
+    return sqrtf(STAND_IN_DISTANCE_M * STAND_IN_DISTANCE_M + drop * drop);
+}
+
+// The bar's row hangs a share of the frame's width under the edge, so its
+// distance, and with it the width wanted, moves a little with the width. Each
+// round moves it a twentieth as far as the last, so four leave nothing over.
+float barFrameWidth(Vec3 bottomMid, Vec3 down, float aspect) {
+    float perMetre = STAND_IN_WIDTH_M / standInBarDistance(aspect);
+    float width = perMetre * sqrtf(vecDot(bottomMid, bottomMid));
+    for (int i = 0; i < 4; i++) {
+        float drop = BAR_DROP_FRAC * width;
+        Vec3 bar = { bottomMid.x + down.x * drop, bottomMid.y + down.y * drop,
+                     bottomMid.z + down.z * drop };
+        width = perMetre * sqrtf(vecDot(bar, bar));
+    }
+    return width;
+}
+
+BarFrame roomBarFrame(XrPosef picture, float pictureHeight, float aspect) {
+    Vec3 downLocal = { 0.0f, -1.0f, 0.0f };
+    Vec3 down = quatRotate(picture.orientation, downLocal);
+    float half = pictureHeight * 0.5f;
+    Vec3 bottomMid = { picture.position.x + down.x * half, picture.position.y + down.y * half,
+                       picture.position.z + down.z * half };
+
+    BarFrame frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.width = barFrameWidth(bottomMid, down, aspect);
+    frame.height = frame.width * aspect;
+    // Up from the picture's bottom edge by half its own height, in the
+    // picture's plane, so the two bottom edges are one
+    float up = frame.height * 0.5f;
+    frame.pose.orientation = picture.orientation;
+    frame.pose.position.x = bottomMid.x - down.x * up;
+    frame.pose.position.y = bottomMid.y - down.y * up;
+    frame.pose.position.z = bottomMid.z - down.z * up;
+    return frame;
+}
+
+// Out from the middle in the order the buttons are added, the pill between
+// the first pair: the picker and the cog, then the exit and keyboard
+// buttons, then gamepad mode and the ray, then head aim and the 3D
+void barSlotPlacement(int slot, float width, float height, Vec3* outLocal, float* outSide) {
+    static const int OUT[BAR_SLOTS] = { 0, 0, 1, 1, 2, 3, 2, 3 };
+    static const int LEFT[BAR_SLOTS] = { 1, 0, 0, 1, 1, 1, 0, 0 };
+    if (slot < 0 || slot >= BAR_SLOTS) {
+        slot = BAR_SLOT_ENV;
+    }
+    float side = width * (slot == BAR_SLOT_ENV ? ENV_BUTTON_FRAC : COG_BUTTON_FRAC);
+    float gap = width * ENV_GAP_FRAC;
+    float x = width * BAR_WIDTH_FRAC * 0.5f + gap + side * 0.5f + OUT[slot] * (side + gap);
+    outLocal->x = LEFT[slot] ? -x : x;
+    outLocal->y = -(height * 0.5f + width * BAR_DROP_FRAC);
+    outLocal->z = 0.005f;
+    *outSide = side;
+}
+
+int barSlotHit(int slot, float u, float v, float width, float height) {
+    Vec3 local;
+    float side;
+    barSlotPlacement(slot, width, height, &local, &side);
+    float cu = 0.5f + local.x / width;
+    float cv = 0.5f - local.y / height;
+    float halfU = side * HOVER_MARGIN * 0.5f / width;
+    float halfV = side * HOVER_MARGIN * 0.5f / height;
+    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
 }
 
 // Snapped to whole units, so the thumb shows exactly what gets written when
@@ -278,6 +351,12 @@ int reportZone(float u, float v) {
         return REPORT_ZONE_EMAIL;
     }
     return REPORT_ZONE_NONE;
+}
+
+// The one button, bottom right. The code and the words are nothing.
+int kofiSheetZone(float u, float v) {
+    return u >= KOFI_CLOSE_L && u <= KOFI_CLOSE_R && v >= KOFI_BTN_T && v <= KOFI_BTN_B
+            ? KOFI_ZONE_CLOSE : KOFI_ZONE_NONE;
 }
 
 // The two buttons side by side along the bottom. The words over them are

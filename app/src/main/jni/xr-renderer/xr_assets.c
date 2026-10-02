@@ -162,6 +162,10 @@ int createPointerSwapchain(XrCtx* ctx) {
                            &ctx->hintSwapchain, &ctx->hintImages, &ctx->hintImageCount);
     }
 
+    // The Ko-fi sheet, in every session, since every session has the About tab
+    createArtSwapchain(ctx, KOFI_TEX_W, KOFI_TEX_H, "create Ko-fi sheet swapchain",
+                       &ctx->kofiSwapchain, &ctx->kofiImages, &ctx->kofiImageCount);
+
     createArtSwapchain(ctx, OUTLINE_TEX, OUTLINE_TEX, "create outline swapchain",
                        &ctx->outlineSwapchain, &ctx->outlineImages, &ctx->outlineImageCount);
 
@@ -804,6 +808,21 @@ Java_com_limelight_binding_video_XrRenderer_nativeUploadHandHint(JNIEnv* env, jo
     uploadSheet(env, ctx, sheet, ctx->hintSwapchain, ctx->hintImages, HINT_TEX_W, HINT_TEX_H,
                 &ctx->hintReady);
     LOGI("hand lock hint art %s", ctx->hintReady ? "ready" : "missing");
+}
+
+// The Ko-fi sheet, drawn once at the start of every session. Until it is up
+// the About tab's button opens nothing, since a modal nobody can see would
+// swallow every press.
+JNIEXPORT void JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeUploadKofi(JNIEnv* env, jobject thiz,
+                                                             jlong handle, jobject sheet) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return;
+    }
+    uploadSheet(env, ctx, sheet, ctx->kofiSwapchain, ctx->kofiImages, KOFI_TEX_W, KOFI_TEX_H,
+                &ctx->kofiReady);
+    LOGI("Ko-fi sheet art %s", ctx->kofiReady ? "ready" : "missing");
 }
 
 // Which room a picker cell puts up, 0 for a cell that is not a room. The one

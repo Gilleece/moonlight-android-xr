@@ -335,10 +335,14 @@
     <string name="title_vr_gaze">Regarder pour pointer</string>
     <string name="summary_vr_gaze">Sur un casque avec suivi oculaire, pointez en regardant l\'écran et pincez avec l\'une ou l\'autre main pour cliquer. Appuyer sur un bouton d\'une manette lui donne le pointeur jusqu\'à ce qu\'elle soit posée, et si les yeux sont perdus pendant 10 secondes, vos mains pointent jusqu\'à leur retour.</string>
     <string name="title_vr_hand_tracking">Suivi des mains</string>
-    <string name="summary_vr_hand_tracking">Pointez et pincez avec vos mains lorsque les manettes sont posées. Désactivez cette option pour n\'utiliser que les manettes. Dans une session, touchez votre annulaire avec le pouce un instant pour verrouiller vos mains sans quitter le jeu. Le même geste les déverrouille.</string>
+    <string name="summary_vr_hand_tracking">Pointez et pincez avec vos mains lorsque les manettes sont posées. Désactivez cette option pour n\'utiliser que les manettes. Dans une session, pincez trois fois rapidement le pouce et l\'index pour verrouiller vos mains sans quitter le jeu. Le même triple pincement les déverrouille.</string>
     <string name="vr_hand_hint_title">Le suivi des mains est activé.</string>
-    <string name="vr_hand_hint_body">Touchez votre annulaire avec le pouce un instant pour verrouiller vos mains, afin qu\'un pincement involontaire ne clique pas. Le même geste les déverrouille.</string>
+    <string name="vr_hand_hint_body">Pincez trois fois rapidement le pouce et l\'index pour verrouiller vos mains, afin qu\'un pincement involontaire ne clique pas. Le même triple pincement les déverrouille.</string>
     <string name="vr_hand_hint_never">Ne plus afficher</string>
+    <string name="vr_kofi_title">Soutenir Moonlight XR sur Ko-fi</string>
+    <string name="vr_kofi_scan">Scannez-le avec votre téléphone.</string>
+    <string name="vr_kofi_free">Facultatif : Moonlight XR est gratuit et le restera.</string>
+    <string name="vr_kofi_close">Fermer</string>
     <string name="title_vr_reset_pose">Réinitialiser la position de l\'écran</string>
     <string name="summary_vr_reset_pose">Replace l\'écran à la distance et à la largeur ci-dessus, annulant tout déplacement ou redimensionnement effectué avec les manettes</string>
     <string name="toast_vr_reset_pose">Position de l\'écran réinitialisée</string>
@@ -421,8 +425,6 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licence : GPLv3</string>
-    <string name="title_about_kofi">Soutenir le projet sur Ko-fi</string>
-    <string name="summary_about_kofi">Facultatif. Moonlight XR est gratuit et le restera.</string>
     <string name="bug_report_intro">Décrivez ce qui s\'est mal passé et ce que vous attendiez. Le rapport regroupe votre message avec la version de l\'application, le casque, les paramètres de streaming et le fichier journal, puis est envoyé à %1$s.\n\nJournal : %2$s</string>
     <string name="bug_report_log_off">désactivé. Activez « Enregistrer un fichier journal » et reproduisez d\'abord le problème, sinon le rapport ne contiendra aucun journal.</string>
     <string name="bug_report_email_hint">Votre adresse e-mail, pour une réponse</string>

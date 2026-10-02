@@ -3,10 +3,11 @@
 // on the settings panel.
 #include "xr_renderer.h"
 
-// Whether the furniture hangs against the stand in screen rather than the
-// picture, which it does whenever a room is up. The buttons along the bar, the
-// picker, the settings panel, the keyboard, the exit prompt and the sheets are
-// all placed and sized off it, and their hit tests are made on it too.
+// Whether the panels hang against the stand in screen rather than the
+// picture, which they do whenever a room is up. The picker, the settings
+// panel, the keyboard, the exit prompt and the sheets are all placed and sized
+// off it. The bar's row is not: it hangs under the picture as drawn, see
+// barFrame.
 int furnitureOnStandIn(XrCtx* ctx) {
     return roomEffective(ctx) > 0;
 }
@@ -25,6 +26,49 @@ float furnitureWidth(XrCtx* ctx) {
 // outside a room at the same size
 float furnitureHeight(XrCtx* ctx) {
     return furnitureWidth(ctx) * (float)ctx->videoHeight / (float)ctx->videoWidth;
+}
+
+// The frame the bar's row is laid out in. In a room, under the room's picture
+// at the size the bar has on the stand in, so a corner drag, the Size row and
+// the room's own screen all carry it. Outside one, the picture as drawn: on a
+// cylinder held under a full turn that is smaller than the placement, and the
+// row follows it there too.
+BarFrame barFrame(XrCtx* ctx) {
+    float aspect = (float)ctx->videoHeight / (float)ctx->videoWidth;
+    if (roomEffective(ctx) > 0) {
+        return roomBarFrame(ctx->screenPose, ctx->screenWidth * aspect, aspect);
+    }
+    BarFrame frame;
+    memset(&frame, 0, sizeof(frame));
+    frame.pose = ctx->screenPose;
+    frame.curved = effectiveCurvature(ctx) > 0.01f && ctx->cylinderSupported;
+    frame.radius = ctx->screenRadius;
+    float fit = frame.curved ? cylinderFit(ctx->screenWidth, ctx->screenRadius) : 1.0f;
+    frame.width = ctx->screenWidth * fit;
+    frame.height = frame.width * aspect;
+    return frame;
+}
+
+// Whether a button in the bar's row is there to be hit: the picker, cog,
+// keyboard and exit buttons always, the switches once their art has arrived,
+// and head aim's only while it can act, which is the only time it is drawn
+static int barSlotShown(XrCtx* ctx, int slot) {
+    switch (slot) {
+        case BAR_SLOT_PAD:
+            return ctx->padButtonReady;
+        case BAR_SLOT_AIM:
+            return ctx->aimButtonReady && headAimCanAct(ctx);
+        case BAR_SLOT_RAY:
+            return ctx->rayButtonReady;
+        case BAR_SLOT_STEREO:
+            return ctx->stereoButtonReady;
+        default:
+            return 1;
+    }
+}
+
+int barButtonHit(XrCtx* ctx, int slot, float u, float v, const BarFrame* frame) {
+    return barSlotShown(ctx, slot) && barSlotHit(slot, u, v, frame->width, frame->height);
 }
 
 // How big the corner brackets are, in metres, and 0 where there are none. A
@@ -155,57 +199,6 @@ XrPosef pickerPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     return pose;
 }
 
-// Button sits to the left of the move bar, at the same height. This and the
-// placements after it are in the furniture's own flat frame, and height is
-// that frame's.
-void envButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * ENV_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    outLocal->x = -(barW * 0.5f + width * ENV_GAP_FRAC + side * 0.5f);
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-// Whether a point on the furniture's frame is on a square button placed in
-// it. Back into uv, where the button reaches a little further than it draws.
-static int buttonHit(XrCtx* ctx, Vec3 local, float side, float u, float v, float height) {
-    float width = furnitureWidth(ctx);
-    float cu = 0.5f + local.x / width;
-    float cv = 0.5f - local.y / height;
-    float halfU = side * HOVER_MARGIN * 0.5f / width;
-    float halfV = side * HOVER_MARGIN * 0.5f / height;
-    return fabsf(u - cu) < halfU && fabsf(v - cv) < halfV;
-}
-
-int envButtonHit(XrCtx* ctx, float u, float v, float height) {
-    Vec3 local;
-    float side;
-    envButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
-}
-
-// The cog is the same button on the other side of the bar
-void cogButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * COG_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    outLocal->x = barW * 0.5f + width * ENV_GAP_FRAC + side * 0.5f;
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-int cogButtonHit(XrCtx* ctx, float u, float v, float height) {
-    Vec3 local;
-    float side;
-    cogButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
-}
-
 // The settings panel stands on top of the cog button that opens it, so it
 // reads as belonging to that button and leaves the picture clear. The caller
 // freezes what this returns for as long as the panel is open: the distance
@@ -219,10 +212,11 @@ XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     *outHeight = height;
 
     // The button hangs below the screen, so the panel is placed off it rather
-    // than off the screen. Same height the other placements are given.
+    // than off the screen. In a room that is where the button would hang on
+    // the stand in, which the panel stays on while the bar follows the picture.
     Vec3 button;
     float side;
-    cogButtonPlacement(ctx, furnitureHeight(ctx), &button, &side);
+    barSlotPlacement(BAR_SLOT_COG, frameWidth, furnitureHeight(ctx), &button, &side);
 
     Vec3 local;
     local.x = button.x;
@@ -235,27 +229,6 @@ XrPosef cogPanelPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     pose.position.y += offset.y;
     pose.position.z += offset.z;
     return pose;
-}
-
-// The keyboard button is the same button again, one place further out along
-// the bar than the cog
-void kbButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * COG_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    float gap = width * ENV_GAP_FRAC;
-    outLocal->x = barW * 0.5f + gap + side * 1.5f + gap;
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-int kbButtonHit(XrCtx* ctx, float u, float v, float height) {
-    Vec3 local;
-    float side;
-    kbButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
 }
 
 // The keyboard hangs under the screen, centred on it, in the band the move bar
@@ -300,59 +273,11 @@ int kbKeyAt(XrCtx* ctx, float u, float v) {
     return found;
 }
 
-// The exit button is the left hand mirror of the keyboard button: one place
-// further out along the bar than the environment button, and past the left end
-// of the bar's own zone
-void exitButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * COG_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    float gap = width * ENV_GAP_FRAC;
-    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap);
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-int exitButtonHit(XrCtx* ctx, float u, float v, float height) {
-    Vec3 local;
-    float side;
-    exitButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
-}
-
 // Whether head aim can act at all: the screen locked to the head, which a
 // room overrides. Its bar button only shows then, and its rows on the panel
 // are greyed otherwise.
 int headAimCanAct(XrCtx* ctx) {
     return ctx->headLockedPref && roomEffective(ctx) <= 0;
-}
-
-// Head aim's switch is furthest out on the left, past gamepad mode's, so it
-// comes and goes with head lock without moving any other, as the 3D switch
-// does on the right
-void aimButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * COG_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    float gap = width * ENV_GAP_FRAC;
-    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap + (side + gap) * 2.0f);
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-// Only where it is drawn: once its art has arrived, while head aim can act
-int aimButtonHit(XrCtx* ctx, float u, float v, float height) {
-    if (!ctx->aimButtonReady || !headAimCanAct(ctx)) {
-        return 0;
-    }
-    Vec3 local;
-    float side;
-    aimButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
 }
 
 // Head aim on or off for the rest of the session, from the bar or the Display
@@ -394,55 +319,6 @@ void setPadMode(XrCtx* ctx, int on, const char* from) {
     noticePush(&ctx->notices, on ? TOAST_GAMEPAD_MODE : TOAST_POINTER_MODE, 0);
 }
 
-// Gamepad mode's switch is one place out past the exit button on the left,
-// shown in every session, since a controller can be picked up at any time
-void padButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * COG_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    float gap = width * ENV_GAP_FRAC;
-    outLocal->x = -(barW * 0.5f + gap + side * 1.5f + gap + side + gap);
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-// Only where it is drawn, once its art has arrived
-int padButtonHit(XrCtx* ctx, float u, float v, float height) {
-    if (!ctx->padButtonReady) {
-        return 0;
-    }
-    Vec3 local;
-    float side;
-    padButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
-}
-
-// The ray's switch is one place further out on the right, past the keyboard
-void rayButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * COG_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    float gap = width * ENV_GAP_FRAC;
-    outLocal->x = barW * 0.5f + gap + side * 1.5f + gap + side + gap;
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-// Only where it is drawn, once its art has arrived
-int rayButtonHit(XrCtx* ctx, float u, float v, float height) {
-    if (!ctx->rayButtonReady) {
-        return 0;
-    }
-    Vec3 local;
-    float side;
-    rayButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
-}
-
 // The ray on or off for the rest of the session, from the bar or the Display
 // tab. Nothing is stored: the setting is what the next session starts from.
 void setRayOn(XrCtx* ctx, int on, const char* from) {
@@ -456,38 +332,11 @@ void setRayOn(XrCtx* ctx, int on, const char* from) {
 }
 
 // Whether one of the panels is up: the settings panel, the picker, the
-// keyboard, the exit prompt, the report sheet or the hand lock hint. The ray
-// comes back for them while it is switched off.
+// keyboard, the exit prompt, the report sheet, the hand lock hint or the Ko-fi
+// sheet. The ray comes back for them while it is switched off.
 int panelUp(XrCtx* ctx) {
     return ctx->cogOpen || ctx->pickerOpen || ctx->kbOpen || ctx->exitConfirmOpen
-            || ctx->reportOpen || ctx->hintOpen;
-}
-
-// The 3D switch is one place further out again on the right, past the ray's,
-// so a session without it loses only the last button and every other one
-// stays where it always is
-void stereoButtonPlacement(XrCtx* ctx, float height, Vec3* outLocal, float* outSide) {
-    float width = furnitureWidth(ctx);
-    float side = width * COG_BUTTON_FRAC;
-    float barW = width * BAR_WIDTH_FRAC;
-    float barH = width * BAR_HEIGHT_FRAC;
-    float gap = width * ENV_GAP_FRAC;
-    outLocal->x = barW * 0.5f + gap + side * 1.5f + gap + (side + gap) * 2.0f;
-    outLocal->y = -(height * 0.5f + width * BAR_GAP_FRAC + barH * 0.5f);
-    outLocal->z = 0.005f;
-    *outSide = side;
-}
-
-// Only where it is drawn, which is a session with stereo to switch once its
-// art has arrived
-int stereoButtonHit(XrCtx* ctx, float u, float v, float height) {
-    if (!ctx->stereoButtonReady) {
-        return 0;
-    }
-    Vec3 local;
-    float side;
-    stereoButtonPlacement(ctx, height, &local, &side);
-    return buttonHit(ctx, local, side, u, v, height);
+            || ctx->reportOpen || ctx->hintOpen || ctx->kofiOpen;
 }
 
 // The 3D on or off for the rest of the session, from the bar or the 3D tab.
@@ -523,7 +372,7 @@ XrPosef exitPromptPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 
     Vec3 button;
     float side;
-    exitButtonPlacement(ctx, furnitureHeight(ctx), &button, &side);
+    barSlotPlacement(BAR_SLOT_EXIT, frameWidth, furnitureHeight(ctx), &button, &side);
 
     Vec3 local;
     local.x = button.x;
@@ -567,6 +416,23 @@ XrPosef reportSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
 XrPosef handHintPose(XrCtx* ctx, float* outWidth, float* outHeight) {
     float width = furnitureWidth(ctx) * HINT_WIDTH_FRAC;
     float height = width * (float)HINT_TEX_H / (float)HINT_TEX_W;
+    *outWidth = width;
+    *outHeight = height;
+
+    Vec3 local = { 0.0f, 0.0f, 0.06f };
+    XrPosef pose = furniturePose(ctx);
+    Vec3 offset = quatRotate(pose.orientation, local);
+    pose.position.x += offset.x;
+    pose.position.y += offset.y;
+    pose.position.z += offset.z;
+    return pose;
+}
+
+// The Ko-fi sheet stands where the hint does, over the middle of the picture
+// and a little in front of it. Frozen while it is up, like the prompt.
+XrPosef kofiSheetPose(XrCtx* ctx, float* outWidth, float* outHeight) {
+    float width = furnitureWidth(ctx) * KOFI_WIDTH_FRAC;
+    float height = width * (float)KOFI_TEX_H / (float)KOFI_TEX_W;
     *outWidth = width;
     *outHeight = height;
 

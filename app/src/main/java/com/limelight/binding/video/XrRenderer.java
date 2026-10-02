@@ -252,6 +252,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private int noticeSlot;
     // The hand lock hint's sheet, only drawn in a session that may show it
     private final AtomicReference<ByteBuffer> pendingHandHint = new AtomicReference<>();
+    // The Ko-fi sheet the About tab opens, in every session
+    private final AtomicReference<ByteBuffer> pendingKofi = new AtomicReference<>();
     // The 3D switch's two faces, only drawn in a session with stereo to switch
     private final AtomicReference<ByteBuffer> pendingStereoOff = new AtomicReference<>();
     private final AtomicReference<ByteBuffer> pendingStereoOn = new AtomicReference<>();
@@ -332,8 +334,6 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         void onVrModifiers(int modifiers);
         // The exit prompt was confirmed, so the session is to end
         void onVrExit();
-        // A link pressed on a panel, for the activity to open in the browser
-        void onVrOpenLink(String url);
     }
 
     public void setInputListener(InputListener listener) {
@@ -422,8 +422,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     // How long a start is waited for before it counts as failed
     private static final int INIT_WAIT_SECONDS = 5;
 
-    // Where the About tab's Ko-fi button goes, the same page as the 2D
-    // settings' About row
+    // The page the Ko-fi sheet's code points at, which the sheet writes out
+    // beside it as well
     static final String SUPPORT_URL = "https://ko-fi.com/moonlightxr";
 
     private static native void nativeSetFileLog(String path, int level);
@@ -498,6 +498,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private native String nativeGetExitReason(long ctx);
     private native String nativeGetRuntime(long ctx);
     private native void nativeUploadHandHint(long ctx, ByteBuffer sheet);
+    private native void nativeUploadKofi(long ctx, ByteBuffer sheet);
     // Whether this session may show the hand lock hint, before the first frame
     private native void nativeSetHandHint(long ctx, boolean wanted);
     private native void nativeUploadStereoButton(long ctx, ByteBuffer off, ByteBuffer on);
@@ -1190,6 +1191,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 nativeUploadHandHint(nativeCtx, hint);
             }
 
+            ByteBuffer kofi = pendingKofi.getAndSet(null);
+            if (kofi != null) {
+                nativeUploadKofi(nativeCtx, kofi);
+            }
+
             ByteBuffer stereoOff = pendingStereoOff.getAndSet(null);
             ByteBuffer stereoOnArt = pendingStereoOn.getAndSet(null);
             if (stereoOff != null && stereoOnArt != null) {
@@ -1337,6 +1343,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (handHint) {
             pendingHandHint.set(panels.buildHandHint());
         }
+        pendingKofi.set(panels.buildKofiSheet(SUPPORT_URL));
 
         // Curvature needs a layer type the runtime may not offer, and a slider
         // that cannot do anything is better shown greyed than hidden
@@ -1580,11 +1587,6 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (inputState[IN_EXIT] != 0.0f) {
                 inputState[IN_EXIT] = 0.0f;
                 inputListener.onVrExit();
-            }
-
-            if (inputState[IN_KOFI] != 0.0f) {
-                FileLog.event("Ko-fi pressed on the About tab, opening " + SUPPORT_URL);
-                inputListener.onVrOpenLink(SUPPORT_URL);
             }
         }
 
