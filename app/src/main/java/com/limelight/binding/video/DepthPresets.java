@@ -16,7 +16,8 @@ public final class DepthPresets {
     public static final int BALANCED = COG_PRESET_BALANCED;
     public static final int STRONG = COG_PRESET_STRONG;
 
-    // In cell order, as the panel labels them
+    // In cell order, as the logs and reports name them. The panel's own
+    // labels are strings, in the language the app is in.
     private static final String[] NAMES = { "Comfort", "Balanced", "Strong" };
 
     private DepthPresets() {
@@ -52,7 +53,7 @@ public final class DepthPresets {
         return NONE;
     }
 
-    /** A preset's label, or "none" for NONE, as the panel and the logs give it. */
+    /** A preset's name, or "none" for NONE, as the logs give it. */
     public static String name(int preset) {
         return preset >= 0 && preset < NAMES.length ? NAMES[preset] : "none";
     }

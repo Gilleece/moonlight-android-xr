@@ -29,7 +29,7 @@
     <string name="unpair_error">El dispositivo no estaba emparejado</string>
     <!-- Errors -->
     <string name="error_pc_offline">El ordenador está apagado</string>
-    <string name="error_manager_not_running">El servicio "ComputerManager" no está en ejecución. Por favor, espera unos segundos o reinicia la aplicación.</string>
+    <string name="error_manager_not_running">El servicio \"ComputerManager\" no está en ejecución. Por favor, espera unos segundos o reinicia la aplicación.</string>
     <string name="error_unknown_host">Fallo al resolver el host</string>
     <string name="error_404">GFE ha devuelto un error HTTP 404. Asegúrate que el PC tiene una GPU soportada.
 	    Usar software de Escritorio Remoto puede causar este error. Intenta reiniciar el equipo o reinstalar GFE.
@@ -77,7 +77,7 @@
     <string name="title_resolution_list">Seleccionar resolución</string>
     <string name="summary_resolution_list">Establecer unos valores demasiado altos puede causar retraso o cierres inesperados.</string>
     <string name="title_seekbar_bitrate">Seleccionar bitrate de vídeo</string>
-    <string name="summary_seekbar_bitrate">Usa bitrate bajo para reducir "parpadeo". Incrementa el bitrate para mayor calidad de imagen.</string>
+    <string name="summary_seekbar_bitrate">Usa bitrate bajo para reducir \"parpadeo\". Incrementa el bitrate para mayor calidad de imagen.</string>
     <string name="title_checkbox_stretch_video">Ajustar vídeo a pantalla completa</string>
     <string name="title_checkbox_disable_warnings">Desactivar mensajes de advertencia</string>
     <string name="summary_checkbox_disable_warnings">Desactivar mensajes de advertencia en pantalla durante la transmisión</string>

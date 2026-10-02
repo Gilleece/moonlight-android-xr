@@ -57,7 +57,12 @@ final class XrPanels {
     private static final String SYNTHWAVE_THUMB = "rooms/thumbs/synthwave.jpg";
     private static final int PICKER_CELL_W = PICKER_TEX_W / PICKER_COLS;
     // One per band, drawn in the strip above its cells
-    private static final String[] PICKER_HEADERS = { "Rooms" };
+    private static final int[] PICKER_HEADERS = { R.string.vr_panel_rooms };
+    // Each cell's name on its tile, in ENV_CELL_ order, as the 2d settings
+    // name the same choices
+    private static final int[] PICKER_NAMES = { R.string.vr_environment_passthrough,
+            R.string.vr_environment_void, R.string.vr_environment_home_theater,
+            R.string.vr_environment_grand_cinema, R.string.vr_environment_synthwave };
 
     // The settings panel behind the cog button. Drawn here, placed and dragged
     // natively, so the layout is agreed between the two through the COG_
@@ -65,25 +70,29 @@ final class XrPanels {
     // switching is free, and the sheets a 3d room shows handed over after
     // them, which the native side picks for itself: the Room tab in the first
     // tab's place, and the other four again with its name over that slot.
-    private static final String[] COG_TABS = { "Screen", "Display", "3D", "Picture", "About" };
-    private static final String COG_ROOM_TAB = "Room";
+    private static final int[] COG_TABS = { R.string.vr_panel_tab_screen,
+            R.string.vr_panel_tab_display, R.string.vr_panel_3d, R.string.vr_panel_tab_picture,
+            R.string.vr_panel_tab_about };
+    private static final int COG_ROOM_TAB = R.string.vr_panel_tab_room;
     // Screen tab: the six that place the screen, then head aim's two, which
     // only act with the screen locked to the head and are greyed otherwise
-    private static final String[] COG_SLIDER_ROWS =
-            { "Distance", "Height", "Tilt", "Rotate", "Curve", "Size", "Aim sensitivity",
-              "Aim dead zone" };
+    private static final int[] COG_SLIDER_ROWS =
+            { R.string.vr_panel_distance, R.string.vr_panel_height, R.string.vr_panel_tilt,
+              R.string.vr_panel_rotate, R.string.vr_panel_curve, R.string.vr_panel_size,
+              R.string.vr_panel_aim_sensitivity, R.string.vr_panel_aim_dead_zone };
     // In place of a row's track or cells where head aim cannot act: the
     // screen not locked to the head, or a room up, which hangs it on a wall
-    private static final String COG_NEEDS_HEAD_LOCK = "needs Head locked";
-    private static final String COG_NOT_IN_ROOM = "not in a room";
+    private static final int COG_NEEDS_HEAD_LOCK = R.string.vr_panel_needs_head_lock;
+    private static final int COG_NOT_IN_ROOM = R.string.vr_panel_not_in_room;
     // Room tab: a track, two rows of cells and two more tracks, in the
     // COG_ROOM_ROW_ order. The screen light is one switch for every room and
     // the rest are the room's own.
-    private static final String[] COG_ROOM_ROWS =
-            { "Brightness", "Glow", "Screen light", "Light level", "Size" };
-    private static final String[] COG_ROOM_SWITCH = { "Off", "On" };
+    private static final int[] COG_ROOM_ROWS =
+            { R.string.vr_panel_brightness, R.string.vr_panel_glow, R.string.vr_panel_screen_light,
+              R.string.vr_panel_light_level, R.string.vr_panel_size };
+    private static final int[] COG_ROOM_SWITCH = { R.string.vr_panel_off, R.string.vr_panel_on };
     // Under the size row where the room keeps its picture whole
-    private static final String COG_ROOM_FIXED_HINT = "This room's screen is a fixed size";
+    private static final int COG_ROOM_FIXED_HINT = R.string.vr_panel_fixed_size;
     // Display tab: a label and a row of cells, one of which is in force, and
     // the glow level track under them. Head locked, head aim, the controllers
     // as pointer or gamepad, pointer sleep, the ray, the controller model and
@@ -94,35 +103,43 @@ final class XrPanels {
     // picker can put a room up at any moment. The head aim, controllers and
     // ray rows are the bar's buttons, for the session only, and head aim's is
     // greyed where it cannot act.
-    private static final String[] COG_OPTION_ROWS = { "Sharpen", "Supersample", "Stats",
-            "Head locked", "Head aim", "Controllers", "Pointer sleep", "Ray",
-            "Controller model", "Click sound", "Glow", "Screen light" };
-    private static final String[][] COG_OPTION_CELLS = {
-            { "Off", "Normal", "Quality" },
-            { "Off", "Normal", "Quality" },
-            { "Off", "On" },
-            { "Off", "On" },
-            { "Off", "On" },
-            { "Pointer", "Gamepad" },
-            { "Off", "On" },
-            { "Off", "On" },
-            { "Off", "On" },
-            { "Off", "On" },
-            { "Off", "On" },
-            { "Off", "On" }
+    private static final int[] COG_OPTION_ROWS = { R.string.vr_panel_sharpen,
+            R.string.vr_panel_supersample, R.string.vr_panel_stats, R.string.vr_panel_head_locked,
+            R.string.vr_panel_head_aim, R.string.vr_panel_controllers,
+            R.string.vr_panel_pointer_sleep, R.string.vr_panel_ray,
+            R.string.vr_panel_controller_model, R.string.vr_panel_click_sound,
+            R.string.vr_panel_glow, R.string.vr_panel_screen_light };
+    private static final int[][] COG_OPTION_CELLS = {
+            { R.string.vr_panel_off, R.string.vr_panel_normal, R.string.vr_panel_quality },
+            { R.string.vr_panel_off, R.string.vr_panel_normal, R.string.vr_panel_quality },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_pointer, R.string.vr_panel_gamepad },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_off, R.string.vr_panel_on },
+            { R.string.vr_panel_off, R.string.vr_panel_on }
     };
     // 3D tab: a row of presets over two sliders, then the switch the bar's 3D
     // button works too, drawn the same way the display tab's cells and the
     // screen tab's tracks are, in the COG_ROW3D_ order. Only values that take
     // effect the moment they move belong on the panel, which is why the depth
     // source itself stays in the 2d settings.
-    private static final String COG_PRESET_ROW = "Preset";
-    private static final String[] COG_SLIDER3D_ROWS = { "Depth", "Convergence" };
-    private static final String COG_STEREO_ROW = "3D";
+    private static final int COG_PRESET_ROW = R.string.vr_panel_preset;
+    // In cell order, as DepthPresets numbers them
+    private static final int[] COG_PRESETS =
+            { R.string.vr_panel_comfort, R.string.vr_panel_balanced, R.string.vr_panel_strong };
+    private static final int[] COG_SLIDER3D_ROWS =
+            { R.string.vr_panel_depth, R.string.vr_panel_convergence };
+    private static final int COG_STEREO_ROW = R.string.vr_panel_3d;
     // Picture tab: a track for each of the grade's values, in the PICTURE_
     // order, each ticked where it leaves the picture as streamed
-    private static final String[] COG_PICTURE_ROWS =
-            { "Brightness", "Contrast", "Gamma", "Saturation" };
+    private static final int[] COG_PICTURE_ROWS =
+            { R.string.vr_panel_brightness, R.string.vr_panel_contrast, R.string.vr_panel_gamma,
+              R.string.vr_panel_saturation };
     // About tab: the app, its version and its log, over the report button
     private static final String COG_ABOUT_NAME = "Moonlight XR";
 
@@ -150,12 +167,15 @@ final class XrPanels {
     private static final float KB_GAP_U = 0.005f;
     private static final float KB_GAP_V = 0.014f;
 
-    private static final String[][] KB_LABELS_LOWER = {
+    // A key's label is what it types, or a string id where it is named by a
+    // word, which goes in the language the app is in
+    private static final Object[][] KB_LABELS_LOWER = {
             { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
             { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
             { "a", "s", "d", "f", "g", "h", "j", "k", "l" },
-            { "Shift", "z", "x", "c", "v", "b", "n", "m", "Del" },
-            { "?123", ",", "space", ".", "Enter", "Hide" }
+            { R.string.vr_key_shift, "z", "x", "c", "v", "b", "n", "m", "Del" },
+            { "?123", ",", R.string.vr_key_space, ".", R.string.vr_key_enter,
+              R.string.vr_key_hide }
     };
     private static final int[][] KB_CODES_LOWER = {
             { '1', '2', '3', '4', '5', '6', '7', '8', '9', '0' },
@@ -164,12 +184,13 @@ final class XrPanels {
             { KB_CODE_SHIFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', 8 },
             { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
     };
-    private static final String[][] KB_LABELS_UPPER = {
+    private static final Object[][] KB_LABELS_UPPER = {
             { "!", "@", "#", "$", "%", "^", "&", "*", "(", ")" },
             { "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P" },
             { "A", "S", "D", "F", "G", "H", "J", "K", "L" },
-            { "Shift", "Z", "X", "C", "V", "B", "N", "M", "Del" },
-            { "?123", ",", "space", ".", "Enter", "Hide" }
+            { R.string.vr_key_shift, "Z", "X", "C", "V", "B", "N", "M", "Del" },
+            { "?123", ",", R.string.vr_key_space, ".", R.string.vr_key_enter,
+              R.string.vr_key_hide }
     };
     private static final int[][] KB_CODES_UPPER = {
             { '!', '@', '#', '$', '%', '^', '&', '*', '(', ')' },
@@ -181,12 +202,13 @@ final class XrPanels {
     // The brackets row has one slot fewer than a letter row, since the
     // geometry is shared, so the Fn sheet's key takes the place shift had.
     // Tab is on that sheet.
-    private static final String[][] KB_LABELS_SYMBOLS = {
+    private static final Object[][] KB_LABELS_SYMBOLS = {
             { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
             { "@", "#", "$", "%", "&", "*", "-", "+", "(", ")" },
             { "!", "\"", "'", ":", ";", "/", "?", "_", "=" },
             { "Fn", "<", ">", "[", "]", "{", "}", "\\", "Del" },
-            { "ABC", ",", "space", ".", "Enter", "Hide" }
+            { "ABC", ",", R.string.vr_key_space, ".", R.string.vr_key_enter,
+              R.string.vr_key_hide }
     };
     private static final int[][] KB_CODES_SYMBOLS = {
             { '1', '2', '3', '4', '5', '6', '7', '8', '9', '0' },
@@ -201,12 +223,14 @@ final class XrPanels {
     // the next key goes with them. ?123 sits where Fn does on the symbols, so
     // the one place flips between the two. A null label is a blank with no
     // key, code 0. Backspace says so here, since Del is the delete key.
-    private static final String[][] KB_LABELS_FN = {
+    private static final Object[][] KB_LABELS_FN = {
             { "Esc", "F1", "F2", "F3", "F4", "F5", "F6", "Ins", "Home", "PgUp" },
             { "Tab", "F7", "F8", "F9", "F10", "F11", "F12", "Del", "End", "PgDn" },
             { null, null, null, null, null, null, "\u2191", null, null },
-            { "?123", "Ctrl", "Win", "Alt", null, "\u2190", "\u2193", "\u2192", "Bksp" },
-            { "ABC", ",", "space", ".", "Enter", "Hide" }
+            { "?123", R.string.vr_key_ctrl, R.string.vr_key_win, R.string.vr_key_alt, null,
+              "\u2190", "\u2193", "\u2192", "Bksp" },
+            { "ABC", ",", R.string.vr_key_space, ".", R.string.vr_key_enter,
+              R.string.vr_key_hide }
     };
     private static final int[][] KB_CODES_FN = {
             { vk(0x1B), vk(0x70), vk(0x71), vk(0x72), vk(0x73), vk(0x74), vk(0x75),
@@ -218,7 +242,7 @@ final class XrPanels {
             { KB_CODE_SYMBOLS, ',', 32, '.', 13, KB_CODE_HIDE }
     };
     // Every sheet's labels and codes in KB_STATE_ order
-    private static final String[][][] KB_LABELS = {
+    private static final Object[][][] KB_LABELS = {
             KB_LABELS_LOWER, KB_LABELS_UPPER, KB_LABELS_SYMBOLS, KB_LABELS_FN
     };
     private static final int[][][] KB_CODES = {
@@ -226,7 +250,8 @@ final class XrPanels {
     };
     // The names the held modifiers go by, in KB_MOD_ bit order
     private static final int[] KB_MOD_BITS = { KB_MOD_CTRL, KB_MOD_ALT, KB_MOD_WIN };
-    private static final String[] KB_MOD_NAMES = { "Ctrl", "Alt", "Win" };
+    private static final int[] KB_MOD_NAMES =
+            { R.string.vr_key_ctrl, R.string.vr_key_alt, R.string.vr_key_win };
 
     // A Windows virtual key code as the keyboard carries it
     private static int vk(int code) {
@@ -237,20 +262,89 @@ final class XrPanels {
     // lit button, in zone order, so which one shows is a swapchain handle on
     // the native side rather than an upload. The sheet and where its buttons
     // sit on it are the EXIT_ values in XrShared.
-    private static final String EXIT_QUESTION = "Exit the stream?";
+    private static final int EXIT_QUESTION = R.string.vr_exit_question;
 
     // What the launch splash says while the session comes up
     private static final String SPLASH_NAME = "Moonlight XR";
-    private static final String SPLASH_LOADING = "Loading";
+    private static final int SPLASH_LOADING = R.string.vr_splash_loading;
 
     private final Context context;
     // The gamepad mode shortcut chosen, a PAD_SHORTCUT_ value, which the
     // Display tab names under its controllers row
     private final int gamepadShortcut;
 
+    // The words above in the language the app is in, looked up once here,
+    // since a panel only ever lives as long as one session
+    private final String[] pickerHeaders;
+    private final String[] pickerNames;
+    private final String[] cogTabs;
+    private final String cogRoomTab;
+    private final String[] sliderRows;
+    private final String needsHeadLock;
+    private final String notInRoom;
+    private final String[] roomRows;
+    private final String[] roomSwitch;
+    private final String roomFixedHint;
+    private final String[] optionRows;
+    private final String[][] optionCells;
+    private final String presetRow;
+    private final String[] presets;
+    private final String[] slider3dRows;
+    private final String stereoRow;
+    private final String[] pictureRows;
+    private final String resetWord;
+    private final String[][][] kbLabels;
+    private final String[] kbModNames;
+    private final String exitQuestion;
+    private final String splashLoading;
+
     XrPanels(Context context, int gamepadShortcut) {
         this.context = context;
         this.gamepadShortcut = gamepadShortcut;
+        pickerHeaders = words(PICKER_HEADERS);
+        pickerNames = words(PICKER_NAMES);
+        cogTabs = words(COG_TABS);
+        cogRoomTab = context.getString(COG_ROOM_TAB);
+        sliderRows = words(COG_SLIDER_ROWS);
+        needsHeadLock = context.getString(COG_NEEDS_HEAD_LOCK);
+        notInRoom = context.getString(COG_NOT_IN_ROOM);
+        roomRows = words(COG_ROOM_ROWS);
+        roomSwitch = words(COG_ROOM_SWITCH);
+        roomFixedHint = context.getString(COG_ROOM_FIXED_HINT);
+        optionRows = words(COG_OPTION_ROWS);
+        optionCells = new String[COG_OPTION_CELLS.length][];
+        for (int row = 0; row < COG_OPTION_CELLS.length; row++) {
+            optionCells[row] = words(COG_OPTION_CELLS[row]);
+        }
+        presetRow = context.getString(COG_PRESET_ROW);
+        presets = words(COG_PRESETS);
+        slider3dRows = words(COG_SLIDER3D_ROWS);
+        stereoRow = context.getString(COG_STEREO_ROW);
+        pictureRows = words(COG_PICTURE_ROWS);
+        resetWord = context.getString(R.string.vr_panel_reset);
+        kbLabels = new String[KB_LABELS.length][][];
+        for (int state = 0; state < KB_LABELS.length; state++) {
+            kbLabels[state] = new String[KB_LABELS[state].length][];
+            for (int row = 0; row < KB_LABELS[state].length; row++) {
+                Object[] keys = KB_LABELS[state][row];
+                kbLabels[state][row] = new String[keys.length];
+                for (int key = 0; key < keys.length; key++) {
+                    kbLabels[state][row][key] = keys[key] instanceof Integer
+                            ? context.getString((Integer) keys[key]) : (String) keys[key];
+                }
+            }
+        }
+        kbModNames = words(KB_MOD_NAMES);
+        exitQuestion = context.getString(EXIT_QUESTION);
+        splashLoading = context.getString(SPLASH_LOADING);
+    }
+
+    private String[] words(int[] ids) {
+        String[] words = new String[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            words[i] = context.getString(ids[i]);
+        }
+        return words;
     }
 
     // The toast's way out of gamepad mode, by the shortcut chosen
@@ -267,14 +361,14 @@ final class XrPanels {
 
     // Under the controllers row on the Display tab: the shortcut that switches
     // the same thing from the controllers
-    static String controllersHint(int shortcut) {
+    static int controllersHint(int shortcut) {
         switch (shortcut) {
             case PAD_SHORTCUT_STICKS:
-                return "Shortcut: both thumbsticks";
+                return R.string.vr_panel_shortcut_sticks;
             case PAD_SHORTCUT_TRIGGERS_GRIPS:
-                return "Shortcut: triggers + grips";
+                return R.string.vr_panel_shortcut_triggers_grips;
             default:
-                return "Shortcut: left menu + grip";
+                return R.string.vr_panel_shortcut_menu_grip;
         }
     }
 
@@ -339,36 +433,31 @@ final class XrPanels {
         Paint.FontMetrics metrics = header.getFontMetrics();
         float baseline = (PICKER_HEADER_PX - (metrics.descent - metrics.ascent)) * 0.5f
                 - metrics.ascent;
-        for (int band = 0; band < PICKER_ROWS && band < PICKER_HEADERS.length; band++) {
-            canvas.drawText(PICKER_HEADERS[band], PICKER_TEX_W * 0.5f,
+        for (int band = 0; band < PICKER_ROWS && band < pickerHeaders.length; band++) {
+            canvas.drawText(pickerHeaders[band], PICKER_TEX_W * 0.5f,
                     band * PICKER_BAND_PX + baseline, header);
         }
 
-        for (int cell = 0; cell < PICKER_CELLS; cell++) {
+        for (int cell = 0; cell < PICKER_CELLS && cell < pickerNames.length; cell++) {
             RectF tile = pickerTile(cell, pad);
 
-            String name;
+            String name = pickerNames[cell];
             Bitmap thumb = null;
             if (cell == ENV_CELL_PASSTHROUGH) {
-                name = "Passthrough";
                 paint.setColor(0xFF2A3540);
             }
             else if (cell == ENV_CELL_VOID) {
-                name = "Black void";
                 paint.setColor(0xFF090909);
             }
             else if (cell == ENV_CELL_HOME_THEATER) {
-                name = "Home Theater";
                 thumb = decodeRoomThumb(THEATER_THUMB);
                 paint.setColor(0xFF14110F);
             }
             else if (cell == ENV_CELL_GRAND_CINEMA) {
-                name = "Grand Cinema";
                 thumb = decodeRoomThumb(GRAND_CINEMA_THUMB);
                 paint.setColor(0xFF1A0A0B);
             }
             else if (cell == ENV_CELL_SYNTHWAVE) {
-                name = "Synthwave";
                 thumb = decodeRoomThumb(SYNTHWAVE_THUMB);
                 paint.setColor(0xFF140B20);
             }
@@ -411,6 +500,13 @@ final class XrPanels {
             canvas.drawRoundRect(tile, radius, radius, paint);
             paint.setStyle(Paint.Style.FILL);
 
+            // A long name is drawn smaller rather than run into the tile's edge
+            float size = 21.0f;
+            label.setTextSize(size);
+            while (label.measureText(name) > tile.width() - 16.0f && size > 15.0f) {
+                size -= 1.0f;
+                label.setTextSize(size);
+            }
             canvas.drawText(name, tile.centerX(), tile.bottom - 15.0f, label);
         }
 
@@ -542,7 +638,7 @@ final class XrPanels {
             drawCogAbout(canvas);
         }
         else {
-            drawCogOptionRows(canvas, aimLive, inRoom ? COG_NOT_IN_ROOM : COG_NEEDS_HEAD_LOCK);
+            drawCogOptionRows(canvas, aimLive, inRoom ? notInRoom : needsHeadLock);
         }
         return bitmap;
     }
@@ -562,8 +658,8 @@ final class XrPanels {
         text.setTextAlign(Paint.Align.CENTER);
 
         final float barB = COG_TAB_BAR_B * COG_TEX_H;
-        final float slotW = COG_TEX_W / (float)COG_TABS.length;
-        for (int i = 0; i < COG_TABS.length; i++) {
+        final float slotW = COG_TEX_W / (float)cogTabs.length;
+        for (int i = 0; i < cogTabs.length; i++) {
             boolean current = i == tab;
             RectF slot = new RectF(i * slotW + 12.0f, 12.0f, (i + 1) * slotW - 12.0f, barB - 8.0f);
 
@@ -573,7 +669,7 @@ final class XrPanels {
             }
 
             text.setColor(current ? Color.WHITE : 0x60FFFFFF);
-            String name = inRoom && i == COG_TAB_SCREEN ? COG_ROOM_TAB : COG_TABS[i];
+            String name = inRoom && i == COG_TAB_SCREEN ? cogRoomTab : cogTabs[i];
             canvas.drawText(name, slot.centerX(),
                     slot.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
 
@@ -607,7 +703,7 @@ final class XrPanels {
         tick.setColor(0xCCFFFFFF);
 
         final float cellHalf = COG_SCREEN_CELL_HALF * COG_TEX_H;
-        for (int row = 0; row < COG_SLIDER_ROWS.length; row++) {
+        for (int row = 0; row < sliderRows.length; row++) {
             boolean aimRow = row == COG_SLIDER_AIM_SENSITIVITY || row == COG_SLIDER_AIM_DEADZONE;
             boolean live = aimRow ? aimLive : row != COG_SLIDER_CURVE || curveOk;
             float y = cogRowV(COG_TAB_SCREEN, row) * COG_TEX_H;
@@ -615,11 +711,11 @@ final class XrPanels {
             text.setColor(live ? Color.WHITE : 0x30FFFFFF);
             // Centred on the row rather than sitting on it, so the label lines
             // up with the track beside it
-            canvas.drawText(COG_SLIDER_ROWS[row], 0.06f * COG_TEX_W,
+            canvas.drawText(sliderRows[row], 0.06f * COG_TEX_W,
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
             if (aimRow && !live) {
-                drawGreyedReason(canvas, y, COG_NEEDS_HEAD_LOCK);
+                drawGreyedReason(canvas, y, needsHeadLock);
                 continue;
             }
 
@@ -657,7 +753,7 @@ final class XrPanels {
 
         text.setColor(Color.WHITE);
         text.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("Reset", reset.centerX(),
+        canvas.drawText(resetWord, reset.centerX(),
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
     }
 
@@ -685,15 +781,15 @@ final class XrPanels {
         final float trackR = COG_RUN_R * COG_TEX_W;
         final float cellHalf = COG_CELL_HALF * COG_TEX_H;
 
-        for (int row = 0; row < COG_ROOM_ROWS.length; row++) {
+        for (int row = 0; row < roomRows.length; row++) {
             boolean live = row != COG_ROOM_ROW_SIZE || sizeLive;
             float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
             label.setColor(live ? Color.WHITE : 0x30FFFFFF);
-            canvas.drawText(COG_ROOM_ROWS[row], 0.06f * COG_TEX_W,
+            canvas.drawText(roomRows[row], 0.06f * COG_TEX_W,
                     y - (label.ascent() + label.descent()) * 0.5f, label);
 
             if (row == COG_ROOM_ROW_GLOW || row == COG_ROOM_ROW_LIGHT) {
-                drawCogCells(canvas, COG_ROOM_SWITCH, y);
+                drawCogCells(canvas, roomSwitch, y);
                 continue;
             }
 
@@ -716,7 +812,7 @@ final class XrPanels {
             hint.setTextAlign(Paint.Align.CENTER);
             hint.setColor(0x50FFFFFF);
             float y = (COG_ROW_V0 + (COG_ROOM_ROW_SIZE + 1) * COG_ROW_STEP) * COG_TEX_H;
-            canvas.drawText(COG_ROOM_FIXED_HINT, COG_TEX_W * 0.5f, y, hint);
+            canvas.drawText(roomFixedHint, COG_TEX_W * 0.5f, y, hint);
         }
     }
 
@@ -1114,18 +1210,14 @@ final class XrPanels {
         final float tickHalf = COG_CELL_HALF * COG_TEX_H;
 
         float presetY = (COG_ROW_V0 + COG_ROW3D_PRESET * COG_ROW_STEP) * COG_TEX_H;
-        canvas.drawText(COG_PRESET_ROW, 0.06f * COG_TEX_W,
+        canvas.drawText(presetRow, 0.06f * COG_TEX_W,
                 presetY - (text.ascent() + text.descent()) * 0.5f, text);
-        String[] presets = new String[COG_PRESET_CELLS];
-        for (int preset = 0; preset < COG_PRESET_CELLS; preset++) {
-            presets[preset] = DepthPresets.name(preset);
-        }
         drawCogCells(canvas, presets, presetY, stereoOk);
 
-        for (int i = 0; i < COG_SLIDER3D_ROWS.length; i++) {
+        for (int i = 0; i < slider3dRows.length; i++) {
             int row = COG_ROW3D_SEPARATION + i;
             float y = (COG_ROW_V0 + row * COG_ROW_STEP) * COG_TEX_H;
-            canvas.drawText(COG_SLIDER3D_ROWS[i], 0.06f * COG_TEX_W,
+            canvas.drawText(slider3dRows[i], 0.06f * COG_TEX_W,
                     y - (text.ascent() + text.descent()) * 0.5f, text);
 
             // A tick at the model's default on both tracks
@@ -1149,8 +1241,8 @@ final class XrPanels {
                 caption.setColor(stereoOk ? 0xA0FFB74D : 0x30FFB74D);
                 // Just above the next row's hit band, which starts 0.055 down
                 // now the rows sit closer together
-                canvas.drawText("harder on the eyes", (markX + trackR) * 0.5f,
-                        y + 0.04f * COG_TEX_H, caption);
+                canvas.drawText(context.getString(R.string.vr_panel_harder_on_eyes),
+                        (markX + trackR) * 0.5f, y + 0.04f * COG_TEX_H, caption);
             }
             else {
                 track.setColor(stereoOk ? 0x66FFFFFF : 0x30FFFFFF);
@@ -1164,9 +1256,9 @@ final class XrPanels {
         // The switch, which only lasts the session, the same one the bar's
         // button works, so the two never disagree
         float switchY = (COG_ROW_V0 + COG_ROW3D_SWITCH * COG_ROW_STEP) * COG_TEX_H;
-        canvas.drawText(COG_STEREO_ROW, 0.06f * COG_TEX_W,
+        canvas.drawText(stereoRow, 0.06f * COG_TEX_W,
                 switchY - (text.ascent() + text.descent()) * 0.5f, text);
-        drawCogCells(canvas, COG_ROOM_SWITCH, switchY, stereoOk);
+        drawCogCells(canvas, roomSwitch, switchY, stereoOk);
 
         // A way back from a pair of values that turned out to be unwatchable
         Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1179,7 +1271,7 @@ final class XrPanels {
 
         text.setColor(Color.WHITE);
         text.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("Reset", reset.centerX(),
+        canvas.drawText(resetWord, reset.centerX(),
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
 
         if (!stereoOk) {
@@ -1189,7 +1281,8 @@ final class XrPanels {
             hint.setTextSize(17.0f);
             hint.setTextAlign(Paint.Align.CENTER);
             hint.setColor(0x50FFFFFF);
-            canvas.drawText("3D is off in settings", COG_TEX_W * 0.5f,
+            canvas.drawText(context.getString(R.string.vr_panel_3d_off_in_settings),
+                    COG_TEX_W * 0.5f,
                     (COG_ROW_V0 + COG_ROW3D_COUNT * COG_ROW_STEP) * COG_TEX_H, hint);
         }
     }
@@ -1212,7 +1305,7 @@ final class XrPanels {
         hint.setTextSize(15.0f);
         hint.setTextAlign(Paint.Align.LEFT);
         hint.setColor(0x99FFFFFF);
-        for (int row = 0; row < COG_OPTION_ROWS.length; row++) {
+        for (int row = 0; row < optionRows.length; row++) {
             boolean live = row != COG_OPTION_HEAD_AIM || headAimLive;
             float y = cogRowV(COG_TAB_DISPLAY, row) * COG_TEX_H;
             label.setColor(live ? Color.WHITE : 0x30FFFFFF);
@@ -1221,12 +1314,12 @@ final class XrPanels {
                 // The controllers' own shortcut under the label, the two
                 // together where the label alone would be
                 baseline = y - 2.0f;
-                canvas.drawText(controllersHint(gamepadShortcut), 0.06f * COG_TEX_W,
-                        y - 2.0f + hint.getTextSize(), hint);
+                canvas.drawText(context.getString(controllersHint(gamepadShortcut)),
+                        0.06f * COG_TEX_W, y - 2.0f + hint.getTextSize(), hint);
             }
-            canvas.drawText(COG_OPTION_ROWS[row], 0.06f * COG_TEX_W, baseline, label);
+            canvas.drawText(optionRows[row], 0.06f * COG_TEX_W, baseline, label);
             if (live) {
-                drawCogCells(canvas, COG_OPTION_CELLS[row], y, true, cellHalf);
+                drawCogCells(canvas, optionCells[row], y, true, cellHalf);
             }
             else {
                 drawGreyedReason(canvas, y, headAimReason);
@@ -1237,7 +1330,7 @@ final class XrPanels {
         // How strong the glow is, a track under the cells and the only row on
         // this tab that is dragged rather than pressed
         float y = cogRowV(COG_TAB_DISPLAY, COG_DISPLAY_SLIDER_ROW) * COG_TEX_H;
-        canvas.drawText("Glow level", 0.06f * COG_TEX_W,
+        canvas.drawText(context.getString(R.string.vr_panel_glow_level), 0.06f * COG_TEX_W,
                 y - (label.ascent() + label.descent()) * 0.5f, label);
 
         Paint track = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -1277,9 +1370,9 @@ final class XrPanels {
         final float trackR = COG_RUN_R * COG_TEX_W;
         final float tickHalf = COG_CELL_HALF * COG_TEX_H;
 
-        for (int row = 0; row < COG_PICTURE_ROWS.length; row++) {
+        for (int row = 0; row < pictureRows.length; row++) {
             float y = cogRowV(COG_TAB_PICTURE, row) * COG_TEX_H;
-            canvas.drawText(COG_PICTURE_ROWS[row], 0.06f * COG_TEX_W,
+            canvas.drawText(pictureRows[row], 0.06f * COG_TEX_W,
                     y - (text.ascent() + text.descent()) * 0.5f, text);
             canvas.drawLine(trackL, y, trackR, y, track);
             drawCogChevrons(canvas, y, true, tickHalf);
@@ -1298,7 +1391,7 @@ final class XrPanels {
         canvas.drawRoundRect(reset, 14.0f, 14.0f, paint);
 
         text.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText("Reset", reset.centerX(),
+        canvas.drawText(resetWord, reset.centerX(),
                 reset.centerY() - (text.ascent() + text.descent()) * 0.5f, text);
     }
 
@@ -1319,11 +1412,15 @@ final class XrPanels {
         line.setTextSize(19.0f);
         line.setTextAlign(Paint.Align.CENTER);
         line.setColor(0xB0FFFFFF);
-        String version = "Version " + BuildConfig.VERSION_NAME
-                + (BuildConfig.GIT_HASH.isEmpty() ? "" : ", commit " + BuildConfig.GIT_HASH);
+        String version = BuildConfig.GIT_HASH.isEmpty()
+                ? context.getString(R.string.vr_panel_version_no_commit, BuildConfig.VERSION_NAME)
+                : context.getString(R.string.vr_panel_version, BuildConfig.VERSION_NAME,
+                        BuildConfig.GIT_HASH);
         canvas.drawText(Toast.fit(version, line, room), mid, 0.32f * COG_TEX_H, line);
         String log = FileLog.getLogPath();
-        canvas.drawText(Toast.fit("Log file: " + (log != null ? BugReport.shortPath(log) : "off"),
+        canvas.drawText(Toast.fit(log != null
+                        ? context.getString(R.string.vr_panel_log_file, BugReport.shortPath(log))
+                        : context.getString(R.string.vr_panel_log_file_off),
                 line, room), mid, 0.38f * COG_TEX_H, line);
 
         // Each button's line, where the other tabs say why a row is dead
@@ -1339,10 +1436,9 @@ final class XrPanels {
 
         drawAboutButton(canvas, COG_REPORT_L, COG_REPORT_T, COG_REPORT_R, COG_REPORT_B,
                 context.getString(R.string.title_bug_report));
-        canvas.drawText(BugReport.collectorConfigured()
-                        ? "Sends a note with the headset, your settings and the log"
-                        : "Saves a note with the headset, your settings and the log",
-                mid, (COG_REPORT_B + 0.05f) * COG_TEX_H, hint);
+        canvas.drawText(Toast.fit(context.getString(BugReport.collectorConfigured()
+                        ? R.string.vr_panel_report_sends : R.string.vr_panel_report_saves),
+                hint, room), mid, (COG_REPORT_B + 0.05f) * COG_TEX_H, hint);
     }
 
     // One of the About tab's buttons, plain like the reset buttons
@@ -1688,21 +1784,21 @@ final class XrPanels {
      * space bar of the others, since they hold over every sheet.
      */
     ByteBuffer buildKeyboardSheet(int state, int mods) {
-        Bitmap sheet = buildKeyboardSheet(KB_LABELS[state], KB_CODES[state], buildKeyRects(), mods);
+        Bitmap sheet = buildKeyboardSheet(kbLabels[state], KB_CODES[state], buildKeyRects(), mods);
         ByteBuffer pixels = toBuffer(sheet);
         sheet.recycle();
         return pixels;
     }
 
     // The held modifiers by name, "Ctrl Alt", or null with none
-    static String heldModifiers(int mods) {
+    private String heldModifiers(int mods) {
         StringBuilder names = new StringBuilder();
         for (int i = 0; i < KB_MOD_BITS.length; i++) {
             if ((mods & KB_MOD_BITS[i]) != 0) {
                 if (names.length() > 0) {
                     names.append(' ');
                 }
-                names.append(KB_MOD_NAMES[i]);
+                names.append(kbModNames[i]);
             }
         }
         return names.length() > 0 ? names.toString() : null;
@@ -2138,15 +2234,15 @@ final class XrPanels {
         text.setColor(Color.WHITE);
         text.setTextSize(34.0f);
         float questionY = EXIT_TEX_H * 0.30f;
-        canvas.drawText(EXIT_QUESTION, EXIT_TEX_W * 0.5f,
+        canvas.drawText(exitQuestion, EXIT_TEX_W * 0.5f,
                 questionY - (text.ascent() + text.descent()) * 0.5f, text);
 
         // Leaving is the destructive half, so it is the one that reads red.
         // Both are the same shape, so neither is the easier target.
-        drawExitChoice(canvas, paint, text, EXIT_EXIT_L, EXIT_EXIT_R, "Exit",
-                0xFFE05A5A, hot == EXIT_ZONE_EXIT);
-        drawExitChoice(canvas, paint, text, EXIT_CANCEL_L, EXIT_CANCEL_R, "Cancel",
-                0xEEFFFFFF, hot == EXIT_ZONE_CANCEL);
+        drawExitChoice(canvas, paint, text, EXIT_EXIT_L, EXIT_EXIT_R,
+                context.getString(R.string.vr_exit), 0xFFE05A5A, hot == EXIT_ZONE_EXIT);
+        drawExitChoice(canvas, paint, text, EXIT_CANCEL_L, EXIT_CANCEL_R,
+                context.getString(android.R.string.cancel), 0xEEFFFFFF, hot == EXIT_ZONE_CANCEL);
 
         return bitmap;
     }
@@ -2362,12 +2458,12 @@ final class XrPanels {
         Paint word = new Paint(Paint.ANTI_ALIAS_FLAG);
         word.setColor(0x99FFFFFF);
         word.setTextSize(30.0f);
-        float wordLeft = (SPLASH_TEX_W - word.measureText(SPLASH_LOADING + "...")) * 0.5f;
+        float wordLeft = (SPLASH_TEX_W - word.measureText(splashLoading + "...")) * 0.5f;
 
         for (int row = 0; row < SPLASH_ROWS; row++) {
             float top = row * SPLASH_ROW_H;
             canvas.drawText(SPLASH_NAME, SPLASH_TEX_W * 0.5f, top + SPLASH_ROW_H * 0.48f, name);
-            StringBuilder dots = new StringBuilder(SPLASH_LOADING);
+            StringBuilder dots = new StringBuilder(splashLoading);
             for (int dot = 0; dot <= row; dot++) {
                 dots.append('.');
             }
