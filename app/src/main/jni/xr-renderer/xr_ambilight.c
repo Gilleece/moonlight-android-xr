@@ -448,4 +448,24 @@ void runGlowRender(XrCtx* ctx) {
     XrSwapchainImageReleaseInfo release = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(ctx->glowSwapchain, &release);
     ctx->glowRendered = 1;
+    ctx->glowDrawnOn = 1;
+    ctx->glowDrawnLevel = level;
+}
+
+int glowStale(XrCtx* ctx) {
+    int on;
+    float level;
+    ambiEffective(ctx, &on, &level);
+    return on && (!ctx->glowDrawnOn || level != ctx->glowDrawnLevel);
+}
+
+// A desktop standing still sends no frames, which left the level slider and
+// the switch looking dead. Only the glow is drawn, from the frame still
+// latched; the sample is taken again only where the glow was off, since
+// then it may be from another picture.
+void redrawGlow(XrCtx* ctx, const float* texMatrix) {
+    if (!ctx->glowDrawnOn) {
+        runFrameColorSample(ctx, texMatrix);
+    }
+    runGlowRender(ctx);
 }

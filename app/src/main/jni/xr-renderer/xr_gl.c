@@ -427,11 +427,19 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     // draw, which now follows the video, so the room is lit from this frame's
     // colour rather than the last one's.
     int sampled = glowOn || roomOn;
+    if (!sampled) {
+        // Kept from whatever picture was up when it last ran, so the next
+        // sample lands whole rather than easing in from that one
+        ctx->ambiSeeded = 0;
+    }
     if (sampled) {
         runFrameColorSample(ctx, texMatrix);
     }
     if (glowOn) {
         runGlowRender(ctx);
+    }
+    else {
+        ctx->glowDrawnOn = 0;
     }
 
     uint32_t imageIndex = 0;

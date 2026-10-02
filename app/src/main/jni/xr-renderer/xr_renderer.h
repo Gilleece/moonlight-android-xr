@@ -694,6 +694,10 @@ typedef struct {
     uint32_t glowImageCount;
     XrSwapchainImageOpenGLESKHR* glowImages;
     int glowRendered;
+    // The switch and the level the glow image was last drawn at, so moving
+    // either redraws it on a picture standing still
+    int glowDrawnOn;
+    float glowDrawnLevel;
     int ambilightOn;
     float ambiIntensity;
     // What the debug property asked for, or -1 while the panel still owns it
@@ -1643,6 +1647,10 @@ void runAmbiBarDetect(XrCtx* ctx, const float* texMatrix);
 void finishAmbiBarDetect(XrCtx* ctx);
 void runFrameColorSample(XrCtx* ctx, const float* texMatrix);
 void runGlowRender(XrCtx* ctx);
+// The glow's switch or level moved since it was last drawn, and the frame
+// already latched drawn into it again
+int glowStale(XrCtx* ctx);
+void redrawGlow(XrCtx* ctx, const float* texMatrix);
 
 // xr_room.c: the 3d rooms
 int roomEffective(XrCtx* ctx);

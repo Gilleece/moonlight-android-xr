@@ -1359,6 +1359,13 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
         if (elapsed > ctx->statMaxNs) ctx->statMaxNs = elapsed;
         logWarpStats(ctx);
     }
+    else if (ctx->shouldRender && ctx->everRendered && glowStale(ctx)) {
+        // The glow's level or switch moved with nothing new from the decoder
+        float texMatrix[16];
+        (*env)->GetFloatArrayRegion(env, texMatrixArr, 0, 16, texMatrix);
+        redrawGlow(ctx, texMatrix);
+        LOGI("glow redrawn on a still picture at %.2f", ctx->glowDrawnLevel);
+    }
     // The controller models on every frame, a new picture or not, since a
     // controller moves on its own. After the warp, so the picture never
     // waits on them.
