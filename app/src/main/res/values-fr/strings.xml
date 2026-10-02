@@ -92,6 +92,7 @@
     <string name="perf_overlay_renderingfps">Fréquence d\'images de rendu : %1$.2f FPS</string>
     <string name="perf_overlay_netdrops">Images perdues par votre connexion réseau : %1$.2f%%</string>
     <string name="perf_overlay_dectime">Temps moyen de décodage : %1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">Sous-alimentations audio : %1$d</string>
     <!-- AppList activity -->
     <string name="applist_connect_msg">Connexion au PC…</string>
     <string name="applist_menu_resume">Reprendre la session</string>

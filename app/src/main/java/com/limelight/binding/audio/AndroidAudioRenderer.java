@@ -8,8 +8,10 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.media.audiofx.AudioEffect;
 import android.os.Build;
+import android.os.Process;
 import android.os.SystemClock;
 
+import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.nvstream.av.audio.AudioRenderer;
 import com.limelight.nvstream.jni.MoonBridge;
@@ -27,6 +29,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private AudioTrack track;
     // Set only while a 5.1 or 7.1 stream is being rendered to stereo
     private VirtualSurround surround;
+    // The track's underruns for the stats, null where the platform cannot
+    // say (before Android 7)
+    private volatile UnderrunCounter underruns;
+    // Set on the first block, which is when the audio thread is known
+    private boolean priorityRaised;
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx, boolean virtualSurround,
                                 HeadYaw headYaw) {
@@ -221,6 +228,7 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
                 // Successfully created working AudioTrack. We're done here.
                 LimeLog.info("Audio track configuration: "+bufferSize+" "+lowLatency);
+                underruns = underrunCounter(track);
                 break;
             } catch (Exception e) {
                 // Try to release the AudioTrack if we got far enough
@@ -246,8 +254,50 @@ public class AndroidAudioRenderer implements AudioRenderer {
         return 0;
     }
 
+    // Null before Android 7, where a track has no count to read
+    private static UnderrunCounter underrunCounter(final AudioTrack track) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return null;
+        }
+        return new UnderrunCounter(new UnderrunCounter.Track() {
+            @Override
+            public int underrunCount() {
+                return Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                        ? track.getUnderrunCount() : -1;
+            }
+        });
+    }
+
+    // The thread this is called on is the connection's own, started with no
+    // priority asked for, and the virtual surround's convolution runs on it
+    // as well, so it could sit behind the frame loop and the depth threads.
+    // Raised to the audio priority on the first block, said once in the log.
+    private static void raiseThreadPriority() {
+        int tid = Process.myTid();
+        int was = Process.getThreadPriority(tid);
+        try {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO);
+        } catch (IllegalArgumentException | SecurityException e) {
+            LimeLog.warning("Audio thread priority left at "+was+": "+e);
+            return;
+        }
+        LimeLog.info("Audio thread priority: "+was+" raised to "+Process.getThreadPriority(tid)
+                +" (tid "+tid+")");
+    }
+
+    /** The track's underruns as last read, once a second; -1 where it cannot say. Any thread. */
+    public int getUnderrunCount() {
+        UnderrunCounter counter = underruns;
+        return counter != null ? counter.count() : -1;
+    }
+
     @Override
     public void playDecodedAudio(short[] audioData) {
+        if (!priorityRaised) {
+            priorityRaised = true;
+            raiseThreadPriority();
+        }
+
         // Only queue up to 40 ms of pending audio data in addition to what AudioTrack is buffering for us.
         if (MoonBridge.getPendingAudioDuration() < 40) {
             // This will block until the write is completed. That can cause a backlog
@@ -263,6 +313,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
         }
         else {
             LimeLog.info("Too much pending audio data: " + MoonBridge.getPendingAudioDuration() +" ms");
+        }
+
+        UnderrunCounter counter = underruns;
+        if (counter != null) {
+            counter.poll(SystemClock.uptimeMillis());
         }
     }
 
@@ -291,6 +346,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
 
     @Override
     public void cleanup() {
+        UnderrunCounter counter = underruns;
+        if (counter != null) {
+            FileLog.event("audio: " + counter.readNow() + " underruns over the stream");
+        }
+
         // Immediately drop all pending data
         track.pause();
         track.flush();

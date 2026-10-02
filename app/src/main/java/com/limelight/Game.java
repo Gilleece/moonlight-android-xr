@@ -160,6 +160,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private TextView performanceOverlayView;
 
     private MediaCodecDecoderRenderer decoderRenderer;
+    // Kept for its underrun count on the stats
+    private volatile AndroidAudioRenderer audioRenderer;
     private boolean reportedCrash;
 
     // Set when the launcher tore its own task down to get the 2d panels out of
@@ -2759,9 +2761,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(holder);
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
-                            prefConfig.vrVirtualSurround, this::vrHeadYaw),
-                    decoderRenderer, Game.this);
+            audioRenderer = new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
+                    prefConfig.vrVirtualSurround, this::vrHeadYaw);
+            conn.start(audioRenderer, decoderRenderer, Game.this);
         }
     }
 
@@ -3241,8 +3243,20 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         return xrRenderer != null ? xrRenderer.getHeadYaw() : 0.0f;
     }
 
+    // The audio track's underruns for the stats, nothing where it cannot say
+    private String audioStatsLine() {
+        AndroidAudioRenderer audio = audioRenderer;
+        int underruns = audio != null ? audio.getUnderrunCount() : -1;
+        return underruns >= 0
+                ? "\n" + getString(R.string.perf_overlay_audio_underruns, underruns) : "";
+    }
+
     @Override
-    public void onPerfUpdate(final String text) {
+    public void onPerfUpdate(final String decoderText) {
+        final String text = decoderText + audioStatsLine();
+        // Also goes to logcat so stats can be read over adb
+        LimeLog.info("Perf overlay: " + text.replace('\n', ';'));
+
         // In VR the activity window is not displayed, so the stats go to the
         // renderer, which draws them as a layer inside the session
         XrRenderer xrRenderer = decoderRenderer != null ? decoderRenderer.getXrRenderer() : null;

@@ -78,6 +78,7 @@
     <string name="perf_overlay_renderingfps">轉譯影格速率：%1$.2f FPS</string>
     <string name="perf_overlay_netdrops">網路丟失影格：%1$.2f%%</string>
     <string name="perf_overlay_dectime">平均解碼時間：%1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">音訊欠載：%1$d</string>
     <!-- AppList activity -->
     <string name="applist_connect_msg">正在連線電腦…</string>
     <string name="applist_menu_resume">繼續工作階段</string>
