@@ -476,6 +476,11 @@
             android:title="@string/about_version_no_commit"
             android:selectable="false"
             android:persistent="false" />
+        <CheckBoxPreference
+            android:key="checkbox_check_updates"
+            android:title="@string/title_checkbox_check_updates"
+            android:summary="@string/summary_checkbox_check_updates"
+            android:defaultValue="true" />
         <com.limelight.preferences.WebLauncherPreference
             android:key="pref_about_licence"
             android:title="@string/title_about_licence"

@@ -416,6 +416,11 @@
     <string name="about_version">Moonlight XR %1$s，提交 %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">许可证：GPLv3</string>
+    <string name="title_checkbox_check_updates">检查更新</string>
+    <string name="summary_checkbox_check_updates">应用每天向 GitHub 查询一次最新版本，如有更新的版本会显示提示。除应用版本外不发送任何内容，也不会下载任何内容。</string>
+    <string name="update_notice">Moonlight XR %1$s 已发布</string>
+    <string name="update_notice_view">查看</string>
+    <string name="update_notice_dismiss">忽略</string>
     <string name="bug_report_intro">请描述遇到的问题以及预期表现。报告将打包您的说明、应用版本、头显型号、串流设置与日志文件（日志中可能包含您电脑在局域网中的名称和地址），并发送至 %1$s。\n\n日志路径：%2$s</string>
     <string name="bug_report_log_off">已关闭。请先开启“保存日志文件”并复现问题，否则报告中将不包含日志。</string>
     <string name="bug_report_email_hint">您的电子邮箱（用于接收回复）</string>

@@ -630,7 +630,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " " + PreferenceConfiguration.pictureLabel(prefConfig.vrPicture, "=")
                 + " gamepadMask=0x" + Integer.toHexString(gamepadMask)
                 + " audio=" + prefConfig.audioConfiguration.channelCount
-                + " virtualSurround=" + prefConfig.vrVirtualSurround);
+                + " virtualSurround=" + prefConfig.vrVirtualSurround
+                + " checkUpdates=" + prefConfig.checkUpdates);
 
         // Look to point is dead without the eye tracking permission where the
         // platform makes it a runtime one, so a VR session asks for it here,

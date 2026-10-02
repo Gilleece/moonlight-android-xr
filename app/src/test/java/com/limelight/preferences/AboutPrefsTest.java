@@ -24,8 +24,8 @@ import static org.junit.Assert.assertTrue;
 
 /**
  * The About category that ends the settings: the version and commit, the
- * licence and the report, in every language. Ko-fi is not among them: it is
- * in the session, on the About tab's sheet.
+ * update check, the licence and the report, in every language. Ko-fi is not
+ * among them: it is in the session, on the About tab's sheet.
  */
 public class AboutPrefsTest {
 
@@ -77,16 +77,17 @@ public class AboutPrefsTest {
     }
 
     @Test
-    public void itIsTheLastCategoryWithItsThreeRows() throws Exception {
+    public void itIsTheLastCategoryWithItsFourRows() throws Exception {
         Element about = about();
         assertEquals("PreferenceCategory", about.getTagName());
         assertEquals("category_about", key(about));
         assertEquals("@string/category_about", about.getAttributeNS(ANDROID, "title"));
         List<Element> rows = children(about);
-        assertEquals(3, rows.size());
+        assertEquals(4, rows.size());
         assertEquals("pref_about_version", key(rows.get(0)));
-        assertEquals("pref_about_licence", key(rows.get(1)));
-        assertEquals("pref_bug_report", key(rows.get(2)));
+        assertEquals("checkbox_check_updates", key(rows.get(1)));
+        assertEquals("pref_about_licence", key(rows.get(2)));
+        assertEquals("pref_bug_report", key(rows.get(3)));
     }
 
     @Test
@@ -110,7 +111,7 @@ public class AboutPrefsTest {
 
     @Test
     public void theLicenceOpensOnGitHub() throws Exception {
-        Element licence = children(about()).get(1);
+        Element licence = children(about()).get(2);
         assertEquals(WEB, licence.getTagName());
         assertEquals("https://github.com/Gilleece/moonlight-android-xr/blob/master/LICENSE.txt",
                 licence.getAttribute("url"));
@@ -121,7 +122,7 @@ public class AboutPrefsTest {
 
     @Test
     public void theReportMovedHereAndNowhereElse() throws Exception {
-        Element report = children(about()).get(2);
+        Element report = children(about()).get(3);
         assertEquals("Preference", report.getTagName());
         assertEquals("@string/title_bug_report", report.getAttributeNS(ANDROID, "title"));
         int seen = 0;

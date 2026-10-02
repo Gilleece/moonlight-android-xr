@@ -460,6 +460,12 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licence: GPLv3</string>
+    <string name="title_checkbox_check_updates">Check for updates</string>
+    <string name="summary_checkbox_check_updates">Once a day the app asks GitHub for the latest release and shows a notice if there is a newer one. Nothing is sent but the app\'s version, and nothing is downloaded.</string>
+    <!-- The bar above the PC list when a newer release is out. %1$s is its tag, as in v0.4 -->
+    <string name="update_notice">Moonlight XR %1$s is available</string>
+    <string name="update_notice_view">View</string>
+    <string name="update_notice_dismiss">Dismiss</string>
     <string name="bug_report_intro">Describe what went wrong and what you expected. The report bundles your message with the app version, the headset, the streaming settings and the log file, which can include your PC\'s name and address on your network, and goes to %1$s.\n\nLog: %2$s</string>
     <string name="bug_report_log_off">off. Turn on \"Save a log file\" and reproduce the problem first, or the report will carry no log.</string>
     <string name="bug_report_email_hint">Your email address, for a reply</string>

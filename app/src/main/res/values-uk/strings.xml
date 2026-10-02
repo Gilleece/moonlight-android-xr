@@ -497,6 +497,11 @@
     <string name="about_version">Moonlight XR %1$s, коміт %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Ліцензія: GPLv3</string>
+    <string name="title_checkbox_check_updates">Перевіряти оновлення</string>
+    <string name="summary_checkbox_check_updates">Раз на день застосунок запитує в GitHub останній випуск і показує сповіщення, якщо є новіший. Надсилається лише версія застосунку, і нічого не завантажується.</string>
+    <string name="update_notice">Доступна Moonlight XR %1$s</string>
+    <string name="update_notice_view">Переглянути</string>
+    <string name="update_notice_dismiss">Приховати</string>
     <string name="bug_report_intro">Опишіть, що пішло не так і чого ви очікували. Звіт об\'єднує ваше повідомлення з версією застосунку, відомостями про шолом, налаштуваннями трансляції та файлом журналу, у якому можуть бути ім\'я та мережева адреса вашого комп\'ютера, і надсилається на %1$s.\n\nЖурнал: %2$s</string>
     <string name="bug_report_log_off">вимкнено. Увімкніть «Зберігати файл журналу» і спершу відтворіть проблему, інакше у звіті не буде журналу.</string>
     <string name="bug_report_email_hint">Ваша адреса ел. пошти, для відповіді</string>

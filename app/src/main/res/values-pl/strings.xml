@@ -486,6 +486,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licencja: GPLv3</string>
+    <string name="title_checkbox_check_updates">Sprawdzaj aktualizacje</string>
+    <string name="summary_checkbox_check_updates">Raz dziennie aplikacja pyta GitHub o najnowsze wydanie i pokazuje powiadomienie, jeśli jest nowsze. Wysyłana jest tylko wersja aplikacji i nic nie jest pobierane.</string>
+    <string name="update_notice">Dostępna jest wersja Moonlight XR %1$s</string>
+    <string name="update_notice_view">Pokaż</string>
+    <string name="update_notice_dismiss">Odrzuć</string>
     <string name="bug_report_intro">Opisz, co poszło nie tak i jaki był oczekiwany efekt. Zgłoszenie łączy twoją wiadomość z wersją aplikacji, danymi gogli, ustawieniami transmisji i plikiem dziennika, który może zawierać nazwę i adres twojego komputera w sieci, i trafia do %1$s.\n\nDziennik: %2$s</string>
     <string name="bug_report_log_off">wyłączony. Włącz „Zapisuj plik dziennika” i najpierw odtwórz problem, inaczej zgłoszenie nie będzie zawierać dziennika.</string>
     <string name="bug_report_email_hint">Twój adres e-mail, do odpowiedzi</string>

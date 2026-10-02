@@ -502,6 +502,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licenza: GPLv3</string>
+    <string name="title_checkbox_check_updates">Controlla aggiornamenti</string>
+    <string name="summary_checkbox_check_updates">Una volta al giorno l\'app chiede a GitHub l\'ultima versione e mostra un avviso se ce n\'è una più recente. Viene inviata solo la versione dell\'app, e non viene scaricato nulla.</string>
+    <string name="update_notice">Moonlight XR %1$s è disponibile</string>
+    <string name="update_notice_view">Visualizza</string>
+    <string name="update_notice_dismiss">Ignora</string>
     <string name="bug_report_intro">Descrivi cosa è andato storto e cosa ti aspettavi. La segnalazione unisce il tuo messaggio alla versione dell\'app, al visore, alle impostazioni di trasmissione e al file di log, che può includere il nome e l\'indirizzo del tuo PC sulla rete, e viene inviata a %1$s.\n\nLog: %2$s</string>
     <string name="bug_report_log_off">disattivato. Attiva «Salva un file di log» e riproduci prima il problema, altrimenti la segnalazione non conterrà alcun log.</string>
     <string name="bug_report_email_hint">Il tuo indirizzo email, per una risposta</string>

@@ -211,7 +211,16 @@ Elsewhere in the settings:
 | Audio: Virtual surround for headsets | off | Places each 5.1 or 7.1 speaker around you in stereo sound, held to the screen as you turn your head. Needs 5.1 or 7.1 chosen above it, and a host and game that output surround |
 | Host: Open Desktop automatically | off | A tap on a PC starts its app named Desktop without showing the app list, if the host has one |
 | UI: Language | Default | See [Languages](#languages) |
+| About: Check for updates | on | Once a day, a notice on the PC list when there is a newer release. See below |
 | About | | The version and commit, the GPLv3 licence, and Report a problem |
+
+Check for updates is the one thing this fork adds that reaches anything besides your PC and a report
+you choose to send. At most once a day, when the PC list opens, the app asks GitHub's API for this
+repository's latest release. The request carries nothing but the app's version, though GitHub sees
+the address it comes from as it would for any web page. If that release is newer, a notice above the
+PC list offers View, which opens its page in your browser, and Dismiss, which hides it until a newer
+one. Nothing is ever downloaded or installed. To turn it off, untick Check for updates under About
+at the end of the settings.
 
 The stream defaults also change on a headset, because the stock ones look bad on a virtual screen:
 
@@ -269,7 +278,8 @@ The APK lands in `app/build/outputs/apk/nonRoot/debug/`. Install it with `adb in
 The parts of the renderer with no GL, OpenXR or Android in them, the maths, the depth map
 filtering, the rate choice, the input rules, the layout, the room parsers and the surround's
 convolution among them, build and run on a desktop with any C compiler, and the Java side has plain
-unit tests for the settings, the depth presets, the report and the virtual surround:
+unit tests for the settings, the depth presets, the report, the update check and the virtual
+surround:
 
     make -C app/src/test/cpp test
     ./gradlew testNonRootDebugUnitTest

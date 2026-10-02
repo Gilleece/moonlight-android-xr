@@ -482,6 +482,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licence: GPLv3</string>
+    <string name="title_checkbox_check_updates">Kontrolovat aktualizace</string>
+    <string name="summary_checkbox_check_updates">Jednou denně se aplikace zeptá GitHubu na nejnovější vydání, a pokud je novější, zobrazí upozornění. Neodesílá se nic kromě verze aplikace a nic se nestahuje.</string>
+    <string name="update_notice">Je k dispozici Moonlight XR %1$s</string>
+    <string name="update_notice_view">Zobrazit</string>
+    <string name="update_notice_dismiss">Zavřít</string>
     <string name="bug_report_intro">Popište, co se pokazilo a co jste očekávali. Hlášení spojí vaši zprávu s verzí aplikace, headsetem, nastavením streamování a souborem protokolu, který může obsahovat název a síťovou adresu vašeho PC, a odejde na %1$s.\n\nProtokol: %2$s</string>
     <string name="bug_report_log_off">vypnuto. Zapněte „Ukládat soubor protokolu“ a nejprve problém zopakujte, jinak hlášení nebude obsahovat protokol.</string>
     <string name="bug_report_email_hint">Vaše e-mailová adresa pro odpověď</string>

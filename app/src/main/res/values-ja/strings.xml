@@ -460,6 +460,11 @@
     <string name="about_version">Moonlight XR %1$s、コミット %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">ライセンス: GPLv3</string>
+    <string name="title_checkbox_check_updates">アップデートを確認</string>
+    <string name="summary_checkbox_check_updates">1日に1回、GitHubに最新リリースを問い合わせ、新しいものがあればお知らせを表示します。送信されるのはアプリのバージョンだけで、何もダウンロードされません。</string>
+    <string name="update_notice">Moonlight XR %1$s が利用可能です</string>
+    <string name="update_notice_view">表示</string>
+    <string name="update_notice_dismiss">閉じる</string>
     <string name="bug_report_intro">何が起きたか、どうなるはずだったかを書いてください。レポートはメッセージにアプリのバージョン、ヘッドセット、ストリーミング設定、ログファイルをまとめ、%1$sに送られます。ログにはネットワーク上のPCの名前とアドレスが含まれることがあります。\n\nログ: %2$s</string>
     <string name="bug_report_log_off">オフ。「ログファイルを保存」をオンにして先に問題を再現してください。そうしないとレポートにログが含まれません。</string>
     <string name="bug_report_email_hint">返信用のメールアドレス</string>

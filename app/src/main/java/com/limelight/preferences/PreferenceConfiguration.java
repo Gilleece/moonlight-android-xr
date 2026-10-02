@@ -39,6 +39,8 @@ public class PreferenceConfiguration {
     private static final String DISABLE_TOASTS_PREF_STRING = "checkbox_disable_warnings";
     private static final String HOST_AUDIO_PREF_STRING = "checkbox_host_audio";
     static final String AUTO_DESKTOP_PREF_STRING = "checkbox_auto_launch_desktop";
+    // Once a day, ask GitHub for the latest release, see UpdateCheck
+    public static final String CHECK_UPDATES_PREF_STRING = "checkbox_check_updates";
     private static final String DEADZONE_PREF_STRING = "seekbar_deadzone";
     private static final String OSC_OPACITY_PREF_STRING = "seekbar_osc_opacity";
     private static final String LANGUAGE_PREF_STRING = "list_languages";
@@ -188,6 +190,7 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_DISABLE_TOASTS = false;
     private static final boolean DEFAULT_HOST_AUDIO = false;
     static final boolean DEFAULT_AUTO_DESKTOP = false;
+    static final boolean DEFAULT_CHECK_UPDATES = true;
     private static final int DEFAULT_DEADZONE = 7;
     private static final int DEFAULT_OPACITY = 90;
     public static final String DEFAULT_LANGUAGE = "default";
@@ -319,6 +322,8 @@ public class PreferenceConfiguration {
     public boolean stretchVideo, enableSops, playHostAudio, disableWarnings;
     // A tap on a PC starts its Desktop app rather than showing the app list
     public boolean autoLaunchDesktop;
+    // Whether the PC list asks GitHub, once a day, for a newer release
+    public boolean checkUpdates;
     public String language;
     public boolean smallIconMode, multiController, usbDriver, flipFaceButtons;
     public boolean onscreenController;
@@ -633,6 +638,10 @@ public class PreferenceConfiguration {
 
     static boolean pointerSleepOn(SharedPreferences prefs) {
         return prefs.getBoolean(VR_POINTER_SLEEP_PREF_STRING, DEFAULT_VR_POINTER_SLEEP);
+    }
+
+    public static boolean checkUpdatesOn(SharedPreferences prefs) {
+        return prefs.getBoolean(CHECK_UPDATES_PREF_STRING, DEFAULT_CHECK_UPDATES);
     }
 
     static boolean clickSoundOn(SharedPreferences prefs) {
@@ -1348,6 +1357,7 @@ public class PreferenceConfiguration {
         config.stretchVideo = prefs.getBoolean(STRETCH_PREF_STRING, DEFAULT_STRETCH);
         config.playHostAudio = prefs.getBoolean(HOST_AUDIO_PREF_STRING, DEFAULT_HOST_AUDIO);
         config.autoLaunchDesktop = prefs.getBoolean(AUTO_DESKTOP_PREF_STRING, DEFAULT_AUTO_DESKTOP);
+        config.checkUpdates = checkUpdatesOn(prefs);
         config.smallIconMode = prefs.getBoolean(SMALL_ICONS_PREF_STRING, getDefaultSmallMode(context));
         config.multiController = prefs.getBoolean(MULTI_CONTROLLER_PREF_STRING, DEFAULT_MULTI_CONTROLLER);
         config.usbDriver = prefs.getBoolean(USB_DRIVER_PREF_SRING, DEFAULT_USB_DRIVER);

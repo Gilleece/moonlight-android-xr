@@ -13,7 +13,8 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:layout_alignParentBottom="true"
-        android:layout_alignParentTop="true"
+        android:layout_below="@+id/updateNotice"
+        android:layout_alignWithParentIfMissing="true"
         android:layout_toRightOf="@+id/settingsButton"
         android:layout_toEndOf="@+id/settingsButton">
 
@@ -42,6 +43,43 @@
         </RelativeLayout>
 
     </RelativeLayout>
+
+    <!-- A newer release, see UpdateCheck. While it is gone the list keeps
+         the top, through alignWithParentIfMissing above. -->
+    <LinearLayout
+        android:id="@+id/updateNotice"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
+        android:layout_toRightOf="@+id/settingsButton"
+        android:layout_toEndOf="@+id/settingsButton"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#1FFFFFFF"
+        android:paddingLeft="16dp"
+        android:paddingStart="16dp"
+        android:paddingRight="4dp"
+        android:paddingEnd="4dp"
+        android:visibility="gone">
+        <TextView
+            android:id="@+id/updateNoticeText"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAppearance="?android:attr/textAppearanceMedium"/>
+        <Button
+            android:id="@+id/updateNoticeView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/update_notice_view"
+            style="?android:attr/borderlessButtonStyle"/>
+        <Button
+            android:id="@+id/updateNoticeDismiss"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/update_notice_dismiss"
+            style="?android:attr/borderlessButtonStyle"/>
+    </LinearLayout>
 
     <ImageButton
         android:id="@+id/settingsButton"

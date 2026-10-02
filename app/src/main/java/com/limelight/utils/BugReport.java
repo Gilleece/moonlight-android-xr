@@ -500,7 +500,7 @@ public final class BugReport {
                 + " clickSound " + prefs.vrClickSound + " doffGrace " + prefs.vrDoffGrace
                 + " " + PreferenceConfiguration.pictureLabel(prefs.vrPicture, " ")
                 + " headLocked " + prefs.vrHeadLocked + " ambilight " + prefs.vrAmbilight + "\n"
-                + "fileLog " + prefs.fileLogLevel + "\n";
+                + "fileLog " + prefs.fileLogLevel + " checkUpdates " + prefs.checkUpdates + "\n";
     }
 
     /** Posts over HTTP with the timeouts a few megabytes over a headset's wifi wants. */

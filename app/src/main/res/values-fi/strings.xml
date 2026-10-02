@@ -455,6 +455,11 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Lisenssi: GPLv3</string>
+    <string name="title_checkbox_check_updates">Tarkista päivitykset</string>
+    <string name="summary_checkbox_check_updates">Kerran päivässä sovellus kysyy GitHubilta uusinta julkaisua ja näyttää ilmoituksen, jos uudempi on saatavilla. Mitään muuta kuin sovelluksen versiota ei lähetetä, eikä mitään ladata.</string>
+    <string name="update_notice">Moonlight XR %1$s on saatavilla</string>
+    <string name="update_notice_view">Näytä</string>
+    <string name="update_notice_dismiss">Hylkää</string>
     <string name="bug_report_intro">Kerro, mikä meni vikaan ja mitä odotit. Raportti yhdistää viestisi sovelluksen versioon, laseihin, suoratoistoasetuksiin ja lokitiedostoon, jossa voi olla tietokoneesi nimi ja osoite verkossa, ja se lähetetään osoitteeseen %1$s.\n\nLoki: %2$s</string>
     <string name="bug_report_log_off">pois. Ota ”Tallenna lokitiedosto” käyttöön ja toista ongelma ensin, muuten raportissa ei ole lokia.</string>
     <string name="bug_report_email_hint">Sähköpostiosoitteesi vastausta varten</string>
