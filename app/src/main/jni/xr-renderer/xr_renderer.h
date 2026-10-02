@@ -869,6 +869,10 @@ typedef struct {
     int everFocused;
     int64_t waitingSinceNs;
     int64_t waitingLoggedNs;
+    // How often the session has been begun and ended, for the log, which has
+    // to show one of each per removed headset
+    int sessionBegins;
+    int sessionEnds;
     XrTime predictedDisplayTime;
     int shouldRender;
     int everRendered;

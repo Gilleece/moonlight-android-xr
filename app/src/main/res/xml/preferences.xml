@@ -102,6 +102,11 @@
             android:entryValues="@array/vr_env_res_values"
             android:summary="@string/summary_vr_env_res"
             android:defaultValue="standard" />
+        <CheckBoxPreference
+            android:key="checkbox_vr_doff_grace"
+            android:title="@string/title_vr_doff_grace"
+            android:summary="@string/summary_vr_doff_grace"
+            android:defaultValue="true"/>
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_picture_brightness"
             android:defaultValue="0"

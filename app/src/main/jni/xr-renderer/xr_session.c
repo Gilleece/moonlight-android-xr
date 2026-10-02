@@ -637,6 +637,8 @@ static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
             beginInfo.primaryViewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
             if (checkXr(xrBeginSession(ctx->session, &beginInfo), "xrBeginSession")) {
                 ctx->sessionRunning = 1;
+                ctx->sessionBegins++;
+                LOGEV("session begun (%d begun, %d ended)", ctx->sessionBegins, ctx->sessionEnds);
                 displaySessionBegun(ctx);
             }
             break;
@@ -649,8 +651,11 @@ static void handleSessionStateChange(XrCtx* ctx, XrSessionState newState) {
             displayFocused(ctx);
             break;
         case XR_SESSION_STATE_STOPPING:
-            xrEndSession(ctx->session);
+            checkXr(xrEndSession(ctx->session), "xrEndSession");
             ctx->sessionRunning = 0;
+            ctx->sessionEnds++;
+            LOGEV("session ended for the runtime (%d begun, %d ended)", ctx->sessionBegins,
+                  ctx->sessionEnds);
             break;
         case XR_SESSION_STATE_EXITING:
         case XR_SESSION_STATE_LOSS_PENDING:
@@ -1174,6 +1179,25 @@ Java_com_limelight_binding_video_XrRenderer_nativeGetExitReason(JNIEnv* env, job
         return NULL;
     }
     return (*env)->NewStringUTF(env, ctx->exitReason);
+}
+
+// Where the session stands for a removed headset's hold: away once it has
+// gone to stopping or idle after a first focus, until it is focused again
+JNIEXPORT jint JNICALL
+Java_com_limelight_binding_video_XrRenderer_nativeGetPresence(JNIEnv* env, jobject thiz,
+                                                              jlong handle) {
+    XrCtx* ctx = (XrCtx*)(intptr_t)handle;
+    if (ctx == NULL) {
+        return PRESENCE_OTHER;
+    }
+    if (ctx->sessionState == XR_SESSION_STATE_FOCUSED) {
+        return PRESENCE_FOCUSED;
+    }
+    if (ctx->everFocused && (ctx->sessionState == XR_SESSION_STATE_STOPPING
+                             || ctx->sessionState == XR_SESSION_STATE_IDLE)) {
+        return PRESENCE_AWAY;
+    }
+    return PRESENCE_OTHER;
 }
 
 // Whether the session has been focused at least once, which is when the launch

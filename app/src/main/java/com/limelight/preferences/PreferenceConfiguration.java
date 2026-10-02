@@ -78,6 +78,7 @@ public class PreferenceConfiguration {
     static final String VR_HAND_LOCK_HINT_SEEN_PREF_STRING = "checkbox_vr_hand_lock_hint_seen";
     public static final String VR_POINTER_SLEEP_PREF_STRING = "checkbox_vr_pointer_sleep";
     public static final String VR_CLICK_SOUND_PREF_STRING = "checkbox_vr_click_sound";
+    public static final String VR_DOFF_GRACE_PREF_STRING = "checkbox_vr_doff_grace";
     public static final String VR_SHOW_RAY_PREF_STRING = "checkbox_vr_show_ray";
     public static final String VR_CONTROLLER_MODEL_PREF_STRING = "checkbox_vr_controller_model";
     // Head aim, and its pixels a degree and dead zone in degrees a second, in
@@ -226,6 +227,9 @@ public class PreferenceConfiguration {
     // A press on the headset panels ticks, since a pinch or a look has nothing
     // under a finger to say it landed
     static final boolean DEFAULT_VR_CLICK_SOUND = true;
+    // A headset taken off for a moment keeps the stream for a minute, muted,
+    // rather than ending it as the activity stops
+    static final boolean DEFAULT_VR_DOFF_GRACE = true;
     // The beam from a controller to the screen. Off leaves the dot where it
     // lands, for a lightgun game, and the bar turns it over for a session.
     static final boolean DEFAULT_VR_SHOW_RAY = true;
@@ -355,6 +359,8 @@ public class PreferenceConfiguration {
     public boolean vrHandLockHintSeen;
     public boolean vrPointerSleep;
     public boolean vrClickSound;
+    // Whether a removed headset holds the stream for a minute, see XrDoffGrace
+    public boolean vrDoffGrace;
     // Whether a session starts with the controller ray drawn
     public boolean vrShowRay;
     // Whether the bundled controller model is drawn at each hand
@@ -631,6 +637,10 @@ public class PreferenceConfiguration {
 
     static boolean clickSoundOn(SharedPreferences prefs) {
         return prefs.getBoolean(VR_CLICK_SOUND_PREF_STRING, DEFAULT_VR_CLICK_SOUND);
+    }
+
+    static boolean doffGraceOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_DOFF_GRACE_PREF_STRING, DEFAULT_VR_DOFF_GRACE);
     }
 
     static boolean rayShown(SharedPreferences prefs) {
@@ -1413,6 +1423,7 @@ public class PreferenceConfiguration {
         config.vrHandLockHintSeen = handLockHintSeen(prefs);
         config.vrPointerSleep = pointerSleepOn(prefs);
         config.vrClickSound = clickSoundOn(prefs);
+        config.vrDoffGrace = doffGraceOn(prefs);
         config.vrShowRay = rayShown(prefs);
         config.vrControllerModel = controllerModelOn(prefs);
         config.vrHeadAim = headAimOn(prefs);

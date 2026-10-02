@@ -91,6 +91,9 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private volatile boolean stopping;
     // Set once the session has been focused, which is when a launch is through
     private volatile boolean focusedOnce;
+    // The session gone to stopping or idle after that, as the listener was
+    // last told. Frame loop only.
+    private boolean sessionAway;
     private long videoFrameIndex;
 
     // The depth pipeline. Each capture travels in one of DEPTH_PAIRS pairs of
@@ -437,6 +440,15 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         // stream again. Once at most, from the render thread, and never for
         // a stop the activity asked for. reason is for the log.
         void onVrSessionEnded(String reason);
+
+        // After the first focus the session went to stopping or idle, which
+        // is what a removed headset does, and later came back to focused.
+        // Once each way, in turn, from the render thread.
+        default void onVrSessionAway() {
+        }
+
+        default void onVrSessionBack() {
+        }
     }
 
     // How long a start is waited for before it counts as failed
@@ -514,6 +526,8 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                                          ByteBuffer promptExitHot, ByteBuffer promptCancelHot);
     private native boolean nativeGetCylinderSupported(long ctx);
     private native boolean nativeHasBeenFocused(long ctx);
+    // A PRESENCE_ value, for a removed headset's hold
+    private native int nativeGetPresence(long ctx);
     // Why the runtime ended the frame loop, or null
     private native String nativeGetExitReason(long ctx);
     private native String nativeGetRuntime(long ctx);
@@ -1084,6 +1098,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             if (r == FRAME_EXIT) {
                 return !stopping;
             }
+            trackPresence();
             if (r == FRAME_IDLE) {
                 // Native side slept already while the session is not running.
                 // The click's track is kept fed regardless, so it is playing
@@ -1651,6 +1666,27 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
         if (setting >= 0) {
             applySetting(setting, (int)inputState[IN_SETTING_VALUE],
                     (int)inputState[IN_SETTING_ROOM]);
+        }
+    }
+
+    // The session leaving after its first focus and coming back, told to the
+    // activity once each way. Frame loop only.
+    private void trackPresence() {
+        int presence = nativeGetPresence(nativeCtx);
+        SessionListener listener = sessionListener;
+        if (presence == PRESENCE_AWAY && !sessionAway) {
+            sessionAway = true;
+            LimeLog.info("VR session stopped after its first focus");
+            if (listener != null) {
+                listener.onVrSessionAway();
+            }
+        }
+        else if (presence == PRESENCE_FOCUSED && sessionAway) {
+            sessionAway = false;
+            LimeLog.info("VR session focused again");
+            if (listener != null) {
+                listener.onVrSessionBack();
+            }
         }
     }
 

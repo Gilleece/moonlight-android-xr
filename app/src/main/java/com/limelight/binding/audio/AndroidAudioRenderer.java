@@ -34,6 +34,11 @@ public class AndroidAudioRenderer implements AudioRenderer {
     private volatile UnderrunCounter underruns;
     // Set on the first block, which is when the audio thread is known
     private boolean priorityRaised;
+    // Asked for from any thread while a removed headset holds the stream, so
+    // nothing plays into the room, and acted on by the audio thread, which
+    // alone touches the track: paused and emptied, the blocks dropped
+    private volatile boolean muted;
+    private boolean trackPaused;
 
     public AndroidAudioRenderer(Context context, boolean enableAudioFx, boolean virtualSurround,
                                 HeadYaw headYaw) {
@@ -285,6 +290,14 @@ public class AndroidAudioRenderer implements AudioRenderer {
                 +" (tid "+tid+")");
     }
 
+    /**
+     * Mutes the stream's sound, or brings it back, from the next block on: the
+     * track is paused and emptied and the blocks dropped meanwhile. Any thread.
+     */
+    public void setMuted(boolean muted) {
+        this.muted = muted;
+    }
+
     /** The track's underruns as last read, once a second; -1 where it cannot say. Any thread. */
     public int getUnderrunCount() {
         UnderrunCounter counter = underruns;
@@ -296,6 +309,21 @@ public class AndroidAudioRenderer implements AudioRenderer {
         if (!priorityRaised) {
             priorityRaised = true;
             raiseThreadPriority();
+        }
+
+        if (muted) {
+            if (!trackPaused) {
+                trackPaused = true;
+                track.pause();
+                track.flush();
+                LimeLog.info("Audio muted: track paused, blocks dropped");
+            }
+            return;
+        }
+        if (trackPaused) {
+            trackPaused = false;
+            track.play();
+            LimeLog.info("Audio back: track playing");
         }
 
         // Only queue up to 40 ms of pending audio data in addition to what AudioTrack is buffering for us.
