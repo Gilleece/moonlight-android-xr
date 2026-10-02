@@ -471,11 +471,5 @@
             android:key="pref_bug_report"
             android:title="@string/title_bug_report"
             android:summary="@string/summary_bug_report" />
-        <com.limelight.preferences.WebLauncherPreference
-            android:key="pref_about_kofi"
-            android:title="@string/title_about_kofi"
-            android:summary="@string/summary_about_kofi"
-            android:persistent="false"
-            url="https://ko-fi.com/moonlightxr"/>
     </PreferenceCategory>
 </PreferenceScreen>

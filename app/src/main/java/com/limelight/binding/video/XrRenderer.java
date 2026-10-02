@@ -423,7 +423,7 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
     private static final int INIT_WAIT_SECONDS = 5;
 
     // The page the Ko-fi sheet's code points at, which the sheet writes out
-    // beside it as well, and the 2D settings' About row links to
+    // beside it as well
     static final String SUPPORT_URL = "https://ko-fi.com/moonlightxr";
 
     private static native void nativeSetFileLog(String path, int level);

@@ -425,8 +425,6 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licence : GPLv3</string>
-    <string name="title_about_kofi">Soutenir le projet sur Ko-fi</string>
-    <string name="summary_about_kofi">Facultatif. Moonlight XR est gratuit et le restera.</string>
     <string name="bug_report_intro">Décrivez ce qui s\'est mal passé et ce que vous attendiez. Le rapport regroupe votre message avec la version de l\'application, le casque, les paramètres de streaming et le fichier journal, puis est envoyé à %1$s.\n\nJournal : %2$s</string>
     <string name="bug_report_log_off">désactivé. Activez « Enregistrer un fichier journal » et reproduisez d\'abord le problème, sinon le rapport ne contiendra aucun journal.</string>
     <string name="bug_report_email_hint">Votre adresse e-mail, pour une réponse</string>

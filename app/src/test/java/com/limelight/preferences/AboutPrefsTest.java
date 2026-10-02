@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,11 +19,13 @@ import javax.xml.parsers.DocumentBuilderFactory;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
  * The About category that ends the settings: the version and commit, the
- * licence, the report and, last and quietly, Ko-fi, in every language.
+ * licence and the report, in every language. Ko-fi is not among them: it is
+ * in the session, on the About tab's sheet.
  */
 public class AboutPrefsTest {
 
@@ -74,17 +77,16 @@ public class AboutPrefsTest {
     }
 
     @Test
-    public void itIsTheLastCategoryWithItsFourRows() throws Exception {
+    public void itIsTheLastCategoryWithItsThreeRows() throws Exception {
         Element about = about();
         assertEquals("PreferenceCategory", about.getTagName());
         assertEquals("category_about", key(about));
         assertEquals("@string/category_about", about.getAttributeNS(ANDROID, "title"));
         List<Element> rows = children(about);
-        assertEquals(4, rows.size());
+        assertEquals(3, rows.size());
         assertEquals("pref_about_version", key(rows.get(0)));
         assertEquals("pref_about_licence", key(rows.get(1)));
         assertEquals("pref_bug_report", key(rows.get(2)));
-        assertEquals("pref_about_kofi", key(rows.get(3)));
     }
 
     @Test
@@ -132,39 +134,22 @@ public class AboutPrefsTest {
     }
 
     @Test
-    public void koFiIsLastAndQuiet() throws Exception {
-        Element kofi = children(about()).get(3);
-        assertEquals(WEB, kofi.getTagName());
-        // The handle the repository's funding file names
-        String funding = new String(Files.readAllBytes(file("../.github/FUNDING.yml").toPath()),
+    public void koFiIsNowhereInTheSettings() throws Exception {
+        String xml = new String(Files.readAllBytes(res("xml/preferences.xml").toPath()),
                 StandardCharsets.UTF_8);
-        Matcher handle = Pattern.compile("(?m)^ko_fi:\\s*(\\S+)").matcher(funding);
-        assertTrue(handle.find());
-        assertEquals("https://ko-fi.com/" + handle.group(1), kofi.getAttribute("url"));
-        assertEquals("https://ko-fi.com/moonlightxr", kofi.getAttribute("url"));
-        // Plain text: no icon, no layout or widget of its own, nothing coloured
-        assertEquals("", kofi.getAttributeNS(ANDROID, "icon"));
-        assertEquals("", kofi.getAttributeNS(ANDROID, "layout"));
-        assertEquals("", kofi.getAttributeNS(ANDROID, "widgetLayout"));
+        assertFalse(xml.toLowerCase(Locale.ROOT).contains("ko-fi"));
+        assertFalse(xml.contains("kofi"));
         for (String dir : LANGUAGES) {
-            String title = string(dir, "title_about_kofi");
-            String summary = string(dir, "summary_about_kofi");
-            assertNotNull(dir, title);
-            assertNotNull(dir, summary);
-            assertFalse(dir, title.contains("<") || summary.contains("<"));
-            assertTrue(dir, title.contains("Ko-fi"));
+            assertNull(dir, string(dir, "title_about_kofi"));
+            assertNull(dir, string(dir, "summary_about_kofi"));
         }
-        assertEquals("Support the project on Ko-fi", string("values", "title_about_kofi"));
-        assertEquals("Optional. Moonlight XR is free and stays free.",
-                string("values", "summary_about_kofi"));
     }
 
     @Test
     public void itIsWordedInEveryLanguage() throws Exception {
         for (String dir : LANGUAGES) {
             for (String name : new String[] { "category_about", "about_version",
-                    "about_version_no_commit", "title_about_licence", "title_about_kofi",
-                    "summary_about_kofi" }) {
+                    "about_version_no_commit", "title_about_licence" }) {
                 assertNotNull(dir + " " + name, string(dir, name));
             }
         }

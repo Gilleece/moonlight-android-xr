@@ -376,8 +376,6 @@
     <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
     <string name="about_version_no_commit">Moonlight XR %1$s</string>
     <string name="title_about_licence">Licence: GPLv3</string>
-    <string name="title_about_kofi">Support the project on Ko-fi</string>
-    <string name="summary_about_kofi">Optional. Moonlight XR is free and stays free.</string>
     <string name="bug_report_intro">Describe what went wrong and what you expected. The report bundles your message with the app version, the headset, the streaming settings and the log file, and goes to %1$s.\n\nLog: %2$s</string>
     <string name="bug_report_log_off">off. Turn on "Save a log file" and reproduce the problem first, or the report will carry no log.</string>
     <string name="bug_report_email_hint">Your email address, for a reply</string>

@@ -1,20 +1,18 @@
 package com.limelight.binding.video;
 
 import org.junit.Test;
-import org.w3c.dom.Element;
-import org.w3c.dom.NodeList;
 
 import java.io.File;
-
-import javax.xml.parsers.DocumentBuilderFactory;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
 
-/** The About tab's Ko-fi button goes where the 2D settings' About row does. */
+/** The Ko-fi sheet in the session names the page the repository's funding file does. */
 public class SupportLinkTest {
-
-    private static final String ANDROID = "http://schemas.android.com/apk/res/android";
 
     private static File file(String path) {
         File f = new File(path);
@@ -22,21 +20,12 @@ public class SupportLinkTest {
     }
 
     @Test
-    public void itIsTheSamePageAsTheSettingsRow() throws Exception {
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setNamespaceAware(true);
-        NodeList rows = factory.newDocumentBuilder()
-                .parse(file("src/main/res/xml/preferences.xml"))
-                .getElementsByTagName("com.limelight.preferences.WebLauncherPreference");
-        Element kofi = null;
-        for (int i = 0; i < rows.getLength(); i++) {
-            Element row = (Element) rows.item(i);
-            if ("pref_about_kofi".equals(row.getAttributeNS(ANDROID, "key"))) {
-                kofi = row;
-            }
-        }
-        assertNotNull(kofi);
-        assertEquals(kofi.getAttribute("url"), XrRenderer.SUPPORT_URL);
+    public void itIsThePageTheFundingFileNames() throws Exception {
+        String funding = new String(Files.readAllBytes(file("../.github/FUNDING.yml").toPath()),
+                StandardCharsets.UTF_8);
+        Matcher handle = Pattern.compile("(?m)^ko_fi:\\s*(\\S+)").matcher(funding);
+        assertTrue(handle.find());
+        assertEquals("https://ko-fi.com/" + handle.group(1), XrRenderer.SUPPORT_URL);
         assertEquals("https://ko-fi.com/moonlightxr", XrRenderer.SUPPORT_URL);
     }
 }
