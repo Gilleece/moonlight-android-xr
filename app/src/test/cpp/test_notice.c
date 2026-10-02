@@ -1,4 +1,4 @@
-// The panels' fades, the splash's floor, ceiling, fade and dots, and the
+// The panels' fades, the splash's floor, ceiling, fade and wedges, and the
 // toast's queue, checked against a clock stepped by hand
 #include "check.h"
 #include "xr_notice.h"
@@ -158,18 +158,54 @@ static void testSplashCutsWithoutAFade(void) {
     CHECK_NEAR(splashLevel(&splash, 10 * MS + SPLASH_FLOOR_NS, 0), 0.0, 1e-6);
 }
 
-static void testSplashDotsStep(void) {
+static void testSplashWedgesTick(void) {
     Splash splash = { 0 };
-    CHECK(splashRow(&splash, 500 * MS, 3) == 0);
-    long start = 1000 * MS;
+    CHECK(splashWedges(&splash, 500 * MS) == 0);
+    long long start = 1000 * MS;
     splashStep(&splash, start, SPLASH_WAIT_ROOM, SPLASH_FADE_NS);
-    CHECK(splashRow(&splash, start, 3) == 0);
-    CHECK(splashRow(&splash, start + 299 * MS, 3) == 0);
-    CHECK(splashRow(&splash, start + 300 * MS, 3) == 1);
-    CHECK(splashRow(&splash, start + 600 * MS, 3) == 2);
-    CHECK(splashRow(&splash, start + 900 * MS, 3) == 0);
-    CHECK(splashRow(&splash, start + 1250 * MS, 3) == 1);
-    CHECK(splashRow(&splash, start, 0) == 0);
+    // None for a tick, then one a tick, so the 0.3, 0.8 and 1.3 s looks see
+    // one, three and five, and all six land on the floor
+    CHECK(splashWedges(&splash, start) == 0);
+    CHECK(splashWedges(&splash, start + 249 * MS) == 0);
+    CHECK(splashWedges(&splash, start + 250 * MS) == 1);
+    CHECK(splashWedges(&splash, start + 300 * MS) == 1);
+    CHECK(splashWedges(&splash, start + 800 * MS) == 3);
+    CHECK(splashWedges(&splash, start + 1300 * MS) == 5);
+    CHECK(splashWedges(&splash, start + 1499 * MS) == 5);
+    CHECK(splashWedges(&splash, start + SPLASH_FLOOR_NS) == SPLASH_WEDGES);
+    // All six held for the hold, then cleared and round again
+    CHECK(splashWedges(&splash, start + 1999 * MS) == SPLASH_WEDGES);
+    CHECK(splashWedges(&splash, start + 2000 * MS) == 0);
+    CHECK(splashWedges(&splash, start + 2250 * MS) == 1);
+
+    // Over four rounds each count shows for its share and only ever steps up
+    // by one, or clears from all of them
+    int seen[SPLASH_WEDGES + 1] = { 0 };
+    int last = 0;
+    int steps = 0;
+    for (long long t = 0; t < 8000; t++) {
+        int open = splashWedges(&splash, start + t * MS);
+        CHECK(open >= 0 && open <= SPLASH_WEDGES);
+        if (open != last) {
+            CHECK(open == last + 1 || (last == SPLASH_WEDGES && open == 0));
+            steps++;
+        }
+        seen[open]++;
+        last = open;
+    }
+    CHECK(steps == 4 * (SPLASH_WEDGES + 1) - 1);
+    for (int open = 0; open < SPLASH_WEDGES; open++) {
+        CHECK(seen[open] == 4 * 250);
+    }
+    CHECK(seen[SPLASH_WEDGES] == 4 * 500);
+
+    // Still waiting in the second round it is cleared, and the moment it
+    // lifts it is whole, through the fade, wherever the round had got to
+    CHECK(splashStep(&splash, start + 2100 * MS, SPLASH_WAIT_ROOM, SPLASH_FADE_NS) == 0);
+    CHECK(splashWedges(&splash, start + 2100 * MS) == 0);
+    CHECK(splashStep(&splash, start + 2110 * MS, 0, SPLASH_FADE_NS) == 1);
+    CHECK(splashWedges(&splash, start + 2110 * MS) == SPLASH_WEDGES);
+    CHECK(splashWedges(&splash, start + 2110 * MS + SPLASH_FADE_NS / 2) == SPLASH_WEDGES);
 }
 
 static void testNoticeShowsForItsTime(void) {
@@ -296,7 +332,7 @@ int main(void) {
     testSplashHoldsItsFloor();
     testSplashWaitsThenGivesUp();
     testSplashCutsWithoutAFade();
-    testSplashDotsStep();
+    testSplashWedgesTick();
     testNoticeShowsForItsTime();
     testNoticeOfTheSameKindReplacesAtOnce();
     testAnotherKindWaitsItsTurn();

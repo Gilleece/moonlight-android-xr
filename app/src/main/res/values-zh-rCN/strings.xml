@@ -561,5 +561,4 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">退出串流？</string>
     <string name="vr_exit">退出</string>
-    <string name="vr_splash_loading">加载中</string>
 </resources>

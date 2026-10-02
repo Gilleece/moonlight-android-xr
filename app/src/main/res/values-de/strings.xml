@@ -480,7 +480,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Stream beenden?</string>
     <string name="vr_exit">Beenden</string>
-    <string name="vr_splash_loading">Wird geladen</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Was haben Sie gemacht, als es schiefging?</string>
     <string name="vr_report_optional">Optional</string>

@@ -10,6 +10,8 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
+import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
@@ -264,9 +266,34 @@ final class XrPanels {
     // sit on it are the EXIT_ values in XrShared.
     private static final int EXIT_QUESTION = R.string.vr_exit_question;
 
-    // What the launch splash says while the session comes up
-    private static final String SPLASH_NAME = "Moonlight XR";
-    private static final int SPLASH_LOADING = R.string.vr_splash_loading;
+    // The launch splash: the logo over the app's name, a product name and so
+    // never translated, Moonlight in white and XR in lavender
+    private static final String SPLASH_NAME = "Moonlight";
+    private static final String SPLASH_NAME_XR = "XR";
+    // The logo's colours: a navy ground with a purple glow, the disc a light
+    // slate, and the two colours of the name
+    private static final int SPLASH_NAVY = 0xFF070B16;
+    private static final int SPLASH_PURPLE = 0x8B5CF6;
+    private static final int SPLASH_DISC = 0xFFCBD5E1;
+    private static final int SPLASH_WHITE = 0xFFF8FAFC;
+    private static final int SPLASH_LAVENDER = 0xFFC4B5FD;
+    // Each row, as fractions of its height: the disc's radius, the gap under
+    // it and the name's size, the three centred together with the name's
+    // descender left out. The space between Moonlight and XR is a fraction of
+    // the name's size.
+    private static final float SPLASH_DISC_R = 0.32f;
+    private static final float SPLASH_GAP = 0.082f;
+    private static final float SPLASH_NAME_SIZE = 0.18f;
+    private static final float SPLASH_NAME_SPACE = 0.28f;
+    // The glow on the ground, purple's opacity over the navy, with distances
+    // in disc radii: a wide one fading to a quarter by 0.55 of its reach and
+    // to nothing at it, and a halo, flat out to its inner radius, then fading
+    // to nothing at its outer one
+    private static final float SPLASH_GLOW = 0.18f;
+    private static final float SPLASH_GLOW_REACH = 8.7f;
+    private static final float SPLASH_HALO = 0.18f;
+    private static final float SPLASH_HALO_IN = 0.4f;
+    private static final float SPLASH_HALO_OUT = 2.6f;
 
     private final Context context;
     // The gamepad mode shortcut chosen, a PAD_SHORTCUT_ value, which the
@@ -296,7 +323,6 @@ final class XrPanels {
     private final String[][][] kbLabels;
     private final String[] kbModNames;
     private final String exitQuestion;
-    private final String splashLoading;
 
     XrPanels(Context context, int gamepadShortcut) {
         this.context = context;
@@ -336,7 +362,6 @@ final class XrPanels {
         }
         kbModNames = words(KB_MOD_NAMES);
         exitQuestion = context.getString(EXIT_QUESTION);
-        splashLoading = context.getString(SPLASH_LOADING);
     }
 
     private String[] words(int[] ids) {
@@ -2434,45 +2459,213 @@ final class XrPanels {
     }
 
     /**
-     * The launch splash: the app's name over the loading word, once for each
-     * number of dots and one under the other, so the native side steps the
-     * dots by showing another row. The words sit on nothing: the black behind
-     * them is the quad that blacks out the view, cut from the strip of black
-     * under the rows, so the two fade together without a box showing.
+     * The launch splash: the logo over the app's name, once for each number of
+     * wedges open, none to all of them, one under the other, so the native
+     * side ticks the wedges by showing another row. The rows sit on nothing:
+     * behind them is the ground, the quad that covers the view, cut from the
+     * square under the rows, so the two fade together without a box showing
+     * and the logo's cuts show the ground through them.
      */
     ByteBuffer buildSplash() {
-        Bitmap bitmap = Bitmap.createBitmap(SPLASH_TEX_W, SPLASH_TEX_H, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        canvas.drawColor(0, PorterDuff.Mode.CLEAR);
-        Paint black = new Paint();
-        black.setColor(Color.BLACK);
-        canvas.drawRect(0.0f, SPLASH_TEX_H - SPLASH_BLACK_PX, SPLASH_TEX_W, SPLASH_TEX_H, black);
-
         Paint name = new Paint(Paint.ANTI_ALIAS_FLAG);
-        name.setColor(Color.WHITE);
-        name.setTextSize(64.0f);
-        name.setTextAlign(Paint.Align.CENTER);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        float size = SPLASH_NAME_SIZE * SPLASH_ROW_H;
+        name.setTextSize(size);
+        float nameW = name.measureText(SPLASH_NAME);
+        float xrW = name.measureText(SPLASH_NAME_XR);
+        float space = SPLASH_NAME_SPACE * size;
+        // Kept inside the row should the font run wide
+        float room = SPLASH_TEX_W - 32.0f;
+        if (nameW + space + xrW > room) {
+            float k = room / (nameW + space + xrW);
+            size *= k;
+            name.setTextSize(size);
+            nameW *= k;
+            xrW *= k;
+            space *= k;
+        }
+        float left = (SPLASH_TEX_W - (nameW + space + xrW)) * 0.5f;
+        float cap = -inkAtSize(name, "M", size).top;
+        float radius = SPLASH_DISC_R * SPLASH_ROW_H;
+        float gap = SPLASH_GAP * SPLASH_ROW_H;
+        float discY = (SPLASH_ROW_H - (2.0f * radius + gap + cap)) * 0.5f + radius;
+        float baseline = discY + radius + gap + cap;
 
-        // Dimmer than the name, and set from where the whole word with all its
-        // dots would start, so it does not shuffle along as they come and go
-        Paint word = new Paint(Paint.ANTI_ALIAS_FLAG);
-        word.setColor(0x99FFFFFF);
-        word.setTextSize(30.0f);
-        float wordLeft = (SPLASH_TEX_W - word.measureText(splashLoading + "...")) * 0.5f;
-
-        for (int row = 0; row < SPLASH_ROWS; row++) {
-            float top = row * SPLASH_ROW_H;
-            canvas.drawText(SPLASH_NAME, SPLASH_TEX_W * 0.5f, top + SPLASH_ROW_H * 0.48f, name);
-            StringBuilder dots = new StringBuilder(splashLoading);
-            for (int dot = 0; dot <= row; dot++) {
-                dots.append('.');
+        // One row, drawn with every wedge shut, then copied into its place
+        // in the sheet after each wedge more is cut, so nothing is drawn
+        // twice. The gap under the rows stays clear.
+        ByteBuffer pixels = ByteBuffer.allocateDirect(SPLASH_TEX_W * SPLASH_TEX_H * 4);
+        Bitmap row = Bitmap.createBitmap(SPLASH_TEX_W, SPLASH_ROW_H, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(row);
+        Logo.draw(canvas, SPLASH_TEX_W * 0.5f, discY, radius, 0, SPLASH_DISC);
+        name.setColor(SPLASH_WHITE);
+        canvas.drawText(SPLASH_NAME, left, baseline, name);
+        name.setColor(SPLASH_LAVENDER);
+        canvas.drawText(SPLASH_NAME_XR, left + nameW + space, baseline, name);
+        for (int open = 0; open < SPLASH_ROWS; open++) {
+            if (open > 0) {
+                Logo.cutWedge(canvas, SPLASH_TEX_W * 0.5f, discY, radius, open - 1);
             }
-            canvas.drawText(dots.toString(), wordLeft, top + SPLASH_ROW_H * 0.74f, word);
+            pixels.position(open * SPLASH_ROW_H * SPLASH_TEX_W * 4);
+            row.copyPixelsToBuffer(pixels);
+        }
+        row.recycle();
+
+        Bitmap ground = drawSplashGround(discY - SPLASH_ROW_H * 0.5f, radius);
+        pixels.position((SPLASH_TEX_H - SPLASH_GROUND_PX) * SPLASH_TEX_W * 4);
+        ground.copyPixelsToBuffer(pixels);
+        ground.recycle();
+        pixels.rewind();
+        return pixels;
+    }
+
+    // The sheet's bottom strip, with the square the ground is cut from at its
+    // left: navy, with the glow centred where the disc lands on it. The
+    // ground is a little further off than the sheet and far wider, so the
+    // disc's height off the row's middle and its radius are carried across
+    // through metres.
+    private static Bitmap drawSplashGround(float discDy, float discR) {
+        Bitmap bitmap = Bitmap.createBitmap(SPLASH_TEX_W, SPLASH_GROUND_PX,
+                Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.clipRect(0, 0, SPLASH_GROUND_PX, SPLASH_GROUND_PX);
+        canvas.drawColor(SPLASH_NAVY);
+
+        float groundM = SPLASH_GROUND_M / (SPLASH_GROUND_PX - 2 * SPLASH_GROUND_INSET);
+        float k = SPLASH_SHEET_W_M / SPLASH_TEX_W
+                * (SPLASH_GROUND_DISTANCE_M / SPLASH_SHEET_DISTANCE_M) / groundM;
+        float cx = SPLASH_GROUND_PX * 0.5f;
+        float cy = SPLASH_GROUND_PX * 0.5f + discDy * k;
+        float r = discR * k;
+        Paint glow = new Paint();
+        glow.setShader(new RadialGradient(cx, cy, SPLASH_GLOW_REACH * r,
+                new int[] { purple(SPLASH_GLOW), purple(SPLASH_GLOW * 0.25f), purple(0.0f) },
+                new float[] { 0.0f, 0.55f, 1.0f }, Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, cy, SPLASH_GLOW_REACH * r, glow);
+        glow.setShader(new RadialGradient(cx, cy, SPLASH_HALO_OUT * r,
+                new int[] { purple(SPLASH_HALO), purple(SPLASH_HALO), purple(0.0f) },
+                new float[] { 0.0f, SPLASH_HALO_IN / SPLASH_HALO_OUT, 1.0f },
+                Shader.TileMode.CLAMP));
+        canvas.drawCircle(cx, cy, SPLASH_HALO_OUT * r, glow);
+        return bitmap;
+    }
+
+    private static int purple(float opacity) {
+        return Math.round(opacity * 255.0f) << 24 | SPLASH_PURPLE;
+    }
+
+    // A string's ink at a text size, measured large, where whole pixel bounds
+    // are close enough, and scaled down
+    private static RectF inkAtSize(Paint paint, String text, float size) {
+        float was = paint.getTextSize();
+        paint.setTextSize(1000.0f);
+        Rect ink = new Rect();
+        paint.getTextBounds(text, 0, text.length(), ink);
+        paint.setTextSize(was);
+        float k = size / 1000.0f;
+        return new RectF(ink.left * k, ink.top * k, ink.right * k, ink.bottom * k);
+    }
+
+    /**
+     * The logo, drawn rather than shipped as a bitmap: a disc with six wedges
+     * and the X and the R cut out of it, so whatever is under it shows through
+     * them, and with any number of the wedges open, counted clockwise from
+     * the one beside the letters. Measured from moonlight-xr-logo-transparent.png
+     * at the root of the repository by tools/measure_logo.py: every length is
+     * a fraction of the disc's radius from its centre, with y down, and every
+     * angle is in degrees clockwise on screen from three o'clock.
+     */
+    static final class Logo {
+        static final int WEDGES = 6;
+        // How far the wedges reach, and half the width of the spokes between
+        // them, which is also the gap either side of the letters' quarter
+        static final float WEDGE_R = 0.7374f;
+        static final float HALF_SPOKE = 0.0308f;
+        // The first wedge starts straight down and each spans 45 degrees,
+        // leaving the quarter from three o'clock round to six to the letters
+        static final float FIRST_DEG = 90.0f;
+        static final float WEDGE_DEG = 45.0f;
+        // Each letter's ink: left, top, right, bottom
+        static final float[] X_BOX = { 0.0490f, 0.1704f, 0.4104f, 0.5856f };
+        static final float[] R_BOX = { 0.4373f, 0.1704f, 0.7425f, 0.5856f };
+
+        private Logo() {
         }
 
-        ByteBuffer pixels = toBuffer(bitmap);
-        bitmap.recycle();
-        return pixels;
+        // Wedge k's tip, where the spokes either side of it meet, then where
+        // its arc starts and how far it sweeps
+        static float[] wedge(int k) {
+            double half = Math.toRadians(WEDGE_DEG * 0.5);
+            double mid = Math.toRadians(FIRST_DEG + WEDGE_DEG * k) + half;
+            double tip = HALF_SPOKE / Math.sin(half);
+            double edge = Math.toDegrees(Math.asin(HALF_SPOKE / WEDGE_R));
+            return new float[] { (float) (tip * Math.cos(mid)), (float) (tip * Math.sin(mid)),
+                    (float) (FIRST_DEG + WEDGE_DEG * k + edge), (float) (WEDGE_DEG - 2.0 * edge) };
+        }
+
+        // Whether a point lies inside wedge k
+        static boolean inWedge(int k, double x, double y) {
+            double first = Math.toRadians(FIRST_DEG + WEDGE_DEG * k);
+            double last = first + Math.toRadians(WEDGE_DEG);
+            // How far past each edge's line, clockwise of it
+            double pastFirst = y * Math.cos(first) - x * Math.sin(first);
+            double pastLast = y * Math.cos(last) - x * Math.sin(last);
+            return Math.hypot(x, y) <= WEDGE_R && pastFirst >= HALF_SPOKE
+                    && pastLast <= -HALF_SPOKE;
+        }
+
+        // The disc in a colour with the first open wedges and the letters cut
+        // through it, on a layer of its own so the cuts take only the disc
+        static void draw(Canvas canvas, float cx, float cy, float radius, int open, int colour) {
+            int saved = canvas.saveLayer(new RectF(cx - radius - 2.0f, cy - radius - 2.0f,
+                    cx + radius + 2.0f, cy + radius + 2.0f), null);
+            Paint disc = new Paint(Paint.ANTI_ALIAS_FLAG);
+            disc.setColor(colour);
+            canvas.drawCircle(cx, cy, radius, disc);
+
+            for (int k = 0; k < Math.min(open, WEDGES); k++) {
+                cutWedge(canvas, cx, cy, radius, k);
+            }
+            Paint cut = cutPaint();
+            cut.setTypeface(Typeface.DEFAULT_BOLD);
+            cutLetter(canvas, "X", X_BOX, cx, cy, radius, cut);
+            cutLetter(canvas, "R", R_BOX, cx, cy, radius, cut);
+            canvas.restoreToCount(saved);
+        }
+
+        // Wedge k cut from whatever is there, which is only the logo's own
+        // disc where nothing is drawn under it
+        static void cutWedge(Canvas canvas, float cx, float cy, float radius, int k) {
+            float reach = WEDGE_R * radius;
+            float[] w = wedge(k);
+            Path path = new Path();
+            path.moveTo(cx + w[0] * radius, cy + w[1] * radius);
+            path.arcTo(new RectF(cx - reach, cy - reach, cx + reach, cy + reach), w[2], w[3]);
+            path.close();
+            canvas.drawPath(path, cutPaint());
+        }
+
+        private static Paint cutPaint() {
+            Paint cut = new Paint(Paint.ANTI_ALIAS_FLAG);
+            cut.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_OUT));
+            return cut;
+        }
+
+        // A letter in the panel font at the logo's cap height, stretched to
+        // its width, with its ink centred on the box. A font far off the
+        // logo's proportions keeps more of its own.
+        private static void cutLetter(Canvas canvas, String letter, float[] box, float cx,
+                                      float cy, float radius, Paint paint) {
+            paint.setTextScaleX(1.0f);
+            RectF ink = inkAtSize(paint, letter, 1000.0f);
+            float k = (box[3] - box[1]) * radius / ink.height();
+            float stretch = (box[2] - box[0]) * radius / (ink.width() * k);
+            stretch = Math.max(0.8f, Math.min(1.25f, stretch));
+            paint.setTextSize(1000.0f * k);
+            paint.setTextScaleX(stretch);
+            canvas.drawText(letter, cx + (box[0] + box[2]) * 0.5f * radius
+                    - ink.centerX() * k * stretch, cy + box[1] * radius - ink.top * k, paint);
+        }
     }
 
     static ByteBuffer toBuffer(Bitmap bitmap) {

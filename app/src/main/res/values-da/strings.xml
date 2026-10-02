@@ -435,7 +435,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Afslut streamen?</string>
     <string name="vr_exit">Afslut</string>
-    <string name="vr_splash_loading">Indlæser</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Hvad lavede du, da det gik galt?</string>
     <string name="vr_report_optional">Valgfrit</string>

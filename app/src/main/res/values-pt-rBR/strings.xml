@@ -459,7 +459,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Sair da transmissão?</string>
     <string name="vr_exit">Sair</string>
-    <string name="vr_splash_loading">Carregando</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">O que você estava fazendo quando deu errado?</string>
     <string name="vr_report_optional">Opcional</string>

@@ -220,13 +220,6 @@ static inline int64_t nowNs(void) {
 #define TOAST_DISTANCE_M 0.80f
 #define TOAST_DROP_M 0.14f
 
-// The launch splash, locked to the head: a black quad wider than any view
-// with the sheet a little in front of it, in metres
-#define SPLASH_BLACK_M 6.0f
-#define SPLASH_BLACK_DISTANCE_M 1.5f
-#define SPLASH_SHEET_W_M 0.9f
-#define SPLASH_SHEET_DISTANCE_M 1.45f
-
 // How far the ray runs when it is aimed at nothing at all, in metres
 #define FREE_BEAM_M 4.0f
 
@@ -915,6 +908,8 @@ typedef struct {
     uint32_t splashImageCount;
     XrSwapchainImageOpenGLESKHR* splashImages;
     int splashArtReady;
+    // How many of the logo's wedges the last frame showed open, -1 before one
+    int splashWedgesShown;
     // The last of the panels' art reaching the frame loop, whether or not it
     // uploaded, which is when the splash stops waiting on the panels
     int panelArtArrived;

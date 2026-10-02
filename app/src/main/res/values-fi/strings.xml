@@ -435,7 +435,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Lopetetaanko suoratoisto?</string>
     <string name="vr_exit">Lopeta</string>
-    <string name="vr_splash_loading">Ladataan</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Mitä olit tekemässä, kun ongelma ilmeni?</string>
     <string name="vr_report_optional">Valinnainen</string>

@@ -440,7 +440,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Exit the stream?</string>
     <string name="vr_exit">Exit</string>
-    <string name="vr_splash_loading">Loading</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">What were you doing when it went wrong?</string>
     <string name="vr_report_optional">Optional</string>

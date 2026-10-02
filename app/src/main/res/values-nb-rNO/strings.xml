@@ -433,7 +433,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Avslutte strømmen?</string>
     <string name="vr_exit">Avslutt</string>
-    <string name="vr_splash_loading">Laster</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Hva holdt du på med da det gikk galt?</string>
     <string name="vr_report_optional">Valgfritt</string>

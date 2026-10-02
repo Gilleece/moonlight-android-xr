@@ -440,7 +440,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">ストリームを終了しますか？</string>
     <string name="vr_exit">終了</string>
-    <string name="vr_splash_loading">読み込み中</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">問題が起きたとき、何をしていましたか？</string>
     <string name="vr_report_optional">任意</string>

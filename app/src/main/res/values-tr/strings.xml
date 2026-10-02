@@ -466,7 +466,6 @@
     <string name="vr_key_win">Win</string>
     <string name="vr_exit_question">Akış sonlandırılsın mı?</string>
     <string name="vr_exit">Çıkış</string>
-    <string name="vr_splash_loading">Yükleniyor</string>
     <!-- The report sheet inside the session -->
     <string name="vr_report_note_hint">Sorun çıktığında ne yapıyordunuz?</string>
     <string name="vr_report_optional">İsteğe bağlı</string>
