@@ -24,7 +24,7 @@ RES = os.path.normpath(os.path.join(HERE, "..", "app", "src", "main", "res"))
 # joins the list as it is filled in.
 COMPLETE = [
     "fr", "zh-rCN", "zh-rTW", "de", "es", "it", "pt-rBR", "ja", "ko", "nl", "pl", "sv", "da",
-    "nb-rNO",
+    "nb-rNO", "fi",
 ]
 
 # A Java format specifier. No space flag, so "0 % est" in prose is not one.

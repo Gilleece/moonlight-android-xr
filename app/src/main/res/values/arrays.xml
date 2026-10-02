@@ -75,6 +75,7 @@
         <item>தமிழ்</item>
         <item>Polski</item>
         <item>Dansk</item>
+        <item>Suomi</item>
     </string-array>
     <string-array name="language_values" translatable="false">
         <item>default</item>
@@ -105,6 +106,7 @@
         <item>ta</item>
         <item>pl</item>
         <item>da</item>
+        <item>fi</item>
     </string-array>
 
     <string-array name="video_format_names">
