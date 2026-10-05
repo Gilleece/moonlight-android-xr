@@ -1127,6 +1127,11 @@ typedef struct {
     XrAction scrollAction;
     XrAction grabAction;
     XrAction toggleAction;
+    // The hands' own aim, pinch and grasp, read in place of aim, trigger and
+    // grab while a hand is on a hand profile
+    XrAction handAimAction;
+    XrAction handPinchAction;
+    XrAction handGraspAction;
     // The left menu button, only for gamepad mode: Start, and with the left
     // grip the switch between the pad and the pointer. Whether a profile took
     // it, since one that will not loses only this.
@@ -1137,6 +1142,9 @@ typedef struct {
     XrAction hapticAction;
     int hapticBound;
     XrSpace aimSpaces[SRC_COUNT];
+    // The hand aim's, null where it would not make one, which leaves those
+    // hands the ray built from the joints
+    XrSpace handAimSpaces[HAND_COUNT];
     XrPath handPaths[HAND_COUNT];
     int inputReady;
     int picoInteraction;
