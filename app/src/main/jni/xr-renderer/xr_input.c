@@ -313,7 +313,10 @@ int initXrInput(XrCtx* ctx) {
     suggestBindings(ctx, "/interaction_profiles/khr/simple_controller", BIND_FULL, 1);
     suggestBindings(ctx, "/interaction_profiles/oculus/touch_controller", BIND_MENU, 1);
     if (ctx->picoInteraction) {
+        // The one extension covers both. Without its own suggestion a Pico Neo 3
+        // drops to the simple controller and loses the stick and buttons.
         suggestBindings(ctx, "/interaction_profiles/bytedance/pico4_controller", BIND_MENU, 1);
+        suggestBindings(ctx, "/interaction_profiles/bytedance/pico_neo3_controller", BIND_MENU, 1);
     }
 
     // Hands. aim_activate is the spec's own name for pointing at something out
