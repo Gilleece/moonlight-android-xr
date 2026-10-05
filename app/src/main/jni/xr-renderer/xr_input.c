@@ -207,32 +207,41 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level, int hapt
     }
 }
 
-// Hands come in through the same actions the controllers use, so everything
-// downstream of here treats them identically: same ray, same handles, same
-// picker. Only the paths differ, which is why this is its own function rather
-// than another flag on the one above.
+// Hands have actions of their own, since some runtimes cannot serve one action
+// from both a controller profile and a hand profile: bind the hands to the
+// controllers' actions and a held controller reads as nothing. Each hand is
+// read through the set its current profile calls for, so everything
+// downstream still treats them identically: same ray, same handles, same
+// picker.
 static XrResult trySuggestHands(XrCtx* ctx, const char* profile, const char* aim,
                                 const char* click, const char* grasp) {
     XrActionSuggestedBinding b[6];
     uint32_t n = 0;
     static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
 
+    // An action that was never made refuses the set like a wrong path would
+    if (ctx->handAimAction == XR_NULL_HANDLE
+            || (click != NULL && ctx->handPinchAction == XR_NULL_HANDLE)
+            || (grasp != NULL && ctx->handGraspAction == XR_NULL_HANDLE)) {
+        return XR_ERROR_HANDLE_INVALID;
+    }
+
     for (int h = 0; h < HAND_COUNT; h++) {
         char path[XR_MAX_PATH_LENGTH];
 
         snprintf(path, sizeof(path), "%s/%s", hands[h], aim);
-        b[n].action = ctx->aimAction;
+        b[n].action = ctx->handAimAction;
         b[n++].binding = toPath(ctx, path);
 
         if (click != NULL) {
             snprintf(path, sizeof(path), "%s/%s", hands[h], click);
-            b[n].action = ctx->triggerAction;
+            b[n].action = ctx->handPinchAction;
             b[n++].binding = toPath(ctx, path);
         }
 
         if (grasp != NULL) {
             snprintf(path, sizeof(path), "%s/%s", hands[h], grasp);
-            b[n].action = ctx->grabAction;
+            b[n].action = ctx->handGraspAction;
             b[n++].binding = toPath(ctx, path);
         }
     }
@@ -295,6 +304,11 @@ int initXrInput(XrCtx* ctx) {
     ctx->scrollAction = makeAction(ctx, XR_ACTION_TYPE_VECTOR2F_INPUT, "scroll", "Scroll");
     ctx->grabAction = makeAction(ctx, XR_ACTION_TYPE_FLOAT_INPUT, "grab", "Move the screen");
     ctx->toggleAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pointertoggle", "Pointer on or off");
+    // The hands' own, see trySuggestHands
+    ctx->handAimAction = makeAction(ctx, XR_ACTION_TYPE_POSE_INPUT, "handaim", "Hand pointer");
+    ctx->handPinchAction = makeAction(ctx, XR_ACTION_TYPE_FLOAT_INPUT, "handpinch", "Pinch to click");
+    ctx->handGraspAction = makeAction(ctx, XR_ACTION_TYPE_FLOAT_INPUT, "handgrasp",
+                                      "Grasp to move the screen");
     // Only for drawing the controller model, which the hands never bind
     ctx->gripAction = makeAction(ctx, XR_ACTION_TYPE_POSE_INPUT, "grip", "Controller");
     ctx->menuAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "menu",
@@ -411,6 +425,19 @@ int initXrInput(XrCtx* ctx) {
         }
     }
 
+    // A hand aim that will not make a space only loses the hand profile's ray,
+    // and the joints' stands in
+    for (int h = 0; h < HAND_COUNT && ctx->handAimAction != XR_NULL_HANDLE; h++) {
+        XrActionSpaceCreateInfo spaceInfo = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
+        spaceInfo.action = ctx->handAimAction;
+        spaceInfo.subactionPath = ctx->handPaths[h];
+        spaceInfo.poseInActionSpace.orientation.w = 1.0f;
+        if (!checkXr(xrCreateActionSpace(ctx->session, &spaceInfo, &ctx->handAimSpaces[h]),
+                     "create hand aim space")) {
+            ctx->handAimSpaces[h] = XR_NULL_HANDLE;
+        }
+    }
+
     // A grip that will not make a space only loses its model
     for (int h = 0; h < HAND_COUNT && ctx->gripAction != XR_NULL_HANDLE; h++) {
         XrActionSpaceCreateInfo spaceInfo = { XR_TYPE_ACTION_SPACE_CREATE_INFO };
@@ -514,18 +541,28 @@ static int stickPushed(XrVector2f stick) {
     return fabsf(stick.x) > SCROLL_DEADZONE || fabsf(stick.y) > SCROLL_DEADZONE;
 }
 
+// Whether a hand is read through the hands' own actions rather than the
+// controllers', see trySuggestHands. A hand with nothing on it reads the
+// controllers', as it always did.
+static int onHandActions(XrCtx* ctx, int h) {
+    return h < HAND_COUNT && ctx->profileKind[h] == PROFILE_HANDS;
+}
+
 // A controller's trigger, grip, stick click and stick as the pointer reads
 // them: as they are, unless the gamepad shortcut chosen is a chord and is
 // holding one back or replaying it as a tap. A stick reads centred while its
-// click is held back, so pressing it in for the chord cannot scroll.
+// click is held back, so pressing it in for the chord cannot scroll. A hand
+// gives its pinch and grasp in place of the trigger and grip.
 static float seenTrigger(XrCtx* ctx, int h) {
+    XrAction action = onHandActions(ctx, h) ? ctx->handPinchAction : ctx->triggerAction;
     return padChordSeen(&ctx->padChord, h == HAND_LEFT ? PAD_PART_LT : PAD_PART_RT,
-                        actionFloat(ctx, ctx->triggerAction, h));
+                        actionFloat(ctx, action, h));
 }
 
 static float seenGrip(XrCtx* ctx, int h) {
+    XrAction action = onHandActions(ctx, h) ? ctx->handGraspAction : ctx->grabAction;
     return padChordSeen(&ctx->padChord, h == HAND_LEFT ? PAD_PART_LG : PAD_PART_RG,
-                        actionFloat(ctx, ctx->grabAction, h));
+                        actionFloat(ctx, action, h));
 }
 
 static int seenStickClick(XrCtx* ctx, int h) {
@@ -1152,6 +1189,10 @@ void destroyXrInput(XrCtx* ctx) {
         }
     }
     for (int h = 0; h < HAND_COUNT; h++) {
+        if (ctx->handAimSpaces[h] != XR_NULL_HANDLE) {
+            xrDestroySpace(ctx->handAimSpaces[h]);
+            ctx->handAimSpaces[h] = XR_NULL_HANDLE;
+        }
         if (ctx->gripSpaces[h] != XR_NULL_HANDLE) {
             xrDestroySpace(ctx->gripSpaces[h]);
             ctx->gripSpaces[h] = XR_NULL_HANDLE;
@@ -1606,8 +1647,14 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
         XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
         const XrSpaceLocationFlags needed = XR_SPACE_LOCATION_POSITION_VALID_BIT
                 | XR_SPACE_LOCATION_ORIENTATION_VALID_BIT;
-        int ok = XR_SUCCEEDED(xrLocateSpace(ctx->aimSpaces[h], ctx->localSpace,
-                                            ctx->predictedDisplayTime, &loc))
+        // Never the controller's on a hand: once the runtime has moved the
+        // hand over, that can go on reporting a pose, fully valid, from
+        // wherever the controller was put down
+        int handActions = onHandActions(ctx, h);
+        XrSpace space = handActions ? ctx->handAimSpaces[h] : ctx->aimSpaces[h];
+        int ok = space != XR_NULL_HANDLE
+                && XR_SUCCEEDED(xrLocateSpace(space, ctx->localSpace,
+                                              ctx->predictedDisplayTime, &loc))
                 && intoFrame(&f->xform, &loc.pose);
         int located = ok && (loc.locationFlags & needed) == needed;
         if (h == SRC_GAZE) {
@@ -1622,7 +1669,8 @@ static void readSources(XrCtx* ctx, InputFrame* f) {
             // taking that for a controller in use is what made the pointing
             // flap between it and the eyes
             ctx->aimTracked[h] = located && aimFullyTracked((unsigned)loc.locationFlags)
-                    && actionPoseActive(ctx, ctx->aimAction, h);
+                    && actionPoseActive(ctx, handActions ? ctx->handAimAction : ctx->aimAction,
+                                        h);
         }
         int fromJoints = 0;
         if (!located) {
