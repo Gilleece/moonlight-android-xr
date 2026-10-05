@@ -90,11 +90,17 @@ public class MidasDepthSource implements DepthSource {
         }
     }
 
-    // What a CPU route asks for. LiteRT's default XNNPACK path runs the model
-    // on one thread whatever it is asked for (timed on a Quest 2), and an app
-    // there only gets three big cores, which a stream's own threads need too.
-    private static final int CPU_THREADS = 1;
-    // What a delegate that will not load falls back to
+    // What a CPU route runs on. LiteRT's default XNNPACK path stays on one
+    // thread whatever it is asked for, so the route brings its own XNNPACK
+    // delegate, which honours the count. An app on a Quest 2 only gets three
+    // big cores, which a stream's own threads need too: two threads took a
+    // map from 54.6 to 31.2 ms there, and a third only to 27.2 ms for more
+    // than twice the wake delay on everything else.
+    private static final int CPU_THREADS = 2;
+    // What the default path is asked for when that delegate cannot be had,
+    // which is what it runs anyway
+    private static final int DEFAULT_PATH_THREADS = 1;
+    // What a GPU delegate that will not load falls back to
     private static final int FALLBACK_CPU_THREADS = 2;
 
     // A step past MiDaS's pair. Its map holds up further apart: in a blind
@@ -142,6 +148,7 @@ public class MidasDepthSource implements DepthSource {
     private MappedByteBuffer model;
     private Interpreter interpreter;
     private GpuDelegate gpuDelegate;
+    private XnnpackDelegate cpuDelegate;
     // The staging for every pair the renderer handed over, and the pair the
     // next run reads and writes. Warmup and the benchmark use the first.
     private ByteBuffer[] inputs;
@@ -247,15 +254,20 @@ public class MidasDepthSource implements DepthSource {
 
     /**
      * Builds the interpreter on the route's runtime, dropping to the CPU if
-     * the GPU delegate will not take the model.
+     * the GPU delegate will not take the model, and to the default path if
+     * the CPU route's own delegate will not.
      */
     private boolean buildInterpreter(Context context) {
+        if (usesCpuDelegate(route) && buildOnCpuDelegate()) {
+            return true;
+        }
+
         Interpreter.Options options = new Interpreter.Options();
         if (route.gpu) {
             useGpu(context, options);
         }
         else {
-            useCpu(options, route.threads);
+            useCpu(options, DEFAULT_PATH_THREADS);
         }
 
         try {
@@ -265,13 +277,56 @@ public class MidasDepthSource implements DepthSource {
             releaseDelegate();
             try {
                 Interpreter.Options cpuOptions = new Interpreter.Options();
-                useCpu(cpuOptions, FALLBACK_CPU_THREADS);
+                useCpu(cpuOptions, fallbackThreads(route));
                 interpreter = new Interpreter(model, cpuOptions);
             } catch (Exception e2) {
                 LimeLog.severe("Depth model failed to load: "+e2.getMessage());
                 return false;
             }
         }
+        return true;
+    }
+
+    /** Whether a route runs on an XNNPACK delegate of its own rather than the default path. */
+    static boolean usesCpuDelegate(Route route) {
+        return !route.gpu && route.threads > 1;
+    }
+
+    /** What the default path is asked for once the route's first choice has failed to load. */
+    static int fallbackThreads(Route route) {
+        return route.gpu ? FALLBACK_CPU_THREADS : DEFAULT_PATH_THREADS;
+    }
+
+    /**
+     * Builds the interpreter on the route's own XNNPACK delegate. False, with
+     * the reason logged and nothing held, when the delegate cannot be made or
+     * the model will not load on it, and the default path is next.
+     */
+    private boolean buildOnCpuDelegate() {
+        cpuDelegate = XnnpackDelegate.create(route.threads);
+        if (cpuDelegate == null) {
+            LimeLog.warning("No XNNPACK delegate on "+threadCount(route.threads)
+                    +", depth model on cpu ("+threadCount(DEFAULT_PATH_THREADS)+")");
+            return false;
+        }
+        Interpreter.Options options = new Interpreter.Options();
+        // For the few ops the delegate leaves behind
+        options.setNumThreads(route.threads);
+        // In place of the default delegate, not beside it
+        options.setUseXNNPACK(false);
+        options.addDelegate(cpuDelegate);
+        try {
+            interpreter = new Interpreter(model, options);
+        } catch (Exception e) {
+            LimeLog.warning("Depth model failed to load on an XNNPACK delegate on "
+                    +threadCount(route.threads)+", trying cpu ("
+                    +threadCount(DEFAULT_PATH_THREADS)+"): "+e.getMessage());
+            releaseDelegate();
+            return false;
+        }
+        gpuAccelerated = false;
+        kernelCache = false;
+        cpuThreads = route.threads;
         return true;
     }
 
@@ -489,6 +544,10 @@ public class MidasDepthSource implements DepthSource {
         if (gpuDelegate != null) {
             gpuDelegate.close();
             gpuDelegate = null;
+        }
+        if (cpuDelegate != null) {
+            cpuDelegate.close();
+            cpuDelegate = null;
         }
     }
 

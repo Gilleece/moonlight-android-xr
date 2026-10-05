@@ -62,8 +62,36 @@ public class DepthModelSpecTest {
         assertEquals("zipdepth_256_int8dr.tflite", route.asset);
         assertEquals(DepthSize.square(256), route.size);
         assertFalse(route.gpu);
-        assertEquals(1, route.threads);
-        assertEquals("zipdepth_256_int8dr.tflite on cpu (1 thread)", route.label());
+        assertEquals(2, route.threads);
+        assertEquals("zipdepth_256_int8dr.tflite on cpu (2 threads)", route.label());
+    }
+
+    // The default path runs one thread whatever it is asked for, so two
+    // takes the route's own delegate. Never three: a Quest 2 app has three
+    // big cores and the stream needs some of them.
+    @Test
+    public void onlyTheGen1CpuRouteTakesItsOwnDelegate() {
+        assertTrue(MidasDepthSource.usesCpuDelegate(MidasDepthSource.ZIPDEPTH.route(true)));
+        assertFalse(MidasDepthSource.usesCpuDelegate(MidasDepthSource.ZIPDEPTH.route(false)));
+        assertFalse(MidasDepthSource.usesCpuDelegate(MidasDepthSource.MIDAS.route(false)));
+        assertFalse(MidasDepthSource.usesCpuDelegate(MidasDepthSource.MIDAS.route(true)));
+    }
+
+    // A one thread CPU route would stay on the default path
+    @Test
+    public void oneThreadStaysOnTheDefaultPath() {
+        MidasDepthSource.Route route = new MidasDepthSource.Route("model.tflite",
+                DepthSize.square(256), false, 1);
+        assertFalse(MidasDepthSource.usesCpuDelegate(route));
+    }
+
+    // A Gen 1 route that loses its delegate says the one thread it runs on;
+    // a GPU that will not load still falls back as it always did
+    @Test
+    public void eachRouteFallsBackToItsOwnThreadCount() {
+        assertEquals(1, MidasDepthSource.fallbackThreads(MidasDepthSource.ZIPDEPTH.route(true)));
+        assertEquals(2, MidasDepthSource.fallbackThreads(MidasDepthSource.ZIPDEPTH.route(false)));
+        assertEquals(2, MidasDepthSource.fallbackThreads(MidasDepthSource.MIDAS.route(false)));
     }
 
     @Test
