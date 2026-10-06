@@ -33,6 +33,7 @@ import com.limelight.FileLog;
 import com.limelight.LimeLog;
 import com.limelight.PcView;
 import com.limelight.R;
+import com.limelight.binding.video.EnvironmentIds;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.UiHelper;
@@ -302,6 +303,44 @@ public class StreamSettings extends Activity {
             return view;
         }
 
+        // The environment list stands for the id the headset's picker saves,
+        // so a choice made either way is what the other shows and what the
+        // next session opens with. With the controller pointer off nothing in
+        // a session reaches the picker, so this is the way there. Like the
+        // picker it writes the passthrough checkbox, and the checkbox goes on
+        // deciding between passthrough and the void until something is picked.
+        private void bindEnvironmentList() {
+            final ListPreference envPref = (ListPreference) findPreference(
+                    PreferenceConfiguration.VR_ENVIRONMENT_LIST_PREF_STRING);
+            final CheckBoxPreference passthroughPref = (CheckBoxPreference) findPreference(
+                    PreferenceConfiguration.VR_PASSTHROUGH_PREF_STRING);
+            if (envPref == null || passthroughPref == null) {
+                return;
+            }
+            final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(getActivity());
+            envPref.setValue(EnvironmentIds.listValue(prefs));
+            envPref.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                @Override
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    int id = EnvironmentIds.idForListValue((String) newValue);
+                    if (!EnvironmentIds.store(prefs, id)) {
+                        return false;
+                    }
+                    passthroughPref.setChecked(id == PreferenceConfiguration.VR_ENV_PASSTHROUGH);
+                    FileLog.event("environment " + id + " chosen in the settings");
+                    return true;
+                }
+            });
+            passthroughPref.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                @Override
+                public boolean onPreferenceChange(Preference preference, Object newValue) {
+                    // Only moves the list where nothing has been picked yet
+                    envPref.setValue(EnvironmentIds.listValue(prefs, (Boolean) newValue));
+                    return true;
+                }
+            });
+        }
+
         @Override
         public void onCreate(Bundle savedInstanceState) {
             super.onCreate(savedInstanceState);
@@ -326,20 +365,34 @@ public class StreamSettings extends Activity {
             }
 
             // The synthetic depth patterns are development tools. They only
-            // confuse in a release build, so the list keeps the two real
-            // choices there.
+            // confuse in a release build, so the list keeps the real choices
+            // there.
+            final ListPreference depthPref = (ListPreference) findPreference(
+                    PreferenceConfiguration.VR_DEPTH_SOURCE_PREF_STRING);
             if (!BuildConfig.DEBUG) {
-                ListPreference depthPref = (ListPreference) findPreference(
-                        PreferenceConfiguration.VR_DEPTH_SOURCE_PREF_STRING);
-                String[] keep = { "off", "model" };
+                String[] keep = { PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH,
+                        PreferenceConfiguration.VR_DEPTH_SOURCE_MIDAS, "off" };
                 keepPreferenceEntries(depthPref, keep);
                 // Only reachable by setting it from outside the app, since the
                 // two builds do not share preferences, but a value that is no
                 // longer in the list shows as a blank selection
                 if (!Arrays.asList(keep).contains(depthPref.getValue())) {
-                    depthPref.setValue("model");
+                    depthPref.setValue(PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH);
                 }
             }
+            // MiDaS is not offered on an XR2 Gen 1 headset, and a MiDaS stored
+            // there already runs as ZipDepth, so the list says so
+            if (PreferenceConfiguration.isXr2Gen1Headset()) {
+                removeValue(PreferenceConfiguration.VR_DEPTH_SOURCE_PREF_STRING,
+                        PreferenceConfiguration.VR_DEPTH_SOURCE_MIDAS, new Runnable() {
+                    @Override
+                    public void run() {
+                        depthPref.setValue(PreferenceConfiguration.VR_DEPTH_SOURCE_ZIPDEPTH);
+                    }
+                });
+            }
+
+            bindEnvironmentList();
 
             // Where the log actually is, which is the first thing anyone
             // sending one in has to be told
@@ -348,6 +401,13 @@ public class StreamSettings extends Activity {
                 Preference logPref = findPreference(PreferenceConfiguration.FILE_LOG_PREF_STRING);
                 logPref.setSummary(logPref.getSummary() + "\n\n" + logPath);
             }
+
+            // The version and the commit it was built from, the first two things
+            // anyone asking for help is asked
+            findPreference("pref_about_version").setTitle(BuildConfig.GIT_HASH.isEmpty()
+                    ? getString(R.string.about_version_no_commit, BuildConfig.VERSION_NAME)
+                    : getString(R.string.about_version, BuildConfig.VERSION_NAME,
+                            BuildConfig.GIT_HASH));
 
             findPreference("pref_bug_report").setOnPreferenceClickListener(
                     new Preference.OnPreferenceClickListener() {
@@ -586,7 +646,16 @@ public class StreamSettings extends Activity {
                 addNativeResolutionEntries(width, height, false);
             }
 
-            if (!PreferenceConfiguration.readPreferences(this.getActivity()).unlockFps) {
+            // A headset's runtime can offer rates its Android display does not
+            // list, and in VR those are the ones the stream is shown at
+            PreferenceConfiguration current = PreferenceConfiguration.readPreferences(this.getActivity());
+            int xrMaxFps = XrDisplayRates.highestRemembered(getActivity());
+            if (current.enableVrMode && xrMaxFps > maxSupportedFps) {
+                LimeLog.info("Headset runtime offers "+xrMaxFps+" Hz over the display's "+maxSupportedFps);
+                maxSupportedFps = xrMaxFps;
+            }
+
+            if (!current.unlockFps) {
                 // We give some extra room in case the FPS is rounded down
                 if (maxSupportedFps < 118) {
                     removeValue(PreferenceConfiguration.FPS_PREF_STRING, "120", new Runnable() {

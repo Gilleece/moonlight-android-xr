@@ -524,6 +524,10 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     // go back out through it
                     renderer.setInputListener((XrRenderer.InputListener) activity);
                 }
+                if (activity instanceof XrRenderer.SessionListener) {
+                    // And is told when the runtime ends the session under it
+                    renderer.setSessionListener((XrRenderer.SessionListener) activity);
+                }
                 if (renderer.start(activity, initialWidth, initialHeight, prefs)) {
                     xrRenderer = renderer;
                 }
@@ -533,7 +537,9 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     // recovery and the answer will not have changed
                     xrRendererStopped = true;
                     if (activity instanceof XrRenderer.SessionListener) {
-                        ((XrRenderer.SessionListener) activity).onVrUnavailable();
+                        XrStartFailure failure = renderer.getStartFailure();
+                        ((XrRenderer.SessionListener) activity).onVrUnavailable(
+                                failure != null ? failure : XrStartFailure.unknown());
                     }
                 }
             }
@@ -1505,8 +1511,6 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                             (float)lastTwo.totalHostProcessingLatency / 10 / lastTwo.framesWithHostProcessingLatency)).append('\n');
                 }
                 sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs));
-                // Also goes to logcat so stats can be read over adb
-                LimeLog.info("Perf overlay: " + sb.toString().replace('\n', ';'));
                 perfListener.onPerfUpdate(sb.toString());
             }
 

@@ -22,11 +22,14 @@ import com.limelight.preferences.PreferenceConfiguration;
 import com.limelight.preferences.StreamSettings;
 import com.limelight.ui.AdapterFragment;
 import com.limelight.ui.AdapterFragmentCallbacks;
+import com.limelight.utils.DesktopLaunch;
 import com.limelight.utils.Dialog;
 import com.limelight.utils.HelpLauncher;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
+import com.limelight.utils.SpinnerDialog;
 import com.limelight.utils.UiHelper;
+import com.limelight.utils.UpdateCheck;
 import com.limelight.utils.WarningDialog;
 
 import android.app.Activity;
@@ -52,6 +55,7 @@ import android.widget.AdapterView;
 import android.widget.AdapterView.OnItemClickListener;
 import android.widget.ImageButton;
 import android.widget.RelativeLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.AdapterView.AdapterContextMenuInfo;
 
@@ -66,6 +70,11 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
     private ShortcutHelper shortcutHelper;
     private ComputerManagerService.ComputerManagerBinder managerBinder;
     private boolean freezeUpdates, runningPolling, inForeground, completeOnCreateCalled;
+
+    // The newer release bar above the list, and what it is showing
+    private View updateNotice;
+    private TextView updateNoticeText;
+    private UpdateCheck.Notice shownNotice;
 
     // Message of the pairing dialog while a pairing is still waiting on the
     // host, so onStart() can put the same PIN back up. Written on the pairing
@@ -182,6 +191,32 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
         if (getPackageManager().hasSystemFeature("amazon.hardware.fire_tv")) {
             helpButton.setVisibility(View.GONE);
         }
+
+        updateNotice = findViewById(R.id.updateNotice);
+        updateNoticeText = findViewById(R.id.updateNoticeText);
+        findViewById(R.id.updateNoticeView).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                UpdateCheck.Notice notice = shownNotice;
+                if (notice != null) {
+                    LimeLog.info("Update notice: opening " + notice.url);
+                    HelpLauncher.launchUrl(PcView.this, notice.url);
+                }
+            }
+        });
+        findViewById(R.id.updateNoticeDismiss).setOnClickListener(new OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                UpdateCheck.Notice notice = shownNotice;
+                if (notice != null) {
+                    LimeLog.info("Update notice: dismissed " + notice.tag);
+                    UpdateCheck.dismiss(PreferenceManager.getDefaultSharedPreferences(PcView.this),
+                            notice.tag);
+                }
+                showUpdateNotice();
+            }
+        });
+        showUpdateNotice();
 
         getFragmentManager().beginTransaction()
             .replace(R.id.pcFragmentContainer, new AdapterFragment())
@@ -323,6 +358,39 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
 
         inForeground = true;
         startComputerUpdates();
+
+        // The setting may have changed meanwhile. The check itself runs once a
+        // day at most, however often the list comes back.
+        showUpdateNotice();
+        UpdateCheck.checkIfDue(this, new Runnable() {
+            @Override
+            public void run() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!isFinishing() && !isDestroyed()) {
+                            showUpdateNotice();
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    // Shows the bar for a newer release, or hides it. A no-op before the views
+    // exist, as they do not while the GL renderer is first being looked up.
+    private void showUpdateNotice() {
+        if (updateNotice == null) {
+            return;
+        }
+        shownNotice = UpdateCheck.notice(PreferenceManager.getDefaultSharedPreferences(this),
+                BuildConfig.VERSION_NAME);
+        if (shownNotice == null) {
+            updateNotice.setVisibility(View.GONE);
+            return;
+        }
+        updateNoticeText.setText(getString(R.string.update_notice, shownNotice.tag));
+        updateNotice.setVisibility(View.VISIBLE);
     }
 
     @Override
@@ -642,6 +710,62 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
         startActivity(i);
     }
 
+    // With "Open Desktop automatically" on, a tap on a PC starts its Desktop
+    // app the way the app list would, if the host has one. Anything less
+    // certain, no Desktop, another app running or no answer, falls through to
+    // the app list as a tap always did.
+    private void doDesktopOrAppList(final ComputerDetails computer) {
+        if (computer.state == ComputerDetails.State.OFFLINE || computer.activeAddress == null) {
+            doAppList(computer, false, false);
+            return;
+        }
+        final ComputerManagerService.ComputerManagerBinder binder = managerBinder;
+        if (binder == null) {
+            Toast.makeText(PcView.this, getResources().getString(R.string.error_manager_not_running), Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        final SpinnerDialog spinner = SpinnerDialog.displayDialog(this,
+                getResources().getString(R.string.applist_refresh_title),
+                getResources().getString(R.string.applist_refresh_msg), false);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                NvApp desktop = null;
+                try {
+                    NvHTTP httpConn = new NvHTTP(ServerHelper.getCurrentAddressFromComputer(computer),
+                            computer.httpsPort, binder.getUniqueId(), computer.serverCert,
+                            PlatformBinding.getCryptoProvider(PcView.this));
+                    desktop = DesktopLaunch.choose(DesktopLaunch.parse(httpConn.getAppListRaw()),
+                            computer.runningGameId);
+                    LimeLog.info(desktop != null
+                            ? "Opening " + desktop.getAppName() + " on " + computer.name + " directly"
+                            : "No Desktop to open on " + computer.name + " directly, showing the app list");
+                } catch (XmlPullParserException | IOException e) {
+                    LimeLog.warning("App list for the Desktop check failed: "
+                            + DesktopLaunch.describeFailure(e));
+                }
+
+                final NvApp app = desktop;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        spinner.dismiss();
+                        if (isFinishing() || isDestroyed()) {
+                            return;
+                        }
+                        if (app != null && managerBinder != null) {
+                            ServerHelper.doStart(PcView.this, app, computer, managerBinder);
+                        }
+                        else {
+                            doAppList(computer, false, false);
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
     @Override
     public boolean onContextItemSelected(MenuItem item) {
         AdapterContextMenuInfo info = (AdapterContextMenuInfo) item.getMenuInfo();
@@ -803,6 +927,8 @@ public class PcView extends Activity implements AdapterFragmentCallbacks {
                 } else if (computer.details.pairState != PairState.PAIRED) {
                     // Pair an unpaired machine by default
                     doPair(computer.details);
+                } else if (PreferenceConfiguration.readPreferences(PcView.this).autoLaunchDesktop) {
+                    doDesktopOrAppList(computer.details);
                 } else {
                     doAppList(computer.details, false, false);
                 }

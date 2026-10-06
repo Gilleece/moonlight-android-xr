@@ -52,6 +52,8 @@ import org.cgutman.shieldcontrollerextensions.SceConnectionType;
 import org.cgutman.shieldcontrollerextensions.SceManager;
 
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 public class ControllerHandler implements InputManager.InputDeviceListener, UsbDriverListener {
@@ -129,6 +131,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     private final PreferenceConfiguration prefConfig;
     private short currentControllers, initialControllers;
+
+    // The VR session's two controllers as one pad, while its gamepad mode has
+    // them plugged in. Main thread, like the rest of this class's pads, and
+    // read by the host's rumble from the connection's thread.
+    private volatile XrPadContext xrPad;
+    // Where that pad's rumble goes: the session's own controllers
+    private volatile XrRumble xrRumble;
+
+    /** The host's rumble for the VR controllers' pad, the motors as they came. Any thread. */
+    public interface XrRumble {
+        void rumble(short lowFreqMotor, short highFreqMotor);
+    }
 
     public ControllerHandler(Activity activityContext, NvConnection conn, GameGestures gestures, PreferenceConfiguration prefConfig) {
         this.activityContext = activityContext;
@@ -275,6 +289,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
         // Stop new device contexts from being created or used
         stopped = true;
+        xrPad = null;
 
         // Unregister our input device callbacks
         inputManager.unregisterInputDeviceListener(this);
@@ -367,9 +382,10 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     public static short getAttachedControllerMask(Context context) {
         int count = 0;
-        short mask = 0;
+        List<AttachedPads.Device> devices = new ArrayList<>();
 
-        // Count all input devices that are gamepads
+        // Count all input devices that are gamepads, but not a headset's own
+        // controllers, which are no pad on the host
         InputManager im = (InputManager) context.getSystemService(Context.INPUT_SERVICE);
         for (int id : im.getInputDeviceIds()) {
             InputDevice dev = im.getInputDevice(id);
@@ -377,13 +393,19 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                 continue;
             }
 
-            if (hasJoystickAxes(dev)) {
+            AttachedPads.Device device = new AttachedPads.Device(dev.getVendorId(), hasJoystickAxes(dev));
+            if (AttachedPads.counts(device)) {
                 LimeLog.info("Counting InputDevice: "+dev.getName());
-                mask |= 1 << count++;
+                count++;
             }
+            else if (hasJoystickAxes(dev)) {
+                LimeLog.info("Not counting the headset's own InputDevice: "+dev.getName());
+            }
+            devices.add(device);
         }
 
         // Count all USB devices that match our drivers
+        int usbPads = 0;
         if (PreferenceConfiguration.readPreferences(context).usbDriver) {
             UsbManager usbManager = (UsbManager) context.getSystemService(Context.USB_SERVICE);
             if (usbManager != null) {
@@ -393,19 +415,20 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
                     if (UsbDriverService.shouldClaimDevice(dev, false) &&
                             !UsbDriverService.isRecognizedInputDevice(dev)) {
                         LimeLog.info("Counting UsbDevice: "+dev.getDeviceName());
-                        mask |= 1 << count++;
+                        usbPads++;
                     }
                 }
             }
         }
+        count += usbPads;
 
-        if (PreferenceConfiguration.readPreferences(context).onscreenController) {
+        boolean onscreen = PreferenceConfiguration.readPreferences(context).onscreenController;
+        if (onscreen) {
             LimeLog.info("Counting OSC gamepad");
-            mask |= 1;
         }
 
         LimeLog.info("Enumerated "+count+" gamepads");
-        return mask;
+        return AttachedPads.mask(devices, usbPads, onscreen);
     }
 
     private void releaseControllerNumber(GenericControllerContext context) {
@@ -1258,6 +1281,19 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             rightStickX |= maxByMagnitude(rightStickX, defaultContext.rightStickX);
             rightStickY |= maxByMagnitude(rightStickY, defaultContext.rightStickY);
         }
+        // The VR controllers' pad shares a number only with multi-controller
+        // off, where every pad is player 1
+        if (xrPad != null &&
+                xrPad.controllerNumber == controllerNumber &&
+                xrPad.mouseEmulationActive == originalContext.mouseEmulationActive) {
+            inputMap |= xrPad.inputMap;
+            leftTrigger |= maxByMagnitude(leftTrigger, xrPad.leftTrigger);
+            rightTrigger |= maxByMagnitude(rightTrigger, xrPad.rightTrigger);
+            leftStickX |= maxByMagnitude(leftStickX, xrPad.leftStickX);
+            leftStickY |= maxByMagnitude(leftStickY, xrPad.leftStickY);
+            rightStickX |= maxByMagnitude(rightStickX, xrPad.rightStickX);
+            rightStickY |= maxByMagnitude(rightStickY, xrPad.rightStickY);
+        }
 
         if (originalContext.mouseEmulationActive) {
             int changedMask = inputMap ^  originalContext.mouseEmulationLastInputMap;
@@ -2053,6 +2089,15 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             return;
         }
 
+        // The VR controllers' pad has no Android vibrator, so its rumble goes
+        // to the session
+        XrPadContext pad = xrPad;
+        XrRumble sink = xrRumble;
+        if (pad != null && sink != null && pad.controllerNumber == controllerNumber) {
+            foundMatchingDevice = vibrated = true;
+            sink.rumble(lowFreqMotor, highFreqMotor);
+        }
+
         for (int i = 0; i < inputDeviceContexts.size(); i++) {
             InputDeviceContext deviceContext = inputDeviceContexts.valueAt(i);
 
@@ -2841,6 +2886,79 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         sendControllerInputPacket(context);
     }
 
+    /** Where the VR controllers' pad sends the host's rumble. */
+    public void setXrRumble(XrRumble sink) {
+        xrRumble = sink;
+    }
+
+    /**
+     * Plugs the VR session's two controllers in as one Xbox pad, for its
+     * gamepad mode: player 1 unless a pad is already there, then the first
+     * number free, announced to the host the way a pad plugged in mid stream
+     * is. With multi-controller off it is player 1 alongside any real pad, as
+     * every pad is then. Main thread.
+     */
+    public void attachXrPad() {
+        if (stopped || xrPad != null) {
+            return;
+        }
+        XrPadContext pad = new XrPadContext();
+        if (prefConfig.multiController) {
+            int taken = currentControllers | initialControllers
+                    | (prefConfig.onscreenController ? 1 : 0);
+            int number = XrPad.numberFor(taken);
+            if (number < 0) {
+                LimeLog.warning("No controller number free for the VR controllers' pad");
+                return;
+            }
+            currentControllers |= (short)(1 << number);
+            pad.controllerNumber = (short)number;
+            pad.reservedControllerNumber = true;
+        }
+        else {
+            pad.controllerNumber = 0;
+        }
+        pad.assignedControllerNumber = true;
+        xrPad = pad;
+        LimeLog.info("VR controllers plugged in as controller " + pad.controllerNumber
+                + ", gamepad mask " + getActiveControllerMask());
+        pad.sendControllerArrival();
+    }
+
+    /** What the VR controllers' pad reads now, in the packet's own units. Main thread. */
+    public void reportXrPad(int buttons, byte leftTrigger, byte rightTrigger,
+                            short leftStickX, short leftStickY,
+                            short rightStickX, short rightStickY) {
+        XrPadContext pad = xrPad;
+        if (pad == null) {
+            return;
+        }
+        pad.inputMap = buttons;
+        pad.leftTrigger = leftTrigger;
+        pad.rightTrigger = rightTrigger;
+        pad.leftStickX = leftStickX;
+        pad.leftStickY = leftStickY;
+        pad.rightStickX = rightStickX;
+        pad.rightStickY = rightStickY;
+        sendControllerInputPacket(pad);
+    }
+
+    /**
+     * Takes the VR controllers' pad out: its number is freed and a last
+     * packet at rest goes with the mask that no longer has it, which is how
+     * the host hears a pad unplugged. Main thread.
+     */
+    public void detachXrPad() {
+        XrPadContext pad = xrPad;
+        if (pad == null) {
+            return;
+        }
+        xrPad = null;
+        releaseControllerNumber(pad);
+        LimeLog.info("VR controllers unplugged from controller " + pad.controllerNumber
+                + ", gamepad mask " + getActiveControllerMask());
+    }
+
     @Override
     public void deviceRemoved(AbstractController controller) {
         UsbDeviceContext context = usbDeviceContexts.get(controller.getControllerId());
@@ -3279,6 +3397,14 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
             // Pointer capture can cause the input device to change, which can cause
             // InputDeviceSensorManager to crash due to missing null checks on the InputDevice.
             backgroundThreadHandler.postDelayed(enableSensorRunnable, 1000);
+        }
+    }
+
+    class XrPadContext extends GenericControllerContext {
+        @Override
+        public void sendControllerArrival() {
+            conn.sendControllerArrivalEvent((byte)controllerNumber, getActiveControllerMask(),
+                    XrPad.TYPE, XrPad.BUTTONS, XrPad.CAPABILITIES);
         }
     }
 

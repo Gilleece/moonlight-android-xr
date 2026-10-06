@@ -7,15 +7,6 @@
          headsets, so the app wide minSdk 21 remains safe -->
     <uses-sdk tools:overrideLibrary="org.khronos.openxr.openxr_loader_for_android" />
 
-    <!-- So the bug report screen can tell whether this device has an email
-         app at all before offering to send by one -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.SENDTO" />
-            <data android:scheme="mailto" />
-        </intent>
-    </queries>
-
     <!-- Horizon OS refuses to route immersive frames for apps that do not
          declare an HzOS SDK version since around the v77 update. Other
          platforms ignore this namespace entirely -->
@@ -93,6 +84,25 @@
         android:name="pvr.software.eyetracking"
         android:required="false"/>
     <uses-permission android:name="com.picovr.permission.EYE_TRACKING" />
+    <!-- Android XR. The OpenXR feature is optional here so Meta and Pico
+         installs are unaffected; 1.0 is the API version the instance asks
+         for. Hand joints and eye gaze are runtime permissions there, asked
+         for with the eye tracking one above -->
+    <uses-feature
+        android:name="android.software.xr.api.openxr"
+        android:version="0x00010000"
+        android:required="false"/>
+    <uses-feature
+        android:name="android.hardware.xr.input.controller"
+        android:required="false"/>
+    <uses-feature
+        android:name="android.hardware.xr.input.hand_tracking"
+        android:required="false"/>
+    <uses-feature
+        android:name="android.hardware.xr.input.eye_tracking"
+        android:required="false"/>
+    <uses-permission android:name="android.permission.HAND_TRACKING" />
+    <uses-permission android:name="android.permission.EYE_TRACKING_FINE" />
 
     <application
         android:name=".MoonlightApplication"
@@ -119,6 +129,12 @@
         <meta-data
             android:name="com.oculus.supportedDevices"
             android:value="quest2|questpro|quest3" />
+        <!-- Android XR's OpenXR runtime is a vendor library, which an app
+             targeting Android 12 or later may only load if it names it here.
+             Without this the loader finds no runtime at all -->
+        <uses-native-library
+            android:name="libopenxr.google.so"
+            android:required="false" />
 
         <provider
             android:name=".PosterContentProvider"
@@ -242,11 +258,13 @@
         <!-- The same activity subclassed, so the immersive path can be marked
              vr while the flat one above stays a panel. An alias cannot do this:
              Pico reads the app type from the target activity, so whichever
-             value Game carried won both launches -->
+             value Game carried won both launches. Unlike Game it keeps its
+             history: a boundary prompt stops it before the session starts,
+             and a no history activity is finished by the system on any stop.
+             Game.onStop still ends the stream once the session is through -->
         <activity
             android:name=".GameXR"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|screenSize|smallestScreenSize|layoutDirection"
-            android:noHistory="true"
             android:resizeableActivity="false"
             android:enableOnBackInvokedCallback="false"
             android:launchMode="singleTask"
@@ -261,6 +279,12 @@
             <meta-data
                 android:name="pvr.app.type"
                 android:value="vr" />
+            <!-- Android XR's equivalent of the VR category: start in Full
+                 Space with the app drawing it through OpenXR. Only this
+                 activity, so the 2d ones stay panels -->
+            <property
+                android:name="android.window.PROPERTY_XR_ACTIVITY_START_MODE"
+                android:value="XR_ACTIVITY_START_MODE_FULL_SPACE_UNMANAGED" />
         </activity>
 
         <service
@@ -284,14 +308,6 @@
             <meta-data android:name="WindowManagerPreference:FreeformWindowOrientation" android:value="landscape" />
             <meta-data android:name="pvr.app.type" android:value="2d" />
         </activity>
-        <!-- Hands a saved report to the email app the user picks. Not exported:
-             the read grant on the send intent is the only way in -->
-        <provider
-            android:name=".ReportContentProvider"
-            android:authorities="report.${applicationId}"
-            android:exported="false"
-            android:grantUriPermissions="true">
-        </provider>
         <activity
             android:name=".HelpActivity"
             android:resizeableActivity="true"

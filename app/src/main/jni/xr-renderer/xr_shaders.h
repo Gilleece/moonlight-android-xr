@@ -11,8 +11,11 @@ extern const char* const UPSAMPLE_FRAGMENT_SRC;
 extern const char* const OFFSET_FRAGMENT_SRC;
 extern const char* const DOWNSCALE_FRAGMENT_SRC;
 extern const char* const AMBI_FRAGMENT_SRC;
+extern const char* const GLOW_EDGE_FRAGMENT_SRC;
 extern const char* const GLOW_FRAGMENT_SRC;
 extern const char* const ROOM_VERTEX_SRC;
 extern const char* const ROOM_FRAGMENT_SRC;
+extern const char* const MODEL_VERTEX_SRC;
+extern const char* const MODEL_FRAGMENT_SRC;
 
 #endif

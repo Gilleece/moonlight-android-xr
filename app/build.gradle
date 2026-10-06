@@ -10,6 +10,48 @@ if (signingPropsFile.exists()) {
 }
 def canSign = signingProps.containsKey('storePassword')
 
+// Where the report a problem screens send reports and the token the collector
+// expects. They live beside the signing details so neither is in the tree; the
+// moonlightReportUrl and moonlightReportToken properties are only a fallback
+// and stay empty in the tracked gradle.properties. A build with neither saves
+// reports on the device and says it has no collector, see tools/report-worker.
+def reportUrl = signingProps.getProperty('reportUrl', project.findProperty('moonlightReportUrl') ?: '')
+def reportToken = signingProps.getProperty('reportToken', project.findProperty('moonlightReportToken') ?: '')
+// A report carries the log, so it only ever travels over https. The app treats
+// any other address as no collector, and the build says so rather than ship one.
+if (!reportUrl.toString().trim().isEmpty()
+        && !reportUrl.toString().trim().toLowerCase(Locale.ROOT).startsWith('https://')) {
+    throw new GradleException("reportUrl has to start with https://, and '"
+            + reportUrl.toString().trim() + "' does not. Fix it in keystore.properties"
+            + " or -PmoonlightReportUrl, or leave it empty for a build without a collector.")
+}
+def javaString = { String value ->
+    '"' + value.trim().replace('\\', '\\\\').replace('"', '\\"') + '"'
+}
+
+// The commit a build came out of, so a report can be tied back to the tree,
+// with a + where tracked files had changed. Empty without git, which is a
+// build from a source download.
+def gitHash = ''
+try {
+    def head = providers.exec {
+        commandLine 'git', 'rev-parse', '--short=10', 'HEAD'
+        ignoreExitValue = true
+    }
+    if (head.result.get().exitValue == 0) {
+        gitHash = head.standardOutput.asText.get().trim()
+        def diff = providers.exec {
+            commandLine 'git', 'diff', '--quiet', 'HEAD', '--'
+            ignoreExitValue = true
+        }
+        if (diff.result.get().exitValue != 0) {
+            gitHash += '+'
+        }
+    }
+} catch (Exception ignored) {
+    gitHash = ''
+}
+
 // Turns xr_shared.h, the one file holding every constant the native renderer
 // and the Java side agree on, into XrShared.java, so neither side carries a
 // copy that can drift. The header is kept to plain #define lines of integer
@@ -113,18 +155,16 @@ android {
         minSdk 21
         targetSdk 36
 
-        versionName "12.1-xr0.3"
-        versionCode = 31403
+        versionName "12.1-xr0.4.3"
+        versionCode = 31407
 
         // Generate native debug symbols to allow Google Play to symbolicate our native crashes
         ndk.debugSymbolLevel = 'FULL'
 
-        // Where the report a problem screen sends reports and the token the
-        // collector expects, from gradle.properties. A build with neither keeps
-        // reports on the device and tells the user where, see
-        // tools/report-worker.
-        buildConfigField "String", "REPORT_URL", "\"${project.findProperty('moonlightReportUrl') ?: ''}\""
-        buildConfigField "String", "REPORT_TOKEN", "\"${project.findProperty('moonlightReportToken') ?: ''}\""
+        // Where reports go and the token the collector expects, read above
+        buildConfigField "String", "REPORT_URL", javaString(reportUrl.toString())
+        buildConfigField "String", "REPORT_TOKEN", javaString(reportToken.toString())
+        buildConfigField "String", "GIT_HASH", javaString(gitHash)
     }
 
     flavorDimensions.add("root")
@@ -272,4 +312,7 @@ dependencies {
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 
     testImplementation 'junit:junit:4.13.2'
+    // kXML 2, BSD style licence (its XmlPull API classes are public domain), the
+    // parser Android itself reads host answers with, so tests can read them too
+    testImplementation 'net.sf.kxml:kxml2:2.3.0'
 }

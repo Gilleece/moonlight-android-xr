@@ -15,6 +15,56 @@
             android:summary="@string/summary_vr_pointer"
             android:defaultValue="true"/>
         <CheckBoxPreference
+            android:key="checkbox_vr_pointer_sleep"
+            android:dependency="checkbox_vr_pointer"
+            android:title="@string/title_vr_pointer_sleep"
+            android:summary="@string/summary_vr_pointer_sleep"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_show_ray"
+            android:dependency="checkbox_vr_pointer"
+            android:title="@string/title_vr_show_ray"
+            android:summary="@string/summary_vr_show_ray"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_controller_model"
+            android:title="@string/title_vr_controller_model"
+            android:summary="@string/summary_vr_controller_model"
+            android:defaultValue="false"/>
+        <CheckBoxPreference
+            android:key="checkbox_vr_head_aim"
+            android:title="@string/title_vr_head_aim"
+            android:summary="@string/summary_vr_head_aim"
+            android:defaultValue="false"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_head_aim_sensitivity"
+            android:defaultValue="8"
+            seekbar:min="1"
+            android:max="30"
+            android:summary="@string/summary_seekbar_vr_head_aim_sensitivity"
+            android:text="@string/suffix_seekbar_vr_head_aim_sensitivity"
+            android:title="@string/title_seekbar_vr_head_aim_sensitivity"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_head_aim_deadzone"
+            android:defaultValue="2"
+            seekbar:min="0"
+            android:max="20"
+            android:summary="@string/summary_seekbar_vr_head_aim_deadzone"
+            android:text="@string/suffix_seekbar_vr_head_aim_deadzone"
+            android:title="@string/title_seekbar_vr_head_aim_deadzone"/>
+        <ListPreference
+            android:key="list_vr_gamepad_toggle"
+            android:title="@string/title_vr_gamepad_toggle"
+            android:entries="@array/vr_gamepad_toggle_names"
+            android:entryValues="@array/vr_gamepad_toggle_values"
+            android:summary="@string/summary_vr_gamepad_toggle"
+            android:defaultValue="menu_grip" />
+        <CheckBoxPreference
+            android:key="checkbox_vr_click_sound"
+            android:title="@string/title_vr_click_sound"
+            android:summary="@string/summary_vr_click_sound"
+            android:defaultValue="true"/>
+        <CheckBoxPreference
             android:key="checkbox_vr_gaze"
             android:title="@string/title_vr_gaze"
             android:summary="@string/summary_vr_gaze"
@@ -29,13 +79,22 @@
             android:title="@string/title_vr_passthrough"
             android:summary="@string/summary_vr_passthrough"
             android:defaultValue="false"/>
+        <!-- Not stored under its own key: it stands for the environment id the
+             headset's picker saves, which the settings screen reads and writes -->
+        <ListPreference
+            android:key="list_vr_environment"
+            android:title="@string/title_vr_environment"
+            android:entries="@array/vr_environment_names"
+            android:entryValues="@array/vr_environment_values"
+            android:summary="@string/summary_vr_environment"
+            android:persistent="false" />
         <ListPreference
             android:key="list_vr_depth_source"
             android:title="@string/title_vr_depth_source"
             android:entries="@array/vr_depth_source_names"
             android:entryValues="@array/vr_depth_source_values"
             android:summary="@string/summary_vr_depth_source"
-            android:defaultValue="model" />
+            android:defaultValue="zipdepth" />
         <ListPreference
             android:key="list_vr_env_res"
             android:title="@string/title_vr_env_res"
@@ -43,18 +102,55 @@
             android:entryValues="@array/vr_env_res_values"
             android:summary="@string/summary_vr_env_res"
             android:defaultValue="standard" />
+        <CheckBoxPreference
+            android:key="checkbox_vr_doff_grace"
+            android:title="@string/title_vr_doff_grace"
+            android:summary="@string/summary_vr_doff_grace"
+            android:defaultValue="true"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_brightness"
+            android:defaultValue="0"
+            seekbar:min="0"
+            android:max="100"
+            seekbar:offset="-50"
+            android:summary="@string/summary_seekbar_vr_picture_brightness"
+            android:title="@string/title_seekbar_vr_picture_brightness"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_contrast"
+            android:defaultValue="100"
+            seekbar:min="0"
+            android:max="100"
+            seekbar:offset="50"
+            android:summary="@string/summary_seekbar_vr_picture_contrast"
+            android:text="@string/suffix_seekbar_vr_percent"
+            android:title="@string/title_seekbar_vr_picture_contrast"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_gamma"
+            android:defaultValue="100"
+            seekbar:min="0"
+            android:max="150"
+            seekbar:offset="50"
+            seekbar:divisor="100"
+            seekbar:decimals="2"
+            android:summary="@string/summary_seekbar_vr_picture_gamma"
+            android:title="@string/title_seekbar_vr_picture_gamma"/>
+        <com.limelight.preferences.SeekBarPreference
+            android:key="seekbar_vr_picture_saturation"
+            android:defaultValue="100"
+            seekbar:min="0"
+            android:max="200"
+            android:summary="@string/summary_seekbar_vr_picture_saturation"
+            android:text="@string/suffix_seekbar_vr_percent"
+            android:title="@string/title_seekbar_vr_picture_saturation"/>
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_vr_debug"
         android:key="category_vr_debug">
-        <Preference
-            android:key="pref_bug_report"
-            android:title="@string/title_bug_report"
-            android:summary="@string/summary_bug_report" />
+        <!-- Depth maps a second, under the old cadence key -->
         <com.limelight.preferences.SeekBarPreference
             android:key="seekbar_vr_inference_cadence"
-            android:defaultValue="3"
-            seekbar:min="1"
-            android:max="6"
+            android:defaultValue="20"
+            seekbar:min="5"
+            android:max="45"
             android:summary="@string/summary_seekbar_vr_inference_cadence"
             android:text="@string/suffix_seekbar_vr_inference_cadence"
             android:title="@string/title_seekbar_vr_inference_cadence"/>
@@ -123,6 +219,11 @@
             android:entries="@array/audio_config_names"
             android:entryValues="@array/audio_config_values"
             android:defaultValue="2" />
+        <CheckBoxPreference
+            android:key="checkbox_vr_virtual_surround"
+            android:title="@string/title_checkbox_vr_virtual_surround"
+            android:summary="@string/summary_checkbox_vr_virtual_surround"
+            android:defaultValue="false" />
         <CheckBoxPreference
             android:key="checkbox_enable_audiofx"
             android:title="@string/title_checkbox_enable_audiofx"
@@ -278,6 +379,11 @@
             android:title="@string/title_checkbox_host_audio"
             android:summary="@string/summary_checkbox_host_audio"
             android:defaultValue="false" />
+        <CheckBoxPreference
+            android:key="checkbox_auto_launch_desktop"
+            android:title="@string/title_checkbox_auto_launch_desktop"
+            android:summary="@string/summary_checkbox_auto_launch_desktop"
+            android:defaultValue="false" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/category_ui_settings"
         android:key="category_ui_settings">
@@ -363,4 +469,26 @@
             android:summary="@string/summary_privacy_policy"
             url="https://moonlight-stream.org/privacy.html"/>
     </PreferenceCategory-->
+    <PreferenceCategory android:title="@string/category_about"
+        android:key="category_about">
+        <Preference
+            android:key="pref_about_version"
+            android:title="@string/about_version_no_commit"
+            android:selectable="false"
+            android:persistent="false" />
+        <CheckBoxPreference
+            android:key="checkbox_check_updates"
+            android:title="@string/title_checkbox_check_updates"
+            android:summary="@string/summary_checkbox_check_updates"
+            android:defaultValue="true" />
+        <com.limelight.preferences.WebLauncherPreference
+            android:key="pref_about_licence"
+            android:title="@string/title_about_licence"
+            android:persistent="false"
+            url="https://github.com/Gilleece/moonlight-android-xr/blob/master/LICENSE.txt"/>
+        <Preference
+            android:key="pref_bug_report"
+            android:title="@string/title_bug_report"
+            android:summary="@string/summary_bug_report" />
+    </PreferenceCategory>
 </PreferenceScreen>

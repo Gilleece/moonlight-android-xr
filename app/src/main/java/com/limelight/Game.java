@@ -4,7 +4,9 @@ package com.limelight;
 import com.limelight.binding.PlatformBinding;
 import com.limelight.binding.audio.AndroidAudioRenderer;
 import com.limelight.binding.input.ControllerHandler;
+import com.limelight.binding.input.EyeTrackingPermission;
 import com.limelight.binding.input.KeyboardTranslator;
+import com.limelight.binding.input.VrKeyboard;
 import com.limelight.binding.input.XrClickAnchor;
 import com.limelight.binding.input.capture.InputCaptureManager;
 import com.limelight.binding.input.capture.InputCaptureProvider;
@@ -18,7 +20,9 @@ import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
+import com.limelight.binding.video.XrDoffHold;
 import com.limelight.binding.video.XrRenderer;
+import com.limelight.binding.video.XrStartFailure;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -62,6 +66,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 import android.util.Rational;
@@ -114,11 +119,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     private static final int THREE_FINGER_TAP_THRESHOLD = 300;
 
-    // Held around a capital typed on the in world keyboard
-    private static final short VK_SHIFT = 0x10;
-
     private ControllerHandler controllerHandler;
     private KeyboardTranslator keyboardTranslator;
+    // The in world keyboard's keys and the modifiers it holds, into the host
+    private VrKeyboard vrKeyboard;
     private VirtualController virtualController;
 
     private PreferenceConfiguration prefConfig;
@@ -156,6 +160,8 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     private TextView performanceOverlayView;
 
     private MediaCodecDecoderRenderer decoderRenderer;
+    // Kept for its underrun count on the stats
+    private volatile AndroidAudioRenderer audioRenderer;
     private boolean reportedCrash;
 
     // Set when the launcher tore its own task down to get the 2d panels out of
@@ -165,6 +171,33 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // Set once the immersive activity has handed the stream to the flat one,
     // so a second failure report cannot start a second copy
     private boolean relaunchedFlat;
+    // Set while this activity is stopped before its VR session was ever
+    // focused, a boundary prompt in the way, with the stream kept for it
+    private boolean stoppedForHeadset;
+    private final Handler headsetHoldHandler = new Handler(Looper.getMainLooper());
+    // Ends a hold the user never came back from
+    private final Runnable headsetHoldOver = new Runnable() {
+        @Override
+        public void run() {
+            if (!stoppedForHeadset || isFinishing()) {
+                return;
+            }
+            stoppedForHeadset = false;
+            FileLog.event("launch held for the headset " + (HEADSET_HOLD_MS / 1000)
+                    + " s and never came back, ending the stream");
+            stopConnection();
+            // The user is elsewhere by now, so the PC list is not brought up
+            // over whatever they went to
+            pcViewStarted = true;
+            finish();
+        }
+    };
+
+    // A headset taken off after the first focus holds the stream for a minute
+    // rather than ending it, with the sound muted and nothing sent, see
+    // XrDoffGrace; and whether pointer input is held back meanwhile
+    private XrDoffHold doffHold;
+    private volatile boolean vrInputHeld;
 
     // Last absolute position sent from the VR pointer, so a still controller
     // does not repeat the same position every frame
@@ -216,6 +249,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // Carried by the flat activity when the immersive one gave up on VR, so
     // the user is told why the stream is a panel rather than left guessing
     public static final String EXTRA_VR_UNAVAILABLE = "VrUnavailable";
+    // And the one line reason, in the user's language, where the start said
+    public static final String EXTRA_VR_REASON = "VrReason";
+    // How long a VR session stays up to show an error on its toast before the
+    // stream is stopped, which is how long the toast says anything
+    private static final long VR_NOTICE_MS = 4000;
+    // How long the flat panel a failed VR start falls back to says why
+    private static final long VR_UNAVAILABLE_NOTICE_MS = 12000;
+    // How long a launch stopped before its first focus is held for the
+    // headset before it counts as abandoned and the stream is let go
+    private static final long HEADSET_HOLD_MS = 120000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -254,6 +297,32 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         // Read the stream preferences
         prefConfig = PreferenceConfiguration.readPreferences(this);
         tombstonePrefs = Game.this.getSharedPreferences("DecoderTombstone", 0);
+        doffHold = new XrDoffHold(prefConfig.vrDoffGrace, new XrDoffHold.Owner() {
+            @Override
+            public void onDoffHold() {
+                vrInputHeld = true;
+                AndroidAudioRenderer audio = audioRenderer;
+                if (audio != null) {
+                    audio.setMuted(true);
+                }
+            }
+
+            @Override
+            public void onDoffResume() {
+                vrInputHeld = false;
+                AndroidAudioRenderer audio = audioRenderer;
+                if (audio != null) {
+                    audio.setMuted(false);
+                }
+            }
+
+            @Override
+            public void onDoffExpired() {
+                // As the exit button leaves
+                stopConnection();
+                finish();
+            }
+        });
 
         // Enter landscape unless we're on a square screen
         setPreferredOrientationForCurrentDisplay();
@@ -347,7 +416,14 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         pcName = Game.this.getIntent().getStringExtra(EXTRA_PC_NAME);
         returnToPcView = Game.this.getIntent().getBooleanExtra(EXTRA_RETURN_TO_PC_VIEW, false);
         if (Game.this.getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false)) {
-            Toast.makeText(this, R.string.vr_unavailable_flat, Toast.LENGTH_LONG).show();
+            String reason = Game.this.getIntent().getStringExtra(EXTRA_VR_REASON);
+            String notice = reason != null
+                    ? getResources().getString(R.string.vr_unavailable_flat_reason, reason)
+                    : getResources().getString(R.string.vr_unavailable_flat);
+            Toast.makeText(this, notice, Toast.LENGTH_LONG).show();
+            // A headset's shell was seen not to show that toast at all, but it
+            // does show this panel, so the panel says it too for a while
+            showFlatNotice(notice, VR_UNAVAILABLE_NOTICE_MS);
         }
 
         String host = Game.this.getIntent().getStringExtra(EXTRA_HOST);
@@ -527,13 +603,44 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 + " format=" + prefConfig.videoFormat + " hdr=" + willStreamHdr
                 + " pacing=" + prefConfig.framePacing + " vr=" + prefConfig.enableVrMode
                 + " depthMode=" + prefConfig.vrDepthMode
+                + " stereo3d=" + PreferenceConfiguration.stereoAtStartLabel(prefConfig.vrDepthMode)
+                + " depthModel=" + prefConfig.vrDepthModel
                 + " separation=" + prefConfig.vrStereoSeparation
                 + " convergence=" + prefConfig.vrConvergence
+                + " defaultPair=" + PreferenceConfiguration.defaultPairLabel(prefConfig.vrDepthModel)
+                + " preset=" + PreferenceConfiguration.presetLabel(prefConfig.vrStereoSeparation,
+                        prefConfig.vrDepthModel)
                 + " depthScale=" + prefConfig.vrDepthScale
-                + " cadence=" + prefConfig.vrInferenceCadence
+                + " depthRate=" + prefConfig.vrDepthRate
                 + " sharpening=" + prefConfig.vrSharpening
+                + " supersampling=" + prefConfig.vrSupersampling
                 + " passthrough=" + prefConfig.vrPassthrough
-                + " hands=" + prefConfig.vrHandTracking);
+                + " environment=" + prefConfig.vrEnvironmentId
+                + " " + (prefConfig.vrRoomLevels == null ? "room=none"
+                        : prefConfig.vrRoomLevels.describe("="))
+                + " hands=" + prefConfig.vrHandTracking
+                + " gaze=" + prefConfig.vrGaze
+                + " " + PreferenceConfiguration.inputLabel(prefConfig.vrPointerSleep,
+                        prefConfig.vrShowRay, prefConfig.vrControllerModel, "=")
+                + " " + PreferenceConfiguration.headAimLabel(prefConfig.vrHeadAim,
+                        prefConfig.vrHeadAimSensitivity, prefConfig.vrHeadAimDeadZone, "=")
+                + " " + PreferenceConfiguration.gamepadToggleLabel(prefConfig.vrGamepadToggle, "=")
+                + " clickSound=" + prefConfig.vrClickSound
+                + " doffGrace=" + prefConfig.vrDoffGrace
+                + " " + PreferenceConfiguration.pictureLabel(prefConfig.vrPicture, "=")
+                + " gamepadMask=0x" + Integer.toHexString(gamepadMask)
+                + " audio=" + prefConfig.audioConfiguration.channelCount
+                + " virtualSurround=" + prefConfig.vrVirtualSurround
+                + " checkUpdates=" + prefConfig.checkUpdates);
+
+        // Look to point is dead without the eye tracking permission where the
+        // platform makes it a runtime one, so a VR session asks for it here,
+        // and for the hand joints where those are one too. The session goes
+        // ahead either way, and the renderer lets the eyes point once the
+        // answer comes back granted.
+        EyeTrackingPermission.askOnce(this, prefConfig.enableVrMode
+                && !getIntent().getBooleanExtra(EXTRA_VR_UNAVAILABLE, false), prefConfig.vrGaze,
+                prefConfig.vrHandTracking);
 
         // Initialize the connection
         conn = new NvConnection(getApplicationContext(),
@@ -541,7 +648,26 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 httpsPort, uniqueId, config,
                 PlatformBinding.getCryptoProvider(this), serverCert);
         controllerHandler = new ControllerHandler(this, conn, this, prefConfig);
+        // Gamepad mode's pad rumbles the session's own controllers
+        controllerHandler.setXrRumble((low, high) -> {
+            MediaCodecDecoderRenderer renderer = decoderRenderer;
+            XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+            if (xrRenderer != null) {
+                xrRenderer.setRumble(low, high);
+            }
+        });
         keyboardTranslator = new KeyboardTranslator();
+        vrKeyboard = new VrKeyboard(new VrKeyboard.Sink() {
+            @Override
+            public void key(short keyCode, byte action, byte modifiers) {
+                conn.sendKeyboardInput(keyCode, action, modifiers, (byte)0);
+            }
+
+            @Override
+            public void text(String text) {
+                conn.sendUtf8Text(text);
+            }
+        });
 
         InputManager inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         inputManager.registerInputDeviceListener(keyboardTranslator, null);
@@ -1117,6 +1243,16 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         if (decoderRenderer != null) {
             decoderRenderer.stopXrRenderer();
         }
+        // And one held through a stop for the headset never met the stop that
+        // ends it, at the launch or after a doff
+        headsetHoldHandler.removeCallbacks(headsetHoldOver);
+        boolean doffHeld = doffHold != null && doffHold.holding();
+        if (doffHold != null) {
+            doffHold.cancel();
+        }
+        if (stoppedForHeadset || doffHeld) {
+            stopConnection();
+        }
 
         if (controllerHandler != null) {
             controllerHandler.destroy();
@@ -1157,9 +1293,80 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         super.onPause();
     }
 
+    /**
+     * Whether a stop now is the headset holding the launch rather than the
+     * user leaving. A Quest asks "stationary or new boundary" over an app that
+     * starts away from the saved boundary, and that prompt stops this
+     * activity while the session waits behind it. Ending the stream on that
+     * stop, as the stream always has, dropped the user back at the PC list
+     * every time. So until the session has been focused once, a stop is waited
+     * out, and the usual rule holds from then on.
+     */
+    private boolean waitingForHeadset() {
+        if (!(this instanceof GameXR) || relaunchedFlat || isFinishing()
+                || !PreferenceConfiguration.isHeadset(this)) {
+            return false;
+        }
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        return xrRenderer == null || !xrRenderer.hasBeenFocused();
+    }
+
+    /**
+     * Whether the stream may be held for a headset taken off now: an immersive
+     * session focused at least once, with the stream still up and nothing on
+     * its way out. Whether it is held is the setting's call, in XrDoffGrace.
+     */
+    private boolean doffMayHold() {
+        if (!(this instanceof GameXR) || relaunchedFlat || isFinishing()
+                || !PreferenceConfiguration.isHeadset(this) || !(connecting || connected)) {
+            return false;
+        }
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        return xrRenderer != null && xrRenderer.hasBeenFocused();
+    }
+
+    // The activity stopped or its window surface went. Returns whether the
+    // stream is held for the headset rather than ended, which with the setting
+    // off it never is.
+    private boolean doffHoldsStop(String why) {
+        return doffHold != null && doffMayHold() && doffHold.activityStopped(why);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        if (stoppedForHeadset) {
+            stoppedForHeadset = false;
+            headsetHoldHandler.removeCallbacks(headsetHoldOver);
+            FileLog.event("activity back after the headset held the launch, carrying on");
+        }
+        if (doffHold != null) {
+            doffHold.activityStarted();
+        }
+    }
+
     @Override
     protected void onStop() {
         super.onStop();
+
+        if (waitingForHeadset()) {
+            stoppedForHeadset = true;
+            FileLog.event("activity stopped before the VR session was focused,"
+                    + " waiting for the headset rather than ending the stream, for up to "
+                    + (HEADSET_HOLD_MS / 1000) + " s");
+            headsetHoldHandler.removeCallbacks(headsetHoldOver);
+            headsetHoldHandler.postDelayed(headsetHoldOver, HEADSET_HOLD_MS);
+            return;
+        }
+        if (doffHoldsStop("the activity stopped")) {
+            return;
+        }
+        // Ending however it ends, so no hold outlives it
+        if (doffHold != null) {
+            doffHold.cancel();
+        }
 
         SpinnerDialog.closeDialogs(this);
         Dialog.closeDialogs();
@@ -2315,6 +2522,11 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             updatePipAutoEnter();
 
             controllerHandler.stop();
+            // A Ctrl or Alt still lit on the in world keyboard is held on the
+            // host, and would stay held there
+            if (vrKeyboard != null) {
+                vrKeyboard.releaseAll();
+            }
 
             // Update GameManager state to indicate we're no longer in game
             UiHelper.notifyStreamEnded(this);
@@ -2399,7 +2611,15 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 if (!displayedFailureDialog) {
                     displayedFailureDialog = true;
                     LimeLog.severe("Connection terminated: " + errorCode);
-                    stopConnection();
+                    // A VR session never shows the dialog's window, so it says
+                    // the same on its own toast, and the stream is only
+                    // stopped once that has been up long enough to read,
+                    // since stopping it ends the session
+                    final boolean vrNotice = errorCode != MoonBridge.ML_ERROR_GRACEFUL_TERMINATION
+                            && vrSessionUp();
+                    if (!vrNotice) {
+                        stopConnection();
+                    }
 
                     // Display the error dialog if it was an unexpected termination.
                     // Otherwise, just finish the activity immediately.
@@ -2449,8 +2669,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                                     MoonBridge.stringifyPortFlags(portFlags, "\n");
                         }
 
-                        Dialog.displayDialog(Game.this, getResources().getString(R.string.conn_terminated_title),
-                                message, true);
+                        final String title = getResources().getString(R.string.conn_terminated_title);
+                        final String dialogMessage = message;
+                        if (vrNotice) {
+                            showVrNotice(title, message.replaceAll("\\s*\\n+\\s*", " ").trim());
+                            FileLog.event("connection error said on the VR toast");
+                            new Handler().postDelayed(new Runnable() {
+                                @Override
+                                public void run() {
+                                    stopConnection();
+                                    Dialog.displayDialog(Game.this, title, dialogMessage, true);
+                                }
+                            }, VR_NOTICE_MS);
+                        }
+                        else {
+                            Dialog.displayDialog(Game.this, title, dialogMessage, true);
+                        }
                     }
                     else {
                         finish();
@@ -2606,8 +2840,9 @@ public class Game extends Activity implements SurfaceHolder.Callback,
             UiHelper.notifyStreamConnecting(Game.this);
 
             decoderRenderer.setRenderTarget(holder);
-            conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx),
-                    decoderRenderer, Game.this);
+            audioRenderer = new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx,
+                    prefConfig.vrVirtualSurround, this::vrHeadYaw);
+            conn.start(audioRenderer, decoderRenderer, Game.this);
         }
     }
 
@@ -2616,6 +2851,10 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         float desiredFrameRate;
 
         surfaceCreated = true;
+        // The window back counts as the activity back for a held stream
+        if (doffHold != null) {
+            doffHold.activityStarted();
+        }
 
         // Android will pick the lowest matching refresh rate for a given frame rate value, so we want
         // to report the true FPS value if refresh rate reduction is enabled. We also report the true
@@ -2659,6 +2898,17 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         }
 
         if (attemptedConnection) {
+            // The stream goes into the VR session rather than this surface,
+            // so losing it while the headset holds the launch costs nothing
+            if (waitingForHeadset()) {
+                FileLog.event("window surface gone before the VR session was focused, stream kept");
+                return;
+            }
+            if (doffHoldsStop("the window surface went")) {
+                FileLog.event("window surface gone with the stream held for the headset, stream kept");
+                return;
+            }
+
             // Let the decoder know immediately that the surface is gone
             decoderRenderer.prepareForStop();
 
@@ -2756,7 +3006,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     // straight onto an absolute mouse position the host already understands.
     @Override
     public void onVrPointerMove(float u, float v) {
-        if (!connected) {
+        if (!connected || vrInputHeld) {
             return;
         }
 
@@ -2785,9 +3035,25 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 (short)prefConfig.width, (short)prefConfig.height);
     }
 
+    // Head aim's turn, and the pointer's nudges while it is on, as relative
+    // motion, which is what a game's look control reads. The host cursor is no
+    // longer where the pointer last put it, so the next absolute move after
+    // head aim goes off is always sent, and a click here anchors nothing.
+    @Override
+    public void onVrMouseMove(int dx, int dy) {
+        if (!connected || vrInputHeld) {
+            return;
+        }
+        lastVrPointerX = -1;
+        lastVrPointerY = -1;
+        conn.sendMouseMove((short)Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, dx)),
+                (short)Math.max(Short.MIN_VALUE, Math.min(Short.MAX_VALUE, dy)));
+    }
+
     @Override
     public void onVrButton(int button, boolean down) {
-        if (!connected) {
+        // A release still goes while the stream is held, so nothing sticks
+        if (!connected || (down && vrInputHeld)) {
             return;
         }
 
@@ -2847,42 +3113,68 @@ public class Game extends Activity implements SurfaceHolder.Callback,
 
     @Override
     public void onVrScroll(int clicks) {
-        if (!connected) {
+        if (!connected || vrInputHeld) {
             return;
         }
         conn.sendMouseHighResScroll((short)(clicks * 120));
+    }
+
+    // Gamepad mode's pad, off the renderer's frame loop. The controller
+    // handler keeps every pad on the main thread, so this one goes there too,
+    // in the order it came. Not held back for the connection: a pad plugged
+    // in before it is up is heard of with its first state, as a real one is.
+    @Override
+    public void onVrGamepadPlugged(final boolean plugged) {
+        final ControllerHandler handler = controllerHandler;
+        if (handler == null) {
+            return;
+        }
+        runOnUiThread(() -> {
+            if (plugged) {
+                handler.attachXrPad();
+            }
+            else {
+                handler.detachXrPad();
+            }
+        });
+    }
+
+    @Override
+    public void onVrGamepadState(final int buttons, final int leftTrigger, final int rightTrigger,
+                                 final int leftX, final int leftY, final int rightX,
+                                 final int rightY) {
+        final ControllerHandler handler = controllerHandler;
+        if (handler == null) {
+            return;
+        }
+        runOnUiThread(() -> handler.reportXrPad(buttons, (byte)leftTrigger, (byte)rightTrigger,
+                (short)leftX, (short)leftY, (short)rightX, (short)rightY));
     }
 
     /**
      * A key pressed on the in world keyboard. The code is Unicode with the
      * shift already applied, and the digits, the capitals and the four control
      * codes happen to share their values with the Windows virtual keys, so
-     * those go as key events and everything else goes as text, which is what
-     * this app already does for characters it cannot map.
+     * those go as key events, as do the Fn sheet's keys, and everything else
+     * goes as text, which is what this app already does for characters it
+     * cannot map. The modifiers are the Ctrl, Alt and Win held with it.
      */
     @Override
-    public void onVrKey(int code) {
+    public void onVrKey(int code, int modifiers) {
+        if (!connected || vrInputHeld) {
+            return;
+        }
+        vrKeyboard.type(code, modifiers);
+    }
+
+    // Ctrl, Alt and Win go down on the host as they light on the keyboard and
+    // come up as they go out
+    @Override
+    public void onVrModifiers(int modifiers) {
         if (!connected) {
             return;
         }
-
-        if (code == 8 || code == 9 || code == 13 || code == 32
-                || (code >= '0' && code <= '9')) {
-            sendVrKeyPress((short)code, (byte)0);
-        }
-        else if (code >= 'a' && code <= 'z') {
-            sendVrKeyPress((short)(code - 32), (byte)0);
-        }
-        else if (code >= 'A' && code <= 'Z') {
-            // Shift is held around the letter and named in the modifier as
-            // well, so hosts that read either one see the capital
-            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_DOWN, (byte)0, (byte)0);
-            sendVrKeyPress((short)code, KeyboardPacket.MODIFIER_SHIFT);
-            conn.sendKeyboardInput(VK_SHIFT, KeyboardPacket.KEY_UP, (byte)0, (byte)0);
-        }
-        else {
-            conn.sendUtf8Text(String.valueOf((char)code));
-        }
+        vrKeyboard.hold(modifiers);
     }
 
     /**
@@ -2894,7 +3186,22 @@ public class Game extends Activity implements SurfaceHolder.Callback,
      * it is, so nothing has to move there.
      */
     @Override
-    public void onVrUnavailable() {
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+                                           int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        Boolean gazeAllowed = EyeTrackingPermission.onResult(this, requestCode, permissions,
+                grantResults);
+        if (gazeAllowed != null && decoderRenderer != null) {
+            // A renderer not started yet reads the answer for itself
+            XrRenderer xrRenderer = decoderRenderer.getXrRenderer();
+            if (xrRenderer != null) {
+                xrRenderer.setGazeAllowed(gazeAllowed);
+            }
+        }
+    }
+
+    @Override
+    public void onVrUnavailable(final XrStartFailure failure) {
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -2909,6 +3216,7 @@ public class Game extends Activity implements SurfaceHolder.Callback,
                 flat.setClass(Game.this, Game.class);
                 flat.removeCategory("com.oculus.intent.category.VR");
                 flat.putExtra(EXTRA_VR_UNAVAILABLE, true);
+                flat.putExtra(EXTRA_VR_REASON, vrFailureReason(failure));
                 startActivity(flat);
 
                 // The flat activity inherits the trip back to the PC list, so
@@ -2920,16 +3228,63 @@ public class Game extends Activity implements SurfaceHolder.Callback,
     }
 
     /**
+     * The runtime ended the VR session under a running stream, so the host
+     * would go on encoding to a headset showing nothing. It ends the way the
+     * exit button ends it: finishing stops the stream on the way out.
+     */
+    @Override
+    public void onVrSessionEnded(final String reason) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (isFinishing()) {
+                    return;
+                }
+                FileLog.event("VR session ended by the runtime (" + reason + "), ending the stream");
+                finish();
+            }
+        });
+    }
+
+    /**
+     * The session went to stopping or idle after its first focus, which a
+     * removed headset does where the activity is not stopped for it as well.
+     * Held like a stop, and with the setting off left as it always was.
+     */
+    @Override
+    public void onVrSessionAway() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (doffHold != null && doffMayHold()) {
+                    doffHold.sessionAway();
+                }
+            }
+        });
+    }
+
+    // Focused again, which with the activity started ends a hold
+    @Override
+    public void onVrSessionBack() {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                if (doffHold != null) {
+                    doffHold.sessionBack();
+                }
+            }
+        });
+    }
+
+    /**
      * The exit button in the session was confirmed. Finishing is the same way
      * out the quit shortcut takes, and it carries the teardown and the trip
      * back to the PC list with it, so there is nothing to disconnect here.
+     * Connected or not: after an error the session can still be up showing
+     * it, and the button has to leave it.
      */
     @Override
     public void onVrExit() {
-        if (!connected) {
-            return;
-        }
-
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -2938,13 +3293,71 @@ public class Game extends Activity implements SurfaceHolder.Callback,
         });
     }
 
-    private void sendVrKeyPress(short keyMap, byte modifier) {
-        conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_DOWN, modifier, (byte)0);
-        conn.sendKeyboardInput(keyMap, KeyboardPacket.KEY_UP, modifier, (byte)0);
+    // The one line a failed VR start gets on the flat panel
+    private String vrFailureReason(XrStartFailure failure) {
+        String arg = failure.reasonArg();
+        return arg != null ? getResources().getString(failure.reasonRes(), arg)
+                : getResources().getString(failure.reasonRes());
+    }
+
+    // Words on the notification overlay for a while, put back as they were
+    // after unless the connection's own warning has taken the overlay since
+    private void showFlatNotice(final String text, long ms) {
+        notificationOverlayView.setText(text);
+        requestedNotificationOverlayVisibility = View.VISIBLE;
+        if (!isHidingOverlays) {
+            notificationOverlayView.setVisibility(View.VISIBLE);
+        }
+        new Handler().postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (!text.contentEquals(notificationOverlayView.getText())) {
+                    return;
+                }
+                requestedNotificationOverlayVisibility = View.GONE;
+                notificationOverlayView.setVisibility(View.GONE);
+            }
+        }, ms);
+    }
+
+    // Whether a VR session is up to say something in
+    private boolean vrSessionUp() {
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        return renderer != null && renderer.getXrRenderer() != null;
+    }
+
+    // Says something on the toast inside the VR session, where a 2d toast or
+    // dialog is never seen. Nothing happens without a session.
+    private void showVrNotice(String text, String more) {
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        if (xrRenderer != null) {
+            xrRenderer.showNotice(text, more);
+        }
+    }
+
+    // For the virtual surround, on the audio thread once a block. A flat
+    // stream has no VR session and no head to turn.
+    private float vrHeadYaw() {
+        MediaCodecDecoderRenderer renderer = decoderRenderer;
+        XrRenderer xrRenderer = renderer != null ? renderer.getXrRenderer() : null;
+        return xrRenderer != null ? xrRenderer.getHeadYaw() : 0.0f;
+    }
+
+    // The audio track's underruns for the stats, nothing where it cannot say
+    private String audioStatsLine() {
+        AndroidAudioRenderer audio = audioRenderer;
+        int underruns = audio != null ? audio.getUnderrunCount() : -1;
+        return underruns >= 0
+                ? "\n" + getString(R.string.perf_overlay_audio_underruns, underruns) : "";
     }
 
     @Override
-    public void onPerfUpdate(final String text) {
+    public void onPerfUpdate(final String decoderText) {
+        final String text = decoderText + audioStatsLine();
+        // Also goes to logcat so stats can be read over adb
+        LimeLog.info("Perf overlay: " + text.replace('\n', ';'));
+
         // In VR the activity window is not displayed, so the stats go to the
         // renderer, which draws them as a layer inside the session
         XrRenderer xrRenderer = decoderRenderer != null ? decoderRenderer.getXrRenderer() : null;

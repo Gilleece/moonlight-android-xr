@@ -57,6 +57,58 @@ Vec3 quatRotate(XrQuaternionf q, Vec3 v) {
     return r;
 }
 
+XrPosef poseInFrame(XrPosef frame, XrPosef pose) {
+    XrQuaternionf undo = quatConj(frame.orientation);
+    Vec3 d = { pose.position.x - frame.position.x, pose.position.y - frame.position.y,
+               pose.position.z - frame.position.z };
+    Vec3 r = quatRotate(undo, d);
+    XrPosef out;
+    out.orientation = quatNorm(quatMul(undo, pose.orientation));
+    out.position.x = r.x;
+    out.position.y = r.y;
+    out.position.z = r.z;
+    return out;
+}
+
+// Where a screen goes when the headset is recentred: round the vertical through
+// the origin until it is straight ahead, square to the viewer. A turn about
+// that axis leaves its distance and height alone, and taking the yaw off the
+// front of its orientation leaves the tilt and roll inside it alone too.
+XrPosef poseRecentred(XrPosef screen) {
+    Vec3 back = { 0.0f, 0.0f, 1.0f };
+    Vec3 up = { 0.0f, 1.0f, 0.0f };
+    Vec3 fwd = quatRotate(screen.orientation, back);
+    // Facing straight up or down has no yaw to take off, and atan2 says 0
+    float yaw = atan2f(fwd.x, fwd.z);
+    XrPosef out;
+    out.orientation = quatNorm(quatMul(axisAngleQuat(up, -yaw), screen.orientation));
+    out.position.x = 0.0f;
+    out.position.y = screen.position.y;
+    out.position.z = -sqrtf(screen.position.x * screen.position.x
+                            + screen.position.z * screen.position.z);
+    return out;
+}
+
+// The virtual surround turns its speakers by this. Forward is -z, and a
+// positive turn about +y swings it toward -x, which is the viewer's left, so a
+// facing's heading is atan2(-x, -z). Only the heading is compared, so looking
+// up or tilting the head changes nothing.
+float yawBetween(XrQuaternionf head, XrQuaternionf screen) {
+    Vec3 forward = { 0.0f, 0.0f, -1.0f };
+    Vec3 h = quatRotate(head, forward);
+    Vec3 s = quatRotate(screen, forward);
+    float yaw = atan2f(-h.x, -h.z) - atan2f(-s.x, -s.z);
+    // Two headings either side of straight behind differ by more than half a
+    // turn, so take the short way round
+    while (yaw > (float)M_PI) {
+        yaw -= 2.0f * (float)M_PI;
+    }
+    while (yaw <= -(float)M_PI) {
+        yaw += 2.0f * (float)M_PI;
+    }
+    return yaw;
+}
+
 static float euroAlpha(float cutoff, float dt) {
     float tau = 1.0f / (2.0f * (float)M_PI * cutoff);
     return 1.0f / (1.0f + tau / dt);
@@ -222,6 +274,21 @@ void viewFromPose(float* m, XrPosef pose) {
     m[12] = -t.x; m[13] = -t.y; m[14] = -t.z; m[15] = 1.0f;
 }
 
+float cylinderAngle(float width, float radius) {
+    if (radius <= 1e-6f) {
+        return CYLINDER_MAX_ANGLE;
+    }
+    float angle = width / radius;
+    return angle < CYLINDER_MAX_ANGLE ? angle : CYLINDER_MAX_ANGLE;
+}
+
+float cylinderFit(float width, float radius) {
+    if (width <= 0.0f || radius * CYLINDER_MAX_ANGLE >= width) {
+        return 1.0f;
+    }
+    return radius * CYLINDER_MAX_ANGLE / width;
+}
+
 // Where the aim ray lands on the screen, in 0..1 texture coordinates with v
 // running down the picture. Handles the cylinder as well, since the surface
 // bulges toward the viewer and a flat approximation is wrong at the edges by
@@ -262,9 +329,8 @@ int screenProject(XrPosef aim, XrPosef screen, float width, float height,
         float pz = o.z + t * d.z;
         // Angle off the centre of the arc, which faces -z from the axis
         float angle = atan2f(px, cz - pz);
-        float centralAngle = width / radius;
-        hx = angle / centralAngle;
-        hy = py / height;
+        hx = angle / cylinderAngle(width, radius);
+        hy = py / (height * cylinderFit(width, radius));
     }
     else {
         // The quad faces +z in its own frame, so the viewer has to be in front
@@ -291,7 +357,8 @@ Vec3 screenPoint(float u, float v, XrPosef screen, float width, float height,
     Vec3 local;
     local.y = (0.5f - v) * height;
     if (curved) {
-        float angle = (u - 0.5f) * (width / radius);
+        float angle = (u - 0.5f) * cylinderAngle(width, radius);
+        local.y *= cylinderFit(width, radius);
         local.x = radius * sinf(angle);
         local.z = radius - radius * cosf(angle);
     }

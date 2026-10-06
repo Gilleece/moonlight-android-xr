@@ -38,20 +38,22 @@ GLuint compileShader(GLenum type, const char* src) {
 // Builds the hardcoded depth map for the stereo test path. Depth convention:
 // 0 far, 1 near, 0.5 sits exactly on the screen plane (zero disparity)
 static int fillSyntheticDepth(XrCtx* ctx) {
-    const int n = DEPTH_TEX_SIZE;
+    const int w = ctx->depthTexW;
+    const int h = ctx->depthTexH;
     // RGBA throughout: depth in alpha, guide colour in rgb. The synthetic
     // patterns have no guide, so it stays neutral and the upsample falls back
     // to a plain blur on them.
-    unsigned char* buf = malloc((size_t)n * n * 4);
+    unsigned char* buf = malloc((size_t)w * h * 4);
     if (buf == NULL) {
         LOGE("no memory for the depth texture");
         return 0;
     }
 
-    for (int y = 0; y < n; y++) {
-        for (int x = 0; x < n; x++) {
-            float fx = x / (float)(n - 1);
-            float fy = y / (float)(n - 1);
+    // In map uv, so every pattern covers the frame the same way at any size
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            float fx = x / (float)(w - 1);
+            float fy = y / (float)(h - 1);
             float d;
             switch (ctx->stereoMode) {
                 case DEPTH_MODE_RAMP:
@@ -75,7 +77,7 @@ static int fillSyntheticDepth(XrCtx* ctx) {
             }
             if (d < 0.0f) d = 0.0f;
             if (d > 1.0f) d = 1.0f;
-            unsigned char* px = buf + ((size_t)y * n + x) * 4;
+            unsigned char* px = buf + ((size_t)y * w + x) * 4;
             px[0] = px[1] = px[2] = 128;
             px[3] = (unsigned char)(d * 255.0f + 0.5f);
         }
@@ -83,7 +85,7 @@ static int fillSyntheticDepth(XrCtx* ctx) {
 
     for (int i = 0; i < DEPTH_TEX_COUNT; i++) {
         glBindTexture(GL_TEXTURE_2D, ctx->depthTextures[i]);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, n, n, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, buf);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -120,6 +122,16 @@ int linkProgram(GLuint* out, const char* fragmentSrc, const char* what) {
     return 1;
 }
 
+// The picture grade into a program that carries GRADE_GLSL. With it off only
+// the switch goes in, and the shader never reads the rest.
+void setGradeUniforms(XrCtx* ctx, GLint onUniform, GLint gradeUniform, int on) {
+    glUniform1f(onUniform, on ? 1.0f : 0.0f);
+    if (on) {
+        glUniform4f(gradeUniform, ctx->grade.offset, ctx->grade.contrast, ctx->grade.exponent,
+                    ctx->grade.saturation);
+    }
+}
+
 // Quarter resolution is enough: at 1920x1080 the measured edge width was the
 // same 5 px, so the extra four times the pixels bought nothing.
 static int initUpsample(XrCtx* ctx) {
@@ -135,6 +147,9 @@ static int initUpsample(XrCtx* ctx) {
     glUseProgram(ctx->upsampleProgram);
     glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_texture"), 0);
     glUniform1i(glGetUniformLocation(ctx->upsampleProgram, "u_depth"), 1);
+    // The map's size is the session's, so it is set once here
+    glUniform2f(glGetUniformLocation(ctx->upsampleProgram, "u_depthSize"),
+                (float)ctx->depthTexW, (float)ctx->depthTexH);
 
     glGenTextures(1, &ctx->upsampleTexture);
     glBindTexture(GL_TEXTURE_2D, ctx->upsampleTexture);
@@ -223,6 +238,11 @@ int initGl(XrCtx* ctx) {
     ctx->dispTexelsUniform = glGetUniformLocation(ctx->program, "u_dispTexels");
     ctx->lowResWidthUniform = glGetUniformLocation(ctx->program, "u_lowResWidth");
     ctx->frameWidthUniform = glGetUniformLocation(ctx->program, "u_frameWidth");
+    ctx->srcInsetUniform = glGetUniformLocation(ctx->program, "u_srcInset");
+    ctx->edgeFadeUniform = glGetUniformLocation(ctx->program, "u_edgeFade");
+    ctx->depthCubicUniform = glGetUniformLocation(ctx->program, "u_depthCubic");
+    ctx->gradeOnUniform = glGetUniformLocation(ctx->program, "u_gradeOn");
+    ctx->gradeUniform = glGetUniformLocation(ctx->program, "u_grade");
 
     // Sampler units are fixed: color on 0, depth on 1
     glUseProgram(ctx->program);
@@ -248,6 +268,22 @@ int initGl(XrCtx* ctx) {
 
     const char* glExts = (const char*)glGetString(GL_EXTENSIONS);
     ctx->srgbWriteControl = glExts != NULL && strstr(glExts, "GL_EXT_sRGB_write_control") != NULL;
+
+    // What a room's compressed atlas needs, and what it can use. Both are
+    // asked here once so a room picked mid session knows at once.
+    ctx->astcSupported = glExts != NULL
+            && strstr(glExts, "GL_KHR_texture_compression_astc_ldr") != NULL;
+    ctx->roomAnisotropy = 1.0f;
+    GLfloat anisoMost = 1.0f;
+    if (glExts != NULL && strstr(glExts, "GL_EXT_texture_filter_anisotropic") != NULL) {
+        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &anisoMost);
+        if (anisoMost > 1.0f) {
+            ctx->roomAnisotropy = anisoMost < ROOM_ANISOTROPY_MAX ? anisoMost
+                                                                  : ROOM_ANISOTROPY_MAX;
+        }
+    }
+    LOGEV("room atlas support: ASTC LDR %s, anisotropy %.0f of %.0f",
+          ctx->astcSupported ? "yes" : "no", ctx->roomAnisotropy, anisoMost);
 
     if (glExts != NULL && strstr(glExts, "GL_EXT_disjoint_timer_query") != NULL) {
         pfnGenQueries = (PFNGENQUERIESEXT)eglGetProcAddress("glGenQueriesEXT");
@@ -342,13 +378,19 @@ static void runOffsetSearch(XrCtx* ctx, float separation) {
 }
 
 void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
-    // Picks up whatever the depth thread most recently finished, once per
+    // Picks up whatever the stage thread most recently finished, once per
     // frame and before anything below samples a depth slot. The acquire is
     // what makes the fence stored alongside the index visible here; the wait
     // on it belongs to the site that samples the texture.
     ctx->depthReadIndex = atomic_load_explicit(&ctx->depthStagedIndex, memory_order_acquire);
+    ctx->warpRedraw = 0;
 
-    int upsampling = ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
+    // Both eyes warped, unless the 3D is switched off for the session or has
+    // only just come back on and is waiting for a fresh map. Then the frame
+    // is drawn once, flat, at zero disparity, and none of the depth passes
+    // run.
+    int warping = ctx->stereoMode != DEPTH_MODE_OFF && ctx->stereoLive && !ctx->stereoWaiting;
+    int upsampling = warping && ctx->stereoMode == DEPTH_MODE_MODEL && ctx->upsampleEnabled;
     int occluding = upsampling && ctx->occlusionEnabled && separation > 0.0f;
 
     // Capture frames do readbacks and file writes inside what would be the
@@ -385,11 +427,19 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     // draw, which now follows the video, so the room is lit from this frame's
     // colour rather than the last one's.
     int sampled = glowOn || roomOn;
+    if (!sampled) {
+        // Kept from whatever picture was up when it last ran, so the next
+        // sample lands whole rather than easing in from that one
+        ctx->ambiSeeded = 0;
+    }
     if (sampled) {
         runFrameColorSample(ctx, texMatrix);
     }
     if (glowOn) {
         runGlowRender(ctx);
+    }
+    else {
+        ctx->glowDrawnOn = 0;
     }
 
     uint32_t imageIndex = 0;
@@ -422,7 +472,7 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_EXTERNAL_OES, ctx->oesTexture);
     glActiveTexture(GL_TEXTURE1);
-    // Either the raw 256x256 map or the edge aware upsample of it. Both carry
+    // Either the raw map or the edge aware upsample of it. Both carry
     // depth in alpha, so the warp shader does not care which it got. With the
     // upsample on, runUpsample already waited on this slot and this is a no-op.
     waitForDepthSlot(ctx);
@@ -437,15 +487,25 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
     glUniform1f(ctx->lowResWidthUniform, (float)ctx->upsampleWidth);
     glUniform1f(ctx->frameWidthUniform, (float)ctx->videoWidth);
 
+    // Mono is a single full width draw with zero disparity, which with the 3D
+    // switched off lands in the left half of the double wide chain. Stereo
+    // draws the left eye into the left half and the right eye into the right
+    // half, with opposite disparity signs
+    int eyes = warping ? 2 : 1;
+
+    // Half a texel of the frame, which the shifted sample is held inside, or
+    // with the clamp off a whole frame outside either edge, so nothing is held
+    glUniform1f(ctx->srcInsetUniform,
+                ctx->srcInsetOn ? 0.5f / (float)ctx->videoWidth : -1.0f);
+    glUniform1f(ctx->edgeFadeUniform, (float)ctx->edgeFadePx / (float)ctx->videoWidth);
+    // Mono never uses the depth it reads, so it keeps the single fetch
+    glUniform1f(ctx->depthCubicUniform, ctx->depthCubic && eyes == 2 ? 1.0f : 0.0f);
+    setGradeUniforms(ctx, ctx->gradeOnUniform, ctx->gradeUniform, ctx->gradeOn);
+
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, VERTEX_DATA + 2);
     glEnableVertexAttribArray(1);
-
-    // Mono is a single full width draw with zero disparity. Stereo draws the
-    // left eye into the left half and the right eye into the right half,
-    // with opposite disparity signs
-    int eyes = ctx->stereoMode != DEPTH_MODE_OFF ? 2 : 1;
 
     // The unwarped frame, drawn first so the real eye passes overwrite it and
     // the submitted frame is unaffected. Readback and file writes stall the
@@ -459,7 +519,10 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
             glUniform1f(ctx->disparityUniform, 0.0f);
             glUniform1f(ctx->barTestUniform, 0.0f);
             glUniform3f(ctx->tintUniform, 1.0f, 1.0f, 1.0f);
+            // The frame as it arrived, which is what the depth passes saw
+            glUniform1f(ctx->gradeOnUniform, 0.0f);
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glUniform1f(ctx->gradeOnUniform, ctx->gradeOn ? 1.0f : 0.0f);
             glReadPixels(0, 0, ctx->videoWidth, ctx->videoHeight, GL_RGBA, GL_UNSIGNED_BYTE,
                          captureBuf);
             writeCapture(ctx, "source", captureBuf, captureBytes);
@@ -492,14 +555,15 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     }
 
-    // Measure where the bar actually landed in each half. Positive shift
-    // means content moved right in that eye
+    // Measure where the bar actually landed in each half drawn. Positive
+    // shift means content moved right in that eye. Flat, only the left half
+    // is drawn, and both eyes are shown it.
     if (ctx->stereoMode == DEPTH_MODE_SHIFTTEST && ctx->barTestFramesLogged < 3) {
-        int rowWidth = ctx->videoWidth * 2;
+        int rowWidth = ctx->videoWidth * eyes;
         unsigned char* row = malloc((size_t)rowWidth * 4);
         if (row != NULL) {
             glReadPixels(0, ctx->videoHeight / 2, rowWidth, 1, GL_RGBA, GL_UNSIGNED_BYTE, row);
-            for (int half = 0; half < 2; half++) {
+            for (int half = 0; half < eyes; half++) {
                 long sum = 0, count = 0;
                 for (int x = 0; x < ctx->videoWidth; x++) {
                     if (row[(size_t)((half * ctx->videoWidth) + x) * 4] > 128) {
@@ -509,8 +573,9 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                 }
                 if (count > 0) {
                     double center = (double)sum / (double)count / (double)ctx->videoWidth;
-                    LOGI("bar test: half %d (%s eye) bar center %.4f, shift %+.4f",
-                         half, half == 0 ? "left" : "right", center, center - 0.5);
+                    LOGI("bar test: half %d (%s) bar center %.4f, shift %+.4f",
+                         half, eyes == 1 ? "flat, both eyes" : (half == 0 ? "left eye" : "right eye"),
+                         center, center - 0.5);
                 }
                 else {
                     LOGI("bar test: half %d no bar found", half);
@@ -547,12 +612,14 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
             free(rgba);
             free(alpha);
         }
-        // Best effort, the depth thread may be part way through refilling
-        // these. The depth texture above is the exact one this frame sampled.
-        writeCapture(ctx, "modelinput", ctx->modelInput,
-                     (size_t)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * 3 * sizeof(float));
-        writeCapture(ctx, "depthraw", ctx->modelOutput,
-                     (size_t)DEPTH_TEX_SIZE * DEPTH_TEX_SIZE * sizeof(float));
+        // Best effort, from the pair the live map was made from, which the
+        // depth threads may be part way through refilling. The depth texture
+        // above is the exact one this frame sampled.
+        int pair = atomic_load_explicit(&ctx->depthLastPair, memory_order_relaxed);
+        writeCapture(ctx, "modelinput", ctx->modelInput[pair],
+                     (size_t)ctx->depthTexW * ctx->depthTexH * 3 * sizeof(float));
+        writeCapture(ctx, "depthraw", ctx->modelOutput[pair],
+                     (size_t)ctx->depthTexW * ctx->depthTexH * sizeof(float));
         ctx->captureRequested = 0;
     }
 
@@ -560,6 +627,8 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
 
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(ctx->swapchain, &releaseInfo);
+    // What the layers show from here on
+    ctx->drawnEyes = eyes;
 
     // Close this frame's query and collect whichever earlier one has landed.
     // Never blocks: an unfinished query is simply left for a later frame.
@@ -586,12 +655,13 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                 // which the room render provokes constantly, and gating on it
                 // starved the stats to nothing while the values stayed sane.
                 if (elapsed > 0 && elapsed < 50000000ull) {
-                    ctx->gpuTotalNs += (long)elapsed;
+                    ctx->gpuTotalNs += (int64_t)elapsed;
                     ctx->gpuSamples++;
-                    ctx->overlayGpuTotalNs += (long)elapsed;
+                    ctx->overlayGpuTotalNs += (int64_t)elapsed;
                     ctx->overlayGpuSamples++;
-                    if ((long)elapsed > ctx->gpuMaxNs) {
-                        ctx->gpuMaxNs = (long)elapsed;
+                    rateBudgetGpu(&ctx->rateBudget, (int64_t)elapsed);
+                    if ((int64_t)elapsed > ctx->gpuMaxNs) {
+                        ctx->gpuMaxNs = (int64_t)elapsed;
                     }
                 }
                 else {
@@ -657,8 +727,9 @@ void renderVideoFrame(XrCtx* ctx, const float* texMatrix, float separation) {
                 ctx->roomTimerPendingFrames[roomOther] = 0;
                 // Same plausibility filter as the warp's, for the same reason
                 if (elapsed > 0 && elapsed < 50000000ull) {
-                    ctx->roomGpuTotalNs += (long)elapsed;
+                    ctx->roomGpuTotalNs += (int64_t)elapsed;
                     ctx->roomGpuSamples++;
+                    rateBudgetRoom(&ctx->rateBudget, (int64_t)elapsed);
                 }
                 else {
                     ctx->roomGpuDropped++;

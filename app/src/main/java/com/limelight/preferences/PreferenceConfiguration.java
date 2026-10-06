@@ -8,6 +8,8 @@ import android.preference.PreferenceManager;
 import android.view.Display;
 
 import com.limelight.FileLog;
+import com.limelight.binding.video.DepthPresets;
+import com.limelight.binding.video.MidasDepthSource;
 import com.limelight.binding.video.XrShared;
 import com.limelight.nvstream.jni.MoonBridge;
 
@@ -36,6 +38,9 @@ public class PreferenceConfiguration {
     private static final String SOPS_PREF_STRING = "checkbox_enable_sops";
     private static final String DISABLE_TOASTS_PREF_STRING = "checkbox_disable_warnings";
     private static final String HOST_AUDIO_PREF_STRING = "checkbox_host_audio";
+    static final String AUTO_DESKTOP_PREF_STRING = "checkbox_auto_launch_desktop";
+    // Once a day, ask GitHub for the latest release, see UpdateCheck
+    public static final String CHECK_UPDATES_PREF_STRING = "checkbox_check_updates";
     private static final String DEADZONE_PREF_STRING = "seekbar_deadzone";
     private static final String OSC_OPACITY_PREF_STRING = "seekbar_osc_opacity";
     private static final String LANGUAGE_PREF_STRING = "list_languages";
@@ -58,13 +63,38 @@ public class PreferenceConfiguration {
     private static final String VR_SCREEN_SIZE_PREF_STRING = "seekbar_vr_screen_size";
     private static final String VR_CURVATURE_PREF_STRING = "seekbar_vr_curvature";
     public static final String VR_DEPTH_SOURCE_PREF_STRING = "list_vr_depth_source";
+    // The two values of that list that name a depth model rather than a test
+    // pattern. MiDaS keeps the plain "model" it has always been stored as.
+    public static final String VR_DEPTH_SOURCE_ZIPDEPTH = "zipdepth";
+    public static final String VR_DEPTH_SOURCE_MIDAS = "model";
     public static final String VR_ENV_RES_PREF_STRING = "list_vr_env_res";
     public static final String VR_SHARPENING_PREF_STRING = "list_vr_sharpening";
+    public static final String VR_SUPERSAMPLING_PREF_STRING = "list_vr_supersampling";
     private static final String VR_EYE_SWAP_PREF_STRING = "checkbox_vr_eye_swap";
     public static final String VR_PASSTHROUGH_PREF_STRING = "checkbox_vr_passthrough";
     private static final String VR_POINTER_PREF_STRING = "checkbox_vr_pointer";
     private static final String VR_GAZE_PREF_STRING = "checkbox_vr_gaze";
     private static final String VR_HAND_TRACKING_PREF_STRING = "checkbox_vr_hand_tracking";
+    // Set once the hand lock hint in the session is put away with "Don't show
+    // this again". Not a row in the settings, only ever written from the hint.
+    static final String VR_HAND_LOCK_HINT_SEEN_PREF_STRING = "checkbox_vr_hand_lock_hint_seen";
+    public static final String VR_POINTER_SLEEP_PREF_STRING = "checkbox_vr_pointer_sleep";
+    public static final String VR_CLICK_SOUND_PREF_STRING = "checkbox_vr_click_sound";
+    public static final String VR_DOFF_GRACE_PREF_STRING = "checkbox_vr_doff_grace";
+    public static final String VR_SHOW_RAY_PREF_STRING = "checkbox_vr_show_ray";
+    public static final String VR_CONTROLLER_MODEL_PREF_STRING = "checkbox_vr_controller_model";
+    // Head aim, and its pixels a degree and dead zone in degrees a second, in
+    // the whole units of the HEAD_AIM_ lanes in XrShared
+    public static final String VR_HEAD_AIM_PREF_STRING = "checkbox_vr_head_aim";
+    public static final String VR_HEAD_AIM_SENSITIVITY_PREF_STRING = "seekbar_vr_head_aim_sensitivity";
+    public static final String VR_HEAD_AIM_DEADZONE_PREF_STRING = "seekbar_vr_head_aim_deadzone";
+    // The shortcut on the controllers that switches gamepad mode inside a
+    // session, and the three values of that list, in the PAD_SHORTCUT_ order.
+    // The mode itself is never stored: every session starts as the pointer.
+    public static final String VR_GAMEPAD_TOGGLE_PREF_STRING = "list_vr_gamepad_toggle";
+    public static final String VR_GAMEPAD_TOGGLE_MENU_GRIP = "menu_grip";
+    public static final String VR_GAMEPAD_TOGGLE_STICKS = "sticks";
+    public static final String VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS = "triggers_grips";
     // Not a setting, this is where a screen moved with the controllers is kept
     public static final String VR_SCREEN_POSE_PREF_STRING = "vr_screen_pose";
     // Nor is this: the cell the environment grid was last left on. Legacy, and
@@ -74,23 +104,49 @@ public class PreferenceConfiguration {
     // cell is only where it currently sits in the grid, so rearranging the grid
     // cannot scramble what anyone had picked.
     public static final String VR_ENVIRONMENT_ID_PREF_STRING = "vr_environment_id";
+    // The 2D settings' list for that same choice, which keeps nothing under its
+    // own key and reads and writes the id above, so it and the picker agree
+    public static final String VR_ENVIRONMENT_LIST_PREF_STRING = "list_vr_environment";
+    // 2 and 3, and everything from 100 up, named environments that have since
+    // gone (see EnvironmentIds) and are never handed out again
     public static final int VR_ENV_PASSTHROUGH = 0;
     public static final int VR_ENV_VOID = 1;
-    public static final int VR_ENV_MINIMAL_ROOM = 2;
-    public static final int VR_ENV_PSX_CINEMA = 3;
-    // The 360 photos start here, numbered by their order in the assets folder,
-    // well clear of the rooms so both lists can grow
-    public static final int VR_ENV_FIRST_PHOTO = 100;
+    public static final int VR_ENV_HOME_THEATER = 4;
+    public static final int VR_ENV_GRAND_CINEMA = 5;
+    public static final int VR_ENV_SYNTHWAVE = 6;
     // Nor is this: a marker that the Gen 1 profile decision has been made
     public static final String GEN1_PROFILE_PREF_STRING = "perf_profile_gen1";
+    // Nor this: a marker that a stored MiDaS has had its one move to ZipDepth
+    public static final String ZIPDEPTH_MOVE_PREF_STRING = "depth_source_zipdepth";
+    // Nor this: a marker that a stored cadence has had its one move to maps a
+    // second
+    public static final String DEPTH_RATE_MOVE_PREF_STRING = "depth_rate_per_second";
     public static final String VR_SEPARATION_PREF_STRING = "seekbar_vr_separation";
     private static final String VR_DEPTH_DEBUG_PREF_STRING = "checkbox_vr_depth_debug";
-    private static final String VR_INFERENCE_CADENCE_PREF_STRING = "seekbar_vr_inference_cadence";
+    // Depth maps a second. The key is the old cadence's, every Nth frame,
+    // whose stored value is moved to a rate once (moveCadenceToDepthRate).
+    static final String VR_DEPTH_RATE_PREF_STRING = "seekbar_vr_inference_cadence";
     public static final String VR_CONVERGENCE_PREF_STRING = "seekbar_vr_convergence";
     private static final String VR_DEPTH_SCALE_PREF_STRING = "seekbar_vr_depth_scale";
     public static final String VR_AMBILIGHT_PREF_STRING = "checkbox_vr_ambilight";
     public static final String VR_AMBILIGHT_LEVEL_PREF_STRING = "seekbar_vr_ambilight_level";
     public static final String VR_ROOM_LIGHT_PREF_STRING = "checkbox_vr_room_light";
+    // Each room's own values from the headset panel's Room tab, one key per
+    // room by its environment id, so room_brightness_4 is the Home Theater's.
+    // Brightness and the light level are in the renderer's hundredths, the
+    // size in whole percent of the room's screen. The screen light switch and
+    // the glow outside a room keep their one app wide key each.
+    public static final String ROOM_BRIGHTNESS_PREFIX = "room_brightness_";
+    public static final String ROOM_GLOW_PREFIX = "room_glow_";
+    public static final String ROOM_LIGHT_PREFIX = "room_light_";
+    public static final String ROOM_SCREEN_PREFIX = "room_screen_";
+    // The picture grade, one set for every session, in the whole units of
+    // the PICTURE_ lanes in XrShared. The 2d seekbars and the headset panel's
+    // Picture tab read and write the same keys.
+    public static final String VR_PICTURE_BRIGHTNESS_PREF_STRING = "seekbar_vr_picture_brightness";
+    public static final String VR_PICTURE_CONTRAST_PREF_STRING = "seekbar_vr_picture_contrast";
+    public static final String VR_PICTURE_GAMMA_PREF_STRING = "seekbar_vr_picture_gamma";
+    public static final String VR_PICTURE_SATURATION_PREF_STRING = "seekbar_vr_picture_saturation";
     public static final String FILE_LOG_PREF_STRING = "list_vr_file_log";
     private static final String BIND_ALL_USB_STRING = "checkbox_usb_bind_all";
     private static final String MOUSE_EMULATION_STRING = "checkbox_mouse_emulation";
@@ -106,6 +162,7 @@ public class PreferenceConfiguration {
     private static final String FRAME_PACING_PREF_STRING = "frame_pacing";
     private static final String ABSOLUTE_MOUSE_MODE_PREF_STRING = "checkbox_absolute_mouse_mode";
     private static final String ENABLE_AUDIO_FX_PREF_STRING = "checkbox_enable_audiofx";
+    static final String VR_VIRTUAL_SURROUND_PREF_STRING = "checkbox_vr_virtual_surround";
     private static final String REDUCE_REFRESH_RATE_PREF_STRING = "checkbox_reduce_refresh_rate";
     private static final String FULL_RANGE_PREF_STRING = "checkbox_full_range";
     private static final String GAMEPAD_TOUCHPAD_AS_MOUSE_PREF_STRING = "checkbox_gamepad_touchpad_as_mouse";
@@ -119,11 +176,11 @@ public class PreferenceConfiguration {
     static final String DEFAULT_FPS = "90";
 
     // What a Gen 1 headset starts on. The depth model is most of the cost of a
-    // 3D frame, so the cadence is the big lever here, and 72 is what these
+    // 3D frame, so its rate is the big lever here, and 72 is what these
     // panels run at natively anyway.
     private static final String GEN1_RESOLUTION = "2560x1440";
     private static final String GEN1_FPS = "72";
-    private static final int GEN1_INFERENCE_CADENCE = 6;
+    static final int GEN1_DEPTH_RATE = XrShared.DEPTH_RATE_GEN1;
     // These headsets have neither the memory nor the fill rate for a full size
     // room, so they start on the smallest tier
     private static final String GEN1_ENV_RES = "low";
@@ -132,6 +189,8 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_SOPS = true;
     private static final boolean DEFAULT_DISABLE_TOASTS = false;
     private static final boolean DEFAULT_HOST_AUDIO = false;
+    static final boolean DEFAULT_AUTO_DESKTOP = false;
+    static final boolean DEFAULT_CHECK_UPDATES = true;
     private static final int DEFAULT_DEADZONE = 7;
     private static final int DEFAULT_OPACITY = 90;
     public static final String DEFAULT_LANGUAGE = "default";
@@ -153,25 +212,54 @@ public class PreferenceConfiguration {
     private static final int DEFAULT_VR_DISTANCE = 30;
     private static final int DEFAULT_VR_SCREEN_SIZE = 30;
     private static final int DEFAULT_VR_CURVATURE = 0;
-    private static final String DEFAULT_VR_DEPTH_SOURCE = "model";
+    // ZipDepth, the newer model and the only one a Gen 1 headset can run
+    static final String DEFAULT_VR_DEPTH_SOURCE = VR_DEPTH_SOURCE_ZIPDEPTH;
     // Standard everywhere, which caps the room at a size every headset here can
     // hold. Gen 1 headsets are seeded onto low instead, see seedGen1PerfProfile.
     private static final String DEFAULT_VR_ENV_RES = "standard";
     private static final String DEFAULT_VR_SHARPENING = "quality";
+    // Off until the owner has judged it worn: it costs compositor GPU time
+    static final String DEFAULT_VR_SUPERSAMPLING = "off";
     private static final boolean DEFAULT_VR_EYE_SWAP = false;
-    private static final boolean DEFAULT_VR_PASSTHROUGH = false;
+    public static final boolean DEFAULT_VR_PASSTHROUGH = false;
     private static final boolean DEFAULT_VR_GAZE = true;
     private static final boolean DEFAULT_VR_HAND_TRACKING = true;
+    // A controller's pointer goes to sleep after a few still seconds and wakes
+    // when it moves. Off keeps it up however still the controller is held.
+    static final boolean DEFAULT_VR_POINTER_SLEEP = true;
+    // A press on the headset panels ticks, since a pinch or a look has nothing
+    // under a finger to say it landed
+    static final boolean DEFAULT_VR_CLICK_SOUND = true;
+    // A headset taken off for a moment keeps the stream for a minute, muted,
+    // rather than ending it as the activity stops
+    static final boolean DEFAULT_VR_DOFF_GRACE = true;
+    // The beam from a controller to the screen. Off leaves the dot where it
+    // lands, for a lightgun game, and the bar turns it over for a session.
+    static final boolean DEFAULT_VR_SHOW_RAY = true;
+    // A generic controller drawn in each hand, where the real one is. Off, as
+    // every new drawing starts.
+    static final boolean DEFAULT_VR_CONTROLLER_MODEL = false;
+    // Turning the head moves the host's mouse while the screen is locked to
+    // it. Off, since it takes the mouse over for a game that wants it.
+    static final boolean DEFAULT_VR_HEAD_AIM = false;
+    // The left menu button held with the left grip, the shortcut gamepad mode
+    // first shipped with
+    static final String DEFAULT_VR_GAMEPAD_TOGGLE = VR_GAMEPAD_TOGGLE_MENU_GRIP;
     private static final boolean DEFAULT_VR_POINTER = true;
-    // Tenths of a percent of frame width. 5 measured comfortable on device and
-    // 7 already strained, once the depth map started using its full range.
+    // MiDaS's separation, tenths of a percent of frame width. 5 measured
+    // comfortable on device and 7 already strained, once the depth map started
+    // using its full range. Each model carries a pair of its own
+    // (MidasDepthSource.Spec), and nothing stored means the running model's.
     public static final int DEFAULT_VR_SEPARATION = 5;
     private static final boolean DEFAULT_VR_DEPTH_DEBUG = false;
-    private static final int DEFAULT_VR_INFERENCE_CADENCE = 3;
+    // Maps a second, what a cadence of 3 gave a 60 fps stream. Gen 1 headsets
+    // are seeded GEN1_DEPTH_RATE instead.
+    static final int DEFAULT_VR_DEPTH_RATE = XrShared.DEPTH_RATE_DEFAULT;
     // Neither of these is in the 2d settings. Measured on device, neither is
     // perceptible at a comfortable separation, so they would be sliders that
     // do nothing. Convergence is on the in headset panel instead, where it sits
-    // beside the depth slider that gives it something to do.
+    // beside the depth slider that gives it something to do. Both models start
+    // it here.
     public static final int DEFAULT_VR_CONVERGENCE = 50;
     private static final int DEFAULT_VR_DEPTH_SCALE = 100;
     // On at half strength, which is where the panel's tick sits. Anyone who has
@@ -199,6 +287,8 @@ public class PreferenceConfiguration {
     private static final String DEFAULT_FRAME_PACING = "latency";
     private static final boolean DEFAULT_ABSOLUTE_MOUSE_MODE = false;
     private static final boolean DEFAULT_ENABLE_AUDIO_FX = false;
+    // Off, so a 5.1 or 7.1 stream plays as it always has unless asked
+    static final boolean DEFAULT_VR_VIRTUAL_SURROUND = false;
     private static final boolean DEFAULT_REDUCE_REFRESH_RATE = false;
     private static final boolean DEFAULT_FULL_RANGE = false;
     private static final boolean DEFAULT_GAMEPAD_TOUCHPAD_AS_MOUSE = false;
@@ -230,6 +320,10 @@ public class PreferenceConfiguration {
     public int deadzonePercentage;
     public int oscOpacity;
     public boolean stretchVideo, enableSops, playHostAudio, disableWarnings;
+    // A tap on a PC starts its Desktop app rather than showing the app list
+    public boolean autoLaunchDesktop;
+    // Whether the PC list asks GitHub, once a day, for a newer release
+    public boolean checkUpdates;
     public String language;
     public boolean smallIconMode, multiController, usbDriver, flipFaceButtons;
     public boolean onscreenController;
@@ -248,11 +342,16 @@ public class PreferenceConfiguration {
     public int vrCurvature;
     // 0 off, 1 flat, 2 ramp, 3 blob, 4 eye test, 5 shift test, 6 depth model
     public int vrDepthMode;
+    // Which model a depth model session runs, zipdepth or model (MiDaS). The
+    // default for any other mode, since the test patterns run at its map size.
+    public String vrDepthModel;
     // How large the 3d room renders per eye, one of the tiers below. The
     // renderer takes the same numbers.
     public int vrEnvResTier;
     // 0 off, 1 normal, 2 quality
     public int vrSharpening;
+    // The same, for the compositor's supersampling
+    public int vrSupersampling;
     public boolean vrEyeSwap;
     // Tenths of a percent of frame width
     public int vrStereoSeparation;
@@ -261,8 +360,28 @@ public class PreferenceConfiguration {
     public boolean vrPointer;
     public boolean vrGaze;
     public boolean vrHandTracking;
-    // Run the depth model on every Nth video frame
-    public int vrInferenceCadence;
+    // Whether the hand lock hint was put away for good in an earlier session
+    public boolean vrHandLockHintSeen;
+    public boolean vrPointerSleep;
+    public boolean vrClickSound;
+    // Whether a removed headset holds the stream for a minute, see XrDoffGrace
+    public boolean vrDoffGrace;
+    // Whether a session starts with the controller ray drawn
+    public boolean vrShowRay;
+    // Whether the bundled controller model is drawn at each hand
+    public boolean vrControllerModel;
+    // Whether a session starts with head aim on, how many pixels the mouse
+    // moves for a degree the head turns, and how slow a turn in degrees a
+    // second sends nothing
+    public boolean vrHeadAim;
+    public int vrHeadAimSensitivity;
+    public int vrHeadAimDeadZone;
+    // Which shortcut on the controllers switches them between the pointer and
+    // one gamepad on the host, a PAD_SHORTCUT_ value
+    public int vrGamepadToggle;
+    // The most depth maps a second the model runs at. The renderer cuts it
+    // for a while when the headset cannot keep up, before the display rate.
+    public int vrDepthRate;
     public int vrConvergence;
     public int vrDepthScale;
     // Colours from the frame bleeding into the space around the screen, and
@@ -271,6 +390,17 @@ public class PreferenceConfiguration {
     public int vrAmbilightLevel;
     // The same colours washed over the walls of a 3d environment
     public boolean vrRoomLight;
+    // Brightness, contrast, gamma and saturation over the picture, in
+    // XrShared's PICTURE_ order and units. All four at their defaults is the
+    // picture as streamed.
+    public int[] vrPicture;
+    // The environment last picked in the headset, one of the VR_ENV_ ids, or
+    // -1 before anything has been. Read for the logs only: the renderer reads
+    // and writes the preference itself.
+    public int vrEnvironmentId;
+    // That environment's own Room tab values, or null when it is not a room.
+    // For the logs too: the renderer reads every room's when it starts.
+    public RoomLevels vrRoomLevels;
     // off, basic or verbose
     public String fileLogLevel;
     public boolean enableLatencyToast;
@@ -287,6 +417,8 @@ public class PreferenceConfiguration {
     public int framePacing;
     public boolean absoluteMouseMode;
     public boolean enableAudioFx;
+    // Render a 5.1 or 7.1 stream to two ears around the screen
+    public boolean vrVirtualSurround;
     public boolean reduceRefreshRate;
     public boolean fullRange;
     public boolean gamepadMotionSensors;
@@ -395,10 +527,12 @@ public class PreferenceConfiguration {
 
     // Whether this is a headset at all, as against a phone or a TV that has
     // VR mode on because it is the default. Meta and Pico both declare the
-    // head tracking feature; the vendor check is there for a firmware that
-    // forgets to.
+    // head tracking feature, Android XR its OpenXR one; the vendor check is
+    // there for a firmware that forgets to.
     public static boolean isHeadset(Context context) {
-        if (context.getPackageManager().hasSystemFeature("android.hardware.vr.headtracking")) {
+        PackageManager pm = context.getPackageManager();
+        if (pm.hasSystemFeature("android.hardware.vr.headtracking")
+                || pm.hasSystemFeature("android.software.xr.api.openxr")) {
             return true;
         }
         String maker = Build.MANUFACTURER != null ? Build.MANUFACTURER : "";
@@ -423,6 +557,428 @@ public class PreferenceConfiguration {
         // Enterprise are A81xx, the later headsets are not.
         boolean isPico = "pico".equalsIgnoreCase(Build.MANUFACTURER) || "pico".equalsIgnoreCase(Build.BRAND);
         return isPico && model.regionMatches(true, 0, "A81", 0, 3);
+    }
+
+    // The stored supersampling choice as the renderer takes it: 0 off, 1
+    // normal, 2 quality. Anything it does not know is off, the default.
+    static int supersamplingMode(String value) {
+        if ("normal".equals(value)) {
+            return 1;
+        }
+        if ("quality".equals(value)) {
+            return 2;
+        }
+        return 0;
+    }
+
+    /** Whether a list_vr_depth_source value names a model rather than a pattern. */
+    public static boolean isDepthModel(String depthSource) {
+        return VR_DEPTH_SOURCE_ZIPDEPTH.equals(depthSource)
+                || VR_DEPTH_SOURCE_MIDAS.equals(depthSource);
+    }
+
+    // MiDaS is far too slow on an XR2 Gen 1 headset, so it is not offered
+    // there. Everything else is offered everywhere.
+    public static boolean isDepthSourceOffered(String depthSource, boolean gen1) {
+        return !gen1 || !VR_DEPTH_SOURCE_MIDAS.equals(depthSource);
+    }
+
+    /** The value a headset runs for a stored one: ZipDepth for a MiDaS it does not offer. */
+    public static String depthSourceForHeadset(String depthSource, boolean gen1) {
+        return isDepthSourceOffered(depthSource, gen1) ? depthSource : VR_DEPTH_SOURCE_ZIPDEPTH;
+    }
+
+    /**
+     * The separation a model starts on, in tenths of a percent of frame width.
+     * A session with a test pattern or with depth off takes the default
+     * model's, as it takes that model's map size.
+     */
+    public static int defaultSeparation(String depthModel) {
+        return MidasDepthSource.specFor(depthModel).defaultSeparation;
+    }
+
+    /** And the convergence it starts on, in percent. */
+    public static int defaultConvergence(String depthModel) {
+        return MidasDepthSource.specFor(depthModel).defaultConvergence;
+    }
+
+    // The pair as stored, or the running model's own where nothing is. Only
+    // someone moving a value stores it, so a change of model moves the pair
+    // nobody chose and never one somebody did.
+    static int storedSeparation(SharedPreferences prefs, String depthModel) {
+        return prefs.getInt(VR_SEPARATION_PREF_STRING, defaultSeparation(depthModel));
+    }
+
+    static int storedConvergence(SharedPreferences prefs, String depthModel) {
+        return prefs.getInt(VR_CONVERGENCE_PREF_STRING, defaultConvergence(depthModel));
+    }
+
+    /** A model's own pair as the log lines give it, separation then convergence. */
+    public static String defaultPairLabel(String depthModel) {
+        return defaultSeparation(depthModel) + "/" + defaultConvergence(depthModel);
+    }
+
+    /**
+     * Whether a session with this depth mode starts in 3D, as the log lines
+     * give it. The bar and the 3D tab can switch it off and on again for the
+     * session only, and each switch is a line in the log of its own.
+     */
+    public static String stereoAtStartLabel(int depthMode) {
+        return depthMode != XrShared.DEPTH_MODE_OFF ? "on" : "off";
+    }
+
+    static boolean handLockHintSeen(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_HAND_LOCK_HINT_SEEN_PREF_STRING, false);
+    }
+
+    /** The hand lock hint was put away for good: later sessions skip it. */
+    public static void markHandLockHintSeen(SharedPreferences prefs) {
+        prefs.edit().putBoolean(VR_HAND_LOCK_HINT_SEEN_PREF_STRING, true).apply();
+    }
+
+    static boolean pointerSleepOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_POINTER_SLEEP_PREF_STRING, DEFAULT_VR_POINTER_SLEEP);
+    }
+
+    public static boolean checkUpdatesOn(SharedPreferences prefs) {
+        return prefs.getBoolean(CHECK_UPDATES_PREF_STRING, DEFAULT_CHECK_UPDATES);
+    }
+
+    static boolean clickSoundOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_CLICK_SOUND_PREF_STRING, DEFAULT_VR_CLICK_SOUND);
+    }
+
+    static boolean doffGraceOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_DOFF_GRACE_PREF_STRING, DEFAULT_VR_DOFF_GRACE);
+    }
+
+    static boolean rayShown(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_SHOW_RAY_PREF_STRING, DEFAULT_VR_SHOW_RAY);
+    }
+
+    static boolean controllerModelOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_CONTROLLER_MODEL_PREF_STRING, DEFAULT_VR_CONTROLLER_MODEL);
+    }
+
+    static boolean headAimOn(SharedPreferences prefs) {
+        return prefs.getBoolean(VR_HEAD_AIM_PREF_STRING, DEFAULT_VR_HEAD_AIM);
+    }
+
+    /** Head aim's pixels a degree as stored, held to its lane. */
+    public static int headAimSensitivity(SharedPreferences prefs) {
+        int units = prefs.getInt(VR_HEAD_AIM_SENSITIVITY_PREF_STRING,
+                XrShared.HEAD_AIM_SENSITIVITY_DEFAULT);
+        return Math.max(XrShared.HEAD_AIM_SENSITIVITY_MIN,
+                Math.min(XrShared.HEAD_AIM_SENSITIVITY_MAX, units));
+    }
+
+    /** Head aim's dead zone in degrees a second as stored, held to its lane. */
+    public static int headAimDeadZone(SharedPreferences prefs) {
+        int units = prefs.getInt(VR_HEAD_AIM_DEADZONE_PREF_STRING,
+                XrShared.HEAD_AIM_DEADZONE_DEFAULT);
+        return Math.max(XrShared.HEAD_AIM_DEADZONE_MIN,
+                Math.min(XrShared.HEAD_AIM_DEADZONE_MAX, units));
+    }
+
+    /**
+     * The gamepad mode shortcut as a PAD_SHORTCUT_ value. Anything it does not
+     * know, an unknown value included, is the menu button and grip.
+     */
+    static int gamepadToggle(SharedPreferences prefs) {
+        String value = prefs.getString(VR_GAMEPAD_TOGGLE_PREF_STRING, DEFAULT_VR_GAMEPAD_TOGGLE);
+        if (VR_GAMEPAD_TOGGLE_STICKS.equals(value)) {
+            return XrShared.PAD_SHORTCUT_STICKS;
+        }
+        if (VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS.equals(value)) {
+            return XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS;
+        }
+        return XrShared.PAD_SHORTCUT_MENU_GRIP;
+    }
+
+    /**
+     * The gamepad mode shortcut for a log line, by its stored value, joined the
+     * way that line joins its keys to their values
+     */
+    public static String gamepadToggleLabel(int shortcut, String join) {
+        String value = shortcut == XrShared.PAD_SHORTCUT_STICKS ? VR_GAMEPAD_TOGGLE_STICKS
+                : shortcut == XrShared.PAD_SHORTCUT_TRIGGERS_GRIPS
+                        ? VR_GAMEPAD_TOGGLE_TRIGGERS_GRIPS : VR_GAMEPAD_TOGGLE_MENU_GRIP;
+        return "gamepadShortcut" + join + value;
+    }
+
+    /**
+     * The pointer's own switches and how the controllers are drawn, for a log
+     * line, joined the way that line joins its keys to their values
+     */
+    public static String inputLabel(boolean pointerSleep, boolean showRay, boolean controllerModel,
+                                    String join) {
+        return "pointerSleep" + join + pointerSleep + " showRay" + join + showRay
+                + " controllerModel" + join + controllerModel;
+    }
+
+    /**
+     * Head aim's switch, pixels a degree and dead zone for a log line, joined
+     * the way that line joins its keys to their values
+     */
+    public static String headAimLabel(boolean on, int sensitivity, int deadZone, String join) {
+        return "headAim" + join + on + " headAimSensitivity" + join + sensitivity
+                + " headAimDeadZone" + join + deadZone;
+    }
+
+    /** Which of the 3D tab's presets a separation is under that model, or none, for the logs. */
+    public static String presetLabel(int separation, String depthModel) {
+        return DepthPresets.name(DepthPresets.presetFor(separation, defaultSeparation(depthModel)));
+    }
+
+    /** One room's own values for the headset panel's Room tab. */
+    public static final class RoomLevels {
+        // Hundredths of the room as it was baked
+        public final int brightness;
+        public final boolean glow;
+        // Hundredths of the light the room's own row gives it
+        public final int light;
+        // Whole percent of the room's screen
+        public final int screen;
+
+        public RoomLevels(int brightness, boolean glow, int light, int screen) {
+            this.brightness = brightness;
+            this.glow = glow;
+            this.light = light;
+            this.screen = screen;
+        }
+
+        // All four for a log line, joined the way that line joins its keys to
+        // their values
+        public String describe(String join) {
+            return "roomBrightness" + join + brightness + " roomGlow" + join + glow
+                    + " roomLight" + join + light + " roomScreen" + join + screen;
+        }
+    }
+
+    /** Whether an environment id is one of the baked rooms, which keep values of their own. */
+    public static boolean isRoomEnvironment(int envId) {
+        return envId == VR_ENV_HOME_THEATER || envId == VR_ENV_GRAND_CINEMA
+                || envId == VR_ENV_SYNTHWAVE;
+    }
+
+    public static String roomBrightnessKey(int envId) {
+        return ROOM_BRIGHTNESS_PREFIX + envId;
+    }
+
+    public static String roomGlowKey(int envId) {
+        return ROOM_GLOW_PREFIX + envId;
+    }
+
+    public static String roomLightKey(int envId) {
+        return ROOM_LIGHT_PREFIX + envId;
+    }
+
+    public static String roomScreenKey(int envId) {
+        return ROOM_SCREEN_PREFIX + envId;
+    }
+
+    // Where each room starts, which is its row in the renderer's room table,
+    // read off the same constants so the two cannot drift apart
+    public static int defaultRoomBrightness(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_BRIGHTNESS;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_BRIGHTNESS;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_BRIGHTNESS;
+            default: return 100;
+        }
+    }
+
+    public static boolean defaultRoomGlow(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_GLOW != 0;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_GLOW != 0;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_GLOW != 0;
+            default: return DEFAULT_VR_AMBILIGHT;
+        }
+    }
+
+    // The same in every room
+    public static int defaultRoomLight() {
+        return XrShared.ROOM_LIGHT_DEFAULT;
+    }
+
+    public static int defaultRoomScreen(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_SCREEN;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_SCREEN;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_SCREEN;
+            default: return XrShared.ROOM_SCREEN_MAX;
+        }
+    }
+
+    public static boolean roomResizable(int envId) {
+        switch (envId) {
+            case VR_ENV_HOME_THEATER: return XrShared.ROOM_THEATER_RESIZABLE != 0;
+            case VR_ENV_GRAND_CINEMA: return XrShared.ROOM_GRAND_CINEMA_RESIZABLE != 0;
+            case VR_ENV_SYNTHWAVE: return XrShared.ROOM_SYNTHWAVE_RESIZABLE != 0;
+            default: return false;
+        }
+    }
+
+    /**
+     * The size a room hangs its picture at for a stored percent: a quarter of
+     * its screen to all of it where the room may be resized, and all of it in
+     * a room that keeps its picture whole, whatever was stored.
+     */
+    public static int clampRoomScreen(int envId, int percent) {
+        if (!roomResizable(envId)) {
+            return XrShared.ROOM_SCREEN_MAX;
+        }
+        return Math.max(XrShared.ROOM_SCREEN_MIN, Math.min(XrShared.ROOM_SCREEN_MAX, percent));
+    }
+
+    /** One room's values as stored, the room's own defaults where nothing is, each in its lane. */
+    public static RoomLevels readRoomLevels(SharedPreferences prefs, int envId) {
+        int brightness = prefs.getInt(roomBrightnessKey(envId), defaultRoomBrightness(envId));
+        int light = prefs.getInt(roomLightKey(envId), defaultRoomLight());
+        return new RoomLevels(
+                Math.max(XrShared.ROOM_BRIGHTNESS_MIN,
+                        Math.min(XrShared.ROOM_BRIGHTNESS_MAX, brightness)),
+                prefs.getBoolean(roomGlowKey(envId), defaultRoomGlow(envId)),
+                Math.max(XrShared.ROOM_LIGHT_MIN, Math.min(XrShared.ROOM_LIGHT_MAX, light)),
+                clampRoomScreen(envId, prefs.getInt(roomScreenKey(envId),
+                        defaultRoomScreen(envId))));
+    }
+
+    /** The key a picture value is kept under, by its PICTURE_ row. */
+    public static String pictureKey(int row) {
+        switch (row) {
+            case XrShared.PICTURE_CONTRAST: return VR_PICTURE_CONTRAST_PREF_STRING;
+            case XrShared.PICTURE_GAMMA: return VR_PICTURE_GAMMA_PREF_STRING;
+            case XrShared.PICTURE_SATURATION: return VR_PICTURE_SATURATION_PREF_STRING;
+            default: return VR_PICTURE_BRIGHTNESS_PREF_STRING;
+        }
+    }
+
+    /** Where a picture row starts, the picture as streamed. */
+    public static int pictureDefault(int row) {
+        switch (row) {
+            case XrShared.PICTURE_CONTRAST: return XrShared.PICTURE_CONTRAST_DEFAULT;
+            case XrShared.PICTURE_GAMMA: return XrShared.PICTURE_GAMMA_DEFAULT;
+            case XrShared.PICTURE_SATURATION: return XrShared.PICTURE_SATURATION_DEFAULT;
+            default: return XrShared.PICTURE_BRIGHTNESS_DEFAULT;
+        }
+    }
+
+    /** A picture value held to its row's lane. */
+    public static int clampPicture(int row, int units) {
+        int min, max;
+        switch (row) {
+            case XrShared.PICTURE_CONTRAST:
+                min = XrShared.PICTURE_CONTRAST_MIN;
+                max = XrShared.PICTURE_CONTRAST_MAX;
+                break;
+            case XrShared.PICTURE_GAMMA:
+                min = XrShared.PICTURE_GAMMA_MIN;
+                max = XrShared.PICTURE_GAMMA_MAX;
+                break;
+            case XrShared.PICTURE_SATURATION:
+                min = XrShared.PICTURE_SATURATION_MIN;
+                max = XrShared.PICTURE_SATURATION_MAX;
+                break;
+            default:
+                min = XrShared.PICTURE_BRIGHTNESS_MIN;
+                max = XrShared.PICTURE_BRIGHTNESS_MAX;
+                break;
+        }
+        return Math.max(min, Math.min(max, units));
+    }
+
+    /** All four picture values as stored, each in its lane, the defaults where nothing is. */
+    public static int[] readPicture(SharedPreferences prefs) {
+        int[] picture = new int[XrShared.PICTURE_VALUES];
+        for (int row = 0; row < picture.length; row++) {
+            picture[row] = clampPicture(row, prefs.getInt(pictureKey(row), pictureDefault(row)));
+        }
+        return picture;
+    }
+
+    /** The four picture values for a log line, joined the way that line joins its keys to their values. */
+    public static String pictureLabel(int[] picture, String join) {
+        return "pictureBrightness" + join + picture[XrShared.PICTURE_BRIGHTNESS]
+                + " pictureContrast" + join + picture[XrShared.PICTURE_CONTRAST]
+                + " pictureGamma" + join + picture[XrShared.PICTURE_GAMMA]
+                + " pictureSaturation" + join + picture[XrShared.PICTURE_SATURATION];
+    }
+
+    // Moves a stored MiDaS to ZipDepth, once. Installs from before ZipDepth
+    // have "model" stored whether anyone chose it or setDefaultValues wrote
+    // it, and the two cannot be told apart, so everyone gets the new default
+    // once and anything chosen after that sticks. Returns whether it moved.
+    static boolean moveDepthSourceToZipDepth(SharedPreferences prefs) {
+        if (prefs.contains(ZIPDEPTH_MOVE_PREF_STRING)) {
+            return false;
+        }
+        boolean move = VR_DEPTH_SOURCE_MIDAS.equals(
+                prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, null));
+        SharedPreferences.Editor editor = prefs.edit();
+        if (move) {
+            editor.putString(VR_DEPTH_SOURCE_PREF_STRING, VR_DEPTH_SOURCE_ZIPDEPTH);
+        }
+        editor.putBoolean(ZIPDEPTH_MOVE_PREF_STRING, move);
+        editor.apply();
+        return move;
+    }
+
+    // Runs from the application before any activity applies the xml defaults
+    public static void migrateDepthSource(Context context) {
+        if (moveDepthSourceToZipDepth(PreferenceManager.getDefaultSharedPreferences(context))) {
+            FileLog.event("depth model: stored MiDaS moved to ZipDepth, the new default");
+        }
+    }
+
+    // The depth maps a second a stored cadence comes to. Cadence c on a stream
+    // at f fps was f/c maps a second, and f is not known here, so 60 stands
+    // in for it: 1 is 45, the most there is, 2 is 30, 3 is 20, 4 is 15, 5 is
+    // 12 and 6 is 10.
+    static int depthRateForCadence(int cadence) {
+        if (cadence <= 1) {
+            return XrShared.DEPTH_RATE_MAX;
+        }
+        return clampDepthRate(Math.round(60.0f / cadence));
+    }
+
+    static int clampDepthRate(int perSecond) {
+        return Math.max(XrShared.DEPTH_RATE_MIN, Math.min(XrShared.DEPTH_RATE_MAX, perSecond));
+    }
+
+    // The stored rate in range, or where this headset starts with nothing
+    // stored
+    static int storedDepthRate(SharedPreferences prefs, boolean gen1) {
+        return clampDepthRate(prefs.getInt(VR_DEPTH_RATE_PREF_STRING,
+                gen1 ? GEN1_DEPTH_RATE : DEFAULT_VR_DEPTH_RATE));
+    }
+
+    // Moves a stored cadence to the rate it stood for, once, under the same
+    // key. Has to run before the Gen 1 seed and the xml defaults, which write
+    // rates there. Returns the cadence moved, or 0 for none.
+    static int moveCadenceToDepthRate(SharedPreferences prefs) {
+        if (prefs.contains(DEPTH_RATE_MOVE_PREF_STRING)) {
+            return 0;
+        }
+        int cadence = prefs.contains(VR_DEPTH_RATE_PREF_STRING)
+                ? prefs.getInt(VR_DEPTH_RATE_PREF_STRING, 0) : 0;
+        SharedPreferences.Editor editor = prefs.edit();
+        if (cadence > 0) {
+            editor.putInt(VR_DEPTH_RATE_PREF_STRING, depthRateForCadence(cadence));
+        }
+        editor.putBoolean(DEPTH_RATE_MOVE_PREF_STRING, cadence > 0);
+        editor.apply();
+        return cadence;
+    }
+
+    public static void migrateDepthRate(Context context) {
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
+        int cadence = moveCadenceToDepthRate(prefs);
+        if (cadence > 0) {
+            FileLog.event("depth rate: stored cadence " + cadence + " moved to "
+                    + depthRateForCadence(cadence) + " maps a second");
+        }
     }
 
     // A Gen 1 headset gets a gentler starting point, written before the xml
@@ -455,8 +1011,8 @@ public class PreferenceConfiguration {
         boolean seedResFps = !prefs.contains(LEGACY_RES_FPS_PREF_STRING);
         boolean seedResolution = seedResFps && !prefs.contains(RESOLUTION_PREF_STRING);
         boolean seedFps = seedResFps && !prefs.contains(FPS_PREF_STRING);
-        boolean seedCadence = !prefs.contains(VR_INFERENCE_CADENCE_PREF_STRING);
-        boolean appliedAny = seedResolution || seedFps || seedCadence;
+        boolean seedDepthRate = !prefs.contains(VR_DEPTH_RATE_PREF_STRING);
+        boolean appliedAny = seedResolution || seedFps || seedDepthRate;
 
         SharedPreferences.Editor editor = prefs.edit();
         StringBuilder applied = new StringBuilder();
@@ -468,9 +1024,10 @@ public class PreferenceConfiguration {
             editor.putString(FPS_PREF_STRING, GEN1_FPS);
             applied.append(applied.length() > 0 ? " " : "").append(GEN1_FPS).append(" fps");
         }
-        if (seedCadence) {
-            editor.putInt(VR_INFERENCE_CADENCE_PREF_STRING, GEN1_INFERENCE_CADENCE);
-            applied.append(applied.length() > 0 ? " " : "").append("cadence ").append(GEN1_INFERENCE_CADENCE);
+        if (seedDepthRate) {
+            editor.putInt(VR_DEPTH_RATE_PREF_STRING, GEN1_DEPTH_RATE);
+            applied.append(applied.length() > 0 ? " " : "").append("depth ")
+                    .append(GEN1_DEPTH_RATE).append(" maps/s");
         }
         editor.putBoolean(GEN1_PROFILE_PREF_STRING, appliedAny);
         editor.apply();
@@ -799,6 +1356,8 @@ public class PreferenceConfiguration {
         config.enableSops = prefs.getBoolean(SOPS_PREF_STRING, DEFAULT_SOPS);
         config.stretchVideo = prefs.getBoolean(STRETCH_PREF_STRING, DEFAULT_STRETCH);
         config.playHostAudio = prefs.getBoolean(HOST_AUDIO_PREF_STRING, DEFAULT_HOST_AUDIO);
+        config.autoLaunchDesktop = prefs.getBoolean(AUTO_DESKTOP_PREF_STRING, DEFAULT_AUTO_DESKTOP);
+        config.checkUpdates = checkUpdatesOn(prefs);
         config.smallIconMode = prefs.getBoolean(SMALL_ICONS_PREF_STRING, getDefaultSmallMode(context));
         config.multiController = prefs.getBoolean(MULTI_CONTROLLER_PREF_STRING, DEFAULT_MULTI_CONTROLLER);
         config.usbDriver = prefs.getBoolean(USB_DRIVER_PREF_SRING, DEFAULT_USB_DRIVER);
@@ -814,7 +1373,11 @@ public class PreferenceConfiguration {
         config.vrDistance = prefs.getInt(VR_DISTANCE_PREF_STRING, DEFAULT_VR_DISTANCE);
         config.vrScreenSize = prefs.getInt(VR_SCREEN_SIZE_PREF_STRING, DEFAULT_VR_SCREEN_SIZE);
         config.vrCurvature = prefs.getInt(VR_CURVATURE_PREF_STRING, DEFAULT_VR_CURVATURE);
-        String depthSource = prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, DEFAULT_VR_DEPTH_SOURCE);
+        // A Gen 1 headset runs ZipDepth for a stored MiDaS it does not offer
+        String depthSource = depthSourceForHeadset(
+                prefs.getString(VR_DEPTH_SOURCE_PREF_STRING, DEFAULT_VR_DEPTH_SOURCE),
+                isXr2Gen1Headset());
+        config.vrDepthModel = DEFAULT_VR_DEPTH_SOURCE;
         if (depthSource.equals("flat")) {
             config.vrDepthMode = XrShared.DEPTH_MODE_FLAT;
         }
@@ -830,8 +1393,9 @@ public class PreferenceConfiguration {
         else if (depthSource.equals("shifttest")) {
             config.vrDepthMode = XrShared.DEPTH_MODE_SHIFTTEST;
         }
-        else if (depthSource.equals("model")) {
+        else if (isDepthModel(depthSource)) {
             config.vrDepthMode = XrShared.DEPTH_MODE_MODEL;
+            config.vrDepthModel = depthSource;
         }
         else {
             config.vrDepthMode = XrShared.DEPTH_MODE_OFF;
@@ -859,20 +1423,36 @@ public class PreferenceConfiguration {
         else {
             config.vrSharpening = 2;
         }
+        config.vrSupersampling = supersamplingMode(
+                prefs.getString(VR_SUPERSAMPLING_PREF_STRING, DEFAULT_VR_SUPERSAMPLING));
         config.vrEyeSwap = prefs.getBoolean(VR_EYE_SWAP_PREF_STRING, DEFAULT_VR_EYE_SWAP);
         config.vrPassthrough = prefs.getBoolean(VR_PASSTHROUGH_PREF_STRING, DEFAULT_VR_PASSTHROUGH);
         config.vrPointer = prefs.getBoolean(VR_POINTER_PREF_STRING, DEFAULT_VR_POINTER);
         config.vrGaze = prefs.getBoolean(VR_GAZE_PREF_STRING, DEFAULT_VR_GAZE);
         config.vrHandTracking = prefs.getBoolean(VR_HAND_TRACKING_PREF_STRING, DEFAULT_VR_HAND_TRACKING);
-        config.vrStereoSeparation = prefs.getInt(VR_SEPARATION_PREF_STRING, DEFAULT_VR_SEPARATION);
+        config.vrHandLockHintSeen = handLockHintSeen(prefs);
+        config.vrPointerSleep = pointerSleepOn(prefs);
+        config.vrClickSound = clickSoundOn(prefs);
+        config.vrDoffGrace = doffGraceOn(prefs);
+        config.vrShowRay = rayShown(prefs);
+        config.vrControllerModel = controllerModelOn(prefs);
+        config.vrHeadAim = headAimOn(prefs);
+        config.vrHeadAimSensitivity = headAimSensitivity(prefs);
+        config.vrHeadAimDeadZone = headAimDeadZone(prefs);
+        config.vrGamepadToggle = gamepadToggle(prefs);
+        config.vrStereoSeparation = storedSeparation(prefs, config.vrDepthModel);
         config.vrDepthDebug = prefs.getBoolean(VR_DEPTH_DEBUG_PREF_STRING, DEFAULT_VR_DEPTH_DEBUG);
-        config.vrInferenceCadence = prefs.getInt(VR_INFERENCE_CADENCE_PREF_STRING, DEFAULT_VR_INFERENCE_CADENCE);
-        config.vrConvergence = prefs.getInt(VR_CONVERGENCE_PREF_STRING, DEFAULT_VR_CONVERGENCE);
+        config.vrDepthRate = storedDepthRate(prefs, isXr2Gen1Headset());
+        config.vrConvergence = storedConvergence(prefs, config.vrDepthModel);
         config.vrDepthScale = prefs.getInt(VR_DEPTH_SCALE_PREF_STRING, DEFAULT_VR_DEPTH_SCALE);
         config.vrAmbilight = prefs.getBoolean(VR_AMBILIGHT_PREF_STRING, DEFAULT_VR_AMBILIGHT);
         config.vrAmbilightLevel = prefs.getInt(VR_AMBILIGHT_LEVEL_PREF_STRING,
                 DEFAULT_VR_AMBILIGHT_LEVEL);
         config.vrRoomLight = prefs.getBoolean(VR_ROOM_LIGHT_PREF_STRING, DEFAULT_VR_ROOM_LIGHT);
+        config.vrPicture = readPicture(prefs);
+        config.vrEnvironmentId = prefs.getInt(VR_ENVIRONMENT_ID_PREF_STRING, -1);
+        config.vrRoomLevels = isRoomEnvironment(config.vrEnvironmentId)
+                ? readRoomLevels(prefs, config.vrEnvironmentId) : null;
         config.fileLogLevel = prefs.getString(FILE_LOG_PREF_STRING, DEFAULT_FILE_LOG);
         config.bindAllUsb = prefs.getBoolean(BIND_ALL_USB_STRING, DEFAULT_BIND_ALL_USB);
         config.mouseEmulation = prefs.getBoolean(MOUSE_EMULATION_STRING, DEFAULT_MOUSE_EMULATION);
@@ -886,6 +1466,8 @@ public class PreferenceConfiguration {
         config.enableLatencyToast = prefs.getBoolean(LATENCY_TOAST_PREF_STRING, DEFAULT_LATENCY_TOAST);
         config.absoluteMouseMode = prefs.getBoolean(ABSOLUTE_MOUSE_MODE_PREF_STRING, DEFAULT_ABSOLUTE_MOUSE_MODE);
         config.enableAudioFx = prefs.getBoolean(ENABLE_AUDIO_FX_PREF_STRING, DEFAULT_ENABLE_AUDIO_FX);
+        config.vrVirtualSurround = prefs.getBoolean(VR_VIRTUAL_SURROUND_PREF_STRING,
+                DEFAULT_VR_VIRTUAL_SURROUND);
         config.reduceRefreshRate = prefs.getBoolean(REDUCE_REFRESH_RATE_PREF_STRING, DEFAULT_REDUCE_REFRESH_RATE);
         config.fullRange = prefs.getBoolean(FULL_RANGE_PREF_STRING, DEFAULT_FULL_RANGE);
         config.gamepadTouchpadAsMouse = prefs.getBoolean(GAMEPAD_TOUCHPAD_AS_MOUSE_PREF_STRING, DEFAULT_GAMEPAD_TOUCHPAD_AS_MOUSE);

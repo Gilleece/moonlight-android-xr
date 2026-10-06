@@ -1,0 +1,562 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shortcut strings -->
+    <string name="scut_deleted_pc">Tietokone poistettu</string>
+    <string name="scut_not_paired">Tietokonetta ei ole yhdistetty pariksi</string>
+    <string name="scut_pc_not_found">Tietokonetta ei löytynyt</string>
+    <string name="scut_invalid_uuid">Annettu tietokone ei kelpaa</string>
+    <string name="scut_invalid_app_id">Annettu sovellus ei kelpaa</string>
+
+    <!-- Help strings -->
+    <string name="help_loading_title">Ohjeiden katselu</string>
+    <string name="help_loading_msg">Ladataan ohjesivua…</string>
+
+    <!-- PC view menu entries -->
+    <string name="pcview_menu_header_online">Verkossa</string>
+    <string name="pcview_menu_header_offline">Ei verkossa</string>
+    <string name="pcview_menu_header_unknown">Päivitetään</string>
+    <string name="pcview_menu_app_list">Näytä kaikki sovellukset</string>
+    <string name="pcview_menu_pair_pc">Muodosta pari tietokoneen kanssa</string>
+    <string name="pcview_menu_unpair_pc">Pura pariliitos</string>
+    <string name="pcview_menu_send_wol">Lähetä Wake-On-LAN-pyyntö</string>
+    <string name="pcview_menu_delete_pc">Poista tietokone</string>
+    <string name="pcview_menu_test_network">Testaa verkkoyhteys</string>
+    <string name="pcview_menu_details">Näytä tiedot</string>
+    <string name="pcview_menu_eol">NVIDIA GameStream on lopetettu</string>
+
+    <!-- Network test strings -->
+    <string name="nettest_title_waiting">Testataan verkkoyhteyttä</string>
+    <string name="nettest_text_waiting">Moonlight testaa verkkoyhteyttäsi selvittääkseen, onko tarvittavia portteja estetty.\n\nTämä voi kestää muutaman sekunnin…</string>
+    <string name="nettest_title_done">Verkkotesti valmis</string>
+    <string name="nettest_text_success">Verkkosi ei näytä estävän Moonlightia. Jos yhteyden muodostamisessa on silti ongelmia, tarkista tietokoneesi palomuuriasetukset.\n\nJos yrität suoratoistaa internetin yli, asenna tietokoneelle Moonlight Internet Hosting Tool ja suorita sen mukana tuleva Internet Streaming Tester tarkistaaksesi tietokoneen internetyhteyden.</string>
+    <string name="nettest_text_inconclusive">Verkkotestiä ei voitu suorittaa, koska mikään Moonlightin testipalvelimista ei vastannut. Tarkista internetyhteys tai yritä myöhemmin uudelleen.</string>
+    <string name="nettest_text_failure">Laitteesi nykyinen verkkoyhteys näyttää estävän Moonlightin. Suoratoisto internetin yli ei ehkä toimi, kun olet yhteydessä tähän verkkoon.\n\nSeuraavat verkkoportit olivat estettyinä:\n</string>
+    <string name="nettest_text_blocked">Laitteesi nykyinen verkkoyhteys estää Moonlightin. Suoratoisto internetin yli ei ehkä toimi, kun olet yhteydessä tähän verkkoon.</string>
+
+    <!-- Pair messages -->
+    <string name="pairing">Muodostetaan paria…</string>
+    <string name="pair_pc_offline">Tietokone ei ole verkossa</string>
+    <string name="pair_pc_ingame">Tietokoneessa on peli käynnissä. Sulje peli ennen parin muodostamista.</string>
+    <string name="pair_pairing_title">Parin muodostus</string>
+    <string name="pair_pairing_msg">Syötä seuraava PIN-koodi kohdetietokoneelle:</string>
+    <string name="pair_pairing_help">Jos isäntäkoneessa on käynnissä Sunshine, syötä PIN-koodi Sunshinen verkkokäyttöliittymässä.</string>
+    <string name="pair_incorrect_pin">Väärä PIN-koodi</string>
+    <string name="pair_fail">Parin muodostus epäonnistui</string>
+    <string name="pair_already_in_progress">Parin muodostus on jo käynnissä</string>
+
+    <!-- WOL messages -->
+    <string name="wol_pc_online">Tietokone on verkossa</string>
+    <string name="wol_no_mac">Tietokonetta ei voi herättää, koska MAC-osoitetta ei ole tallennettu</string>
+    <string name="wol_waking_pc">Herätetään tietokonetta…</string>
+    <string name="wol_waking_msg">Tietokoneen herääminen voi kestää muutaman sekunnin. Jos se ei herää, varmista, että Wake-On-LAN on määritetty oikein.</string>
+    <string name="wol_fail">Wake-On-LAN-pakettien lähetys epäonnistui</string>
+
+    <!-- Unpair messages -->
+    <string name="unpairing">Puretaan pariliitosta…</string>
+    <string name="unpair_success">Pariliitos purettu</string>
+    <string name="unpair_fail">Pariliitoksen purku epäonnistui</string>
+    <string name="unpair_error">Laite ei ollut pariliitoksessa</string>
+
+    <!-- Errors -->
+    <string name="error_pc_offline">Tietokone ei ole verkossa</string>
+    <string name="error_manager_not_running">ComputerManager-palvelu ei ole käynnissä. Odota muutama sekunti tai käynnistä sovellus uudelleen.</string>
+    <string name="error_unknown_host">Isäntää ei voitu selvittää</string>
+    <string name="error_404">GFE palautti HTTP 404 -virheen. Varmista, että tietokoneessa on tuettu näytönohjain. Etätyöpöytäohjelmisto voi myös aiheuttaa tämän virheen. Kokeile käynnistää kone uudelleen tai asentaa GFE uudelleen.</string>
+    <string name="title_decoding_error">Videon purku kaatui</string>
+    <string name="message_decoding_error">Moonlight kaatui, koska se ei ole yhteensopiva tämän laitteen videopurkimen kanssa. Kokeile muuttaa suoratoistoasetuksia, jos kaatumiset jatkuvat.</string>
+    <string name="title_decoding_reset">Videoasetukset palautettu</string>
+    <string name="message_decoding_reset">Laitteesi videopurkin kaatuu jatkuvasti valituilla suoratoistoasetuksilla. Suoratoistoasetukset on palautettu oletuksiin.</string>
+    <string name="error_usb_prohibited">Laitteen järjestelmänvalvoja on estänyt USB-käytön. Tarkista Knox- tai MDM-asetukset.</string>
+    <string name="unable_to_pin_shortcut">Nykyinen käynnistysohjelmasi ei salli kiinnitettyjä pikakuvakkeita.</string>
+    <string name="video_decoder_init_failed">Videopurkimen käynnistys epäonnistui. Laitteesi ei ehkä tue valittua tarkkuutta tai kuvataajuutta.</string>
+    <string name="no_video_received_error">Isännältä ei saatu videota.</string>
+    <string name="no_frame_received_error">Verkkoyhteytesi ei toimi hyvin. Pienennä videon bittinopeutta tai kokeile nopeampaa yhteyttä.</string>
+    <string name="early_termination_error">Isäntäkoneessa tapahtui virhe suoratoistoa käynnistettäessä.\n\nVarmista, ettei isäntäkoneella ole auki DRM-suojattua sisältöä. Voit myös kokeilla käynnistää isäntäkoneen uudelleen.</string>
+    <string name="frame_conversion_error">Isäntäkone ilmoitti vakavasta videon koodausvirheestä.\n\nKokeile poistaa HDR-tila käytöstä, vaihtaa suoratoiston tarkkuutta tai vaihtaa isäntäkoneen näytön tarkkuutta.</string>
+    <string name="check_ports_msg">Tarkista palomuurin ja porttiohjausten säännöt seuraaville porteille:</string>
+
+    <!-- Start application messages -->
+    <string name="conn_establishing_title">Muodostetaan yhteyttä</string>
+    <string name="conn_establishing_msg">Aloitetaan yhteys</string>
+    <string name="conn_metered">Varoitus: Käytössä oleva verkkoyhteys on käytön mukaan laskutettava!</string>
+    <string name="conn_client_latency">Kuvien purun keskimääräinen viive:</string>
+    <string name="conn_client_latency_hw">laitteistopurkimen viive:</string>
+    <string name="conn_hardware_latency">Laitteistopurun keskimääräinen viive:</string>
+    <string name="conn_starting">Käynnistetään</string>
+    <string name="conn_error_title">Yhteysvirhe</string>
+    <string name="conn_error_msg">Käynnistys epäonnistui</string>
+    <string name="conn_terminated_title">Yhteys katkaistu</string>
+    <string name="conn_terminated_msg">Yhteys katkaistiin.</string>
+    <string name="error_code_prefix">Virhekoodi:</string>
+
+    <!-- General strings -->
+    <string name="ip_hint">Isäntäkoneen IP-osoite</string>
+    <string name="searching_pc">Etsitään isäntäkoneita lähiverkosta…\n\nVarmista, että Sunshine on käynnissä isäntäkoneessa tai että GameStream on otettu käyttöön GeForce Experiencen SHIELD-asetuksissa.</string>
+    <string name="yes">Kyllä</string>
+    <string name="no">Ei</string>
+    <string name="lost_connection">Yhteys tietokoneeseen katkesi</string>
+    <string name="title_details">Tiedot</string>
+    <string name="help">Ohje</string>
+    <string name="delete_pc_msg">Haluatko varmasti poistaa tämän tietokoneen?</string>
+    <string name="slow_connection_msg">Hidas yhteys tietokoneeseen\nPienennä bittinopeutta</string>
+    <string name="poor_connection_msg">Huono yhteys tietokoneeseen</string>
+    <string name="perf_overlay_streamdetails">Videovirta: %1$s %2$.2f FPS</string>
+    <string name="perf_overlay_decoder">Purkain: %1$s</string>
+    <string name="perf_overlay_incomingfps">Verkosta saapuva kuvataajuus: %1$.2f FPS</string>
+    <string name="perf_overlay_renderingfps">Piirron kuvataajuus: %1$.2f FPS</string>
+    <string name="perf_overlay_hostprocessinglatency">Isännän käsittelyviive min/maks/keskiarvo: %1$.1f/%2$.1f/%3$.1f ms</string>
+    <string name="perf_overlay_netdrops">Verkkoyhteyden pudottamat kuvat: %1$.2f%%</string>
+    <string name="perf_overlay_netlatency">Verkon keskimääräinen viive: %1$d ms (vaihtelu: %2$d ms)</string>
+    <string name="perf_overlay_dectime">Keskimääräinen purkuaika: %1$.2f ms</string>
+    <string name="perf_overlay_audio_underruns">Äänen katkokset: %1$d</string>
+
+    <!-- AppList activity -->
+    <string name="applist_connect_msg">Yhdistetään tietokoneeseen…</string>
+    <string name="applist_menu_resume">Jatka istuntoa</string>
+    <string name="applist_menu_quit">Lopeta istunto</string>
+    <string name="applist_menu_quit_and_start">Lopeta nykyinen peli ja käynnistä</string>
+    <string name="applist_menu_cancel">Peruuta</string>
+    <string name="applist_menu_details">Näytä tiedot</string>
+    <string name="applist_menu_scut">Luo pikakuvake</string>
+    <string name="applist_menu_tv_channel">Lisää kanavaan</string>
+    <string name="applist_menu_hide_app">Piilota sovellus</string>
+    <string name="applist_refresh_title">Sovellusluettelo</string>
+    <string name="applist_refresh_msg">Päivitetään sovelluksia…</string>
+    <string name="applist_refresh_error_title">Virhe</string>
+    <string name="applist_refresh_error_msg">Sovellusluettelon haku epäonnistui</string>
+    <string name="applist_quit_app">Lopetetaan</string>
+    <string name="applist_quit_success">Lopetettu</string>
+    <string name="applist_quit_fail">Lopetus epäonnistui</string>
+    <string name="applist_quit_confirmation">Haluatko varmasti lopettaa käynnissä olevan sovelluksen? Kaikki tallentamattomat tiedot menetetään.</string>
+    <string name="applist_details_id">Sovelluksen tunnus:</string>
+
+    <!-- Add computer manually activity -->
+    <string name="title_add_pc">Lisää tietokone käsin</string>
+    <string name="msg_add_pc">Yhdistetään tietokoneeseen…</string>
+    <string name="addpc_fail">Annettuun tietokoneeseen ei saatu yhteyttä. Varmista, että palomuuri päästää tarvittavat portit läpi.</string>
+    <string name="addpc_success">Tietokone lisätty</string>
+    <string name="addpc_unknown_host">Tietokoneen osoitetta ei voitu selvittää. Varmista, ettei osoitteessa ole kirjoitusvirhettä.</string>
+    <string name="addpc_enter_ip">Anna IP-osoite</string>
+    <string name="addpc_wrong_sitelocal">Osoite ei näytä oikealta. Suoratoistoon internetin yli tarvitaan reitittimen julkinen IP-osoite.</string>
+
+    <!-- Preferences -->
+    <string name="category_basic_settings">Perusasetukset</string>
+    <string name="title_resolution_list">Videon tarkkuus</string>
+    <string name="summary_resolution_list">Suurenna, niin kuva on tarkempi. Pienennä, niin suorituskyky paranee heikommilla laitteilla ja hitaammissa verkoissa.</string>
+    <string name="title_native_res_dialog">Varoitus alkuperäisestä tarkkuudesta</string>
+    <string name="text_native_res_dialog">Suoratoistopalvelin ei ehkä tue alkuperäistä tarkkuutta ja/tai FPS:ää. Joudut todennäköisesti määrittämään isäntäkoneelle vastaavan mukautetun näyttötilan itse.\n\nJos päätät luoda NVIDIA-ohjauspaneelissa mukautetun tarkkuuden näyttöasetustesi mukaiseksi, varmista, että olet lukenut ja ymmärtänyt NVIDIAn varoituksen mahdollisista näyttövaurioista, tietokoneen epävakaudesta ja muista ongelmista.\n\nEmme vastaa ongelmista, jotka johtuvat mukautetun tarkkuuden luomisesta tietokoneellesi.\n\nNäyttösi ei välttämättä tue tarvittavaa näyttöasetusta. Siinä tapauksessa voit kokeilla virtuaalista näyttöä. Jos laitteesi tai isäntäkoneesi ei tue suoratoistoa tietyllä tarkkuudella tai virkistystaajuudella, valitettavasti asialle ei voi mitään.</string>
+    <string name="title_fps_list">Videon kuvataajuus</string>
+    <string name="summary_fps_list">Suurenna, niin video on sulavampi. Pienennä, niin suorituskyky paranee heikommilla laitteilla.</string>
+    <string name="title_seekbar_bitrate">Videon bittinopeus</string>
+    <string name="summary_seekbar_bitrate">Suurenna, niin kuvanlaatu paranee. Pienennä, niin suorituskyky paranee hitailla yhteyksillä.</string>
+    <string name="suffix_seekbar_bitrate_mbps">Mbps</string>
+    <string name="title_checkbox_stretch_video">Venytä video koko näytölle</string>
+    <string name="resolution_prefix_native">Alkuperäinen</string>
+    <string name="resolution_prefix_native_fullscreen">Alkuperäinen koko näyttö</string>
+    <string name="resolution_prefix_native_landscape">(Vaaka)</string>
+    <string name="resolution_prefix_native_portrait">(Pysty)</string>
+    <string name="fps_suffix_fps">FPS</string>
+    <string name="title_native_fps_dialog">Varoitus alkuperäisestä FPS:stä</string>
+
+    <string name="category_audio_settings">Ääniasetukset</string>
+    <string name="title_audio_config_list">Tilaäänen määritys</string>
+    <string name="summary_audio_config_list">Ota käyttöön 5.1- tai 7.1-tilaääni kotiteatterijärjestelmiä varten</string>
+    <string name="title_checkbox_vr_virtual_surround">Virtuaalinen tilaääni laseille</string>
+    <string name="summary_checkbox_vr_virtual_surround">Sijoittaa jokaisen 5.1- tai 7.1-kaiuttimen ympärillesi stereoäänenä, kiinni ruudussa, kun käännät päätä. Vaatii yllä valitun 5.1:n tai 7.1:n sekä isännän ja pelin, joka tuottaa tilaääntä.</string>
+    <string name="title_checkbox_enable_audiofx">Ota järjestelmän taajuuskorjain käyttöön</string>
+    <string name="summary_checkbox_enable_audiofx">Sallii äänitehosteet suoratoiston aikana, mutta voi lisätä äänen viivettä</string>
+
+    <string name="category_gamepad_settings">Peliohjaimen asetukset</string>
+    <string name="title_checkbox_multi_controller">Peliohjainten automaattinen tunnistus</string>
+    <string name="summary_checkbox_multi_controller">Jos tämä ei ole valittuna, peliohjain on aina läsnä</string>
+    <string name="title_checkbox_vibrate_fallback">Jäljittele tärinää laitteen värinällä</string>
+    <string name="summary_checkbox_vibrate_fallback">Värisyttää laitettasi tärinän jäljittelemiseksi, jos peliohjaimesi ei tue sitä</string>
+    <string name="title_seekbar_vibrate_fallback_strength">Jäljitellyn tärinän voimakkuus</string>
+    <string name="summary_seekbar_vibrate_fallback_strength">Voimista tai heikennä laitteen värinää</string>
+    <string name="suffix_seekbar_vibrate_fallback_strength">%</string>
+    <string name="title_seekbar_deadzone">Analogisauvan kuollut alue</string>
+    <string name="summary_seekbar_deadzone">Huomaa: Jotkin pelit voivat käyttää suurempaa kuollutta aluetta kuin Moonlightiin on asetettu.</string>
+    <string name="suffix_seekbar_deadzone">%</string>
+    <string name="title_checkbox_xb1_driver">Xbox 360/One -peliohjaimen USB-ajuri</string>
+    <string name="summary_checkbox_xb1_driver">Ottaa käyttöön sisäänrakennetun USB-ajurin laitteille, joissa ei ole omaa Xbox-ohjaintukea</string>
+    <string name="title_checkbox_usb_bind_all">Ohita järjestelmän oma Xbox-peliohjaintuki</string>
+    <string name="summary_checkbox_usb_bind_all">Käytä Moonlightin USB-ajuria kaikille tuetuille peliohjaimille, vaikka järjestelmässä olisi oma Xbox-ohjaintuki</string>
+    <string name="title_checkbox_mouse_emulation">Hiiren jäljittely peliohjaimella</string>
+    <string name="summary_checkbox_mouse_emulation">Start-painikkeen pitkä painallus vaihtaa peliohjaimen hiiritilaan</string>
+    <string name="title_checkbox_flip_face_buttons">Vaihda etupainikkeet</string>
+    <string name="summary_checkbox_flip_face_buttons">Vaihtaa etupainikkeet A/B ja X/Y keskenään peliohjaimissa ja näytön ohjaimissa</string>
+    <string name="title_checkbox_gamepad_touchpad_as_mouse">Ohjaa hiirtä aina kosketuslevyllä</string>
+    <string name="summary_checkbox_gamepad_touchpad_as_mouse">Peliohjaimen kosketuslevy ohjaa aina isännän hiirtä, myös kun jäljitellään kosketuslevyllä varustettua peliohjainta.</string>
+    <string name="title_checkbox_gamepad_motion_sensors">Salli peliohjaimen liiketunnistimet</string>
+    <string name="summary_checkbox_gamepad_motion_sensors">Antaa tuettujen isäntien pyytää liiketunnistimien tietoja, kun jäljitellään liiketunnistimilla varustettua peliohjainta. Poistaminen käytöstä voi vähentää hieman virran- ja verkonkulutusta, jos peli ei käytä liiketunnistimia.</string>
+    <string name="title_checkbox_gamepad_motion_fallback">Jäljittele peliohjaimen liiketunnistimia</string>
+    <string name="summary_checkbox_gamepad_motion_fallback">Käyttää laitteen omia liiketunnistimia, jos liitetty peliohjain tai Android-versiosi ei tue peliohjaimen tunnistimia.\nHuomaa: Tämän asetuksen käyttö voi saada peliohjaimen näkymään isännällä PlayStation-ohjaimena.</string>
+
+    <string name="category_input_settings">Syöteasetukset</string>
+    <string name="title_checkbox_touchscreen_trackpad">Käytä kosketusnäyttöä kosketuslevynä</string>
+    <string name="summary_checkbox_touchscreen_trackpad">Kun käytössä, kosketusnäyttö toimii kuin kosketuslevy. Kun pois käytöstä, kosketusnäyttö ohjaa hiiren osoitinta suoraan.</string>
+    <string name="title_checkbox_absolute_mouse_mode">Etätyöpöydän hiiritila</string>
+    <string name="summary_checkbox_absolute_mouse_mode">Voi tehdä hiiren kiihdytyksestä luontevamman etätyöpöytäkäytössä, mutta ei sovi monien pelien kanssa.</string>
+    <string name="title_checkbox_mouse_nav_buttons">Ota käyttöön hiiren Edellinen- ja Seuraava-painikkeet</string>
+    <string name="summary_checkbox_mouse_nav_buttons">Tämä voi rikkoa oikean napsautuksen joillakin viallisilla laitteilla</string>
+
+    <string name="category_on_screen_controls_settings">Näytön ohjainten asetukset</string>
+    <string name="title_checkbox_show_onscreen_controls">Näytä näytön ohjaimet</string>
+    <string name="summary_checkbox_show_onscreen_controls">Näytä virtuaalinen ohjain kosketusnäytön päällä</string>
+    <string name="title_checkbox_vibrate_osc">Ota värinä käyttöön</string>
+    <string name="summary_checkbox_vibrate_osc">Värisyttää laitetta tärinän jäljittelemiseksi näytön ohjaimilla</string>
+    <string name="title_only_l3r3">Näytä vain L3 ja R3</string>
+    <string name="summary_only_l3r3">Piilota kaikki virtuaaliset painikkeet paitsi L3 ja R3</string>
+    <string name="title_show_guide_button">Näytä Guide-painike</string>
+    <string name="summary_show_guide_button">Näytä Guide-painike näytöllä</string>
+    <string name="title_reset_osc">Tyhjennä näytön ohjainten tallennettu asettelu</string>
+    <string name="summary_reset_osc">Palauttaa kaikkien näytön ohjainten koon ja sijainnin oletuksiin</string>
+    <string name="dialog_title_reset_osc">Palauta asettelu</string>
+    <string name="dialog_text_reset_osc">Haluatko varmasti poistaa näytön ohjainten tallennetun asettelun?</string>
+    <string name="toast_reset_osc_success">Näytön ohjaimet palautettu oletuksiin</string>
+    <string name="title_osc_opacity">Muuta näytön ohjainten peittävyyttä</string>
+    <string name="summary_osc_opacity">Tee näytön ohjaimista läpinäkyvämpiä tai peittävämpiä</string>
+    <string name="dialog_title_osc_opacity">Muuta peittävyyttä</string>
+    <string name="suffix_osc_opacity">%</string>
+
+    <string name="category_ui_settings">Käyttöliittymän asetukset</string>
+    <string name="title_checkbox_enable_pip">Ota kuva kuvassa -seurantatila käyttöön</string>
+    <string name="summary_checkbox_enable_pip">Sallii suoratoiston katselun (mutta ei ohjaamista) muiden sovellusten ohessa</string>
+    <string name="title_language_list">Kieli</string>
+    <string name="summary_language_list">Moonlightin kieli</string>
+    <string name="title_checkbox_small_icon_mode">Käytä pieniä kansikuvia</string>
+    <string name="summary_checkbox_small_icon_mode">Pienemmät kansikuvat sovellusruudukossa tuovat enemmän sovelluksia näkyviin</string>
+
+    <string name="category_host_settings">Isännän asetukset</string>
+    <string name="title_checkbox_enable_sops">Optimoi peliasetukset</string>
+    <string name="summary_checkbox_enable_sops">Salli GFE:n muuttaa peliasetuksia suoratoistoa varten</string>
+    <string name="title_checkbox_host_audio">Toista ääni tietokoneella</string>
+    <string name="summary_checkbox_host_audio">Toista ääni tietokoneella ja tällä laitteella</string>
+    <string name="title_checkbox_auto_launch_desktop">Avaa Desktop automaattisesti</string>
+    <string name="summary_checkbox_auto_launch_desktop">Kun tietokonetta napautetaan, käynnistetään sen Desktop-niminen sovellus näyttämättä sovellusluetteloa, jos isännällä on sellainen</string>
+
+    <string name="category_advanced_settings">Lisäasetukset</string>
+    <string name="title_unlock_fps">Avaa kaikki mahdolliset kuvataajuudet</string>
+    <string name="summary_unlock_fps">Suoratoisto 90 tai 120 FPS:llä voi pienentää viivettä tehokkailla laitteilla, mutta voi aiheuttaa nykimistä tai epävakautta laitteilla, jotka eivät pysty siihen</string>
+    <string name="title_checkbox_reduce_refresh_rate">Salli virkistystaajuuden lasku</string>
+    <string name="summary_checkbox_reduce_refresh_rate">Matalampi virkistystaajuus säästää virtaa hieman suuremman videoviiveen kustannuksella</string>
+    <string name="title_checkbox_disable_warnings">Poista varoitusviestit käytöstä</string>
+    <string name="summary_checkbox_disable_warnings">Poista yhteysvaroitukset näytöltä suoratoiston aikana</string>
+    <string name="title_disable_frame_drop">Älä koskaan pudota kuvia</string>
+    <string name="summary_disable_frame_drop">Voi vähentää pientä nykimistä joillakin laitteilla, mutta voi lisätä viivettä</string>
+    <string name="title_video_format">Muuta koodekkiasetuksia</string>
+    <string name="summary_video_format">Uudemmat koodekit voivat pienentää videon kaistantarvetta, jos laitteesi tukee niitä. Koodekkivalinta voidaan ohittaa, jos isännän ohjelmisto tai näytönohjain ei tue sitä.</string>
+    <string name="title_enable_hdr">Ota HDR käyttöön (kokeellinen)</string>
+    <string name="summary_enable_hdr">Suoratoista HDR-kuvaa, kun peli ja tietokoneen näytönohjain tukevat sitä. HDR vaatii näytönohjaimen, joka tukee HEVC Main 10 -koodausta.</string>
+    <string name="title_full_range">Pakota täysi värialue (kokeellinen)</string>
+    <string name="summary_full_range">Tämä hävittää yksityiskohtia vaaleista ja tummista alueista, jos laitteesi ei näytä täyden alueen videota oikein.</string>
+    <string name="title_settings_back">Takaisin</string>
+    <string name="summary_settings_back">Palaa tietokoneluetteloon</string>
+    <string name="category_vr_settings">VR-asetukset</string>
+    <string name="category_vr_debug">VR-vianetsintä</string>
+    <string name="title_enable_vr_mode">Suoratoista VR:ssä</string>
+    <string name="summary_enable_vr_mode">Näyttää suoratoiston virtuaaliruudulla mukaansatempaavassa VR-istunnossa. Vain laseille, ja ainoa tila, jossa on 3D-tehoste.</string>
+    <string name="title_vr_head_locked">Ruutu kiinni päässä</string>
+    <string name="summary_vr_head_locked">Pidä virtuaaliruutu paikallaan katseesi edessä sen sijaan, että se olisi ankkuroitu tilaan</string>
+    <string name="title_seekbar_vr_distance">Ruudun etäisyys</string>
+    <string name="summary_seekbar_vr_distance">Kuinka kaukana virtuaaliruutu on</string>
+    <string name="title_seekbar_vr_screen_size">Ruudun leveys</string>
+    <string name="summary_seekbar_vr_screen_size">Virtuaaliruudun leveys</string>
+    <string name="title_seekbar_vr_curvature">Ruudun kaarevuus</string>
+    <string name="summary_seekbar_vr_curvature">0 on tasainen, suuremmat arvot kaartavat ruudun ympärillesi</string>
+    <string name="suffix_seekbar_vr_meters">m</string>
+    <string name="title_vr_pointer">Ohjaimet hiirenä</string>
+    <string name="title_vr_gaze">Osoita katseella</string>
+    <string name="summary_vr_gaze">Silmänseurantaa tukevilla laseilla osoitetaan katsomalla ruutua ja napsautetaan nipistämällä peukalo ja etusormi yhteen kummalla tahansa kädellä. Ohjaimen painikkeen painallus antaa osoittimen sille, kunnes se lasketaan pois, ja jos silmät kadotetaan 10 sekunniksi, kädet osoittavat, kunnes silmät löytyvät.</string>
+    <string name="title_vr_hand_tracking">Käsien seuranta</string>
+    <string name="summary_vr_hand_tracking">Osoita ja nipistä käsillä, kun ohjaimet on laskettu pois. Poista käytöstä, jos haluat käyttää vain ohjaimia. Istunnon aikana voit lukita kädet poistumatta pelistä nipistämällä peukalon ja etusormen yhteen kolme kertaa nopeasti; sama kolmoisnipistys avaa lukituksen.</string>
+    <string name="vr_hand_hint_title">Käsien seuranta on käytössä.</string>
+    <string name="vr_hand_hint_body">Nipistä peukalo ja etusormi yhteen kolme kertaa nopeasti lukitaksesi kädet, jottei vahingossa tehty nipistys napsauta; sama kolmoisnipistys avaa lukituksen.</string>
+    <string name="vr_hand_hint_never">Älä näytä uudelleen</string>
+    <string name="vr_kofi_title">Tue Moonlight XR:ää Ko-fissa</string>
+    <string name="vr_kofi_scan">Skannaa se puhelimella.</string>
+    <string name="vr_kofi_free">Vapaaehtoista: Moonlight XR on ilmainen ja pysyy ilmaisena.</string>
+    <string name="vr_kofi_close">Sulje</string>
+    <string name="summary_vr_pointer">Osoita ruutua ohjaimella liikuttaaksesi isännän hiirtä. Liipaisin napsauttaa, A tai X napsauttaa oikealla, tikku vierittää. Paina tikkua poistaaksesi osoittimen käytöstä pelissä, joka tarvitsee hiirtä itse.</string>
+    <string name="title_vr_pointer_sleep">Pysäytä osoitin, kun ohjain on paikallaan</string>
+    <string name="summary_vr_pointer_sleep">Ohjaimen osoitin katoaa muutaman sekunnin paikallaanolon jälkeen ja palaa, kun ohjainta liikutetaan tai sen tikkua työnnetään. Poista käytöstä pitääksesi osoittimen näkyvissä, jolloin tikku vierittää, vaikka osoitin olisi ruudun ulkopuolella.</string>
+    <string name="title_vr_show_ray">Näytä ohjaimen säde</string>
+    <string name="summary_vr_show_ray">Säde ohjaimesta ruutuun. Poista se käytöstä valopistoolipeleissä: piste, johon säde osuu, jää näkyviin ja painallukset toimivat kuten ennen, säde palaa, kun paneeli on auki, ja ruudun alla oleva sädepainike vaihtaa sen istunnon ajaksi.</string>
+    <string name="title_vr_controller_model">Näytä ohjaimet</string>
+    <string name="summary_vr_controller_model">Piirtää kumpaankin käteen yksinkertaisen ohjaimen todellisen ohjaimen kohdalle. Ei passthrough-tilassa, jossa oikeat ohjaimet näkyvät, eikä silloin, kun käsiä seurataan niiden sijaan.</string>
+    <string name="title_vr_head_aim">Pää ohjaa hiirtä</string>
+    <string name="summary_vr_head_aim">Vain kun ruutu on kiinni päässä: pään kääntäminen liikuttaa hiirtä kuin pelin kameraohjaus, ensimmäisen persoonan peleihin. Ohjaimen osoitin ja oikea hiiri toimivat edelleen. Pääohjaus pysähtyy, kun paneeli on auki, ja ruudun alla oleva pääohjauspainike vaihtaa sen istunnon ajaksi.</string>
+    <string name="title_seekbar_vr_head_aim_sensitivity">Pääohjauksen herkkyys</string>
+    <string name="summary_seekbar_vr_head_aim_sensitivity">Kuinka paljon hiiri liikkuu jokaista pään kääntöastetta kohden. Säädä yhdessä pelin oman hiiren herkkyyden kanssa, kunnes näkymä kääntyy yhtä paljon kuin pää. Lasien asetuspaneelin Ruutu-välilehti muuttaa samaa arvoa.</string>
+    <string name="title_seekbar_vr_head_aim_deadzone">Pääohjauksen kuollut alue</string>
+    <string name="summary_seekbar_vr_head_aim_deadzone">Tätä hitaampi pään liike ei lähetä mitään, joten seurannan värinä ei liikuta hiirtä, kun pysyt paikallasi. 0 lähettää jokaisen liikkeen.</string>
+    <string name="title_vr_gamepad_toggle">Peliohjaintilan pikakomento</string>
+    <string name="summary_vr_gamepad_toggle">Nyt: %s. Peliohjaintila tekee kahdesta ohjaimesta yhden Xbox-ohjaimen tietokoneelle: tikut, A, B, X ja Y, liipaisimet, kahvat olkapainikkeina, tikkujen painallukset ja vasen valikkopainike Start-painikkeena. Se otetaan käyttöön vain istunnon aikana asetuspaneelin Näkymä-välilehdeltä tai ruudun alla olevasta peliohjainpainikkeesta, ja jokainen istunto alkaa ohjaimet osoittimena. Tämä pikakomento vaihtaa sitten tilojen välillä ohjaimista. Tikkuja tai liipaisimia ja kahvoja käytettäessä nämä syötteet saapuvat peliin hetken myöhässä, kun pikakomento odottaa, onko ne tarkoitettu sille.</string>
+    <string name="vr_gamepad_toggle_menu_grip">Pidä pohjassa vasenta valikkopainiketta ja vasenta kahvaa</string>
+    <string name="vr_gamepad_toggle_sticks">Paina molempia tikkuja (L3 + R3)</string>
+    <string name="vr_gamepad_toggle_triggers_grips">Purista molempia liipaisimia ja molempia kahvoja</string>
+    <string name="title_vr_click_sound">Napsahdus paneelia painettaessa</string>
+    <string name="summary_vr_click_sound">Lyhyt naksahdus, kun painallus laseissa osuu paneeliin, painikkeeseen tai näppäimeen. Se toistetaan järjestelmän äänillä erillään suoratoiston äänestä.</string>
+    <string name="title_vr_reset_pose">Palauta ruudun sijainti</string>
+    <string name="summary_vr_reset_pose">Palauta ruutu yllä olevaan etäisyyteen ja leveyteen ja kumoa ohjaimilla tehdyt siirrot ja koon muutokset</string>
+    <string name="toast_vr_reset_pose">Ruudun sijainti palautettu</string>
+    <string name="title_vr_passthrough">Passthrough-tila</string>
+    <string name="summary_vr_passthrough">Ota passthrough käyttöön. Se käyttää enemmän järjestelmän resursseja; poista se käytöstä, jos suoratoisto toimii huonosti</string>
+    <string name="title_vr_environment">Ympäristö</string>
+    <string name="summary_vr_environment">Nyt: %s. Mikä ympäröi ruutua istunnon alkaessa. Valinta laseissa ruudun alla olevasta painikkeesta muuttaa myös tätä.</string>
+    <string name="title_vr_doff_grace">Pidä suoratoisto minuutin, kun lasit riisutaan</string>
+    <string name="summary_vr_doff_grace">Kun riisut lasit hetkeksi, suoratoisto odottaa enintään 60 sekuntia ääni mykistettynä ja jatkuu, kun lasit laitetaan takaisin päähän. Kun tämä ei ole käytössä, suoratoisto päättyy heti, kun lasit riisutaan.</string>
+    <string name="vr_environment_passthrough">Passthrough</string>
+    <string name="vr_environment_void">Musta tyhjyys</string>
+    <string name="vr_environment_home_theater">Home Theater</string>
+    <string name="vr_environment_grand_cinema">Grand Cinema</string>
+    <string name="vr_environment_synthwave">Synthwave</string>
+    <string name="title_vr_depth_source">Reaaliaikainen 3D-tila</string>
+    <string name="summary_vr_depth_source">Valitse reaaliaikainen 3D-tila, testikuviot mukaan lukien.</string>
+    <string name="title_vr_env_res">Ympäristön tarkkuus</string>
+    <string name="summary_vr_env_res">Kuinka tarkasti ruudun ympärillä oleva 3D-huone piirretään. Suurempi vie enemmän näytönohjaimen aikaa. Ultra on kokeellinen ja voi aiheuttaa nykimistä tai pätkimistä.</string>
+    <string name="title_seekbar_vr_picture_brightness">Kuvan kirkkaus</string>
+    <string name="summary_seekbar_vr_picture_brightness">Vaalentaa tai tummentaa koko kuvaa laseissa. 0 on kuva sellaisena kuin se suoratoistetaan. Lasien asetuspaneelin Kuva-välilehti muuttaa samoja neljää arvoa.</string>
+    <string name="title_seekbar_vr_picture_contrast">Kuvan kontrasti</string>
+    <string name="summary_seekbar_vr_picture_contrast">Levittää kuvan sävyjä erilleen tai kokoaa niitä yhteen keskiharmaan ympärille. 100% on kuva sellaisena kuin se suoratoistetaan.</string>
+    <string name="title_seekbar_vr_picture_gamma">Kuvan gamma</string>
+    <string name="summary_seekbar_vr_picture_gamma">Yli 1.00 vaalentaa keskisävyjä ja varjoja harmaannuttamatta mustaa tai valkoista, mikä sopii tummaan peliin yleensä paremmin kuin kirkkaus. 1.00 on kuva sellaisena kuin se suoratoistetaan.</string>
+    <string name="title_seekbar_vr_picture_saturation">Kuvan värikylläisyys</string>
+    <string name="summary_seekbar_vr_picture_saturation">Kuinka voimakkaat kuvan värit ovat. 0% on mustavalkoinen, 100% on kuva sellaisena kuin se suoratoistetaan.</string>
+    <string name="title_vr_sharpening">Ruudun terävöinti</string>
+    <string name="summary_vr_sharpening">Terävöittää virtuaaliruudun lasien kompositorissa. Ei maksa mitään tuetuilla laseilla, ja se ohitetaan ajoympäristöissä, joista laajennus puuttuu.</string>
+    <string name="title_vr_supersampling">Ruudun ylinäytteistys</string>
+    <string name="summary_vr_supersampling">Ylinäytteistää virtuaaliruudun lasien kompositorissa, mikä rauhoittaa hienoja yksityiskohtia, jotka välkkyvät, kun ruutu näytetään suoratoistoa pienempänä. Vie hieman kompositorin näytönohjainaikaa, ja se ohitetaan ajoympäristöissä, joista laajennus puuttuu.</string>
+    <string name="title_vr_depth_debug">Näytä syvyyskartta</string>
+    <string name="summary_vr_depth_debug">Näytä syvyyskartta harmaasävyinä videon sijaan syvyyden laadun tarkistamiseksi</string>
+    <string name="title_vr_eye_swap">Vaihda silmät</string>
+    <string name="summary_vr_eye_swap">Vaihda vasemman ja oikean silmän kuvat keskenään stereotilassa</string>
+    <string name="vr_unavailable_flat">Lasien OpenXR-ajoympäristöön ei saatu yhteyttä, joten suoratoisto näytetään tasaisella paneelilla. Päivitä lasien ohjelmisto tai poista ”Suoratoista VR:ssä” käytöstä.</string>
+    <!-- %1$s is one of the vr_fail lines below, which say why -->
+    <string name="vr_unavailable_flat_reason">%1$s\nSuoratoisto näytetään tasaisella paneelilla. Päivitä lasien ohjelmisto tai poista ”Suoratoista VR:ssä” käytöstä.</string>
+    <string name="vr_fail_no_runtime">Mikään OpenXR-ajoympäristö ei vastannut</string>
+    <!-- %1$s is the names of the missing OpenXR extensions -->
+    <string name="vr_fail_extensions">OpenXR-ajoympäristöstä puuttuu %1$s</string>
+    <!-- %1$s in the vr_fail lines is what the runtime answered, like XR_ERROR_RUNTIME_FAILURE -->
+    <string name="vr_fail_instance">Ajoympäristö hylkäsi instanssin (%1$s)</string>
+    <string name="vr_fail_system">Ajoympäristö ei löytänyt valmiita laseja (%1$s)</string>
+    <string name="vr_fail_graphics">Ajoympäristö hylkäsi OpenGL ES:n (%1$s)</string>
+    <string name="vr_fail_egl">Lasien näytönohjaimen ajuri epäonnistui (%1$s)</string>
+    <string name="vr_fail_session">Ajoympäristö hylkäsi istunnon (%1$s)</string>
+    <string name="vr_fail_space">Ajoympäristö hylkäsi seurantatilan (%1$s)</string>
+    <string name="vr_fail_swapchain">Ajoympäristö hylkäsi videon swapchainin (%1$s)</string>
+    <string name="vr_fail_gl">Piirtäjän varjostimia ei voitu koota</string>
+    <!-- %1$s is a number of seconds -->
+    <string name="vr_fail_timeout">Ajoympäristö ei vastannut %1$s sekunnin kuluessa</string>
+    <string name="vr_fail_unknown">VR-istuntoa ei voitu käynnistää</string>
+    <string name="vr_toast_rate">Näyttö %1$d Hz</string>
+    <string name="vr_toast_hands_locked">Kädet lukittu</string>
+    <string name="vr_toast_hands_unlocked">Kätten lukitus avattu</string>
+    <string name="vr_toast_3d_off">3D pois</string>
+    <string name="vr_toast_3d_on">3D päällä</string>
+    <string name="vr_toast_head_aim_on">Pääohjaus päällä</string>
+    <string name="vr_toast_head_aim_on_more">Pään kääntäminen liikuttaa hiirtä</string>
+    <string name="vr_toast_head_aim_off">Pääohjaus pois</string>
+    <string name="vr_toast_gamepad_mode">Peliohjaintila</string>
+    <string name="vr_toast_gamepad_back_menu_grip">Pidä vasenta valikkopainiketta ja vasenta kahvaa pohjassa palataksesi osoittimeen</string>
+    <string name="vr_toast_gamepad_back_sticks">Paina molempia tikkuja palataksesi osoittimeen</string>
+    <string name="vr_toast_gamepad_back_triggers_grips">Purista molempia liipaisimia ja molempia kahvoja palataksesi osoittimeen</string>
+    <string name="vr_toast_pointer_mode">Osoitintila</string>
+    <!-- The panels inside the session. They are drawn at a fixed size, so keep these short. -->
+    <string name="vr_panel_tab_screen">Ruutu</string>
+    <string name="vr_panel_tab_display">Näkymä</string>
+    <string name="vr_panel_3d">3D</string>
+    <string name="vr_panel_tab_picture">Kuva</string>
+    <string name="vr_panel_tab_about">Tietoja</string>
+    <string name="vr_panel_tab_room">Huone</string>
+    <string name="vr_panel_distance">Etäisyys</string>
+    <string name="vr_panel_height">Korkeus</string>
+    <string name="vr_panel_tilt">Kallistus</string>
+    <string name="vr_panel_rotate">Kierto</string>
+    <string name="vr_panel_curve">Kaarevuus</string>
+    <string name="vr_panel_size">Koko</string>
+    <string name="vr_panel_aim_sensitivity">Pää: herkkyys</string>
+    <string name="vr_panel_aim_dead_zone">Pää: kuollut alue</string>
+    <!-- Where head aim's rows are greyed out: the screen is not locked to the head. Names the Head locked row. -->
+    <string name="vr_panel_needs_head_lock">vaatii ”Kiinni päässä”</string>
+    <string name="vr_panel_not_in_room">ei huoneessa</string>
+    <string name="vr_panel_reset">Palauta</string>
+    <string name="vr_panel_brightness">Kirkkaus</string>
+    <string name="vr_panel_glow">Hehku</string>
+    <string name="vr_panel_screen_light">Ruudun valo</string>
+    <string name="vr_panel_light_level">Valon määrä</string>
+    <string name="vr_panel_off">Pois</string>
+    <string name="vr_panel_on">Päällä</string>
+    <string name="vr_panel_fixed_size">Tämän huoneen ruudun koko on kiinteä</string>
+    <string name="vr_panel_sharpen">Terävöinti</string>
+    <string name="vr_panel_supersample">Ylinäytteistys</string>
+    <string name="vr_panel_stats">Tilastot</string>
+    <string name="vr_panel_head_locked">Kiinni päässä</string>
+    <string name="vr_panel_head_aim">Pääohjaus</string>
+    <string name="vr_panel_controllers">Ohjaimet</string>
+    <string name="vr_panel_pointer_sleep">Osoittimen lepo</string>
+    <string name="vr_panel_ray">Säde</string>
+    <string name="vr_panel_controller_model">Ohjaimen malli</string>
+    <string name="vr_panel_click_sound">Napsautusääni</string>
+    <string name="vr_panel_normal">Normaali</string>
+    <string name="vr_panel_quality">Laatu</string>
+    <string name="vr_panel_pointer">Osoitin</string>
+    <string name="vr_panel_gamepad">Peliohjain</string>
+    <string name="vr_panel_glow_level">Hehkun määrä</string>
+    <string name="vr_panel_shortcut_menu_grip">Pikakomento: valikko + kahva vas.</string>
+    <string name="vr_panel_shortcut_sticks">Pikakomento: molemmat tikut</string>
+    <string name="vr_panel_shortcut_triggers_grips">Pikakomento: liipaisimet + kahvat</string>
+    <string name="vr_panel_preset">Esiasetus</string>
+    <string name="vr_panel_comfort">Mukava</string>
+    <string name="vr_panel_balanced">Tasapaino</string>
+    <string name="vr_panel_strong">Voimakas</string>
+    <string name="vr_panel_depth">Syvyys</string>
+    <string name="vr_panel_convergence">Konvergenssi</string>
+    <string name="vr_panel_harder_on_eyes">rasittaa silmiä</string>
+    <string name="vr_panel_3d_off_in_settings">3D on pois päältä asetuksissa</string>
+    <string name="vr_panel_contrast">Kontrasti</string>
+    <string name="vr_panel_gamma">Gamma</string>
+    <string name="vr_panel_saturation">Värikylläisyys</string>
+    <string name="vr_panel_version">Versio %1$s, commit %2$s</string>
+    <string name="vr_panel_version_no_commit">Versio %1$s</string>
+    <!-- %1$s is where the log file is, like Download/MoonlightXR/moonlight.log -->
+    <string name="vr_panel_log_file">Lokitiedosto: %1$s</string>
+    <string name="vr_panel_log_file_off">Lokitiedosto: pois</string>
+    <string name="vr_panel_report_sends">Lähettää viestin, lasien tiedot, asetukset ja lokin</string>
+    <string name="vr_panel_rooms">Huoneet</string>
+    <!-- Keys on the keyboard inside the session, one key wide: Shift one and a half, space four -->
+    <string name="vr_key_shift">Shift</string>
+    <string name="vr_key_space">välilyönti</string>
+    <string name="vr_key_enter">Enter</string>
+    <string name="vr_key_hide">Piilota</string>
+    <string name="vr_key_ctrl">Ctrl</string>
+    <string name="vr_key_alt">Alt</string>
+    <string name="vr_key_win">Win</string>
+    <string name="vr_exit_question">Lopetetaanko suoratoisto?</string>
+    <string name="vr_exit">Lopeta</string>
+    <!-- The report sheet inside the session -->
+    <string name="vr_report_note_hint">Mitä olit tekemässä, kun ongelma ilmeni?</string>
+    <string name="vr_report_optional">Valinnainen</string>
+    <string name="vr_report_email_bad">Tämä ei näytä sähköpostiosoitteelta</string>
+    <string name="vr_report_sends">Lähettää viestisi, lasien ja version tiedot, asetuksesi ja sovelluksen lokin, jossa voi olla tietokoneesi nimi ja osoite verkossa. Mitään ei lähetetä, ennen kuin painat ”Lähetä”.</string>
+    <string name="vr_report_not_written">Raporttia ei voitu tallentaa</string>
+    <string name="vr_battery">Akku %1$d %%</string>
+    <string name="title_bug_report">Ilmoita ongelmasta</string>
+    <string name="summary_bug_report">Kokoa raportti, jossa on viestisi, laite, asetukset ja loki, ja lähetä se</string>
+    <!-- The About category at the end of the settings -->
+    <string name="category_about">Tietoja</string>
+    <string name="about_version">Moonlight XR %1$s, commit %2$s</string>
+    <string name="about_version_no_commit">Moonlight XR %1$s</string>
+    <string name="title_about_licence">Lisenssi: GPLv3</string>
+    <string name="title_checkbox_check_updates">Tarkista päivitykset</string>
+    <string name="summary_checkbox_check_updates">Kerran päivässä sovellus kysyy GitHubilta uusinta julkaisua ja näyttää ilmoituksen, jos uudempi on saatavilla. Mitään muuta kuin sovelluksen versiota ei lähetetä, eikä mitään ladata.</string>
+    <string name="update_notice">Moonlight XR %1$s on saatavilla</string>
+    <string name="update_notice_view">Näytä</string>
+    <string name="update_notice_dismiss">Hylkää</string>
+    <string name="bug_report_intro">Kerro, mikä meni vikaan ja mitä odotit. Raportti yhdistää viestisi sovelluksen versioon, laseihin, suoratoistoasetuksiin ja lokitiedostoon, jossa voi olla tietokoneesi nimi ja osoite verkossa, ja se lähetetään osoitteeseen %1$s.\n\nLoki: %2$s</string>
+    <string name="bug_report_log_off">pois. Ota ”Tallenna lokitiedosto” käyttöön ja toista ongelma ensin, muuten raportissa ei ole lokia.</string>
+    <string name="bug_report_email_hint">Sähköpostiosoitteesi vastausta varten</string>
+    <string name="bug_report_message_hint">Mitä tapahtui?</string>
+    <string name="bug_report_send_direct">Lähetä</string>
+    <string name="bug_report_sending">Lähetetään raporttia…</string>
+    <string name="bug_report_sent">Raportti lähetetty</string>
+    <string name="bug_report_not_sent_at">Lähetys epäonnistui, tallennettu:</string>
+    <string name="bug_report_busy_at">Palvelin ruuhkautunut, tallennettu:</string>
+    <string name="bug_report_no_collector_at">Versio ilman palvelinta, tallennettu:</string>
+    <string name="bug_report_failed">Raporttia ei voitu kirjoittaa: %1$s</string>
+    <string name="title_vr_file_log">Tallenna lokitiedosto</string>
+    <string name="summary_vr_file_log">Pitää tekstimuotoista lokia kansiossa Download/MoonlightXR, josta lasien tiedostonhallinta löytää sen ja voit liittää sen virheraporttiin. Lokissa voi olla tietokoneesi nimi ja osoite verkossa. Kun loki on 5 Mt, se siirtyy tiedostoon moonlight.previous.log, joten yhdessä ne vievät enintään 10 Mt. Käynnistä sovellus uudelleen, jotta muutos tulee voimaan.</string>
+    <string name="title_seekbar_vr_inference_cadence">Syvyyspäivitykset sekunnissa</string>
+    <string name="summary_seekbar_vr_inference_cadence">Kuinka monta syvyyskarttaa 3D tekee sekunnissa. Vähemmän kuormittaa laseja vähemmän, mutta syvyys jää enemmän jälkeen. Kun lasit eivät pysy perässä, arvo puolitetaan hetkeksi ennen kuin näytön virkistystaajuutta lasketaan.</string>
+    <string name="suffix_seekbar_vr_inference_cadence">sekunnissa</string>
+    <string name="title_seekbar_vr_separation">Stereoerotus</string>
+    <string name="summary_seekbar_vr_separation">Kuinka kaukana silmien näkymät ovat toisistaan prosentteina kuvan leveydestä. Noin 0.5:n yläpuolella kuva ei näytä syvemmältä, mutta rasittaa silmiä enemmän.</string>
+    <string name="suffix_seekbar_vr_percent">%</string>
+    <string name="suffix_seekbar_vr_head_aim_sensitivity">px asteelle</string>
+    <string name="suffix_seekbar_vr_head_aim_deadzone">astetta sekunnissa</string>
+    <string name="gen1_warning_title">Vanhemmat lasit havaittu</string>
+    <string name="gen1_warning_text">Tämä sovellus on tarkoitettu Quest 3 / Pico 4 Ultra -laseille tai uudemmille. Suorituskykyä Quest 2 / Pico 4 -sukupolven tai vanhemmilla laseilla ei ole testattu, ja sen odotetaan olevan heikko. Käyttöön on otettu kevyempi suorituskykyprofiili, jotta käyttö pysyisi mukavana. Reaaliaikaisen 3D:n poistaminen käytöstä parantaa suorituskykyä valtavasti, mutta se on luultavasti juuri syy, miksi latasit tämän sovelluksen! Tiedoksi vain. Kiitos ja mukavia hetkiä!</string>
+    <string name="warning_dialog_never_again">Älä näytä uudelleen</string>
+    <string name="title_enable_gl_render_path">Piirrä OpenGL:n kautta (kokeellinen)</string>
+    <string name="summary_enable_gl_render_path">Ohjaa puretun videon OpenGL-tekstuurin kautta ennen näyttämistä. Pitäisi näyttää samalta kuin tavallinen piirto. Kun tämä on käytössä, HDR-suoratoistojen sävyt leikataan.</string>
+    <string name="title_enable_perf_overlay">Näytä suorituskykytilastot suoratoiston aikana</string>
+    <string name="summary_enable_perf_overlay">Näyttää suoratoiston suorituskykytiedot reaaliajassa. VR:ssä ne näkyvät virtuaaliruudulla, ja mukana ovat myös warpin, syvyyden ja päättelyn ajat.</string>
+    <string name="title_enable_post_stream_toast">Näytä viiveilmoitus suoratoiston jälkeen</string>
+    <string name="summary_enable_post_stream_toast">Näytä viivetiedot suoratoiston päätyttyä</string>
+
+    <string name="category_help">Ohje</string>
+    <string name="title_setup_guide">Asennusopas</string>
+    <string name="summary_setup_guide">Katso ohjeet pelitietokoneen valmisteluun suoratoistoa varten</string>
+    <string name="title_troubleshooting">Vianmääritysopas</string>
+    <string name="summary_troubleshooting">Katso vinkit yleisten suoratoisto-ongelmien selvittämiseen ja korjaamiseen</string>
+    <string name="title_privacy_policy">Tietosuojakäytäntö</string>
+    <string name="summary_privacy_policy">Katso Moonlightin tietosuojakäytäntö</string>
+
+    <!-- Toasts -->
+    <string name="toast_controller_type_changed">Peliohjaimen tyyppi voi muuttua liiketunnistimien jäljittelyn vuoksi</string>
+
+    <!-- Permission justification -->
+    <string name="local_network_rationale">Moonlight tarvitsee lähiverkon käyttöoikeuden voidakseen viestiä lähellä olevien isäntien kanssa</string>
+
+    <!-- Array strings -->
+    <string name="resolution_360p">360p</string>
+    <string name="resolution_480p">480p</string>
+    <string name="resolution_720p">720p</string>
+    <string name="resolution_1080p">1080p</string>
+    <string name="resolution_1440p">1440p</string>
+    <string name="resolution_4k">4K</string>
+
+    <string name="fps_30">30 FPS</string>
+    <string name="fps_60">60 FPS</string>
+    <string name="fps_72">72 FPS</string>
+    <string name="fps_90">90 FPS</string>
+    <string name="fps_120">120 FPS</string>
+
+    <string name="audioconf_stereo">Stereo</string>
+    <string name="audioconf_51surround">5.1-tilaääni</string>
+    <string name="audioconf_71surround">7.1-tilaääni</string>
+
+    <string name="videoformat_auto">Automaattinen (suositus)</string>
+    <string name="videoformat_av1always">Suosi AV1:tä (kokeellinen)</string>
+    <string name="videoformat_hevcalways">Suosi HEVC:tä</string>
+    <string name="videoformat_h264always">Suosi H.264:ää</string>
+
+    <string name="title_frame_pacing">Videon kuvarytmitys</string>
+    <string name="summary_frame_pacing">Määritä videon viiveen ja sulavuuden välinen tasapaino</string>
+    <string name="pacing_latency">Suosi pienintä viivettä</string>
+    <string name="pacing_balanced">Tasapainoinen</string>
+    <string name="pacing_balanced_alt">Tasapainoinen FPS-rajalla</string>
+    <string name="pacing_smoothness">Suosi sulavinta videota (voi lisätä viivettä huomattavasti)</string>
+
+    <string name="title_analog_scrolling">Vieritä analogisauvalla</string>
+    <string name="summary_analog_scrolling">Valitse analogisauva, jolla vieritetään hiiren jäljittelytilassa</string>
+    <string name="analogscroll_none">Ei mitään (molemmat sauvat liikuttavat hiirtä)</string>
+    <string name="analogscroll_right">Oikea analogisauva</string>
+    <string name="analogscroll_left">Vasen analogisauva</string>
+
+    <!-- VR Array strings -->
+    <string name="vr_depth_source_zipdepth">V2.0 - ZipDepth-pohjainen 3D (suositus)</string>
+    <string name="vr_depth_source_off">Pois</string>
+    <string name="vr_depth_source_model">V1.0 - MiDaS-pohjainen 3D</string>
+    <string name="vr_depth_source_flat">Testikuvio: tasainen pinta</string>
+    <string name="vr_depth_source_ramp">Testikuvio: vaakasuora liukuma</string>
+    <string name="vr_depth_source_blob">Testikuvio: läiskä keskellä</string>
+    <string name="vr_depth_source_eyetest">Testikuvio: silmien reititys</string>
+    <string name="vr_depth_source_shifttest">Testikuvio: siirtymän mittaus</string>
+
+    <string name="vr_env_res_low">Matala</string>
+    <string name="vr_env_res_standard">Normaali</string>
+    <string name="vr_env_res_high">Korkea</string>
+    <string name="vr_env_res_ultra">Ultra (kokeellinen)</string>
+
+    <string name="vr_sharpening_off">Pois</string>
+    <string name="vr_sharpening_normal">Normaali</string>
+    <string name="vr_sharpening_quality">Laatu</string>
+    <string name="vr_supersampling_off">Pois</string>
+    <string name="vr_supersampling_normal">Normaali</string>
+    <string name="vr_supersampling_quality">Laatu</string>
+
+    <string name="vr_file_log_off">Pois</string>
+    <string name="vr_file_log_basic">Varoitukset ja virheet</string>
+    <string name="vr_file_log_verbose">Yksityiskohtainen</string>
+</resources>
