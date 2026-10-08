@@ -15,6 +15,7 @@ Everything that is the app is **Moonlight XR by Gilleece**, itself a fork of [Mo
 3. **No crash on decoder setup**: the app asks every decoder for Android 11 low-latency mode first. The AOSP software decoder rejects that, and on this Android image the failed configure then crashes the process in `ACodec::LoadedState::onShutdown`. The key is never offered to AOSP software decoders.
 4. **Steam Frame controllers** (`xr_input.c`, `xr_gamepad.*`): bound through `XR_VALVE_frame_controller_interaction` and `/interaction_profiles/valve/frame_controller` instead of SteamVR's translation into Quest Touch buttons, and laid out as one Xbox pad in gamepad mode, d-pad and Back included.
 5. **Face button swap** (`ControllerHandler.reportXrPad`): the app's "flip face buttons" setting applies to the VR gamepad too.
+6. **No Android bars** (`UiHelper`): on Lepton the 2D activities hide the status and navigation bars, since they are only in the way on a flat panel in SteamVR.
 
 The `room-test` branch adds one commit: SteamVR allows a session 16 swapchains and the app makes 16 before a room is picked, so on SteamVR it leaves out the splash, toasts, report sheet, Ko-fi sheet, clock, hand hint and glow, which makes room for the room's swapchain and the corner resize handles.
 
@@ -68,7 +69,7 @@ Open the settings from Moonlight's 2D window before starting a stream, or from t
 
 - **Rooms (environments) do not render, and the picture cannot be resized** on the `steam-frame` build. SteamVR allows an app 16 swapchains and Moonlight XR uses all of them before a room is picked, so the room's swapchain creation fails, and so did the corner resize handles', the hover rings' and the glow's. The `room-test` branch and its `*-room-test.apk` release work around that; untested at the time of writing.
 - **Passthrough does not appear.** The runtime advertises the alpha blend mode and the app switches to it, but the view stays opaque. The void environment works.
-- The Android home screen is visible for a few seconds while Lepton boots, before Moonlight's window appears.
+- On the very first launch Android's home screen shows for a few seconds while Lepton boots. The launch wrapper then disables that launcher inside the container, so later launches go from black straight to Moonlight. Lepton rebuilds the container's data after an APK update or an early exit, and the home screen then shows once more.
 - Refresh rate stays at 90 Hz; the runtime offers no other rate to the app.
 - Hand tracking is untested.
 

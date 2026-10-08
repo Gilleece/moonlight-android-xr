@@ -35,9 +35,18 @@ fi
 
 (
     echo "$(date +%T) waiting for $PKG"
+    HOME_OFF=
     for _ in $(seq 1 480); do
         sleep 0.5
         timeout 5 "$ADB" connect localhost:5555 >/dev/null 2>&1
+        # Lepton boots into Android's home screen before Moonlight starts. Disable
+        # that launcher inside the container (it persists in the app's data) so
+        # later launches go from black straight to Moonlight. Idempotent.
+        if [ -z "$HOME_OFF" ] && timeout 5 "$ADB" -s localhost:5555 shell pm list packages com.android.launcher3 2>/dev/null | grep -q launcher3; then
+            if timeout 10 "$ADB" -s localhost:5555 shell pm disable-user --user 0 com.android.launcher3 2>/dev/null | grep -q -i "disabled"; then
+                HOME_OFF=1; echo "$(date +%T) home screen disabled"
+            fi
+        fi
         if timeout 5 "$ADB" -s localhost:5555 shell dumpsys window 2>/dev/null \
             | grep -q "mCurrentFocus=.*${PKG}/"; then
             echo "$(date +%T) app focused"
