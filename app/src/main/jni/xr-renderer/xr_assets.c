@@ -103,8 +103,10 @@ int createPointerSwapchain(XrCtx* ctx) {
                        &ctx->cogReadoutImageCount);
     createArtSwapchain(ctx, COG_MARKS_TEX_W, COG_MARKS_TEX_H, "create cog marks swapchain",
                        &ctx->cogMarksSwapchain, &ctx->cogMarksImages, &ctx->cogMarksImageCount);
-    createArtSwapchain(ctx, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H, "create cog clock swapchain",
-                       &ctx->cogClockSwapchain, &ctx->cogClockImages, &ctx->cogClockImageCount);
+    if (!ctx->fewSwapchains) {
+        createArtSwapchain(ctx, COG_CLOCK_TEX_W, COG_CLOCK_TEX_H, "create cog clock swapchain",
+                           &ctx->cogClockSwapchain, &ctx->cogClockImages, &ctx->cogClockImageCount);
+    }
 
     createArtSwapchain(ctx, KB_TEX_W, KB_TEX_H, "create keyboard swapchain",
                        &ctx->kbPanelSwapchain, &ctx->kbPanelImages, &ctx->kbPanelImageCount);
@@ -116,8 +118,10 @@ int createPointerSwapchain(XrCtx* ctx) {
     ctx->exitArtShown = -1;
 
     // The report sheet, drawn again whenever what it shows changes
-    createArtSwapchain(ctx, REPORT_TEX_W, REPORT_TEX_H, "create report sheet swapchain",
-                       &ctx->reportSwapchain, &ctx->reportImages, &ctx->reportImageCount);
+    if (!ctx->fewSwapchains) {
+        createArtSwapchain(ctx, REPORT_TEX_W, REPORT_TEX_H, "create report sheet swapchain",
+                           &ctx->reportSwapchain, &ctx->reportImages, &ctx->reportImageCount);
+    }
 
     // Every button along the bar and both faces of every switch on it, the
     // 3D switch's cells left empty where there is no stereo to switch
@@ -125,22 +129,31 @@ int createPointerSwapchain(XrCtx* ctx) {
                        &ctx->buttonSwapchain, &ctx->buttonImages, &ctx->buttonImageCount);
 
     // The hand lock hint, only in a session that may show it
-    if (ctx->handsEnabled) {
+    if (ctx->handsEnabled && !ctx->fewSwapchains) {
         createArtSwapchain(ctx, HINT_TEX_W, HINT_TEX_H, "create hand lock hint swapchain",
                            &ctx->hintSwapchain, &ctx->hintImages, &ctx->hintImageCount);
     }
 
     // The Ko-fi sheet, in every session, since every session has the About tab
-    createArtSwapchain(ctx, KOFI_TEX_W, KOFI_TEX_H, "create Ko-fi sheet swapchain",
-                       &ctx->kofiSwapchain, &ctx->kofiImages, &ctx->kofiImageCount);
+    // On a runtime with few swapchains the Ko-fi sheet and the glow are left
+    // out: the glow is the one pass here that draws every frame, and the two
+    // were among what the limit refused anyway. The outline (hover rings) and
+    // the corner handles are kept, since without the corners the picture
+    // cannot be resized, and with the room's and the models' there are 14.
+    if (!ctx->fewSwapchains) {
+        createArtSwapchain(ctx, KOFI_TEX_W, KOFI_TEX_H, "create Ko-fi sheet swapchain",
+                           &ctx->kofiSwapchain, &ctx->kofiImages, &ctx->kofiImageCount);
+    }
 
     createArtSwapchain(ctx, OUTLINE_TEX, OUTLINE_TEX, "create outline swapchain",
                        &ctx->outlineSwapchain, &ctx->outlineImages, &ctx->outlineImageCount);
 
     // The one chain here that is redrawn every frame rather than filled once,
     // since it is made out of whatever the picture is showing
-    createArtSwapchain(ctx, GLOW_TEX, GLOW_TEX, "create glow swapchain",
-                       &ctx->glowSwapchain, &ctx->glowImages, &ctx->glowImageCount);
+    if (!ctx->fewSwapchains) {
+        createArtSwapchain(ctx, GLOW_TEX, GLOW_TEX, "create glow swapchain",
+                           &ctx->glowSwapchain, &ctx->glowImages, &ctx->glowImageCount);
+    }
 
     createArtSwapchain(ctx, CORNER_TEX_W, CORNER_TEX_H, "create corner swapchain",
                        &ctx->cornerSwapchain, &ctx->cornerImages, &ctx->cornerImageCount);

@@ -400,6 +400,11 @@ static int initXrInstance(XrCtx* ctx) {
                  (unsigned)XR_VERSION_MINOR(instanceProps.runtimeVersion),
                  (unsigned)XR_VERSION_PATCH(instanceProps.runtimeVersion));
         LOGEV("runtime %s", ctx->runtimeLabel);
+        ctx->fewSwapchains = !strncmp(instanceProps.runtimeName, "SteamVR", 7);
+        if (ctx->fewSwapchains) {
+            LOGEV("runtime caps swapchains at 16: no splash, notices, report sheet, "
+                  "Ko-fi sheet, clock, hand hint or glow");
+        }
     }
 
     XrSystemGetInfo systemInfo = { XR_TYPE_SYSTEM_GET_INFO };
@@ -614,11 +619,13 @@ static int initSwapchain(XrCtx* ctx) {
     createArtSwapchain(ctx, OVERLAY_WIDTH, OVERLAY_HEIGHT, "create overlay swapchain",
                        &ctx->overlaySwapchain, &ctx->overlayImages, &ctx->overlayImageCount);
     // Or the splash, which is left out without it, ground and all
-    createArtSwapchain(ctx, SPLASH_TEX_W, SPLASH_TEX_H, "create splash swapchain",
-                       &ctx->splashSwapchain, &ctx->splashImages, &ctx->splashImageCount);
-    // Or the toast
-    createArtSwapchain(ctx, TOAST_TEX_W, TOAST_TEX_H, "create toast swapchain",
-                       &ctx->toastSwapchain, &ctx->toastImages, &ctx->toastImageCount);
+    if (!ctx->fewSwapchains) {
+        createArtSwapchain(ctx, SPLASH_TEX_W, SPLASH_TEX_H, "create splash swapchain",
+                           &ctx->splashSwapchain, &ctx->splashImages, &ctx->splashImageCount);
+        // Or the toast
+        createArtSwapchain(ctx, TOAST_TEX_W, TOAST_TEX_H, "create toast swapchain",
+                           &ctx->toastSwapchain, &ctx->toastImages, &ctx->toastImageCount);
+    }
 
     return 1;
 }

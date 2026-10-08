@@ -892,6 +892,10 @@ typedef struct {
     // what fades a layer without drawing anything. Without it the panels and
     // the splash come and go at once, as they always did.
     int colorScaleSupported;
+    // SteamVR lets a session hold only 16 swapchains, fewer than everything
+    // here wants. On it only what the picture, the pointer and the panels
+    // need is made, so a room (and the controller models) still fit.
+    int fewSwapchains;
     // How long a panel's fade takes, which the splash's is twice
     int64_t fadeNs;
     int fadeKnobMs;
