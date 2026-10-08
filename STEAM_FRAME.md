@@ -1,6 +1,6 @@
 # Moonlight XR on the Steam Frame
 
-[Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) shows a Sunshine/Apollo game stream as a big stereoscopic 3D screen in a headset. The stock APK does nothing useful on Valve's Steam Frame, because the Frame runs Android apps through **Lepton**, Valve's Android container, and Lepton looks nothing like a Quest or a Pico to the app. This fork makes it work there. The `steam-frame` branch is the one to use; `room-test` adds an experimental patch on top.
+[Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) shows a Sunshine/Apollo game stream as a big stereoscopic 3D screen in a headset. The stock APK does nothing useful on Valve's Steam Frame, because the Frame runs Android apps through **Lepton**, Valve's Android container, and Lepton looks nothing like a Quest or a Pico to the app. This fork makes it work there; the `steam-frame` branch is the one to use.
 
 Tested on a Steam Frame with SteamOS and Lepton 2.8.x, streaming from Sunshine over Wi-Fi. Not affiliated with Valve or the Moonlight projects.
 
@@ -16,8 +16,7 @@ Everything that is the app is **Moonlight XR by Gilleece**, itself a fork of [Mo
 4. **Steam Frame controllers** (`xr_input.c`, `xr_gamepad.*`): bound through `XR_VALVE_frame_controller_interaction` and `/interaction_profiles/valve/frame_controller` instead of SteamVR's translation into Quest Touch buttons, and laid out as one Xbox pad in gamepad mode, d-pad and Back included.
 5. **Face button swap** (`ControllerHandler.reportXrPad`): the app's "flip face buttons" setting applies to the VR gamepad too.
 6. **No Android bars** (`UiHelper`): on Lepton the 2D activities hide the status and navigation bars, since they are only in the way on a flat panel in SteamVR.
-
-The `room-test` branch adds one commit: SteamVR allows a session 16 swapchains and the app makes 16 before a room is picked, so on SteamVR it leaves out the splash, toasts, report sheet, Ko-fi sheet, clock, hand hint and glow, which makes room for the room's swapchain and the corner resize handles.
+7. **Rooms under SteamVR's swapchain limit** (`xr_session.c`, `xr_assets.c`): SteamVR allows a session 16 swapchains and the app made 16 before a room was picked, so the room's swapchain failed and the environments never appeared. On SteamVR the splash, toasts, report sheet, Ko-fi sheet, clock, hand hint and glow are left out, which makes room for the room and for the corner resize handles.
 
 ## Install
 
@@ -67,15 +66,15 @@ Open the settings from Moonlight's 2D window before starting a stream, or from t
 
 ## Known limitations
 
-- **Rooms (environments) do not render, and the picture cannot be resized** on the `steam-frame` build. SteamVR allows an app 16 swapchains and Moonlight XR uses all of them before a room is picked, so the room's swapchain creation fails, and so did the corner resize handles', the hover rings' and the glow's. The `room-test` branch and its `*-room-test.apk` release work around that; untested at the time of writing.
-- **Passthrough does not appear.** The runtime advertises the alpha blend mode and the app switches to it, but the view stays opaque. The void environment works.
+- **Passthrough does not appear.** The runtime advertises the alpha blend mode and the app switches to it, but the view stays opaque. The void and the rooms work.
+- **No picture glow, loading splash, pop-up notices, bug report sheet, clock or hand tracking hint.** They are what was given up to fit the rooms under SteamVR's 16-swapchain limit.
 - On the very first launch Android's home screen shows for a few seconds while Lepton boots. The launch wrapper then disables that launcher inside the container, so later launches go from black straight to Moonlight. Lepton rebuilds the container's data after an APK update or an early exit, and the home screen then shows once more.
 - Refresh rate stays at 90 Hz; the runtime offers no other rate to the app.
 - Hand tracking is untested.
 
 ## Building
 
-`steam-frame/build.sh` downloads a self-contained toolchain into `~/.local/opt/android-build` and builds the checked-out branch, producing a signed APK in `steam-frame/release/`. It needs about 3 GB of disk, a network connection and no root. It runs on the Frame itself (arm64) or on an x86_64 Linux PC. The signing key is generated on first use in `steam-frame/signing/`; keep it so later builds install over earlier ones.
+`steam-frame/build.sh` downloads a self-contained toolchain into `~/.local/opt/android-build` and builds the checked-out branch (`steam-frame`), producing a signed APK in `steam-frame/release/`. It needs about 3 GB of disk, a network connection and no root. It runs on the Frame itself (arm64) or on an x86_64 Linux PC. The signing key is generated on first use in `steam-frame/signing/`; keep it so later builds install over earlier ones.
 
 On arm64 Linux Google ships no NDK or `aapt2`, and the newest Android command line tools include an x86_64-only binary, so the script assembles the toolchain from these parts:
 
