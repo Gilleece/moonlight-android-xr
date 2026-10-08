@@ -2,7 +2,26 @@
 
 [Moonlight XR](https://github.com/Gilleece/moonlight-android-xr) shows a Sunshine/Apollo game stream as a big stereoscopic 3D screen in a headset. The stock APK does nothing useful on Valve's Steam Frame, because the Frame runs Android apps through **Lepton**, Valve's Android container, and Lepton looks nothing like a Quest or a Pico to the app. This fork makes it work there; the `steam-frame` branch is the one to use.
 
-Tested on a Steam Frame with SteamOS and Lepton 2.8.x, streaming from Sunshine over Wi-Fi. Not affiliated with Valve or the Moonlight projects.
+Tested on a Steam Frame with SteamOS and Lepton 2.8.x, streaming from Sunshine over Wi-Fi, in October 2026. Not affiliated with Valve or the Moonlight projects.
+
+## AI disclosure
+
+The code changes, the scripts and this document were written by an AI: Anthropic's Claude, as Claude Fable 5.1 and Claude Opus 5.5, running through Claude Code on the Steam Frame itself. The human owner of this repository decided what to attempt, launched every build in the headset, and reported what worked and what did not; the AI read the logs and changed the code accordingly. Nothing here has been reviewed by the upstream Moonlight XR maintainer. Treat it as a community port, read the code before trusting it, and expect rough edges. The "How this was made" section at the end has more detail.
+
+## Status
+
+Confirmed working on the Frame, in the headset:
+
+- Streaming in VR with the 3D depth effect, from the PC list, pairing and game selection in Moonlight's 2D window.
+- The room environments (Home Theater, Grand Cinema, Synthwave) and the void, with their brightness and glow settings, and resizing the picture by its corners.
+- The Steam Frame controllers in gamepad mode, laid out as an Xbox pad (table below), and the app's own "flip face buttons" setting on them.
+- The pointer, the bar below the screen and its panels.
+
+Does not work:
+
+- **Passthrough.** The runtime says it supports the blend mode, the app switches to it, and the view stays opaque. Pick the void or a room instead.
+
+Not tested: hand tracking, pointing by eye gaze, HDR.
 
 ## Credit
 
@@ -29,7 +48,7 @@ You need a Steam Frame with Lepton installed from Steam (Library → Tools), Sun
    ```sh
    git clone https://github.com/ajbeavers/moonlight-android-xr-steam-frame.git
    cd moonlight-android-xr-steam-frame
-   steam-frame/install.sh ~/Downloads/MoonlightXR-steam-frame-v0.1.apk
+   steam-frame/install.sh ~/Downloads/MoonlightXR-steam-frame-v0.3.apk
    ```
 
    The installer copies the APK and a launch wrapper into `~/Games/MoonlightXR/`, then adds a **Moonlight XR** entry to your Steam library set to the Lepton compatibility tool. Steam must be running; the installer talks to it over its local debugging port, which is on by default on SteamOS.
@@ -53,6 +72,8 @@ In the stream, hold the left **View** button and the left grip for half a second
 
 In pointer mode the trigger clicks, A/B (or d-pad down/right on the left) right- and middle-click, the stick scrolls and the grip moves the screen.
 
+Steam Input and SteamVR's controller binding UI do not change this layout: the gamepad the PC sees is made by the app from the controllers' OpenXR inputs, not by Steam. To swap A/B and X/Y use the app's own "flip face buttons" setting (Settings → Input).
+
 ## Settings that matter on the Frame
 
 Everything is decoded in software on the Frame's CPU, and the 3D depth model runs on the CPU too (the GPU path does not work under Lepton). These settings keep it smooth:
@@ -69,7 +90,8 @@ Open the settings from Moonlight's 2D window before starting a stream, or from t
 
 - **Passthrough does not appear.** The runtime advertises the alpha blend mode and the app switches to it, but the view stays opaque. The void and the rooms work.
 - **No picture glow, loading splash, pop-up notices, bug report sheet, clock or hand tracking hint.** They are what was given up to fit the rooms under SteamVR's 16-swapchain limit.
-- On the very first launch Android's home screen shows for a few seconds while Lepton boots. The launch wrapper then disables that launcher inside the container, so later launches go from black straight to Moonlight. Lepton rebuilds the container's data after an APK update or an early exit, and the home screen then shows once more.
+- **Everything is software decoded**, so the picture is more sensitive to bitrate and resolution than on a Quest or Pico, and the 3D depth map runs a few hundred milliseconds behind the picture. See the settings section.
+- On the first launch Android's home screen shows for a few seconds while Lepton boots. The launch wrapper then disables that launcher inside the container, so later launches go from black straight to Moonlight. Lepton throws the container's data away after an APK update, or whenever a session ends within 30 seconds of starting, and the home screen then shows once more on the next launch.
 - Refresh rate stays at 90 Hz; the runtime offers no other rate to the app.
 - Hand tracking is untested.
 
@@ -110,7 +132,7 @@ On an x86_64 Linux PC nothing special is needed: the standard Android SDK with N
 
 ## How this was made
 
-I did not write the code by hand. The investigation, the patches and the scripts were produced by Anthropic's Claude (Claude Fable 5.1 and Claude Opus 5.5, through Claude Code) working on my Steam Frame over SSH, with me launching builds in the headset and reporting back what I saw. Every claim here about what works comes from those tests on real hardware, not from reasoning about the code. The known limitations are things that were tried and did not work, or were not finished. Bug reports with the Lepton log attached are welcome.
+I did not write the code by hand. The investigation, the patches, the scripts and this document were produced by Anthropic's Claude (Claude Fable 5.1 and Claude Opus 5.5, through Claude Code) working on my Steam Frame over SSH, with me launching builds in the headset and reporting back what I saw. The work went roughly like this: reading Lepton's scripts and the app's source to see why the stock APK did nothing, patching headset detection and the decoder path, finding the decoder-setup crash in a crash dump, building an arm64 toolchain on the Frame itself, binding the Frame controllers, and then several rounds of trying to fit the rooms under SteamVR's swapchain limit, one of which broke the view and was reverted before the one that worked. Every claim in the Status section comes from those tests on real hardware, not from reasoning about the code. Bug reports with the Lepton log attached are welcome.
 
 ## License
 

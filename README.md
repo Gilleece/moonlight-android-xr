@@ -1,4 +1,4 @@
-> **Steam Frame:** this fork runs on Valve's Steam Frame through Lepton. Everything about it, from install to building, is in [STEAM_FRAME.md](STEAM_FRAME.md); prebuilt APKs are on the Releases page.
+> **Steam Frame:** this fork runs on Valve's Steam Frame through Lepton. Everything about it, from install to building, is in [STEAM_FRAME.md](STEAM_FRAME.md); prebuilt APKs are on the Releases page. The Frame changes were written by an AI (Anthropic's Claude) and tested by the repository owner on a Steam Frame; see the AI disclosure in that file.
 
 <p align="center">
   <img src="moonlight-xr-logo-transparent.png" height="200" alt="moonlight-xr-logo"><br>
