@@ -1140,6 +1140,17 @@ typedef struct {
     // Each controller's vibration, only for the host's rumble in gamepad mode,
     // and whether any profile took it
     XrAction hapticAction;
+    // The Steam Frame controller's own profile, offered when the runtime has
+    // XR_VALVE_frame_controller_interaction, and the controls only it has
+    XrAction padXAction;
+    XrAction padYAction;
+    XrAction padUpAction;
+    XrAction padLeftAction;
+    XrAction padBumperAction;
+    XrAction padStartAction;
+    XrPath frameProfile;
+    int frameBound;
+    int onFrame[HAND_COUNT];
     int hapticBound;
     XrSpace aimSpaces[SRC_COUNT];
     // The hand aim's, null where it would not make one, which leaves those
@@ -1148,6 +1159,7 @@ typedef struct {
     XrPath handPaths[HAND_COUNT];
     int inputReady;
     int picoInteraction;
+    int frameInteraction;
     // Pointing is a per session toggle on top of the preference, since
     // absolute positions fight any game that does its own mouse look
     int pointerOn;

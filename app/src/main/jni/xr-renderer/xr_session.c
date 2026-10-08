@@ -272,6 +272,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) haveAndroidCreate = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) ctx->cylinderSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME)) ctx->picoInteraction = 1;
+        if (!strcmp(exts[i].extensionName, "XR_VALVE_frame_controller_interaction")) ctx->frameInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) ctx->handInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME)) ctx->msftHandInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) ctx->handTracking = 1;
@@ -321,6 +322,9 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->picoInteraction) {
         enableExt(enabledExts, &enabledCount, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
+    }
+    if (ctx->frameInteraction) {
+        enableExt(enabledExts, &enabledCount, "XR_VALVE_frame_controller_interaction");
     }
     if (ctx->handInteraction) {
         enableExt(enabledExts, &enabledCount, XR_EXT_HAND_INTERACTION_EXTENSION_NAME);

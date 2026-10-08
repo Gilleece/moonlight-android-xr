@@ -2925,6 +2925,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         pad.sendControllerArrival();
     }
 
+    // A, B, X and Y as flag bits, swapped the way handleFlipFaceButtons swaps
+    // the key codes: A with B and X with Y. The other bits are left alone.
+    private static int flipPadFaceButtons(int buttons) {
+        int kept = buttons & ~(ControllerPacket.A_FLAG | ControllerPacket.B_FLAG
+                | ControllerPacket.X_FLAG | ControllerPacket.Y_FLAG);
+        if ((buttons & ControllerPacket.A_FLAG) != 0) kept |= ControllerPacket.B_FLAG;
+        if ((buttons & ControllerPacket.B_FLAG) != 0) kept |= ControllerPacket.A_FLAG;
+        if ((buttons & ControllerPacket.X_FLAG) != 0) kept |= ControllerPacket.Y_FLAG;
+        if ((buttons & ControllerPacket.Y_FLAG) != 0) kept |= ControllerPacket.X_FLAG;
+        return kept;
+    }
+
     /** What the VR controllers' pad reads now, in the packet's own units. Main thread. */
     public void reportXrPad(int buttons, byte leftTrigger, byte rightTrigger,
                             short leftStickX, short leftStickY,
@@ -2932,6 +2944,13 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         XrPadContext pad = xrPad;
         if (pad == null) {
             return;
+        }
+        // The pad's buttons arrive as flag bits straight from the headset, so
+        // they never pass through the key-event path that honours the flip
+        // face buttons setting. Apply it here instead, swapping A with B and
+        // X with Y, so the in-app toggle works for the VR gamepad too.
+        if (prefConfig.flipFaceButtons) {
+            buttons = flipPadFaceButtons(buttons);
         }
         pad.inputMap = buttons;
         pad.leftTrigger = leftTrigger;

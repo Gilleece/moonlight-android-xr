@@ -45,8 +45,11 @@ public class MediaCodecHelper {
     private static final List<String> amlogicDecoderPrefixes;
     private static final List<String> knownVendorLowLatencyOptions;
 
+    // Lepton's Android image ships only the AOSP software decoders, so the
+    // Steam Frame joins the emulators here or there is nothing to decode with.
     public static final boolean SHOULD_BYPASS_SOFTWARE_BLOCK =
-            Build.HARDWARE.equals("ranchu") || Build.HARDWARE.equals("cheets") || Build.BRAND.equals("Android-x86");
+            Build.HARDWARE.equals("ranchu") || Build.HARDWARE.equals("cheets") || Build.BRAND.equals("Android-x86")
+            || PreferenceConfiguration.isLepton();
 
     private static boolean isLowEndSnapdragon = false;
     private static boolean isAdreno620 = false;
@@ -492,13 +495,27 @@ public class MediaCodecHelper {
                 !isAdreno620;
     }
 
+    // The AOSP software decoders. isSoftwareOnly() misses them on some images
+    // (Lepton's OMX.google ones report as hardware), so the names count too.
+    private static boolean isAospSoftwareDecoder(MediaCodecInfo decoderInfo) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && decoderInfo.isSoftwareOnly()) {
+            return true;
+        }
+        String name = decoderInfo.getName();
+        return name.regionMatches(true, 0, "OMX.google.", 0, 11)
+                || name.regionMatches(true, 0, "c2.android.", 0, 11);
+    }
+
     public static boolean setDecoderLowLatencyOptions(MediaFormat videoFormat, MediaCodecInfo decoderInfo, int tryNumber) {
         // Options here should be tried in the order of most to least risky. The decoder will use
         // the first MediaFormat that doesn't fail in configure().
 
         boolean setNewOption = false;
 
-        if (tryNumber < 1) {
+        // AOSP's software decoders reject the low latency config index, and on
+        // Lepton the failed configure then takes the process down inside ACodec,
+        // so a software decoder never gets the key as a best effort.
+        if (tryNumber < 1 && !isAospSoftwareDecoder(decoderInfo)) {
             // Official Android 11+ low latency option (KEY_LOW_LATENCY).
             videoFormat.setInteger("low-latency", 1);
             setNewOption = true;
