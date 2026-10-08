@@ -783,7 +783,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
                 // inference behind everything else, but deliberately not
                 // BACKGROUND: that cpuset is little cores only on this SoC and
                 // would make a model run slower in wall clock, not faster
-                Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
+                // On Lepton the depth model shares five CPU cores with a software
+                // video decoder, which must win: a late depth map is a smear, a
+                // late video frame is a hitch and a keyframe request
+                Process.setThreadPriority(PreferenceConfiguration.isLepton()
+                        ? Process.THREAD_PRIORITY_BACKGROUND : Process.THREAD_PRIORITY_MORE_FAVORABLE);
 
                 if (!nativeBindDepthContext(nativeCtx)) {
                     nativeDepthGaveUp(nativeCtx);
@@ -847,7 +851,11 @@ public class XrRenderer implements SurfaceTexture.OnFrameAvailableListener {
             public void run() {
                 // As the depth thread, for the same reason: a map that waits
                 // on this waits a turn of the model after it
-                Process.setThreadPriority(Process.THREAD_PRIORITY_MORE_FAVORABLE);
+                // On Lepton the depth model shares five CPU cores with a software
+                // video decoder, which must win: a late depth map is a smear, a
+                // late video frame is a hitch and a keyframe request
+                Process.setThreadPriority(PreferenceConfiguration.isLepton()
+                        ? Process.THREAD_PRIORITY_BACKGROUND : Process.THREAD_PRIORITY_MORE_FAVORABLE);
                 if (!nativeBindDepthStageContext(nativeCtx)) {
                     LimeLog.severe("Depth stage context would not bind, stereo will stay as it is");
                     nativeDepthGaveUp(nativeCtx);

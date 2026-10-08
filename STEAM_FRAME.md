@@ -16,7 +16,8 @@ Everything that is the app is **Moonlight XR by Gilleece**, itself a fork of [Mo
 4. **Steam Frame controllers** (`xr_input.c`, `xr_gamepad.*`): bound through `XR_VALVE_frame_controller_interaction` and `/interaction_profiles/valve/frame_controller` instead of SteamVR's translation into Quest Touch buttons, and laid out as one Xbox pad in gamepad mode, d-pad and Back included.
 5. **Face button swap** (`ControllerHandler.reportXrPad`): the app's "flip face buttons" setting applies to the VR gamepad too.
 6. **No Android bars** (`UiHelper`): on Lepton the 2D activities hide the status and navigation bars, since they are only in the way on a flat panel in SteamVR.
-7. **Rooms under SteamVR's swapchain limit** (`xr_session.c`, `xr_assets.c`): SteamVR allows a session 16 swapchains and the app made 16 before a room was picked, so the room's swapchain failed and the environments never appeared. On SteamVR the splash, toasts, report sheet, Ko-fi sheet, clock, hand hint and glow are left out, which makes room for the room and for the corner resize handles.
+7. **Depth behind the decoder** (`XrRenderer`): on Lepton the depth model's threads run at background priority, so the software video decoder gets the CPU first. A late depth map only smears the 3D; a late video frame is a hitch and a keyframe request.
+8. **Rooms under SteamVR's swapchain limit** (`xr_session.c`, `xr_assets.c`): SteamVR allows a session 16 swapchains and the app made 16 before a room was picked, so the room's swapchain failed and the environments never appeared. On SteamVR the splash, toasts, report sheet, Ko-fi sheet, clock, hand hint and glow are left out, which makes room for the room and for the corner resize handles.
 
 ## Install
 
