@@ -728,6 +728,12 @@ typedef struct {
     int roomGlow[ROOM_STYLE_LAST + 1];
     int roomLightLevel[ROOM_STYLE_LAST + 1];
     int roomScreen[ROOM_STYLE_LAST + 1];
+    // A transparent projection layer under everything while passthrough is on:
+    // SteamVR on the Steam Frame leaves the background opaque without one
+    XrSwapchain passthroughSwapchain;
+    uint32_t passthroughImageCount;
+    XrSwapchainImageOpenGLESKHR* passthroughImages;
+    int passthroughFailed;
     // Everything the room is drawn with, built the first frame a style asks
     // for it rather than at startup. One side by side image, a half of it per
     // eye.
@@ -1798,6 +1804,8 @@ void pictureReset(XrCtx* ctx);
 int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
                        XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images,
                        uint32_t* count);
+int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+              const unsigned char* px, int width, int height);
 void destroyArtSwapchain(XrCtx* ctx, XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images);
 int createPointerSwapchain(XrCtx* ctx);
 void freeArtSheets(XrCtx* ctx);
