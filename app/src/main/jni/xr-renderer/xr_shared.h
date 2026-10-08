@@ -214,8 +214,14 @@
 // Gamepad mode's buttons, in the bits Moonlight's controller packet carries
 // them in, which are ControllerPacket's flags: the four face buttons, the
 // bumpers, the stick clicks and Start, which is everything two controllers
-// have for an app. There is no Back, guide button or d-pad.
+// have for an app. Touch-style controllers have no Back, guide button or
+// d-pad; the Steam Frame's controllers do, so those bits are here for them.
+#define PAD_UP      0x0001
+#define PAD_DOWN    0x0002
+#define PAD_LEFT    0x0004
+#define PAD_RIGHT   0x0008
 #define PAD_START   0x0010
+#define PAD_BACK    0x0020
 #define PAD_LS_CLICK 0x0040
 #define PAD_RS_CLICK 0x0080
 #define PAD_LB      0x0100
@@ -224,7 +230,7 @@
 #define PAD_B       0x2000
 #define PAD_X       0x4000
 #define PAD_Y       0x8000
-#define PAD_BUTTONS (PAD_START + PAD_LS_CLICK + PAD_RS_CLICK + PAD_LB + PAD_RB + PAD_A + PAD_B + PAD_X + PAD_Y)
+#define PAD_BUTTONS (PAD_UP + PAD_DOWN + PAD_LEFT + PAD_RIGHT + PAD_BACK + PAD_START + PAD_LS_CLICK + PAD_RS_CLICK + PAD_LB + PAD_RB + PAD_A + PAD_B + PAD_X + PAD_Y)
 
 // The shortcut on the controllers that switches between the pointer and the
 // pad, in the order the 2D setting lists them: the left menu button held with

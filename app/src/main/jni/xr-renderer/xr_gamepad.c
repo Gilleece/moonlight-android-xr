@@ -53,11 +53,45 @@ void padMap(const PadHand* left, const PadHand* right, const int gripDown[2], in
     if (right->upper) {
         buttons |= PAD_B;
     }
-    if (left->lower) {
-        buttons |= PAD_X;
+    if (left->frame) {
+        // The Frame's left controller is the pad's left half: d-pad and Back
+        if (left->dpadUp) {
+            buttons |= PAD_UP;
+        }
+        if (left->lower) {
+            buttons |= PAD_DOWN;
+        }
+        if (left->dpadLeft) {
+            buttons |= PAD_LEFT;
+        }
+        if (left->upper) {
+            buttons |= PAD_RIGHT;
+        }
+        if (left->bumper) {
+            buttons |= PAD_LB;
+        }
     }
-    if (left->upper) {
-        buttons |= PAD_Y;
+    else {
+        if (left->lower) {
+            buttons |= PAD_X;
+        }
+        if (left->upper) {
+            buttons |= PAD_Y;
+        }
+    }
+    if (right->frame) {
+        if (right->faceX) {
+            buttons |= PAD_X;
+        }
+        if (right->faceY) {
+            buttons |= PAD_Y;
+        }
+        if (right->bumper) {
+            buttons |= PAD_RB;
+        }
+        if (right->start) {
+            buttons |= PAD_START;
+        }
     }
     if (gripDown[0]) {
         buttons |= PAD_LB;
@@ -72,7 +106,7 @@ void padMap(const PadHand* left, const PadHand* right, const int gripDown[2], in
         buttons |= PAD_RS_CLICK;
     }
     if (left->menu && startOk) {
-        buttons |= PAD_START;
+        buttons |= left->frame ? PAD_BACK : PAD_START;
     }
     out->buttons = buttons;
     out->leftTrigger = padTrigger(left->trigger);

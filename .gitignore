@@ -54,3 +54,7 @@ release-keystore-password.txt
 # app/src/main/assets/environments ship, so this is anchored to the root
 # rather than matching that folder as well.
 /Environments/
+
+# Steam Frame helper outputs
+steam-frame/release/
+steam-frame/signing/

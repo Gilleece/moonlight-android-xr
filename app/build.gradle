@@ -145,7 +145,7 @@ androidComponents {
 }
 
 android {
-    ndkVersion "29.0.14206865"
+    ndkVersion project.findProperty("moonlightNdkVersion") ?: "29.0.14206865"
 
     compileSdk 37
 

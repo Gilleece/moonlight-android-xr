@@ -728,6 +728,12 @@ typedef struct {
     int roomGlow[ROOM_STYLE_LAST + 1];
     int roomLightLevel[ROOM_STYLE_LAST + 1];
     int roomScreen[ROOM_STYLE_LAST + 1];
+    // A transparent projection layer under everything while passthrough is on:
+    // SteamVR on the Steam Frame leaves the background opaque without one
+    XrSwapchain passthroughSwapchain;
+    uint32_t passthroughImageCount;
+    XrSwapchainImageOpenGLESKHR* passthroughImages;
+    int passthroughFailed;
     // Everything the room is drawn with, built the first frame a style asks
     // for it rather than at startup. One side by side image, a half of it per
     // eye.
@@ -892,6 +898,10 @@ typedef struct {
     // what fades a layer without drawing anything. Without it the panels and
     // the splash come and go at once, as they always did.
     int colorScaleSupported;
+    // SteamVR lets a session hold only 16 swapchains, fewer than everything
+    // here wants. On it only what the picture, the pointer and the panels
+    // need is made, so a room (and the controller models) still fit.
+    int fewSwapchains;
     // How long a panel's fade takes, which the splash's is twice
     int64_t fadeNs;
     int fadeKnobMs;
@@ -1140,6 +1150,17 @@ typedef struct {
     // Each controller's vibration, only for the host's rumble in gamepad mode,
     // and whether any profile took it
     XrAction hapticAction;
+    // The Steam Frame controller's own profile, offered when the runtime has
+    // XR_VALVE_frame_controller_interaction, and the controls only it has
+    XrAction padXAction;
+    XrAction padYAction;
+    XrAction padUpAction;
+    XrAction padLeftAction;
+    XrAction padBumperAction;
+    XrAction padStartAction;
+    XrPath frameProfile;
+    int frameBound;
+    int onFrame[HAND_COUNT];
     int hapticBound;
     XrSpace aimSpaces[SRC_COUNT];
     // The hand aim's, null where it would not make one, which leaves those
@@ -1148,6 +1169,7 @@ typedef struct {
     XrPath handPaths[HAND_COUNT];
     int inputReady;
     int picoInteraction;
+    int frameInteraction;
     // Pointing is a per session toggle on top of the preference, since
     // absolute positions fight any game that does its own mouse look
     int pointerOn;
@@ -1782,6 +1804,8 @@ void pictureReset(XrCtx* ctx);
 int createArtSwapchain(XrCtx* ctx, int width, int height, const char* what,
                        XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images,
                        uint32_t* count);
+int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+              const unsigned char* px, int width, int height);
 void destroyArtSwapchain(XrCtx* ctx, XrSwapchain* chain, XrSwapchainImageOpenGLESKHR** images);
 int createPointerSwapchain(XrCtx* ctx);
 void freeArtSheets(XrCtx* ctx);

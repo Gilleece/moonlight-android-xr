@@ -58,6 +58,17 @@ typedef struct {
     int upper;
     // The menu button, which only the left controller has for an app
     int menu;
+    // A Steam Frame controller, laid out like an Xbox pad: A, B, X and Y and
+    // Start (menu) on the right, the d-pad and Back (view) on the left, and a
+    // bumper on each. On the left, lower and upper are the d-pad's down and
+    // right, the two the pointer clicks with, and menu is the view button.
+    int frame;
+    int faceX;
+    int faceY;
+    int dpadUp;
+    int dpadLeft;
+    int bumper;
+    int start;
 } PadHand;
 
 // The pad as Moonlight sends it

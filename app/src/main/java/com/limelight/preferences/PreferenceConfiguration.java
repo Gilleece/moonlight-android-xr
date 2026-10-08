@@ -535,9 +535,20 @@ public class PreferenceConfiguration {
                 || pm.hasSystemFeature("android.software.xr.api.openxr")) {
             return true;
         }
+        if (isLepton()) {
+            return true;
+        }
         String maker = Build.MANUFACTURER != null ? Build.MANUFACTURER : "";
         return maker.equalsIgnoreCase("pico") || maker.equalsIgnoreCase("oculus")
                 || maker.equalsIgnoreCase("meta");
+    }
+
+    // Valve's Lepton runs Android apps on the Steam Frame in a container whose
+    // OpenXR runtime is SteamVR. It declares no headset feature and no VR
+    // vendor, so it is known from the build fields it does set.
+    public static boolean isLepton() {
+        return "Valve".equalsIgnoreCase(Build.MANUFACTURER)
+                && "Lepton".equalsIgnoreCase(Build.MODEL);
     }
 
     // Quest 2, Quest Pro and Pico 4 are the XR2 Gen 1 headsets and have a lot

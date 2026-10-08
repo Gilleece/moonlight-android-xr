@@ -59,6 +59,11 @@ void refreshInputSource(XrCtx* ctx) {
         ctx->usingHands[h] = ctx->handClickOk && kind == PROFILE_HANDS;
         ctx->onExtHands[h] = kind == PROFILE_HANDS && profile == ctx->handProfile;
         ctx->onMsftHands[h] = kind == PROFILE_HANDS && profile == ctx->msftHandProfile;
+        int frame = ctx->frameBound && profile != XR_NULL_PATH && profile == ctx->frameProfile;
+        if (frame != ctx->onFrame[h]) {
+            ctx->onFrame[h] = frame;
+            LOGI("hand %d %s the Steam Frame controller profile", h, frame ? "on" : "off");
+        }
         if (kind != ctx->profileKind[h]) {
             ctx->profileKind[h] = kind;
             // The rest clock belongs to whatever was on that hand, so a
@@ -207,6 +212,67 @@ static void suggestBindings(XrCtx* ctx, const char* profile, int level, int hapt
     }
 }
 
+// The Steam Frame's controllers, bound as what they are rather than as Touch
+// controllers SteamVR would otherwise translate them into. The right one has
+// A, B, X, Y and a menu button the app gets, the left one a d-pad and a view
+// button, and both a bumper beside the grip. The pointer keeps its clicks on
+// A and B, and on the left on the d-pad's down and right, which SteamVR pairs
+// with A and B. squeeze is OpenXR's usual name for the grip; the alternative
+// is tried if a runtime wants that instead.
+static int suggestFrameBindings(XrCtx* ctx, const char* squeeze, int haptic) {
+    XrActionSuggestedBinding b[40];
+    uint32_t n = 0;
+    static const char* hands[HAND_COUNT] = { "/user/hand/left", "/user/hand/right" };
+#define BIND(act, h, sub) do { \
+        if ((act) != XR_NULL_HANDLE) { \
+            char path_[XR_MAX_PATH_LENGTH]; \
+            snprintf(path_, sizeof(path_), "%s/%s", hands[h], sub); \
+            b[n].action = (act); \
+            b[n++].binding = toPath(ctx, path_); \
+        } \
+    } while (0)
+    for (int h = 0; h < HAND_COUNT; h++) {
+        BIND(ctx->aimAction, h, "input/aim/pose");
+        BIND(ctx->gripAction, h, "input/grip/pose");
+        BIND(ctx->triggerAction, h, "input/trigger/value");
+        BIND(ctx->grabAction, h, squeeze);
+        BIND(ctx->scrollAction, h, "input/thumbstick");
+        BIND(ctx->toggleAction, h, "input/thumbstick/click");
+        BIND(ctx->padBumperAction, h, "input/bumper/click");
+        if (haptic) {
+            BIND(ctx->hapticAction, h, "output/haptic");
+        }
+    }
+    BIND(ctx->rightClickAction, HAND_LEFT, "input/dpad_down/click");
+    BIND(ctx->middleClickAction, HAND_LEFT, "input/dpad_right/click");
+    BIND(ctx->padUpAction, HAND_LEFT, "input/dpad_up/click");
+    BIND(ctx->padLeftAction, HAND_LEFT, "input/dpad_left/click");
+    BIND(ctx->menuAction, HAND_LEFT, "input/view/click");
+    BIND(ctx->rightClickAction, HAND_RIGHT, "input/a/click");
+    BIND(ctx->middleClickAction, HAND_RIGHT, "input/b/click");
+    BIND(ctx->padXAction, HAND_RIGHT, "input/x/click");
+    BIND(ctx->padYAction, HAND_RIGHT, "input/y/click");
+    BIND(ctx->padStartAction, HAND_RIGHT, "input/menu/click");
+#undef BIND
+
+    XrInteractionProfileSuggestedBinding suggest = { XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING };
+    suggest.interactionProfile = ctx->frameProfile;
+    suggest.countSuggestedBindings = n;
+    suggest.suggestedBindings = b;
+    XrResult res = xrSuggestInteractionProfileBindings(ctx->instance, &suggest);
+    if (XR_SUCCEEDED(res)) {
+        LOGI("bindings accepted for the Steam Frame controllers (%u, grip on %s%s)", n, squeeze,
+             haptic ? ", with the vibration" : "");
+        ctx->frameBound = 1;
+        ctx->menuBound = 1;
+        ctx->hapticBound |= haptic;
+        return 1;
+    }
+    LOGW("Steam Frame bindings rejected (%d) with the grip on %s%s", res, squeeze,
+         haptic ? " and the vibration" : "");
+    return 0;
+}
+
 // Hands have actions of their own, since some runtimes cannot serve one action
 // from both a controller profile and a hand profile: bind the hands to the
 // controllers' actions and a held controller reads as nothing. Each hand is
@@ -319,6 +385,23 @@ int initXrInput(XrCtx* ctx) {
 
     if (ctx->aimAction == XR_NULL_HANDLE || ctx->triggerAction == XR_NULL_HANDLE) {
         return 0;
+    }
+
+    if (ctx->frameInteraction) {
+        ctx->padXAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padx", "Gamepad X");
+        ctx->padYAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "pady", "Gamepad Y");
+        ctx->padUpAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padup", "Gamepad d-pad up");
+        ctx->padLeftAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padleft",
+                                        "Gamepad d-pad left");
+        ctx->padBumperAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padbumper",
+                                          "Gamepad bumper");
+        ctx->padStartAction = makeAction(ctx, XR_ACTION_TYPE_BOOLEAN_INPUT, "padstart", "Gamepad Start");
+        ctx->frameProfile = toPath(ctx, "/interaction_profiles/valve/frame_controller");
+        if (!suggestFrameBindings(ctx, "input/squeeze/value", 1)
+                && !suggestFrameBindings(ctx, "input/grip/value", 1)
+                && !suggestFrameBindings(ctx, "input/squeeze/value", 0)) {
+            suggestFrameBindings(ctx, "input/grip/value", 0);
+        }
     }
 
     // The simple controller has no thumbstick or face buttons for the
@@ -3174,6 +3257,19 @@ static void readPadHand(XrCtx* ctx, int h, PadHand* p) {
     p->stickClick = actionBool(ctx, ctx->toggleAction, h);
     p->lower = actionBool(ctx, ctx->rightClickAction, h);
     p->upper = actionBool(ctx, ctx->middleClickAction, h);
+    if (ctx->onFrame[h]) {
+        p->frame = 1;
+        p->bumper = actionBool(ctx, ctx->padBumperAction, h);
+        if (h == HAND_RIGHT) {
+            p->faceX = actionBool(ctx, ctx->padXAction, h);
+            p->faceY = actionBool(ctx, ctx->padYAction, h);
+            p->start = actionBool(ctx, ctx->padStartAction, h);
+        }
+        else {
+            p->dpadUp = actionBool(ctx, ctx->padUpAction, h);
+            p->dpadLeft = actionBool(ctx, ctx->padLeftAction, h);
+        }
+    }
 }
 
 // The pad is plugged in on the host in gamepad mode while a controller is in

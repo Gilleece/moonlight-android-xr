@@ -272,6 +272,7 @@ static int initXrInstance(XrCtx* ctx) {
         if (!strcmp(exts[i].extensionName, XR_KHR_ANDROID_CREATE_INSTANCE_EXTENSION_NAME)) haveAndroidCreate = 1;
         if (!strcmp(exts[i].extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME)) ctx->cylinderSupported = 1;
         if (!strcmp(exts[i].extensionName, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME)) ctx->picoInteraction = 1;
+        if (!strcmp(exts[i].extensionName, "XR_VALVE_frame_controller_interaction")) ctx->frameInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_INTERACTION_EXTENSION_NAME)) ctx->handInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_MSFT_HAND_INTERACTION_EXTENSION_NAME)) ctx->msftHandInteraction = 1;
         if (!strcmp(exts[i].extensionName, XR_EXT_HAND_TRACKING_EXTENSION_NAME)) ctx->handTracking = 1;
@@ -321,6 +322,9 @@ static int initXrInstance(XrCtx* ctx) {
     }
     if (ctx->picoInteraction) {
         enableExt(enabledExts, &enabledCount, XR_BD_CONTROLLER_INTERACTION_EXTENSION_NAME);
+    }
+    if (ctx->frameInteraction) {
+        enableExt(enabledExts, &enabledCount, "XR_VALVE_frame_controller_interaction");
     }
     if (ctx->handInteraction) {
         enableExt(enabledExts, &enabledCount, XR_EXT_HAND_INTERACTION_EXTENSION_NAME);
@@ -396,6 +400,11 @@ static int initXrInstance(XrCtx* ctx) {
                  (unsigned)XR_VERSION_MINOR(instanceProps.runtimeVersion),
                  (unsigned)XR_VERSION_PATCH(instanceProps.runtimeVersion));
         LOGEV("runtime %s", ctx->runtimeLabel);
+        ctx->fewSwapchains = !strncmp(instanceProps.runtimeName, "SteamVR", 7);
+        if (ctx->fewSwapchains) {
+            LOGEV("runtime caps swapchains at 16: no splash, notices, report sheet, "
+                  "Ko-fi sheet, clock, hand hint or glow");
+        }
     }
 
     XrSystemGetInfo systemInfo = { XR_TYPE_SYSTEM_GET_INFO };
@@ -610,11 +619,13 @@ static int initSwapchain(XrCtx* ctx) {
     createArtSwapchain(ctx, OVERLAY_WIDTH, OVERLAY_HEIGHT, "create overlay swapchain",
                        &ctx->overlaySwapchain, &ctx->overlayImages, &ctx->overlayImageCount);
     // Or the splash, which is left out without it, ground and all
-    createArtSwapchain(ctx, SPLASH_TEX_W, SPLASH_TEX_H, "create splash swapchain",
-                       &ctx->splashSwapchain, &ctx->splashImages, &ctx->splashImageCount);
-    // Or the toast
-    createArtSwapchain(ctx, TOAST_TEX_W, TOAST_TEX_H, "create toast swapchain",
-                       &ctx->toastSwapchain, &ctx->toastImages, &ctx->toastImageCount);
+    if (!ctx->fewSwapchains) {
+        createArtSwapchain(ctx, SPLASH_TEX_W, SPLASH_TEX_H, "create splash swapchain",
+                           &ctx->splashSwapchain, &ctx->splashImages, &ctx->splashImageCount);
+        // Or the toast
+        createArtSwapchain(ctx, TOAST_TEX_W, TOAST_TEX_H, "create toast swapchain",
+                           &ctx->toastSwapchain, &ctx->toastImages, &ctx->toastImageCount);
+    }
 
     return 1;
 }
@@ -820,6 +831,7 @@ static void destroyCtx(JNIEnv* env, XrCtx* ctx) {
     destroyArtSwapchain(ctx, &ctx->outlineSwapchain, &ctx->outlineImages);
     destroyArtSwapchain(ctx, &ctx->glowSwapchain, &ctx->glowImages);
     destroyArtSwapchain(ctx, &ctx->roomSwapchain, &ctx->roomImages);
+    destroyArtSwapchain(ctx, &ctx->passthroughSwapchain, &ctx->passthroughImages);
     destroyArtSwapchain(ctx, &ctx->modelSwapchain, &ctx->modelImages);
     destroyArtSwapchain(ctx, &ctx->splashSwapchain, &ctx->splashImages);
     destroyArtSwapchain(ctx, &ctx->toastSwapchain, &ctx->toastImages);
