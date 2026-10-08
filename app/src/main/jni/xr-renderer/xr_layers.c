@@ -76,6 +76,8 @@ _Static_assert(MARK_VALUES == COG_OPTION_COUNT, "a mark for every display tab ro
 // Every composition layer a frame can carry, on nativeEndFrame's stack for as
 // long as xrEndFrame needs them
 typedef struct {
+    XrCompositionLayerProjection passthrough;
+    XrCompositionLayerProjectionView passthroughViews[ROOM_EYES];
     XrCompositionLayerProjection room;
     XrCompositionLayerProjectionView roomViews[ROOM_EYES];
     XrCompositionLayerQuad glow;
@@ -341,6 +343,57 @@ static void setLayerSettings(XrCtx* ctx, FrameLayers* layers) {
         layers->settings.layerFlags = flags;
         layers->settingsChain = &layers->settings;
     }
+}
+
+// A transparent projection layer for passthrough, filled once when it is made
+#define PASSTHROUGH_TEX 16
+static void addPassthroughLayer(XrCtx* ctx, FrameLayers* layers) {
+    if (ctx->passthroughFailed) {
+        return;
+    }
+    if (ctx->passthroughSwapchain == XR_NULL_HANDLE) {
+        static const unsigned char clear[PASSTHROUGH_TEX * PASSTHROUGH_TEX * 4];
+        if (!createArtSwapchain(ctx, PASSTHROUGH_TEX, PASSTHROUGH_TEX,
+                                "create passthrough swapchain", &ctx->passthroughSwapchain,
+                                &ctx->passthroughImages, &ctx->passthroughImageCount)
+                || !uploadArt(ctx, ctx->passthroughSwapchain, ctx->passthroughImages, clear,
+                              PASSTHROUGH_TEX, PASSTHROUGH_TEX)) {
+            destroyArtSwapchain(ctx, &ctx->passthroughSwapchain, &ctx->passthroughImages);
+            ctx->passthroughFailed = 1;
+            return;
+        }
+    }
+
+    XrViewLocateInfo locateInfo = { XR_TYPE_VIEW_LOCATE_INFO };
+    locateInfo.viewConfigurationType = XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
+    locateInfo.displayTime = ctx->predictedDisplayTime;
+    locateInfo.space = ctx->localSpace;
+    XrViewState state = { XR_TYPE_VIEW_STATE };
+    XrView views[ROOM_EYES] = { { XR_TYPE_VIEW }, { XR_TYPE_VIEW } };
+    uint32_t count = 0;
+    if (XR_FAILED(xrLocateViews(ctx->session, &locateInfo, &state, ROOM_EYES, &count, views))
+            || count < ROOM_EYES) {
+        return;
+    }
+
+    XrCompositionLayerProjection* layer = &layers->passthrough;
+    memset(layer, 0, sizeof(*layer));
+    memset(layers->passthroughViews, 0, sizeof(layers->passthroughViews));
+    layer->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION;
+    layer->layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    layer->space = ctx->localSpace;
+    layer->viewCount = ROOM_EYES;
+    layer->views = layers->passthroughViews;
+    for (int eye = 0; eye < ROOM_EYES; eye++) {
+        XrCompositionLayerProjectionView* projView = &layers->passthroughViews[eye];
+        projView->type = XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW;
+        projView->pose = views[eye].pose;
+        projView->fov = views[eye].fov;
+        projView->subImage.swapchain = ctx->passthroughSwapchain;
+        projView->subImage.imageRect.extent.width = PASSTHROUGH_TEX;
+        projView->subImage.imageRect.extent.height = PASSTHROUGH_TEX;
+    }
+    pushLayer(ctx, layers, layer);
 }
 
 // The 3d room, drawn per eye into the one projection layer
@@ -1552,6 +1605,9 @@ Java_com_limelight_binding_video_XrRenderer_nativeEndFrame(JNIEnv* env, jobject 
     layers.count = 0;
     setLayerSettings(ctx, &layers);
 
+    if (blendNow) {
+        addPassthroughLayer(ctx, &layers);
+    }
     // Behind the splash while it is fully up there is nothing to see, so
     // nothing else goes up with it
     if (!splashUp) {

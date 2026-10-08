@@ -163,8 +163,8 @@ int createPointerSwapchain(XrCtx* ctx) {
 }
 
 // Uploads one CPU buffer into a swapchain and hands the image straight back
-static int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
-                     const unsigned char* px, int width, int height) {
+int uploadArt(XrCtx* ctx, XrSwapchain chain, XrSwapchainImageOpenGLESKHR* images,
+              const unsigned char* px, int width, int height) {
     if (chain == XR_NULL_HANDLE) {
         return 0;
     }
