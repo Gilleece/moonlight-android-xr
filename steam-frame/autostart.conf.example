@@ -1,0 +1,10 @@
+# Copy to ~/Games/MoonlightXR/autostart.conf (the installer does this).
+# Sourced by moonlightxr-launch.sh when Moonlight XR starts.
+#
+# PC_UUID: open this PC's game list straight away. The UUID is in Moonlight's
+#          2D window under the PC's menu, or in Sunshine's web UI (uniqueid).
+# APP_ID / APP_NAME: also start this app's stream at once (optional).
+# Leave everything empty to land on Moonlight's PC list.
+PC_UUID=
+APP_ID=
+APP_NAME=
